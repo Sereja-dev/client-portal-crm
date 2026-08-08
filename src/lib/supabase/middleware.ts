@@ -26,6 +26,21 @@ async function updateRealSupabaseSession(request: NextRequest, initialResponse: 
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookieOptions: getSupabaseCookieOptions(),
+      // Stage 6.2.1 fix: disables the SDK's proactive background refresh
+      // timer, not the on-demand refresh auth.getUser() below already
+      // performs when it finds the session stale — that behavior is
+      // unchanged, and middleware remains the only place a refresh
+      // happens. The timer this disables is scheduled per client
+      // instance and isn't tied to this request's lifecycle; on a warm
+      // serverless/edge isolate it could fire during a later, unrelated
+      // request and write cookies from a stale closure, racing the
+      // Server Component/Action layer's own client and corrupting its
+      // session. See src/lib/supabase/server.ts for the matching change.
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false,
+      },
       cookies: {
         getAll() {
           return request.cookies.getAll();

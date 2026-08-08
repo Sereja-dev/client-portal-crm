@@ -63,6 +63,20 @@ export async function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookieOptions: getSupabaseCookieOptions(),
+      // Stage 6.2.1 fix: this client must never independently refresh or
+      // rotate the session — middleware (src/lib/supabase/middleware.ts)
+      // is the only place that does that, on every request, before this
+      // layer ever runs. Without this, both layers' auth.getUser() calls
+      // could each trigger their own refresh; Supabase invalidates the
+      // previous refresh token the instant either one rotates, so
+      // whichever call lost that race failed and cleared the session —
+      // surfacing as a redirect("/login") even after a successful-looking
+      // Server Action.
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+        detectSessionInUrl: false,
+      },
       cookies: {
         getAll() {
           return cookieStore.getAll();
