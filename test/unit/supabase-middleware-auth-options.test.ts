@@ -23,17 +23,13 @@ const createServerClient = vi.fn(() => ({
 vi.mock("@supabase/ssr", () => ({ createServerClient }));
 
 describe("src/lib/supabase/middleware.ts updateSession() — Stage 6.2.1 auth options", () => {
-  it("disables autoRefreshToken/persistSession/detectSessionInUrl on the real Supabase client", async () => {
+  it("disables autoRefreshToken, and only autoRefreshToken, on the real Supabase client", async () => {
     const { updateSession } = await import("@/lib/supabase/middleware");
     const request = new NextRequest("http://localhost:3000/settings/company", { method: "POST" });
     await updateSession(request);
 
     expect(createServerClient).toHaveBeenCalledTimes(1);
     const [, , options] = createServerClient.mock.calls[0] as unknown as [string, string, { auth: Record<string, unknown> }];
-    expect(options.auth).toEqual({
-      autoRefreshToken: false,
-      persistSession: false,
-      detectSessionInUrl: false,
-    });
+    expect(options.auth).toEqual({ autoRefreshToken: false });
   });
 });

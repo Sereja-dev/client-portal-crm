@@ -17,9 +17,12 @@ import { describe, expect, it, vi } from "vitest";
  * production-like reproduction instead). It only asserts the one thing a
  * unit test *can* prove without a live network call: that
  * createClient() configures the real @supabase/ssr client with
- * autoRefreshToken/persistSession/detectSessionInUrl all disabled, so
- * this client never arms its own background refresh timer — the actual
- * mechanism that raced middleware's.
+ * autoRefreshToken disabled, so this client never arms its own
+ * background refresh timer — the actual mechanism that raced
+ * middleware's — while persistSession/detectSessionInUrl are left at
+ * their defaults (live reproduction showed disabling persistSession
+ * broke this client's own on-demand refresh from persisting its
+ * rotated cookies, turning the race into an outright save failure).
  */
 
 const createServerClient = vi.fn(() => ({
@@ -40,16 +43,12 @@ vi.mock("next/headers", () => ({
 }));
 
 describe("src/lib/supabase/server.ts createClient() — Stage 6.2.1 auth options", () => {
-  it("disables autoRefreshToken/persistSession/detectSessionInUrl on the real Supabase client", async () => {
+  it("disables autoRefreshToken, and only autoRefreshToken, on the real Supabase client", async () => {
     const { createClient } = await import("@/lib/supabase/server");
     await createClient();
 
     expect(createServerClient).toHaveBeenCalledTimes(1);
     const [, , options] = createServerClient.mock.calls[0] as unknown as [string, string, { auth: Record<string, unknown> }];
-    expect(options.auth).toEqual({
-      autoRefreshToken: false,
-      persistSession: false,
-      detectSessionInUrl: false,
-    });
+    expect(options.auth).toEqual({ autoRefreshToken: false });
   });
 });
