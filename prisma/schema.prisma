@@ -386,6 +386,50 @@ model OrganizationProfile {
   // currency above.
   timezone String
 
+  // Sale-Ready Phase A.1 (Business Identity) — all nine fields below are
+  // additive and nullable: an organization that has set none of them
+  // renders under the platform default (siteConfig / no logo) everywhere
+  // that reads them, never a broken state. None of them replace an
+  // existing field — `legalName` above already covers "legalEntityName",
+  // `country` above already covers itself, and `displayName` is (and
+  // stays) Organization.name, not a column here — see this stage's own
+  // architecture doc for why each of those three was excluded from this
+  // list rather than duplicated.
+
+  // Supabase Storage public URL — set by a dedicated upload action, not
+  // this stage (PR1 is schema-only; see this stage's own PR-split plan).
+  logoUrl String?
+
+  // Hex color, e.g. "#0F172A" — validated server-side against
+  // /^#[0-9a-f]{6}$/i by whichever later PR adds the write path; this
+  // migration only reserves the column.
+  brandColor String?
+
+  // Validated server-side with the same EMAIL_PATTERN (auth)/signup.ts
+  // already uses, by the write-path PR that adds it — not this one.
+  supportEmail String?
+
+  // Validated as a well-formed, https-only URL by the write-path PR.
+  website String?
+
+  // Freeform — no per-country phone-format validation, the same
+  // "descriptive, not validated against a lookup" precedent `country`
+  // above and OrganizationPaymentDetails.accountNumber already use.
+  phone String?
+
+  // Freeform tax/VAT identifier — no jurisdiction-specific format
+  // validation, same reasoning as `phone` above.
+  taxId String?
+
+  // Postal address, split the conventional way — freeform per field, no
+  // structured/validated address lookup (out of scope, mirrors this
+  // model's own existing `country` field's own "no country database"
+  // decision). `country` above is reused for the address; not duplicated.
+  streetAddress String?
+  city          String?
+  state         String?
+  postalCode    String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
