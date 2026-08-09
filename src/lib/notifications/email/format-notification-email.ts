@@ -1,4 +1,5 @@
 import type { NotificationType } from "@/generated/prisma/enums";
+import { buildEmailLegalFooterHtml, buildEmailLegalFooterText } from "@/lib/email/legal-footer";
 
 export type NotificationEmailContent = {
   subject: string;
@@ -224,12 +225,13 @@ function renderHtml(params: { bodyText: string; ctaUrl: string }): string {
       Or copy this link into your browser:<br />
       <span style="word-break: break-all;">${ctaUrl}</span>
     </p>
+    ${buildEmailLegalFooterHtml()}
   </body>
 </html>`;
 }
 
 function renderText(params: { bodyText: string; ctaUrl: string }): string {
-  return [params.bodyText, "", `View in app: ${params.ctaUrl}`].join("\n");
+  return [params.bodyText, "", `View in app: ${params.ctaUrl}`, buildEmailLegalFooterText()].join("\n");
 }
 
 /**

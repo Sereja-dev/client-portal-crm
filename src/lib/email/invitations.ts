@@ -1,4 +1,5 @@
 import { sendEmailViaResend, type SendEmailFn } from "./resend-client";
+import { buildEmailLegalFooterHtml, buildEmailLegalFooterText } from "./legal-footer";
 
 export type SendInvitationEmailParams = {
   to: string;
@@ -84,6 +85,7 @@ function renderHtml(params: {
     <p style="color: #6b7280; font-size: 12px; margin-top: 32px;">
       If you weren't expecting this invitation, you can safely ignore this email.
     </p>
+    ${buildEmailLegalFooterHtml()}
   </body>
 </html>`;
 }
@@ -106,6 +108,7 @@ function renderText(params: {
     `This invitation expires on ${expires}.`,
     "",
     "If you weren't expecting this invitation, you can safely ignore this email.",
+    buildEmailLegalFooterText(),
   ].join("\n");
 }
 

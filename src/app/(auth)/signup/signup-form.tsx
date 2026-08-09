@@ -81,6 +81,18 @@ export function SignupForm({ redirectTo }: { redirectTo?: string }) {
         </p>
       )}
 
+      <p className="text-center text-xs text-gray-500">
+        By creating an account, you agree to our{" "}
+        <Link href="/terms" className="rounded font-medium text-black hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2">
+          Terms of Service
+        </Link>{" "}
+        and{" "}
+        <Link href="/privacy" className="rounded font-medium text-black hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2">
+          Privacy Policy
+        </Link>
+        .
+      </p>
+
       <Button type="submit" loading={pending} className="w-full">
         {pending ? "Creating account…" : "Sign up"}
       </Button>

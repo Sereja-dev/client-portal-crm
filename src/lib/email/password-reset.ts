@@ -1,4 +1,5 @@
 import { sendEmailViaResend, type SendEmailFn } from "./resend-client";
+import { buildEmailLegalFooterHtml, buildEmailLegalFooterText } from "./legal-footer";
 
 export type PasswordResetAudience = "staff" | "portal";
 
@@ -74,6 +75,7 @@ function renderHtml(params: { confirmUrl: string; audience: PasswordResetAudienc
     <p style="color: #6b7280; font-size: 12px; margin-top: 32px;">
       If you didn't request a password reset, you can safely ignore this email — your password will not be changed.
     </p>
+    ${buildEmailLegalFooterHtml()}
   </body>
 </html>`;
 }
@@ -89,6 +91,7 @@ function renderText(params: { confirmUrl: string; audience: PasswordResetAudienc
     "This link expires in 1 hour and can only be used once.",
     "",
     "If you didn't request a password reset, you can safely ignore this email — your password will not be changed.",
+    buildEmailLegalFooterText(),
   ].join("\n");
 }
 

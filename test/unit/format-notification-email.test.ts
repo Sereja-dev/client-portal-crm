@@ -234,6 +234,16 @@ describe("formatNotificationEmail — never leaks raw ids/secrets/tokens/paths, 
   });
 });
 
+describe("formatNotificationEmail — includes the shared legal footer", () => {
+  it("both bodies link to /privacy and /terms", () => {
+    const result = email("ROLE_CHANGED", { actorName: "Jane Doe", from: "MEMBER", to: "ADMIN" });
+    expect(result.html).toContain("/privacy");
+    expect(result.html).toContain("/terms");
+    expect(result.text).toContain("Privacy Policy:");
+    expect(result.text).toContain("Terms of Service:");
+  });
+});
+
 describe("formatNotificationEmail — safe CTA links", () => {
   it("the CTA link is exactly the server-provided ctaUrl, verbatim, in both text and html", () => {
     const ctaUrl = "https://app.example.com/invoices/11111111-1111-1111-1111-111111111111/edit";

@@ -44,4 +44,12 @@ describe("buildPasswordResetEmailContent", () => {
     expect(content.html).toContain("safely ignore");
     expect(content.text).toContain("safely ignore");
   });
+
+  it("includes the shared legal footer (Privacy Policy / Terms of Service links) in both bodies", () => {
+    const content = buildPasswordResetEmailContent({ confirmUrl: CONFIRM_URL, audience: "staff" });
+    expect(content.html).toContain("/privacy");
+    expect(content.html).toContain("/terms");
+    expect(content.text).toContain("Privacy Policy:");
+    expect(content.text).toContain("Terms of Service:");
+  });
 });

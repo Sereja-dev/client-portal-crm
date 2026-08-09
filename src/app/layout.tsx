@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ToastProvider } from "@/components/toast/toast-provider";
 import { ToastListener } from "@/components/toast/toast-listener";
+import { Footer } from "@/components/layout/footer";
 import { siteConfig } from "@/config/site";
 import "./globals.css";
 
@@ -38,6 +39,7 @@ export default function RootLayout({
           </Suspense>
           {children}
         </ToastProvider>
+        <Footer />
       </body>
     </html>
   );
