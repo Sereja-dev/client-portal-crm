@@ -72,6 +72,12 @@ export default defineConfig({
       // TEST_MODE branch before this value (or RESEND_API_KEY, which stays
       // unset) is ever used for a real network call.
       INVITATION_FROM_EMAIL: "Test <test@example.com>",
+      // Sale-Ready Phase C — a fixed, single allowlisted identity so
+      // test/e2e/platform-admin.spec.ts can inject a session for exactly
+      // this email and exercise the real requirePlatformAdmin() allow
+      // path, alongside any other injected identity (e.g. a seeded
+      // fixture user) exercising the real deny path.
+      PLATFORM_ADMIN_EMAILS: "platform-admin-e2e@example.com",
     },
   },
 });
