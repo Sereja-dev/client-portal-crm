@@ -21,6 +21,109 @@ describe("parseCompanyProfileForm", () => {
       country: "United States",
       currency: "USD",
       timezone: "America/New_York",
+      // Sale-Ready Phase A.1 (Business Identity), PR2 — all nine optional
+      // fields are absent from this submission, so every one parses to
+      // null, never an empty string and never a field error (they're
+      // nullable, not required).
+      supportEmail: null,
+      website: null,
+      phone: null,
+      taxId: null,
+      brandColor: null,
+      streetAddress: null,
+      city: null,
+      state: null,
+      postalCode: null,
+    });
+  });
+
+  describe("Business Identity fields (Sale-Ready Phase A.1, PR2) — all optional", () => {
+    const baseFields = { legalName: "A", displayName: "A", country: "A", currency: "USD", timezone: "America/New_York" };
+
+    it("an empty submission leaves every optional field null, with no field errors", () => {
+      const { values, fieldErrors } = parseCompanyProfileForm(formData(baseFields));
+      expect(fieldErrors).toEqual({});
+      expect(values.supportEmail).toBeNull();
+      expect(values.website).toBeNull();
+      expect(values.phone).toBeNull();
+      expect(values.taxId).toBeNull();
+      expect(values.brandColor).toBeNull();
+      expect(values.streetAddress).toBeNull();
+      expect(values.city).toBeNull();
+      expect(values.state).toBeNull();
+      expect(values.postalCode).toBeNull();
+    });
+
+    it("whitespace-only input normalizes to null, same as a fully empty field", () => {
+      const { values, fieldErrors } = parseCompanyProfileForm(formData({ ...baseFields, phone: "   ", website: "  " }));
+      expect(values.phone).toBeNull();
+      expect(values.website).toBeNull();
+      expect(fieldErrors.website).toBeUndefined();
+    });
+
+    it("accepts a fully valid submission of every optional field, trimmed", () => {
+      const { values, fieldErrors } = parseCompanyProfileForm(
+        formData({
+          ...baseFields,
+          supportEmail: "  support@acme.com  ",
+          website: "https://acme.com",
+          phone: "+1 555-0100",
+          taxId: "EU123456789",
+          brandColor: "#0F172A",
+          streetAddress: "123 Main St",
+          city: "Springfield",
+          state: "IL",
+          postalCode: "62704",
+        }),
+      );
+      expect(fieldErrors).toEqual({});
+      expect(values.supportEmail).toBe("support@acme.com");
+      expect(values.website).toBe("https://acme.com");
+      expect(values.phone).toBe("+1 555-0100");
+      expect(values.taxId).toBe("EU123456789");
+      expect(values.brandColor).toBe("#0F172A");
+      expect(values.streetAddress).toBe("123 Main St");
+      expect(values.city).toBe("Springfield");
+      expect(values.state).toBe("IL");
+      expect(values.postalCode).toBe("62704");
+    });
+
+    it("rejects a malformed supportEmail, using the same pattern every other email field already uses", () => {
+      const { fieldErrors } = parseCompanyProfileForm(formData({ ...baseFields, supportEmail: "not-an-email" }));
+      expect(fieldErrors.supportEmail).toBeTruthy();
+    });
+
+    it("rejects a website that isn't https", () => {
+      const http = parseCompanyProfileForm(formData({ ...baseFields, website: "http://acme.com" }));
+      expect(http.fieldErrors.website).toBeTruthy();
+
+      const malformed = parseCompanyProfileForm(formData({ ...baseFields, website: "not a url" }));
+      expect(malformed.fieldErrors.website).toBeTruthy();
+    });
+
+    it("rejects a brandColor that isn't #RRGGBB, accepts lowercase or uppercase hex", () => {
+      const invalid = parseCompanyProfileForm(formData({ ...baseFields, brandColor: "blue" }));
+      expect(invalid.fieldErrors.brandColor).toBeTruthy();
+
+      const shortHex = parseCompanyProfileForm(formData({ ...baseFields, brandColor: "#fff" }));
+      expect(shortHex.fieldErrors.brandColor).toBeTruthy();
+
+      const upper = parseCompanyProfileForm(formData({ ...baseFields, brandColor: "#0F172A" }));
+      expect(upper.fieldErrors.brandColor).toBeUndefined();
+
+      const lower = parseCompanyProfileForm(formData({ ...baseFields, brandColor: "#0f172a" }));
+      expect(lower.fieldErrors.brandColor).toBeUndefined();
+    });
+
+    it("phone/taxId/address fields accept any non-empty free-form text, no format validation", () => {
+      const { fieldErrors } = parseCompanyProfileForm(
+        formData({ ...baseFields, phone: "not a real phone format at all", taxId: "###", city: "123", state: "@@", postalCode: "abc" }),
+      );
+      expect(fieldErrors.phone).toBeUndefined();
+      expect(fieldErrors.taxId).toBeUndefined();
+      expect(fieldErrors.city).toBeUndefined();
+      expect(fieldErrors.state).toBeUndefined();
+      expect(fieldErrors.postalCode).toBeUndefined();
     });
   });
 

@@ -82,7 +82,29 @@ export type CommentActionState = {
 
 export type CompanyProfileFormState = {
   error: string | null;
-  fieldErrors?: Partial<Record<"legalName" | "displayName" | "country" | "currency" | "timezone", string>>;
+  fieldErrors?: Partial<
+    Record<
+      | "legalName"
+      | "displayName"
+      | "country"
+      | "currency"
+      | "timezone"
+      // Sale-Ready Phase A.1 (Business Identity), PR2 — all nine below are
+      // optional fields; a fieldError only ever appears for one of them
+      // when a *non-empty* value fails its own format check, never for
+      // being empty (they're nullable, not required).
+      | "supportEmail"
+      | "website"
+      | "phone"
+      | "taxId"
+      | "brandColor"
+      | "streetAddress"
+      | "city"
+      | "state"
+      | "postalCode",
+      string
+    >
+  >;
   message?: string | null;
 };
 

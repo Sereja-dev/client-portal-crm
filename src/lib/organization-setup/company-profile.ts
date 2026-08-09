@@ -9,6 +9,19 @@ export type CompanyProfileData = {
   country: string | null;
   currency: string | null;
   timezone: string | null;
+
+  // Sale-Ready Phase A.1 (Business Identity), PR2 — all nine null until
+  // explicitly set (same "null means not yet provided" contract as
+  // legalName/country/currency/timezone above), read by no UI yet.
+  supportEmail: string | null;
+  website: string | null;
+  phone: string | null;
+  taxId: string | null;
+  brandColor: string | null;
+  streetAddress: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
 };
 
 /** Read-only — never role-gated (any member may view), matching authorization.ts's own documented boundary. */
@@ -24,6 +37,15 @@ export async function getCompanyProfile(organizationId: string): Promise<Company
     country: profile?.country ?? null,
     currency: profile?.currency ?? null,
     timezone: profile?.timezone ?? null,
+    supportEmail: profile?.supportEmail ?? null,
+    website: profile?.website ?? null,
+    phone: profile?.phone ?? null,
+    taxId: profile?.taxId ?? null,
+    brandColor: profile?.brandColor ?? null,
+    streetAddress: profile?.streetAddress ?? null,
+    city: profile?.city ?? null,
+    state: profile?.state ?? null,
+    postalCode: profile?.postalCode ?? null,
   };
 }
 
@@ -37,18 +59,31 @@ export async function getCompanyProfile(organizationId: string): Promise<Company
  * does.
  */
 export async function upsertCompanyProfile(organizationId: string, input: ParsedCompanyProfileInput): Promise<void> {
+  // Sale-Ready Phase A.1 (Business Identity), PR2 — shared by both the
+  // `update` and `create` branches below so the two can never drift out
+  // of sync with each other as more fields get added here.
+  const profileFields = {
+    legalName: input.legalName,
+    country: input.country,
+    currency: input.currency,
+    timezone: input.timezone,
+    supportEmail: input.supportEmail,
+    website: input.website,
+    phone: input.phone,
+    taxId: input.taxId,
+    brandColor: input.brandColor,
+    streetAddress: input.streetAddress,
+    city: input.city,
+    state: input.state,
+    postalCode: input.postalCode,
+  };
+
   await prisma.$transaction([
     prisma.organization.update({ where: { id: organizationId }, data: { name: input.displayName } }),
     prisma.organizationProfile.upsert({
       where: { organizationId },
-      update: { legalName: input.legalName, country: input.country, currency: input.currency, timezone: input.timezone },
-      create: {
-        organizationId,
-        legalName: input.legalName,
-        country: input.country,
-        currency: input.currency,
-        timezone: input.timezone,
-      },
+      update: profileFields,
+      create: { organizationId, ...profileFields },
     }),
   ]);
 }
