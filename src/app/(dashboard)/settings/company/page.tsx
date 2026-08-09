@@ -12,6 +12,12 @@ import { CompanyProfileForm } from "./company-profile-form";
  * Details. Staff-only by construction: this route lives under
  * (dashboard), whose layout already redirects any Client Portal-only
  * identity to /portal before this page ever renders.
+ *
+ * Sale-Ready Phase A.1 (Business Identity), PR3 — the same page/route as
+ * before this stage, now presented as "configure your business" rather
+ * than just legal/locale details, to match the wider set of fields the
+ * form (and, for a non-OWNER, this read-only summary) now covers. No new
+ * page, no new route.
  */
 export default async function CompanyProfilePage() {
   const { organizationId, membership } = await getCurrentMembership();
@@ -20,8 +26,8 @@ export default async function CompanyProfilePage() {
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
-      <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Company profile</h1>
-      <p className="mt-1 text-sm text-gray-500">Your organization&apos;s legal and business details.</p>
+      <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Business identity</h1>
+      <p className="mt-1 text-sm text-gray-500">Configure your business — legal details, contact info, address, tax ID, and branding.</p>
 
       {canManage ? (
         <CompanyProfileForm profile={profile} currencies={getSupportedCurrencies()} timezones={getSupportedTimezones()} />
@@ -38,16 +44,52 @@ export default async function CompanyProfilePage() {
               <dd className="text-sm text-gray-900">{profile.legalName ?? "Not set"}</dd>
             </div>
             <div>
-              <dt className="text-xs font-medium text-gray-500">Country</dt>
-              <dd className="text-sm text-gray-900">{profile.country ?? "Not set"}</dd>
-            </div>
-            <div>
               <dt className="text-xs font-medium text-gray-500">Currency</dt>
               <dd className="text-sm text-gray-900">{profile.currency ?? "Not set"}</dd>
             </div>
             <div>
               <dt className="text-xs font-medium text-gray-500">Time zone</dt>
               <dd className="text-sm text-gray-900">{profile.timezone ?? "Not set"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-gray-500">Support email</dt>
+              <dd className="text-sm text-gray-900">{profile.supportEmail ?? "Not set"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-gray-500">Website</dt>
+              <dd className="text-sm text-gray-900">{profile.website ?? "Not set"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-gray-500">Phone</dt>
+              <dd className="text-sm text-gray-900">{profile.phone ?? "Not set"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-gray-500">Country</dt>
+              <dd className="text-sm text-gray-900">{profile.country ?? "Not set"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-gray-500">Street address</dt>
+              <dd className="text-sm text-gray-900">{profile.streetAddress ?? "Not set"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-gray-500">City</dt>
+              <dd className="text-sm text-gray-900">{profile.city ?? "Not set"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-gray-500">State / Province</dt>
+              <dd className="text-sm text-gray-900">{profile.state ?? "Not set"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-gray-500">Postal code</dt>
+              <dd className="text-sm text-gray-900">{profile.postalCode ?? "Not set"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-gray-500">Tax ID / VAT</dt>
+              <dd className="text-sm text-gray-900">{profile.taxId ?? "Not set"}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium text-gray-500">Brand color</dt>
+              <dd className="text-sm text-gray-900">{profile.brandColor ?? "Not set"}</dd>
             </div>
           </dl>
         </div>

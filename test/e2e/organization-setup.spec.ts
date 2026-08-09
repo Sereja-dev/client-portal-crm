@@ -43,7 +43,10 @@ test.describe("Company Profile", () => {
   test("OWNER can view and save the company profile form", async ({ page, context, baseURL }) => {
     await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
     await page.goto("/settings/company");
-    await expect(page.getByRole("heading", { name: "Company profile", level: 1 })).toBeVisible();
+    // Sale-Ready Phase A.1 (Business Identity), PR3 — same page/route,
+    // new heading: "Configure your business," not just legal/locale
+    // details.
+    await expect(page.getByRole("heading", { name: "Business identity", level: 1 })).toBeVisible();
 
     await page.getByLabel("Legal company name").fill("E2E Test Org LLC");
     await page.getByLabel("Country").fill("United States");
@@ -72,6 +75,97 @@ test.describe("Company Profile", () => {
     await page.goto("/settings/company");
     await expect(page.getByText("Only the organization owner can update company details.")).toBeVisible();
     await expect(page.getByRole("button", { name: "Save company profile" })).toHaveCount(0);
+  });
+
+  test.describe("Business Identity fields (Sale-Ready Phase A.1, PR3)", () => {
+    test("OWNER sees every field grouped into Business/Contact/Address/Tax/Branding sections, can save all of them, and they persist across reload", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+      await page.goto("/settings/company");
+
+      // Grouped as real <fieldset>/<legend> sections — each legend is
+      // its own accessible group label, not just visual text.
+      for (const section of ["Business", "Contact", "Address", "Tax", "Branding"]) {
+        await expect(page.getByRole("group", { name: section })).toBeVisible();
+      }
+
+      await page.getByLabel("Legal company name").fill("E2E Identity Org LLC");
+      await page.getByLabel("Country").fill("United States");
+      await page.getByLabel("Currency").selectOption("USD");
+      await page.getByLabel("Time zone").selectOption("America/New_York");
+      await page.getByLabel("Support email").fill("support@e2e-identity.example.com");
+      await page.getByLabel("Website").fill("https://e2e-identity.example.com");
+      await page.getByLabel("Phone").fill("+1 555-0100");
+      await page.getByLabel("Street address").fill("123 Main St");
+      await page.getByLabel("City").fill("Springfield");
+      await page.getByLabel("State / Province").fill("IL");
+      await page.getByLabel("Postal code").fill("62704");
+      await page.getByLabel("Tax ID / VAT").fill("EU123456789");
+      await page.getByLabel("Brand color").fill("#0F172A");
+
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes("/settings/company") && r.request().method() === "POST"),
+        page.getByRole("button", { name: "Save company profile" }).click(),
+      ]);
+      await expect(page.getByText("Company profile saved.")).toBeVisible();
+
+      await page.reload();
+      await expect(page.getByLabel("Support email")).toHaveValue("support@e2e-identity.example.com");
+      await expect(page.getByLabel("Website")).toHaveValue("https://e2e-identity.example.com");
+      await expect(page.getByLabel("Phone")).toHaveValue("+1 555-0100");
+      await expect(page.getByLabel("Street address")).toHaveValue("123 Main St");
+      await expect(page.getByLabel("City")).toHaveValue("Springfield");
+      await expect(page.getByLabel("State / Province")).toHaveValue("IL");
+      await expect(page.getByLabel("Postal code")).toHaveValue("62704");
+      await expect(page.getByLabel("Tax ID / VAT")).toHaveValue("EU123456789");
+      await expect(page.getByLabel("Brand color")).toHaveValue("#0F172A");
+    });
+
+    test("an invalid optional field (malformed website) shows its own field error and saves nothing", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+      await page.goto("/settings/company");
+
+      await page.getByLabel("Legal company name").fill("E2E Invalid Field Org LLC");
+      await page.getByLabel("Country").fill("United States");
+      await page.getByLabel("Currency").selectOption("USD");
+      await page.getByLabel("Time zone").selectOption("America/New_York");
+      await page.getByLabel("Website").fill("http://not-https.example.com");
+
+      await page.getByRole("button", { name: "Save company profile" }).click();
+      await expect(page.getByText("Enter a valid https:// URL.")).toBeVisible();
+      await expect(page.getByText("Company profile saved.")).toHaveCount(0);
+    });
+
+    test("MEMBER's read-only summary shows every Business Identity field, not just the original five", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+      await page.goto("/settings/company");
+      await page.getByLabel("Legal company name").fill("E2E Member View Org LLC");
+      await page.getByLabel("Country").fill("United States");
+      await page.getByLabel("Currency").selectOption("USD");
+      await page.getByLabel("Time zone").selectOption("America/New_York");
+      await page.getByLabel("Support email").fill("support@e2e-member-view.example.com");
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes("/settings/company") && r.request().method() === "POST"),
+        page.getByRole("button", { name: "Save company profile" }).click(),
+      ]);
+
+      await actAsMember(context, baseURL!, fixtures.member, fixtures.orgA.id);
+      await page.goto("/settings/company");
+      await expect(page.getByText("support@e2e-member-view.example.com")).toBeVisible();
+      // A field never set for this organization still renders, as "Not set" — read permissions cover every field, not just the ones happened to be filled in.
+      await expect(page.getByText("Tax ID / VAT")).toBeVisible();
+    });
   });
 });
 
