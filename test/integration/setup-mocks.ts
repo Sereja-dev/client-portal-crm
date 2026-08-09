@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { vi } from "vitest";
 import { getMockAuthUser, setMockAuthUser, consumeMockSignUpConfig, mockCookies } from "../support/auth-mock";
 import { mockUploadAttachmentObject, mockRemoveAttachmentObject } from "../support/storage-mock";
+import { mockUploadLogoObject, mockRemoveLogoObject } from "../support/logo-storage-mock";
 import { mockRedirect, mockNotFound, mockRevalidatePath } from "../support/navigation-mock";
 
 // The ONLY things mocked across the whole integration suite — every one
@@ -17,6 +18,8 @@ import { mockRedirect, mockNotFound, mockRevalidatePath } from "../support/navig
 //    currently holds)
 //  - @/lib/storage/attachments-storage (imports "server-only", and its
 //    real implementation needs a live Supabase Storage bucket)
+//  - @/lib/storage/logo-storage (same reasoning, its own dedicated bucket
+//    — see logo-mutations.ts's own doc comment for why it's separate)
 // Everything else — getOrCreateUser, getCurrentMembership,
 // getCurrentPortalUser, and every real Server Action/query function built
 // on them — runs unmodified against the real (test) Postgres via the real
@@ -84,6 +87,11 @@ vi.mock("@/lib/supabase/server", () => ({
 vi.mock("@/lib/storage/attachments-storage", () => ({
   uploadAttachmentObject: mockUploadAttachmentObject,
   removeAttachmentObject: mockRemoveAttachmentObject,
+}));
+
+vi.mock("@/lib/storage/logo-storage", () => ({
+  uploadLogoObject: mockUploadLogoObject,
+  removeLogoObject: mockRemoveLogoObject,
 }));
 
 // The rate limiter's store is a real module-level singleton Map (see

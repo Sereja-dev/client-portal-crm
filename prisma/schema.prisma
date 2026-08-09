@@ -396,8 +396,12 @@ model OrganizationProfile {
   // architecture doc for why each of those three was excluded from this
   // list rather than duplicated.
 
-  // Supabase Storage public URL — set by a dedicated upload action, not
-  // this stage (PR1 is schema-only; see this stage's own PR-split plan).
+  // Supabase Storage public URL — set by uploadOrganizationLogo() (PR4;
+  // PR1 was schema-only, see this stage's own PR-split plan). Stored in
+  // the dedicated, public "logos" bucket (src/lib/storage/logo-config.ts),
+  // never the private "attachments" bucket Attachment.storagePath uses —
+  // a logo must resolve to a real, permanent URL usable in <img src>
+  // anywhere, which a private bucket's short-lived signed URLs can't give.
   logoUrl String?
 
   // Hex color, e.g. "#0F172A" — validated server-side against

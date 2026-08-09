@@ -92,6 +92,12 @@ export const PORTAL_ATTACHMENT_DOWNLOAD_LIMIT: RateLimitConfig = {
   windowMs: HOUR_MS,
 };
 
+// Sale-Ready Phase A.1 (Business Identity), PR4 — per OWNER user id (only
+// OWNER can ever call this). A logo is replaced rarely in normal use; this
+// ceiling is about abuse (e.g. a compromised OWNER session scripting
+// repeated uploads), not legitimate day-to-day usage.
+export const LOGO_UPLOAD_LIMIT: RateLimitConfig = { scope: "logo-upload", limit: 20, windowMs: HOUR_MS };
+
 // Cron routes (/api/cron/*) — defense in depth, not the primary barrier
 // (CRON_SECRET is). Bucketed per route name (the "identifier" passed to
 // checkRateLimit is the route's own fixed name, e.g. "notification-

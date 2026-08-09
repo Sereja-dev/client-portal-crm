@@ -5,7 +5,8 @@ import { getCurrentMembership } from "@/lib/current-user";
 import { canManageCompanyProfile } from "@/lib/organization-setup/authorization";
 import { parseCompanyProfileForm } from "@/lib/validation/company-profile";
 import { upsertCompanyProfile } from "@/lib/organization-setup/company-profile";
-import type { CompanyProfileFormState } from "@/types";
+import { uploadOrganizationLogo } from "@/lib/organization-setup/logo-mutations";
+import type { CompanyProfileFormState, LogoUploadState } from "@/types";
 
 const NOT_OWNER_MESSAGE = "Only the organization owner can update company details.";
 
@@ -40,4 +41,28 @@ export async function updateCompanyProfileAction(
   revalidatePath("/dashboard");
 
   return { error: null, message: "Company profile saved." };
+}
+
+/**
+ * Sale-Ready Phase A.1 (Business Identity), PR4 — backend only; no UI
+ * widget calls this yet (see this PR's own scope). Same
+ * "organizationId/role always resolved server-side, never accepted as a
+ * parameter" rule as updateCompanyProfileAction above.
+ */
+export async function uploadCompanyLogoAction(
+  _prevState: LogoUploadState,
+  formData: FormData,
+): Promise<LogoUploadState> {
+  const { user, organizationId, membership } = await getCurrentMembership();
+
+  if (!canManageCompanyProfile(membership.role)) {
+    return { error: NOT_OWNER_MESSAGE };
+  }
+
+  const result = await uploadOrganizationLogo({ organizationId, actorId: user.id, formData });
+
+  if (result.error === null) {
+    revalidatePath("/settings/company");
+  }
+  return result;
 }

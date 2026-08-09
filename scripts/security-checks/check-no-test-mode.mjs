@@ -48,6 +48,7 @@ const expectedConsumers = [
   "src/lib/supabase/server.ts",
   "src/lib/supabase/middleware.ts",
   "src/lib/storage/attachments-storage.ts",
+  "src/lib/storage/logo-storage.ts",
   "src/lib/storage/test-storage.ts",
   "src/app/api/e2e-test-storage/[...path]/route.ts",
   "src/lib/email/resend-client.ts",
@@ -107,6 +108,7 @@ const storageImporters = grep('from "\\./test-storage"|from "@/lib/storage/test-
   .map((line) => line.split(":")[0]);
 const expectedStorageImporters = [
   "src/lib/storage/attachments-storage.ts",
+  "src/lib/storage/logo-storage.ts",
   "src/app/api/e2e-test-storage/[...path]/route.ts",
 ];
 const uniqueStorageImporters = [...new Set(storageImporters)];

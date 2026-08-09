@@ -76,6 +76,14 @@ export type AttachmentUploadState = {
   error: string | null;
 };
 
+// Sale-Ready Phase A.1 (Business Identity), PR4 — same shape as
+// AttachmentUploadState, kept as its own type rather than reused: a logo
+// upload is not an Attachment (see logo-mutations.ts), and the two are
+// free to diverge independently as either evolves.
+export type LogoUploadState = {
+  error: string | null;
+};
+
 export type CommentActionState = {
   error: string | null;
 };
