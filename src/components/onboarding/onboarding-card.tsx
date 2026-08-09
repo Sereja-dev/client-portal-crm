@@ -1,7 +1,9 @@
 import { OnboardingProgressBar } from "./onboarding-progress-bar";
 import { OnboardingStepRow } from "./onboarding-step-row";
 import { DismissOnboardingButton } from "./dismiss-onboarding-button";
+import { WorkspaceCompletionSummary } from "./workspace-completion-summary";
 import { shouldRenderOnboardingCard } from "./should-render-card";
+import { getWorkspaceCompletionSummary } from "./workspace-completion";
 import type { OnboardingProgressSummary } from "@/lib/onboarding/progress";
 
 /**
@@ -37,6 +39,11 @@ export function OnboardingCard({ progress }: { progress: OnboardingProgressSumma
     return null;
   }
 
+  // Stage 7.1.1 — a pure presentational reduction of the same `progress`
+  // already computed above; no new query, no new persisted state (see
+  // workspace-completion.ts's own header comment).
+  const completion = getWorkspaceCompletionSummary(progress);
+
   return (
     <section aria-labelledby="onboarding-heading" className="rounded-lg border border-gray-200 bg-white p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -44,9 +51,8 @@ export function OnboardingCard({ progress }: { progress: OnboardingProgressSumma
           <h2 id="onboarding-heading" className="text-lg font-semibold tracking-tight text-gray-900">
             Getting started
           </h2>
-          <p className="mt-1 text-sm text-gray-600">
-            Complete these steps to get the most out of your workspace.
-          </p>
+          <p className="mt-1 text-sm font-medium text-gray-900">{completion.headline}</p>
+          <p className="mt-0.5 text-sm text-gray-600">{completion.subheadline}</p>
         </div>
         <DismissOnboardingButton returnFocusId={ONBOARDING_DISMISS_RETURN_FOCUS_ID} />
       </div>
@@ -54,13 +60,16 @@ export function OnboardingCard({ progress }: { progress: OnboardingProgressSumma
       {/* Live region: a step flipping to Done (e.g. a Client created in
           another tab) after a skip/dismiss revalidation is announced to
           screen readers the same way toast-provider.tsx's own region
-          already announces toasts (docs/onboarding-architecture.md §12). */}
+          already announces toasts (docs/onboarding-architecture.md §12).
+          The Stage 7.1.1 completed/next-up summary lives in here too —
+          it's derived from the same live data as the bar itself. */}
       <div className="mt-4" aria-live="polite">
         <OnboardingProgressBar
           completedCount={progress.completedCount}
           totalCount={progress.totalCount}
           percent={progress.percent}
         />
+        <WorkspaceCompletionSummary summary={completion} />
       </div>
 
       <ul className="mt-6 divide-y divide-gray-200">

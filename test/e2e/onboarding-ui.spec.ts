@@ -203,6 +203,104 @@ test.describe("Visibility per progress state", () => {
   });
 });
 
+test.describe("Workspace completion summary (Stage 7.1.1)", () => {
+  test("a fresh, empty organization shows the customer-facing headline and an 'Up next' summary, but no 'Completed so far' line", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    const fresh = await createFreshOrg(fixtures.runId, "completion-fresh");
+    await actAsMember(context, baseURL!, fresh.owner, fresh.org.id);
+    await gotoAndSettle(page, `${baseURL}/dashboard`);
+
+    await expect(onboardingCard(page).getByText("Your workspace is almost ready")).toBeVisible();
+    await expect(onboardingCard(page).getByText("Complete setup to start using Client Portal.")).toBeVisible();
+    await expect(onboardingCard(page).getByText(/^Up next:/)).toBeVisible();
+    await expect(onboardingCard(page).getByText(/^Completed so far:/)).toHaveCount(0);
+
+    await cleanupFreshOrg(fresh);
+  });
+
+  test("a partially-progressed organization shows both a 'Completed so far' and an 'Up next' summary reflecting real progress", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await actAsMember(context, baseURL!, fixtures.orgBOwner, fixtures.orgB.id);
+    await gotoAndSettle(page, `${baseURL}/dashboard`);
+
+    // orgB (seedTestData()) has exactly one real Client and nothing else —
+    // CREATE_CLIENT is the only completed accomplishment.
+    await expect(
+      onboardingCard(page).getByText("Completed so far: Create your first client."),
+    ).toBeVisible();
+    await expect(onboardingCard(page).getByText(/^Up next:/)).toBeVisible();
+  });
+
+  test("a fully productive organization renders no completion summary at all — the whole card is absent", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await dbQuery("organizationProfile", "create", {
+      data: { organizationId: fixtures.orgA.id, legalName: "Test Org A LLC", country: "United States", currency: "USD", timezone: "America/New_York" },
+    });
+    await dbQuery("organizationPaymentDetails", "create", {
+      data: { organizationId: fixtures.orgA.id, bankName: "Bank", accountHolder: "Test Org A", accountNumber: "123", swiftBic: "ABCDEF12" },
+    });
+    await dbQuery("organizationDomainSettings", "create", { data: { organizationId: fixtures.orgA.id, customDomain: null } });
+
+    try {
+      await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+      await gotoAndSettle(page, `${baseURL}/dashboard`);
+      await expect(onboardingCard(page)).toHaveCount(0);
+      await expect(page.getByText("Your workspace is almost ready")).toHaveCount(0);
+    } finally {
+      await dbQuery("organizationProfile", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
+      await dbQuery("organizationPaymentDetails", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
+      await dbQuery("organizationDomainSettings", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
+    }
+  });
+
+  test("permissions unchanged: a plain MEMBER sees the exact same completion summary as the OWNER — no role gate on this read", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    const fresh = await createFreshOrg(fixtures.runId, "completion-permissions");
+    const member = await dbQuery<{ id: string; email: string }>("user", "create", {
+      data: {
+        id: randomUUID(),
+        email: testEmail("onboarding-completion-member", TEST_EMAIL_DOMAIN, fixtures.runId),
+        name: "Member",
+      },
+    });
+    await dbQuery("membership", "create", { data: { userId: member.id, organizationId: fresh.org.id, role: "MEMBER" } });
+    const client = await dbQuery<{ id: string }>("client", "create", {
+      data: { name: "Completion Test Client", organizationId: fresh.org.id, userId: fresh.owner.id },
+    });
+
+    try {
+      await actAsMember(context, baseURL!, fresh.owner, fresh.org.id);
+      await gotoAndSettle(page, `${baseURL}/dashboard`);
+      const ownerCompletedText = await onboardingCard(page).getByText(/^Completed so far:/).innerText();
+      const ownerNextText = await onboardingCard(page).getByText(/^Up next:/).innerText();
+
+      await actAsMember(context, baseURL!, member, fresh.org.id);
+      await gotoAndSettle(page, `${baseURL}/dashboard`);
+      await expect(onboardingCard(page).getByText(ownerCompletedText, { exact: true })).toBeVisible();
+      await expect(onboardingCard(page).getByText(ownerNextText, { exact: true })).toBeVisible();
+    } finally {
+      // Client.userId is onDelete: Restrict — this row must go before
+      // cleanupFreshOrg deletes fresh.owner, the same ordering
+      // staff-app.spec.ts's own Client create test already documents.
+      await dbQuery("client", "delete", { where: { id: client.id } });
+      await dbQuery("user", "delete", { where: { id: member.id } });
+      await cleanupFreshOrg(fresh);
+    }
+  });
+});
+
 test.describe("Dependency-blocked and billing placeholder", () => {
   test("a step blocked behind an undone dependency shows the exact blocked reason, no Go-to link, but Skip remains offered", async ({
     context,

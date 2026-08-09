@@ -169,8 +169,12 @@ test.describe("Onboarding checklist integration", () => {
     try {
       await actAsMember(context, baseURL!, fixtures.owner, org.id);
       await page.goto("/dashboard");
+      // Scoped to the checklist's own row (not a bare page-wide text
+      // search): Stage 7.1.1's "Up next" completion summary also quotes
+      // these same step labels in its own text, so an unscoped
+      // page.getByText(label) now matches both and violates strict mode.
       for (const label of ["Set up your company profile", "Add payment receiving details", "Review your domain settings"]) {
-        await expect(page.getByText(label)).toBeVisible();
+        await expect(page.getByRole("listitem").filter({ hasText: label })).toBeVisible();
       }
     } finally {
       await dbQuery("membership", "deleteMany", { where: { organizationId: org.id } });
