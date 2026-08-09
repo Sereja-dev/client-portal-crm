@@ -107,7 +107,7 @@ export function CompanyProfileForm({
         </p>
       )}
 
-      <Button type="submit" loading={pending}>
+      <Button type="submit" loading={pending} data-testid="settings-save-button">
         {pending ? "Saving…" : "Save company profile"}
       </Button>
     </form>

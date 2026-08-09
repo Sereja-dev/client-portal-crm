@@ -82,7 +82,7 @@ export function PaymentDetailsForm({ details }: { details: PaymentDetailsData })
         </p>
       )}
 
-      <Button type="submit" loading={pending}>
+      <Button type="submit" loading={pending} data-testid="settings-save-button">
         {pending ? "Saving…" : "Save payment details"}
       </Button>
     </form>

@@ -93,6 +93,28 @@ Run with `npm run test:e2e`. Requires `npm run build` to have already
 produced `.next/` — `playwright.config.ts`'s `webServer` runs `next start`
 against that build, it does not build for you.
 
+### Selector conventions
+
+**Never interact with a form using a generic submit selector** —
+`button[type="submit"]`, `page.click("button")`, or anything else that
+identifies an element by tag/type alone. Every dashboard page renders the
+Header's own "Sign out" form alongside the page's own form(s); a generic
+submit selector matches both, and Playwright's legacy `page.click()` API
+silently clicks whichever one it finds first rather than erroring — this
+exact ambiguity once produced a false "OWNER save redirects to /login"
+diagnosis (Stage 6.2.1) that took real investigation to trace back to the
+test script, not the app.
+
+Use one of, in order of preference:
+- `page.getByRole("button", { name: "..." })` — ties the selector to what
+  a real user/screen reader would target; breaks loudly (an unmatched
+  name) if the button's copy ever changes.
+- `page.getByTestId("...")` — for elements whose accessible name isn't
+  stable or unique enough (e.g. `settings-save-button` is shared by three
+  different forms, each scoped to its own page). `signout-button` and
+  `settings-save-button` are the two stable test ids this app defines for
+  exactly this reason.
+
 ### TEST_MODE
 
 There is no real Supabase Auth or Storage available in this environment

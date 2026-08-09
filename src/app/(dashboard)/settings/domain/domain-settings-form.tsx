@@ -48,7 +48,7 @@ export function DomainSettingsForm({ settings }: { settings: DomainSettingsData 
         </p>
       )}
 
-      <Button type="submit" loading={pending}>
+      <Button type="submit" loading={pending} data-testid="settings-save-button">
         {pending ? "Saving…" : "Save domain settings"}
       </Button>
     </form>

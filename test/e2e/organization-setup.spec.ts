@@ -51,7 +51,7 @@ test.describe("Company Profile", () => {
     await page.getByLabel("Time zone").selectOption("America/New_York");
     await Promise.all([
       page.waitForResponse((r) => r.url().includes("/settings/company") && r.request().method() === "POST"),
-      page.getByRole("button", { name: "Save company profile" }).click(),
+      page.getByTestId("settings-save-button").click(),
     ]);
     await expect(page.getByText("Company profile saved.")).toBeVisible();
     // Stage 6.2.1: the exact symptom being regression-tested — a
@@ -87,7 +87,7 @@ test.describe("Payment Details", () => {
     await page.getByLabel("SWIFT / BIC").fill("NWBKGB2L");
     await Promise.all([
       page.waitForResponse((r) => r.url().includes("/settings/payment") && r.request().method() === "POST"),
-      page.getByRole("button", { name: "Save payment details" }).click(),
+      page.getByTestId("settings-save-button").click(),
     ]);
     await expect(page.getByText("Payment details saved.")).toBeVisible();
     await expect(page).not.toHaveURL(/\/login/);
@@ -122,7 +122,7 @@ test.describe("Domain Settings", () => {
     await page.getByLabel("Custom domain").fill(customDomain);
     await Promise.all([
       page.waitForResponse((r) => r.url().includes("/settings/domain") && r.request().method() === "POST"),
-      page.getByRole("button", { name: "Save domain settings" }).click(),
+      page.getByTestId("settings-save-button").click(),
     ]);
     await expect(page.getByText("Domain settings saved.")).toBeVisible();
     await expect(page).not.toHaveURL(/\/login/);

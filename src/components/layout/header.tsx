@@ -55,6 +55,7 @@ export function Header({
         <form action={signOut} className="shrink-0">
           <button
             type="submit"
+            data-testid="signout-button"
             className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
           >
             Sign out
