@@ -3,6 +3,7 @@ import { getCompanyProfile } from "@/lib/organization-setup/company-profile";
 import { canManageCompanyProfile } from "@/lib/organization-setup/authorization";
 import { getSupportedCurrencies, getSupportedTimezones } from "@/lib/validation/company-profile";
 import { CompanyProfileForm } from "./company-profile-form";
+import { LogoUploadForm } from "./logo-upload-form";
 
 /**
  * Customer Setup Wizard (Stage 6.2). Every member may view (mirrors
@@ -18,6 +19,11 @@ import { CompanyProfileForm } from "./company-profile-form";
  * than just legal/locale details, to match the wider set of fields the
  * form (and, for a non-OWNER, this read-only summary) now covers. No new
  * page, no new route.
+ *
+ * PR5 adds the logo, rendered via its own LogoUploadForm — a separate
+ * <form>/Server Action pair from CompanyProfileForm's own (see that
+ * component's own doc comment for why), so this page still renders both
+ * as siblings rather than one merged form.
  */
 export default async function CompanyProfilePage() {
   const { organizationId, membership } = await getCurrentMembership();
@@ -30,10 +36,24 @@ export default async function CompanyProfilePage() {
       <p className="mt-1 text-sm text-gray-500">Configure your business — legal details, contact info, address, tax ID, and branding.</p>
 
       {canManage ? (
-        <CompanyProfileForm profile={profile} currencies={getSupportedCurrencies()} timezones={getSupportedTimezones()} />
+        <>
+          <CompanyProfileForm profile={profile} currencies={getSupportedCurrencies()} timezones={getSupportedTimezones()} />
+          <LogoUploadForm currentLogoUrl={profile.logoUrl} />
+        </>
       ) : (
         <div className="mt-6 space-y-4 rounded-lg border border-gray-200 bg-white p-6">
           <p className="text-sm text-gray-600">Only the organization owner can update company details.</p>
+          {profile.logoUrl && (
+            <div>
+              <p className="text-xs font-medium text-gray-500">Logo</p>
+              {/* eslint-disable-next-line @next/next/no-img-element -- see LogoUploadForm's own doc comment */}
+              <img
+                src={profile.logoUrl}
+                alt="Organization logo"
+                className="mt-1 h-20 w-20 rounded-md border border-gray-200 object-contain"
+              />
+            </div>
+          )}
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
               <dt className="text-xs font-medium text-gray-500">Display name</dt>

@@ -22,6 +22,11 @@ export type CompanyProfileData = {
   city: string | null;
   state: string | null;
   postalCode: string | null;
+
+  // Sale-Ready Phase A.1 (Business Identity), PR5 — read-only here; never
+  // written by upsertCompanyProfile (see logo-mutations.ts's own
+  // uploadOrganizationLogo, the only writer of this field).
+  logoUrl: string | null;
 };
 
 /** Read-only — never role-gated (any member may view), matching authorization.ts's own documented boundary. */
@@ -46,6 +51,7 @@ export async function getCompanyProfile(organizationId: string): Promise<Company
     city: profile?.city ?? null,
     state: profile?.state ?? null,
     postalCode: profile?.postalCode ?? null,
+    logoUrl: profile?.logoUrl ?? null,
   };
 }
 

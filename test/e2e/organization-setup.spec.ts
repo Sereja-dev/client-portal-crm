@@ -167,6 +167,107 @@ test.describe("Company Profile", () => {
       await expect(page.getByText("Tax ID / VAT")).toBeVisible();
     });
   });
+
+  test.describe("Logo upload (Sale-Ready Phase A.1, PR5)", () => {
+    // A real, minimal 1x1 PNG — real Storage isn't reachable in this
+    // sandbox (see attachments.spec.ts's own doc comment for why), so
+    // uploadLogoObject's TEST_MODE branch serves this back through
+    // src/app/api/e2e-test-storage/[...path]/route.ts, the same real code
+    // path production uses (see src/lib/storage/logo-storage.ts).
+    const LOGO_PNG_BYTES = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+      "base64",
+    );
+
+    test("OWNER sees a live preview immediately, then the real persisted logo after upload and reload", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+      await page.goto("/settings/company");
+
+      // The Business Identity text form must already have a saved profile
+      // for logo upload to succeed at all (see uploadOrganizationLogo's own
+      // doc comment) — guaranteed here by the earlier tests in this same
+      // file/describe block, which this suite already runs single-worker,
+      // in-order (see playwright.config.ts's fullyParallel: false).
+      await expect(page.getByText("No logo")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Upload logo" })).toBeVisible();
+
+      await page.locator('input[type="file"]').setInputFiles({
+        name: "e2e-logo.png",
+        mimeType: "image/png",
+        buffer: LOGO_PNG_BYTES,
+      });
+      // The live preview (a client-only blob: URL) appears immediately,
+      // before the upload has even been submitted.
+      const logoImg = page.getByAltText("Organization logo");
+      await expect(logoImg).toBeVisible();
+      await expect(logoImg).toHaveAttribute("src", /^blob:/);
+
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes("/settings/company") && r.request().method() === "POST"),
+        page.getByRole("button", { name: "Upload logo" }).click(),
+      ]);
+
+      await page.reload();
+      const persistedLogoImg = page.getByAltText("Organization logo");
+      await expect(persistedLogoImg).toBeVisible();
+      // No longer a blob: URL — the real Storage public URL survived a
+      // full reload, proving it was actually persisted, not just a
+      // client-side optimistic preview.
+      await expect(persistedLogoImg).toHaveAttribute("src", /\/api\/e2e-test-storage\/logos\//);
+      await expect(page.getByRole("button", { name: "Replace logo" })).toBeVisible();
+    });
+
+    test("an SVG is rejected with the backend's own validation error, and the persisted logo is unchanged", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+      // Runs after the upload test above (same file, same single-worker,
+      // in-order execution) — a logo already exists for this org. Read
+      // via dbQuery (the real, persisted value), not the rendered <img>'s
+      // src — picking the SVG legitimately shows its own optimistic blob:
+      // preview client-side before the server ever rejects it (the same
+      // "live preview" behavior the test above already covers), so the
+      // rendered src is expected to change; what must NOT change is the
+      // actual persisted OrganizationProfile.logoUrl.
+      const profileBefore = await dbQuery<{ logoUrl: string | null }>("organizationProfile", "findUniqueOrThrow", {
+        where: { organizationId: fixtures.orgA.id },
+      });
+
+      await page.goto("/settings/company");
+      await page.locator('input[type="file"]').setInputFiles({
+        name: "icon.svg",
+        mimeType: "image/svg+xml",
+        buffer: Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'></svg>"),
+      });
+      // The optimistic client-side preview shows even for a file that will
+      // fail server-side validation — it's a pure "what did you pick"
+      // preview, uninvolved with the server's own accept/reject decision.
+      await expect(page.getByAltText("Organization logo")).toHaveAttribute("src", /^blob:/);
+
+      await page.getByRole("button", { name: "Replace logo" }).click();
+      await expect(page.getByText("Only PNG, JPEG, and WebP images are supported.")).toBeVisible();
+
+      const profileAfter = await dbQuery<{ logoUrl: string | null }>("organizationProfile", "findUniqueOrThrow", {
+        where: { organizationId: fixtures.orgA.id },
+      });
+      expect(profileAfter.logoUrl).toBe(profileBefore.logoUrl);
+    });
+
+    test("MEMBER sees the current logo but no upload control", async ({ page, context, baseURL }) => {
+      await actAsMember(context, baseURL!, fixtures.member, fixtures.orgA.id);
+      await page.goto("/settings/company");
+
+      await expect(page.getByAltText("Organization logo")).toBeVisible();
+      await expect(page.locator('input[type="file"]')).toHaveCount(0);
+      await expect(page.getByRole("button", { name: /Upload logo|Replace logo/ })).toHaveCount(0);
+    });
+  });
 });
 
 test.describe("Payment Details", () => {

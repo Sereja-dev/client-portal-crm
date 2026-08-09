@@ -14,12 +14,14 @@ import type { NextConfig } from "next";
 //     changes this stage deliberately avoids.
 //   - script-src 'unsafe-eval': kept for Next.js App Router's own runtime
 //     needs; not verified removable without risking hydration breakage.
-//   - font-src/img-src allow https: broadly, but nothing external is
-//     actually loaded today: next/font/google (Geist/Geist Mono) downloads
-//     at build time and self-hosts from /_next/static/media — confirmed via
-//     the production Link preload header — so no fonts.gstatic.com request
-//     ever happens. There are zero <img> tags anywhere in this app (grep
-//     confirmed) and no next/image usage.
+//   - font-src allows https: broadly, but nothing external is actually
+//     loaded today: next/font/google (Geist/Geist Mono) downloads at build
+//     time and self-hosts from /_next/static/media — confirmed via the
+//     production Link preload header — so no fonts.gstatic.com request
+//     ever happens. img-src's blob:/https: (still no next/image usage
+//     anywhere) are both load-bearing as of Sale-Ready Phase A.1 PR5's
+//     logo upload widget: blob: for the client-side pre-upload preview,
+//     https: for the persisted logo's real Supabase Storage public URL.
 //   - connect-src includes https://*.supabase.co and wss://*.supabase.co:
 //     this is the app's real Supabase project domain (confirmed from the
 //     session cookie name), not an invented origin. The only place the
