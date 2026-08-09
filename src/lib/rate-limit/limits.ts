@@ -23,6 +23,27 @@ export const PORTAL_SIGNUP_LIMIT: RateLimitConfig = {
   windowMs: HOUR_MS,
 };
 
+// Sale-Ready Phase B, PR1 (Password Recovery) — per IP, same reasoning and
+// same ceiling as LOGIN_LIMIT: this is the one unauthenticated,
+// abuse-prone surface in the whole flow (an attacker spamming "forgot
+// password" for many emails, or hammering one email's mailbox). The
+// confirm/reset steps that follow all require a real, already-issued
+// token first, so they don't need their own limiter — matches the
+// existing convention of only rate-limiting genuinely unauthenticated
+// entry points, not every mutation downstream of one.
+export const PASSWORD_RESET_REQUEST_LIMIT: RateLimitConfig = {
+  scope: "password-reset-request",
+  limit: 5,
+  windowMs: 15 * MINUTE_MS,
+};
+
+// Portal password reset request — same reasoning, isolated bucket from staff.
+export const PORTAL_PASSWORD_RESET_REQUEST_LIMIT: RateLimitConfig = {
+  scope: "portal-password-reset-request",
+  limit: 5,
+  windowMs: 15 * MINUTE_MS,
+};
+
 // Invite a team member — per inviting staff user, spam-invite protection.
 export const INVITE_MEMBER_LIMIT: RateLimitConfig = {
   scope: "invite-member",

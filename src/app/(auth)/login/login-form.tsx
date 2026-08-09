@@ -30,9 +30,17 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
       </div>
 
       <div>
-        <FormLabel htmlFor="password" required>
-          Password
-        </FormLabel>
+        <div className="flex items-baseline justify-between">
+          <FormLabel htmlFor="password" required>
+            Password
+          </FormLabel>
+          <Link
+            href="/forgot-password"
+            className="rounded text-sm font-medium text-black hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
+          >
+            Forgot password?
+          </Link>
+        </div>
         <Input
           id="password"
           name="password"

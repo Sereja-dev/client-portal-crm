@@ -13,11 +13,18 @@ import { TEST_MODE, TEST_USER_COOKIE, decodeTestModeIdentity } from "@/lib/test-
  * the exact gating guarantee — this branch is unreachable whenever
  * TEST_MODE is false, which is always true outside Playwright's own E2E
  * webServer process. Cast to SupabaseClient so every call site keeps its
- * real type — signInWithPassword/signUp/etc. are intentionally NOT
- * implemented here, since E2E tests inject a session directly rather than
- * exercising the login/signup forms (there is no real Supabase Auth to
- * sign in against locally); calling one in TEST_MODE would throw
- * "is not a function", loudly, rather than silently doing nothing.
+ * real type — signInWithPassword/signUp/verifyOtp/etc. are intentionally
+ * NOT implemented here, since E2E tests inject a session directly rather
+ * than exercising the login/signup forms (there is no real Supabase Auth
+ * to sign in against locally); calling one in TEST_MODE would throw "is
+ * not a function", loudly, rather than silently doing nothing. updateUser()
+ * is the one exception (Sale-Ready Phase B, PR1, Password Recovery): the
+ * reset-password Server Action calls it generically, the same call for
+ * every session regardless of how it was established, so it needs a real
+ * stub here rather than being routed around — TEST_MODE has no real
+ * password to actually change, so this just reports success
+ * unconditionally, mirroring signOut()'s own "no real backing state,
+ * simulate the observable effect" shape below.
  */
 function createTestModeClient(): SupabaseClient {
   return {
@@ -36,6 +43,9 @@ function createTestModeClient(): SupabaseClient {
             }
           : null;
         return { data: { user }, error: null };
+      },
+      async updateUser() {
+        return { data: { user: null }, error: null };
       },
       async signOut() {
         const cookieStore = await cookies();

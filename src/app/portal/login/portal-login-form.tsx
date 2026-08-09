@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import Link from "next/link";
 import { portalLogin } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,9 +26,17 @@ export function PortalLoginForm({ redirectTo }: { redirectTo: string }) {
       </div>
 
       <div>
-        <FormLabel htmlFor="password" required>
-          Password
-        </FormLabel>
+        <div className="flex items-baseline justify-between">
+          <FormLabel htmlFor="password" required>
+            Password
+          </FormLabel>
+          <Link
+            href="/portal/forgot-password"
+            className="rounded text-sm font-medium text-black hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
+          >
+            Forgot password?
+          </Link>
+        </div>
         <Input
           id="password"
           name="password"

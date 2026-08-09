@@ -64,6 +64,13 @@ vi.mock("@/lib/supabase/server", () => ({
       async signOut() {
         return { error: null };
       },
+      // Sale-Ready Phase B, PR1 (Password Recovery) — resetPasswordCore's
+      // own generic call; TEST_MODE has no real password to check either
+      // (see src/lib/supabase/server.ts's own updateUser stub), so this
+      // just reports success unconditionally.
+      async updateUser() {
+        return { data: { user: null }, error: null };
+      },
       // SaaS Signup Foundation (Stage 6.1) — see setMockSignUpConfig()'s
       // own doc comment for what each configured "kind" simulates.
       async signUp({ email, options }: { email: string; password: string; options?: { data?: Record<string, unknown> } }) {
