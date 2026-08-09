@@ -115,13 +115,13 @@ export default async function ClientsPage({
         ) : (
           <EmptyState
             title="No clients yet"
-            description="Get started by adding your first client."
+            description="Clients are the people and businesses you work with — add your first one to start creating projects, tracking tasks, and sending invoices."
             action={
               <Link
                 href="/clients/new"
                 className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
               >
-                Add client
+                Create your first client
               </Link>
             }
           />

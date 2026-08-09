@@ -136,13 +136,13 @@ export default async function ProjectsPage({
         ) : (
           <EmptyState
             title="No projects yet"
-            description="Get started by adding your first project."
+            description="Projects organize your work for a client — group related tasks together and track progress from start to finish."
             action={
               <Link
                 href="/projects/new"
                 className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
               >
-                Add project
+                Create your first project
               </Link>
             }
           />

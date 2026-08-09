@@ -148,13 +148,13 @@ export default async function TasksPage({
         ) : (
           <EmptyState
             title="No tasks yet"
-            description="Get started by adding your first task."
+            description="Tasks break a project down into the specific work you need to track and complete."
             action={
               <Link
                 href="/tasks/new"
                 className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
               >
-                Add task
+                Create your first task
               </Link>
             }
           />
