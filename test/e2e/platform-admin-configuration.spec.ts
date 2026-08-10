@@ -4,19 +4,22 @@ import { injectTestSession } from "../support/e2e-session";
 import { dbQuery } from "./fixtures";
 
 /**
- * Sale-Ready Phase D, D1 (Platform Configuration — foundation + Legal
- * Configuration surface). Its own file, matching the precedent PR2's
- * Dashboard already set: Configuration is a genuinely new top-level
- * feature area (its own nav entry), not an extension of an existing one
- * the way PR3.2/PR3.3 extended the Organizations file. Guard/nav coverage
- * stays in platform-admin.spec.ts (already updated for the new nav entry)
- * and isn't repeated here.
+ * Sale-Ready Phase D — Platform Configuration: D1 (foundation + Legal
+ * Configuration surface) and D2 (Branding). Its own file, matching the
+ * precedent PR2's Dashboard already set: Configuration is a genuinely
+ * new top-level feature area (its own nav entry), not an extension of an
+ * existing one the way PR3.2/PR3.3 extended the Organizations file.
+ * Guard/nav coverage stays in platform-admin.spec.ts (already updated
+ * for the new nav entry) and isn't repeated here.
  */
 
 const PLATFORM_ADMIN_EMAIL = "platform-admin-e2e@example.com";
 const BASE_PATH = "/platform-admin/configuration";
 
-test("renders the Legal Configuration section with the real (fallback) platform legal config", async ({ context, baseURL }) => {
+test("renders the Legal Configuration section, including its legalName now resolving through the re-pointed PLATFORM_NAME fallback", async ({
+  context,
+  baseURL,
+}) => {
   await injectTestSession(context, { id: "e2e-platform-admin-configuration", email: PLATFORM_ADMIN_EMAIL }, baseURL!);
   const page = await context.newPage();
   await page.goto(BASE_PATH);
@@ -28,17 +31,52 @@ test("renders the Legal Configuration section with the real (fallback) platform 
   await expect(legalSection).toBeVisible();
 
   // TEST_MODE's webServer env (playwright.config.ts) sets none of the
-  // PLATFORM_LEGAL_* vars, so this exercises getPlatformLegalConfig()'s
-  // own real fallback chain — the same one production runs today with
-  // PLATFORM_LEGAL_NAME unset (see the Legal Foundation PR's own tests).
+  // PLATFORM_LEGAL_* vars but DOES set PLATFORM_NAME (for the Branding
+  // section below) — so this exercises getPlatformLegalConfig()'s own
+  // real, re-pointed fallback chain (Sale-Ready Phase D, D2):
+  // legalName now falls back through PLATFORM_NAME, not siteConfig.name
+  // directly, so "E2E Test Platform" is the correct value here, not
+  // "Client Portal CRM".
   await expect(legalSection.getByText("Legal name", { exact: true })).toBeVisible();
-  await expect(legalSection.getByText("Client Portal CRM")).toBeVisible();
+  await expect(legalSection.getByText("E2E Test Platform")).toBeVisible();
   await expect(legalSection.getByText("Jurisdiction", { exact: true })).toBeVisible();
   await expect(legalSection.getByText("the jurisdiction in which the Service operator is located")).toBeVisible();
   await expect(legalSection.getByText("Registered address", { exact: true })).toBeVisible();
   await expect(legalSection.getByText("Not set").first()).toBeVisible();
   await expect(legalSection.getByText("Privacy Policy effective date", { exact: true })).toBeVisible();
   await expect(legalSection.getByText("Terms of Service effective date", { exact: true })).toBeVisible();
+});
+
+test("renders the Branding section with the configured name/tagline/logo, an honest 'Not set' favicon, and a real logo preview", async ({
+  context,
+  baseURL,
+}) => {
+  await injectTestSession(context, { id: "e2e-platform-admin-configuration-branding", email: PLATFORM_ADMIN_EMAIL }, baseURL!);
+  const page = await context.newPage();
+  await page.goto(BASE_PATH);
+
+  await expect(page.getByRole("heading", { level: 2, name: "Branding" })).toBeVisible();
+  const brandingSection = page.getByRole("region", { name: "Branding" });
+  await expect(brandingSection).toBeVisible();
+
+  await expect(brandingSection.getByText("Platform name", { exact: true })).toBeVisible();
+  await expect(brandingSection.getByText("E2E Test Platform")).toBeVisible();
+  await expect(brandingSection.getByText("Platform tagline", { exact: true })).toBeVisible();
+  await expect(brandingSection.getByText("Testing tagline for Platform Configuration")).toBeVisible();
+  await expect(brandingSection.getByText("Platform logo URL", { exact: true })).toBeVisible();
+  await expect(brandingSection.getByText("https://example.com/e2e-test-logo.png")).toBeVisible();
+
+  // Favicon URL is deliberately unset in the webServer env — proves the
+  // honest "Not set" path for a branding field, same discipline as the
+  // Legal Configuration section's own null fields.
+  await expect(brandingSection.getByText("Favicon URL", { exact: true })).toBeVisible();
+
+  // The logo preview: a real <img> whose src is exactly the configured
+  // URL — isValidUrl() only suppresses the preview for an unparseable
+  // value, and this one is well-formed.
+  const logoPreview = brandingSection.getByRole("img", { name: /logo/i });
+  await expect(logoPreview).toBeVisible();
+  await expect(logoPreview).toHaveAttribute("src", "https://example.com/e2e-test-logo.png");
 });
 
 test("an ordinary tenant user is redirected away from Configuration", async ({ context, baseURL }) => {

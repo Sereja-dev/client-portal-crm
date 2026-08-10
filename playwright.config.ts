@@ -78,6 +78,19 @@ export default defineConfig({
       // path, alongside any other injected identity (e.g. a seeded
       // fixture user) exercising the real deny path.
       PLATFORM_ADMIN_EMAILS: "platform-admin-e2e@example.com",
+      // Sale-Ready Phase D, D2 (Platform Configuration — Branding) — fixed
+      // so platform-admin-configuration.spec.ts can assert the Branding
+      // section's real *configured* path, not just its fallback. Also
+      // exercises getPlatformLegalConfig()'s own re-pointed fallback
+      // chain end to end: with PLATFORM_LEGAL_NAME left unset here, Legal
+      // Configuration's "Legal name" now resolves through PLATFORM_NAME,
+      // not siteConfig.name directly — see that test's own updated
+      // assertion. PLATFORM_FAVICON_URL is deliberately left unset so the
+      // same test run also covers the honest "Not set" path for one
+      // branding field, without needing a second server configuration.
+      PLATFORM_NAME: "E2E Test Platform",
+      PLATFORM_TAGLINE: "Testing tagline for Platform Configuration",
+      PLATFORM_LOGO_URL: "https://example.com/e2e-test-logo.png",
     },
   },
 });

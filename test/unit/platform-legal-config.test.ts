@@ -9,6 +9,7 @@ const LEGAL_ENV_KEYS = [
   "PRIVACY_POLICY_EFFECTIVE_DATE",
   "TOS_EFFECTIVE_DATE",
   "INVITATION_FROM_EMAIL",
+  "PLATFORM_NAME",
 ] as const;
 
 const originalEnv: Record<string, string | undefined> = {};
@@ -88,5 +89,18 @@ describe("getPlatformLegalConfig", () => {
 
     expect(config.legalName).toBe("Client Portal CRM");
     expect(config.legalAddress).toBeNull();
+  });
+
+  it("Sale-Ready Phase D, D2: legalName falls back through PLATFORM_NAME (Branding) when PLATFORM_LEGAL_NAME is unset — one name, not two independent facts", () => {
+    process.env.PLATFORM_NAME = "Acme Platform";
+
+    expect(getPlatformLegalConfig().legalName).toBe("Acme Platform");
+  });
+
+  it("PLATFORM_LEGAL_NAME still wins over PLATFORM_NAME when both are set — legal identity can differ from the marketing name", () => {
+    process.env.PLATFORM_NAME = "Acme Platform";
+    process.env.PLATFORM_LEGAL_NAME = "Acme Legal Entity LLC";
+
+    expect(getPlatformLegalConfig().legalName).toBe("Acme Legal Entity LLC");
   });
 });

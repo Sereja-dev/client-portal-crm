@@ -1,30 +1,40 @@
 import type { Metadata } from "next";
-import { getPlatformLegalConfig } from "@/lib/legal/platform-config";
+import { getPlatformBranding, getPlatformLegalConfig } from "@/lib/legal/platform-config";
 import { DetailSection, Field } from "@/components/platform-admin/detail-section";
 
 export const metadata: Metadata = {
   title: "Configuration — Platform Admin",
 };
 
+/** A syntactically well-formed absolute URL — nothing more. The preview is a rendering-safety check (an unparseable value would otherwise be a broken <img> with no explanation), not a business validation rule, so it lives here rather than in platform-config.ts. */
+function isValidUrl(value: string): boolean {
+  try {
+    new URL(value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Sale-Ready Phase D, D1 (Platform Configuration — approved plan).
- * Read-only for this phase, deliberately — see the plan's own framing:
- * this is a Phase D scoping decision, not a claim that env-var-only
- * configuration is this module's permanent shape. Every section's data
- * comes from one small, typed reader (getPlatformLegalConfig() here,
- * unchanged from PR2.1) returning a plain object the page renders via
- * DetailSection/Field — never process.env read inline — so a future
- * editable Platform Configuration service can change what's *behind*
- * each reader without this page changing at all.
+ * Sale-Ready Phase D, D1 (foundation) + D2 (Branding). Read-only for this
+ * phase, deliberately — see the plan's own framing: this is a Phase D
+ * scoping decision, not a claim that env-var-only configuration is this
+ * module's permanent shape. Every section's data comes from one small,
+ * typed reader (getPlatformBranding()/getPlatformLegalConfig(), both
+ * unchanged in shape from platform-config.ts) returning a plain object
+ * the page renders via DetailSection/Field — never process.env read
+ * inline — so a future editable Platform Configuration service can
+ * change what's *behind* each reader without this page changing at all.
  *
- * Legal Configuration is the only real section in D1 — it's the one
- * goal already fully built (PR2.1), so this PR only has to surface it.
- * Branding (D2), Email (D3), Billing (D4), Domain & Deployment (D5), and
- * Environment (D6) each add one more DetailSection call in a later PR,
- * never a redesign of this page.
+ * Email (D3), Billing (D4), Domain & Deployment (D5), and Environment
+ * (D6) each add one more DetailSection call in a later PR, never a
+ * redesign of this page.
  */
 export default async function PlatformAdminConfigurationPage() {
+  const branding = getPlatformBranding();
   const legal = getPlatformLegalConfig();
+  const logoPreviewUrl = branding.logoUrl && isValidUrl(branding.logoUrl) ? branding.logoUrl : null;
 
   return (
     <div className="space-y-8">
@@ -35,6 +45,30 @@ export default async function PlatformAdminConfigurationPage() {
           settings.
         </p>
       </div>
+
+      <DetailSection id="branding" title="Branding">
+        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Platform name" value={branding.name} />
+          <Field label="Platform tagline" value={branding.tagline} />
+          <Field label="Platform logo URL" value={branding.logoUrl ?? "Not set"} />
+          <Field label="Favicon URL" value={branding.faviconUrl ?? "Not set"} />
+          <Field
+            label="Platform logo preview"
+            value={
+              logoPreviewUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element -- mirrors Organization Details' own read-only logo preview; an operator-supplied remote URL, not a local asset next/image can optimize.
+                <img
+                  src={logoPreviewUrl}
+                  alt={`${branding.name} logo`}
+                  className="h-16 w-16 rounded-md border border-gray-200 object-contain"
+                />
+              ) : (
+                "Not set"
+              )
+            }
+          />
+        </dl>
+      </DetailSection>
 
       <DetailSection id="legal" title="Legal Configuration">
         <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">

@@ -1,5 +1,16 @@
 import { siteConfig } from "@/config/site";
 
+export type PlatformBranding = {
+  /** The product's own display name. Always a real value — falls back to siteConfig.name, never "Not set" (a platform necessarily has a name, unlike an optional address). */
+  name: string;
+  /** Falls back to siteConfig.description, same reasoning as `name`. */
+  tagline: string;
+  /** Optional. No platform-level logo exists anywhere in this app until an operator sets this — never a placeholder image. */
+  logoUrl: string | null;
+  /** Optional. Not read by anything in Next.js's own favicon resolution yet (Sale-Ready Phase D, D2 — display-only for now); reserved for a future PR to actually wire in. */
+  faviconUrl: string | null;
+};
+
 export type PlatformLegalConfig = {
   /** Legal/trading name of the entity operating this Service. */
   legalName: string;
@@ -36,6 +47,26 @@ function trimmedEnv(name: string): string | null {
 }
 
 /**
+ * Sale-Ready Phase D, D2 (Platform Configuration — Branding). The
+ * platform's own visual identity, deliberately in this same module
+ * rather than a second configuration system — "what is this platform
+ * called" is one fact with one source, not something Branding and Legal
+ * each get to answer independently. PLATFORM_NAME is that source: falls
+ * back to the existing hardcoded siteConfig.name (zero-config deployments
+ * are unchanged), and getPlatformLegalConfig()'s own legalName below now
+ * falls back through this function instead of reading siteConfig.name
+ * directly — one extra hop in the chain, not a second fact.
+ */
+export function getPlatformBranding(): PlatformBranding {
+  return {
+    name: trimmedEnv("PLATFORM_NAME") ?? siteConfig.name,
+    tagline: trimmedEnv("PLATFORM_TAGLINE") ?? siteConfig.description,
+    logoUrl: trimmedEnv("PLATFORM_LOGO_URL"),
+    faviconUrl: trimmedEnv("PLATFORM_FAVICON_URL"),
+  };
+}
+
+/**
  * Platform-level legal identity, deliberately separate from
  * OrganizationProfile (per-tenant business identity — see Business
  * Identity, Sale-Ready Phase A.1). This describes the ONE operator running
@@ -50,7 +81,7 @@ function trimmedEnv(name: string): string | null {
  */
 export function getPlatformLegalConfig(): PlatformLegalConfig {
   return {
-    legalName: trimmedEnv("PLATFORM_LEGAL_NAME") ?? siteConfig.name,
+    legalName: trimmedEnv("PLATFORM_LEGAL_NAME") ?? getPlatformBranding().name,
     legalAddress: trimmedEnv("PLATFORM_LEGAL_ADDRESS"),
     supportEmail: trimmedEnv("PLATFORM_SUPPORT_EMAIL") ?? extractEmailAddress(process.env.INVITATION_FROM_EMAIL),
     jurisdiction: trimmedEnv("PLATFORM_JURISDICTION") ?? "the jurisdiction in which the Service operator is located",
