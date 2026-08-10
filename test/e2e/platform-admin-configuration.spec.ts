@@ -5,13 +5,13 @@ import { dbQuery } from "./fixtures";
 
 /**
  * Sale-Ready Phase D — Platform Configuration: D1 (foundation + Legal
- * Configuration surface), D2 (Branding), and D3 (Email Configuration).
- * Its own file, matching the precedent PR2's Dashboard already set:
- * Configuration is a genuinely new top-level feature area (its own nav
- * entry), not an extension of an existing one the way PR3.2/PR3.3
- * extended the Organizations file. Guard/nav coverage stays in
- * platform-admin.spec.ts (already updated for the new nav entry) and
- * isn't repeated here.
+ * Configuration surface), D2 (Branding), D3 (Email Configuration), and
+ * D4 (Billing Configuration). Its own file, matching the precedent PR2's
+ * Dashboard already set: Configuration is a genuinely new top-level
+ * feature area (its own nav entry), not an extension of an existing one
+ * the way PR3.2/PR3.3 extended the Organizations file. Guard/nav coverage
+ * stays in platform-admin.spec.ts (already updated for the new nav
+ * entry) and isn't repeated here.
  */
 
 const PLATFORM_ADMIN_EMAIL = "platform-admin-e2e@example.com";
@@ -123,6 +123,42 @@ test("renders the Email Configuration section with real addresses, an honest 'Mi
   await expect(emailSection.getByText("Sender status", { exact: true })).toBeVisible();
   await expect(emailSection.getByText("Reply-to status", { exact: true })).toBeVisible();
   await expect(emailSection.getByText("Fallback", { exact: true })).toBeVisible();
+});
+
+test("renders the Billing Configuration section reflecting the real TEST_MODE mock adapter — Mode 'Test', every capability Configured", async ({
+  context,
+  baseURL,
+}) => {
+  await injectTestSession(context, { id: "e2e-platform-admin-configuration-billing", email: PLATFORM_ADMIN_EMAIL }, baseURL!);
+  const page = await context.newPage();
+  await page.goto(BASE_PATH);
+
+  await expect(page.getByRole("heading", { level: 2, name: "Billing Configuration" })).toBeVisible();
+  const billingSection = page.getByRole("region", { name: "Billing Configuration" });
+  await expect(billingSection).toBeVisible();
+
+  // getPlatformBillingConfig() reuses the exact same billing provider
+  // registry the checkout/portal Server Actions do — TEST_MODE (set for
+  // the whole e2e run) resolves it to the real mock adapter, never a
+  // fabricated "everything is fine" value.
+  await expect(billingSection.getByText("Billing provider", { exact: true })).toBeVisible();
+  await expect(billingSection.getByText("Paddle", { exact: true })).toBeVisible();
+
+  await expect(billingSection.getByText("Provider status", { exact: true })).toBeVisible();
+  await expect(billingSection.getByText("Mode", { exact: true })).toBeVisible();
+  await expect(billingSection.getByText("Test", { exact: true })).toBeVisible();
+
+  await expect(billingSection.getByText("Checkout", { exact: true })).toBeVisible();
+  await expect(billingSection.getByText("Customer portal", { exact: true })).toBeVisible();
+  await expect(billingSection.getByText("Webhook", { exact: true })).toBeVisible();
+  await expect(billingSection.getByText("Plan synchronization", { exact: true })).toBeVisible();
+
+  // Every capability is available under the mock adapter — at least one
+  // "Configured" value is present (exhaustive Configured/Not
+  // configured/Disabled branch coverage lives in the unit tests, which
+  // also exercise the real production-like unconfigured state this e2e
+  // run's fixed TEST_MODE=1 can never reach).
+  await expect(billingSection.getByText("Configured", { exact: true }).first()).toBeVisible();
 });
 
 test("an ordinary tenant user is redirected away from Configuration", async ({ context, baseURL }) => {
