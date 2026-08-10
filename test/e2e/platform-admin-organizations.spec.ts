@@ -4,11 +4,12 @@ import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./
 import { injectTestSession } from "../support/e2e-session";
 
 /**
- * Sale-Ready Phase C, PR3.2 (Organization Explorer — list UI). Guard/nav
- * coverage already lives in platform-admin.spec.ts and isn't repeated
- * here (same one-file-per-feature-area convention platform-admin-
- * dashboard.spec.ts already established for PR2 — avoids the exact
- * "duplicate test suite" this PR was told not to introduce).
+ * Sale-Ready Phase C, PR3.2 (Organization Explorer — list UI) and PR3.3
+ * (Organization Details — extends this same file rather than adding a
+ * new one, since both are the same "Organization Explorer" feature area;
+ * PR2's Dashboard got its own file because it's a genuinely separate
+ * feature, not because every PR does). Guard/nav coverage already lives
+ * in platform-admin.spec.ts and isn't repeated here.
  */
 
 const PLATFORM_ADMIN_EMAIL = "platform-admin-e2e@example.com";
@@ -324,5 +325,131 @@ test.describe("Accessibility", () => {
     await expect(page.getByLabel("Status")).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(page.getByLabel("Sort by")).toBeFocused();
+  });
+});
+
+test.describe("Organization Details (PR3.3)", () => {
+  const SECTION_TITLES = ["Business Identity", "Subscription", "Organization", "Usage", "Recent Activity"];
+
+  test("renders every section, with correct heading hierarchy, for a real seeded organization", async ({ context, baseURL }) => {
+    const page = await asAdmin(context, baseURL!);
+    await page.goto(`${BASE_PATH}/${fixtures.orgA.id}`);
+
+    await expect(page.getByRole("heading", { level: 1, name: orgAName })).toBeVisible();
+    for (const title of SECTION_TITLES) {
+      await expect(page.getByRole("heading", { level: 2, name: title })).toBeVisible();
+      await expect(page.getByRole("region", { name: title })).toBeVisible();
+    }
+
+    // Organization section: real, non-fabricated counts.
+    const orgSection = page.getByRole("region", { name: "Organization" });
+    await expect(orgSection.getByText(fixtures.owner.name)).toBeVisible();
+    await expect(orgSection.getByText(fixtures.owner.email)).toBeVisible();
+
+    // fixtures don't seed an OrganizationProfile row for orgA — every
+    // optional Business Identity field must honestly say "Not set", never
+    // blank or fabricated.
+    const identitySection = page.getByRole("region", { name: "Business Identity" });
+    await expect(identitySection.getByText(orgAName)).toBeVisible(); // displayName falls back to Organization.name
+    await expect(identitySection.getByText("No logo uploaded")).toBeVisible();
+
+    // fixtures DO seed one real Activity row tied to orgA — must render
+    // as a real entry, not the empty state.
+    const activitySection = page.getByRole("region", { name: "Recent Activity" });
+    await expect(activitySection.getByText("No activity yet")).toHaveCount(0);
+  });
+
+  test("Business Identity shows real data once a profile exists, including logo and brand color", async ({ context, baseURL }) => {
+    const org = await createTestOrganization(context, baseURL!, { name: `E2E Identity Org ${randomUUID()}` });
+    try {
+      await dbQuery("organizationProfile", "create", {
+        data: {
+          organizationId: org.organizationId,
+          legalName: "E2E Identity Org LLC",
+          country: "United States",
+          currency: "USD",
+          timezone: "America/New_York",
+          website: "https://example.com",
+          supportEmail: "support@example.com",
+          phone: "+1 555-0100",
+          taxId: "12-3456789",
+          streetAddress: "123 Main St",
+          city: "Springfield",
+          state: "IL",
+          postalCode: "62701",
+          brandColor: "#3366FF",
+          logoUrl: "https://example.com/logo.png",
+        },
+      });
+
+      const page = await asAdmin(context, baseURL!);
+      await page.goto(`${BASE_PATH}/${org.organizationId}`);
+      const identitySection = page.getByRole("region", { name: "Business Identity" });
+
+      await expect(identitySection.getByText("E2E Identity Org LLC")).toBeVisible();
+      await expect(identitySection.getByRole("link", { name: "https://example.com" })).toBeVisible();
+      await expect(identitySection.getByText("support@example.com")).toBeVisible();
+      await expect(identitySection.getByText("123 Main St, Springfield, IL, 62701")).toBeVisible();
+      await expect(identitySection.getByText("#3366FF")).toBeVisible();
+      await expect(identitySection.getByRole("img")).toHaveAttribute("src", "https://example.com/logo.png");
+    } finally {
+      await dbQuery("organizationProfile", "deleteMany", { where: { organizationId: org.organizationId } });
+      await cleanupTestOrganization(org);
+    }
+  });
+
+  test("Recent Activity renders an honest empty state for a brand-new organization with no activity yet", async ({ context, baseURL }) => {
+    const org = await createTestOrganization(context, baseURL!, { name: `E2E No Activity Org ${randomUUID()}` });
+    try {
+      const page = await asAdmin(context, baseURL!);
+      await page.goto(`${BASE_PATH}/${org.organizationId}`);
+      const activitySection = page.getByRole("region", { name: "Recent Activity" });
+      await expect(activitySection.getByText("No activity yet")).toBeVisible();
+    } finally {
+      await cleanupTestOrganization(org);
+    }
+  });
+
+  test("Subscription section reflects a real TRIALING subscription — Lifecycle badge matches the list page's own classification", async ({
+    context,
+    baseURL,
+  }) => {
+    const future = new Date(Date.now() + 10 * 24 * 60 * 60 * 1000).toISOString();
+    const org = await createTestOrganization(context, baseURL!, {
+      name: `E2E Detail Trial Org ${randomUUID()}`,
+      subscription: { status: "TRIALING", trialEndsAt: future },
+    });
+    try {
+      const page = await asAdmin(context, baseURL!);
+      await page.goto(`${BASE_PATH}/${org.organizationId}`);
+      const subscriptionSection = page.getByRole("region", { name: "Subscription" });
+      await expect(subscriptionSection.getByText("Trial", { exact: true })).toBeVisible();
+      await expect(subscriptionSection.getByText("Full Access")).toBeVisible();
+    } finally {
+      await cleanupTestOrganization(org);
+    }
+  });
+
+  test("an unknown organization id renders a real 404, not a crash", async ({ context, baseURL }) => {
+    const page = await asAdmin(context, baseURL!);
+    await page.goto(`${BASE_PATH}/00000000-0000-0000-0000-000000000000`);
+    await expect(page.getByRole("heading", { name: "Organization not found" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Back to Organizations" })).toBeVisible();
+  });
+
+  test("the View link from the list page reaches the real detail page", async ({ context, baseURL }) => {
+    const page = await asAdmin(context, baseURL!);
+    await page.goto(BASE_PATH);
+    const row = page.getByRole("row", { name: new RegExp(orgAName) });
+    await row.getByRole("link", { name: /View/ }).click();
+    await page.waitForURL(new RegExp(`${BASE_PATH}/${fixtures.orgA.id}$`));
+    await expect(page.getByRole("heading", { level: 1, name: orgAName })).toBeVisible();
+  });
+
+  test("an ordinary tenant user is redirected away from an organization detail page too", async ({ context, baseURL }) => {
+    await injectTestSession(context, { id: fixtures.owner.id, email: fixtures.owner.email }, baseURL!);
+    const page = await context.newPage();
+    await page.goto(`${BASE_PATH}/${fixtures.orgA.id}`);
+    await page.waitForURL(/\/dashboard$/);
   });
 });
