@@ -5,13 +5,13 @@ import { dbQuery } from "./fixtures";
 
 /**
  * Sale-Ready Phase D — Platform Configuration: D1 (foundation + Legal
- * Configuration surface), D2 (Branding), D3 (Email Configuration), and
- * D4 (Billing Configuration). Its own file, matching the precedent PR2's
- * Dashboard already set: Configuration is a genuinely new top-level
- * feature area (its own nav entry), not an extension of an existing one
- * the way PR3.2/PR3.3 extended the Organizations file. Guard/nav coverage
- * stays in platform-admin.spec.ts (already updated for the new nav
- * entry) and isn't repeated here.
+ * Configuration surface), D2 (Branding), D3 (Email Configuration), D4
+ * (Billing Configuration), and D5 (Domain Configuration). Its own file,
+ * matching the precedent PR2's Dashboard already set: Configuration is a
+ * genuinely new top-level feature area (its own nav entry), not an
+ * extension of an existing one the way PR3.2/PR3.3 extended the
+ * Organizations file. Guard/nav coverage stays in platform-admin.spec.ts
+ * (already updated for the new nav entry) and isn't repeated here.
  */
 
 const PLATFORM_ADMIN_EMAIL = "platform-admin-e2e@example.com";
@@ -159,6 +159,39 @@ test("renders the Billing Configuration section reflecting the real TEST_MODE mo
   // also exercise the real production-like unconfigured state this e2e
   // run's fixed TEST_MODE=1 can never reach).
   await expect(billingSection.getByText("Configured", { exact: true }).first()).toBeVisible();
+});
+
+test("renders the Domain Configuration section from the real VERCEL_URL, with an honest 'Not configured' custom domain", async ({
+  context,
+  baseURL,
+}) => {
+  await injectTestSession(context, { id: "e2e-platform-admin-configuration-domain", email: PLATFORM_ADMIN_EMAIL }, baseURL!);
+  const page = await context.newPage();
+  await page.goto(BASE_PATH);
+
+  await expect(page.getByRole("heading", { level: 2, name: "Domain Configuration" })).toBeVisible();
+  const domainSection = page.getByRole("region", { name: "Domain Configuration" });
+  await expect(domainSection).toBeVisible();
+
+  // APP_BASE_URL is deliberately left unset in the webServer env, so
+  // getPlatformDomainConfig() resolves everything through VERCEL_URL —
+  // proving the real "Default domain" path, not a fabricated custom one.
+  await expect(domainSection.getByText("Current domain", { exact: true })).toBeVisible();
+  await expect(domainSection.getByText("e2e-test-app.vercel.app").first()).toBeVisible();
+
+  await expect(domainSection.getByText("Default Vercel domain", { exact: true })).toBeVisible();
+
+  await expect(domainSection.getByText("Custom domain", { exact: true })).toBeVisible();
+  await expect(domainSection.getByText("Not configured", { exact: true })).toBeVisible();
+
+  await expect(domainSection.getByText("Domain status", { exact: true })).toBeVisible();
+  await expect(domainSection.getByText("Default domain", { exact: true })).toBeVisible();
+
+  await expect(domainSection.getByText("HTTPS", { exact: true })).toBeVisible();
+  await expect(domainSection.getByText("Enabled", { exact: true })).toBeVisible();
+
+  await expect(domainSection.getByText("Deployment URL", { exact: true })).toBeVisible();
+  await expect(domainSection.getByText("https://e2e-test-app.vercel.app", { exact: true })).toBeVisible();
 });
 
 test("an ordinary tenant user is redirected away from Configuration", async ({ context, baseURL }) => {

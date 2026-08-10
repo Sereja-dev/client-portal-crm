@@ -1,5 +1,10 @@
 import type { Metadata } from "next";
-import { getPlatformBranding, getPlatformEmailConfig, getPlatformLegalConfig } from "@/lib/legal/platform-config";
+import {
+  getPlatformBranding,
+  getPlatformDomainConfig,
+  getPlatformEmailConfig,
+  getPlatformLegalConfig,
+} from "@/lib/legal/platform-config";
 import { getPlatformBillingConfig } from "@/lib/billing/platform-billing-config";
 import { DetailSection, Field } from "@/components/platform-admin/detail-section";
 
@@ -19,12 +24,13 @@ function isValidUrl(value: string): boolean {
 
 /**
  * Sale-Ready Phase D, D1 (foundation) + D2 (Branding) + D3 (Email
- * Configuration) + D4 (Billing Configuration). Read-only for this phase,
- * deliberately — see the plan's own framing: this is a Phase D scoping
- * decision, not a claim that env-var-only configuration is this module's
- * permanent shape. Every section's data comes from one small, typed
- * reader (getPlatformBranding()/getPlatformEmailConfig()/
- * getPlatformLegalConfig() in platform-config.ts, getPlatformBillingConfig()
+ * Configuration) + D4 (Billing Configuration) + D5 (Domain
+ * Configuration). Read-only for this phase, deliberately — see the
+ * plan's own framing: this is a Phase D scoping decision, not a claim
+ * that env-var-only configuration is this module's permanent shape.
+ * Every section's data comes from one small, typed reader
+ * (getPlatformBranding()/getPlatformEmailConfig()/getPlatformLegalConfig()/
+ * getPlatformDomainConfig() in platform-config.ts, getPlatformBillingConfig()
  * in src/lib/billing — the latter deliberately lives in the billing
  * domain, not platform-config.ts, so it can reuse the existing billing
  * provider abstraction directly rather than a second, parallel read of
@@ -33,13 +39,14 @@ function isValidUrl(value: string): boolean {
  * inline — so a future editable Platform Configuration service can
  * change what's *behind* each reader without this page changing at all.
  *
- * Domain & Deployment (D5) and Environment (D6) each add one more
- * DetailSection call in a later PR, never a redesign of this page.
+ * Environment (D6) adds one more DetailSection call in a later PR, never
+ * a redesign of this page.
  */
 export default async function PlatformAdminConfigurationPage() {
   const branding = getPlatformBranding();
   const email = getPlatformEmailConfig();
   const billing = await getPlatformBillingConfig();
+  const domain = getPlatformDomainConfig();
   const legal = getPlatformLegalConfig();
   const logoPreviewUrl = branding.logoUrl && isValidUrl(branding.logoUrl) ? branding.logoUrl : null;
 
@@ -103,6 +110,17 @@ export default async function PlatformAdminConfigurationPage() {
           <Field label="Customer portal" value={billing.customerPortalConfigured ? "Configured" : "Not configured"} />
           <Field label="Webhook" value={billing.webhookConfigured ? "Configured" : "Not configured"} />
           <Field label="Plan synchronization" value={billing.planSynchronizationConfigured ? "Configured" : "Disabled"} />
+        </dl>
+      </DetailSection>
+
+      <DetailSection id="domain" title="Domain Configuration">
+        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Current domain" value={domain.currentDomain} />
+          <Field label="Default Vercel domain" value={domain.defaultVercelDomain ?? "Not configured"} />
+          <Field label="Custom domain" value={domain.customDomain ?? "Not configured"} />
+          <Field label="Domain status" value={domain.domainStatus} />
+          <Field label="HTTPS" value={domain.httpsEnabled ? "Enabled" : "Not enabled"} />
+          <Field label="Deployment URL" value={domain.deploymentUrl} />
         </dl>
       </DetailSection>
 

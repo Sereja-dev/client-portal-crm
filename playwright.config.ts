@@ -105,6 +105,13 @@ export default defineConfig({
       // sender address" path — same one-var-left-unset technique D2 used
       // for PLATFORM_FAVICON_URL.
       PLATFORM_BILLING_EMAIL: "billing@example.com",
+      // Sale-Ready Phase D, D5 (Platform Configuration — Domain
+      // Configuration). VERCEL_URL set (every real Vercel deployment has
+      // this) so the section's real "Default domain" path renders;
+      // APP_BASE_URL is deliberately left unset so the same run also
+      // covers the honest "Custom domain: Not configured" path — same
+      // one-var-left-unset technique D2/D3 used.
+      VERCEL_URL: "e2e-test-app.vercel.app",
     },
   },
 });

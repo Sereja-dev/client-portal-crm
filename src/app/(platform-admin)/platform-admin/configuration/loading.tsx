@@ -1,6 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton";
 
-/** Mirrors the Organization Details loading skeleton — one card per DetailSection. Branding + Email + Billing + Legal as of D4; grows with each later PR. */
+/** Mirrors the Organization Details loading skeleton — one card per DetailSection. Branding + Email + Billing + Domain + Legal as of D5; grows with each later PR. */
 export default function PlatformAdminConfigurationLoading() {
   return (
     <div className="space-y-8">
@@ -9,7 +9,7 @@ export default function PlatformAdminConfigurationLoading() {
         <Skeleton className="mt-2 h-4 w-72" />
       </div>
 
-      {Array.from({ length: 4 }, (_, sectionIndex) => (
+      {Array.from({ length: 5 }, (_, sectionIndex) => (
         <div key={sectionIndex} className="rounded-lg border border-gray-200 bg-white p-6">
           <Skeleton className="h-5 w-40" />
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">

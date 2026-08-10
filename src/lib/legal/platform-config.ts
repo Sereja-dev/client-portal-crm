@@ -135,3 +135,73 @@ export function getPlatformEmailConfig(): PlatformEmailConfig {
     replyToConfigured: explicitReplyTo !== null,
   };
 }
+
+export type PlatformDomainStatus = "Custom domain configured" | "Default domain" | "Not configured";
+
+/**
+ * Sale-Ready Phase D, D5 (Platform Configuration — Domain Configuration).
+ * A read-only projection of the exact same APP_BASE_URL/VERCEL_URL
+ * resolution chain every absolute-URL builder in this codebase already
+ * has its own copy of (src/lib/email/invitations.ts's getAppBaseUrl,
+ * src/lib/organization-setup/domain-settings.ts's getAppRootDomain, and
+ * four more) — this is not a seventh copy of that *logic* for building
+ * real links, only a display projection of the same two env vars for
+ * this page. Deliberately never calls the Vercel API, never resolves
+ * DNS, never makes any network request — every field is pure string
+ * inspection of env vars this process already has.
+ */
+export type PlatformDomainConfig = {
+  /** The host this app currently presents itself as — the custom domain's host when configured, otherwise Vercel's own default deployment host, otherwise localhost in local dev. Always a real value, never "Not configured" (see deploymentUrl for the same fact as a full URL). */
+  currentDomain: string;
+  /** Vercel's own automatic per-deployment host (VERCEL_URL) — present on every real Vercel deployment (preview or production) regardless of whether a custom domain is also configured; null only outside Vercel (local dev). */
+  defaultVercelDomain: string | null;
+  /** The host portion of APP_BASE_URL, only when it's both set and a well-formed absolute URL — a malformed override is treated the same as unset here (an honest "Not configured" beats displaying an unparseable string as if it were a real domain). */
+  customDomain: string | null;
+  /** Custom domain configured > Default domain > Not configured, in that priority — mirrors getPlatformBillingConfig()'s Mode field shape (a derived 3-state summary, not a fourth independent fact). */
+  domainStatus: PlatformDomainStatus;
+  /** Whether the resolved deploymentUrl itself uses https:// — string inspection only, never an actual TLS/certificate check (this app has no way to perform one without a real network call, which this section is expressly forbidden from making). */
+  httpsEnabled: boolean;
+  /** The full resolved base URL (protocol + host) this app's own email/invitation links are built from today — the same value getAppBaseUrl() returns, just exposed here for display. */
+  deploymentUrl: string;
+};
+
+function parseHost(url: string): string | null {
+  try {
+    return new URL(url).host;
+  } catch {
+    return null;
+  }
+}
+
+export function getPlatformDomainConfig(): PlatformDomainConfig {
+  const explicitBaseUrl = trimmedEnv("APP_BASE_URL")?.replace(/\/+$/, "");
+  const vercelUrl = trimmedEnv("VERCEL_URL");
+  const explicitBaseUrlHost = explicitBaseUrl ? parseHost(explicitBaseUrl) : null;
+  // Only trust the explicit override as a real custom domain once it's
+  // proven parseable — a malformed APP_BASE_URL falls through to the
+  // Vercel/localhost fallback below rather than becoming deploymentUrl
+  // as-is (see this type's own customDomain doc comment).
+  const customDomain = explicitBaseUrlHost;
+
+  const deploymentUrl =
+    explicitBaseUrl && customDomain
+      ? explicitBaseUrl
+      : vercelUrl
+        ? `https://${vercelUrl}`
+        : "http://localhost:3000";
+
+  const domainStatus: PlatformDomainStatus = customDomain
+    ? "Custom domain configured"
+    : vercelUrl
+      ? "Default domain"
+      : "Not configured";
+
+  return {
+    currentDomain: parseHost(deploymentUrl) ?? deploymentUrl,
+    defaultVercelDomain: vercelUrl,
+    customDomain,
+    domainStatus,
+    httpsEnabled: deploymentUrl.startsWith("https://"),
+    deploymentUrl,
+  };
+}
