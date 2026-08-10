@@ -69,9 +69,16 @@ export default defineConfig({
       // Only needed so deliverNotificationEmails's own "is the provider
       // configured" check (Boolean(process.env.INVITATION_FROM_EMAIL))
       // passes — the actual send is intercepted by sendEmailViaResend's
-      // TEST_MODE branch before this value (or RESEND_API_KEY, which stays
-      // unset) is ever used for a real network call.
+      // TEST_MODE branch before this value (or RESEND_API_KEY below) is
+      // ever used for a real network call.
       INVITATION_FROM_EMAIL: "Test <test@example.com>",
+      // Sale-Ready Phase D, D3 (Platform Configuration — Email
+      // Configuration) — a fake key so platform-admin-configuration.spec.ts
+      // can assert the Email Configuration section's "Provider status:
+      // Configured" path. Never used for a real network call: TEST_MODE's
+      // branch in sendEmailViaResend returns before this value is ever
+      // read for that purpose.
+      RESEND_API_KEY: "re_test_fake_key",
       // Sale-Ready Phase C — a fixed, single allowlisted identity so
       // test/e2e/platform-admin.spec.ts can inject a session for exactly
       // this email and exercise the real requirePlatformAdmin() allow
@@ -91,6 +98,13 @@ export default defineConfig({
       PLATFORM_NAME: "E2E Test Platform",
       PLATFORM_TAGLINE: "Testing tagline for Platform Configuration",
       PLATFORM_LOGO_URL: "https://example.com/e2e-test-logo.png",
+      // Sale-Ready Phase D, D3 (Platform Configuration — Email
+      // Configuration). PLATFORM_BILLING_EMAIL is set so the section's
+      // *configured* path renders; PLATFORM_REPLY_TO_EMAIL is deliberately
+      // left unset so the same run also covers the "falls back to the
+      // sender address" path — same one-var-left-unset technique D2 used
+      // for PLATFORM_FAVICON_URL.
+      PLATFORM_BILLING_EMAIL: "billing@example.com",
     },
   },
 });

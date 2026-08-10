@@ -11,6 +11,25 @@ export type PlatformBranding = {
   faviconUrl: string | null;
 };
 
+export type PlatformEmailConfig = {
+  /** Reused from getPlatformLegalConfig().supportEmail — same fact (one support mailbox), not a second independent source. */
+  supportEmail: string | null;
+  /** Distinct from supportEmail on purpose: a real operator may want billing inquiries routed to a different mailbox than general/legal support. No fallback exists for this one — inventing a billing contact from an unrelated address would be worse than an honest "Not set". */
+  billingEmail: string | null;
+  /** The address transactional emails (invitations, password resets) are actually sent from — reuses the same INVITATION_FROM_EMAIL address parsing sendEmailViaResend's own caller already relies on, not a second "from" concept. */
+  senderEmail: string | null;
+  /** Where a recipient's reply would go. Falls back to senderEmail when not explicitly set (the sender address is always a reasonable place for a reply to land) — see replyToConfigured for whether this is an explicit choice or that fallback. Not yet wired into any actual email send (display-only for now, same "documented ahead of the code that reads it" approach as PLATFORM_FAVICON_URL). */
+  replyToEmail: string | null;
+  /** The only email-sending integration this app has (see src/lib/email/resend-client.ts) — fixed, not env-driven, because there is nothing to choose between yet. */
+  providerName: string;
+  /** Whether RESEND_API_KEY is set — never the key's value itself, which is a secret and never rendered anywhere. */
+  providerConfigured: boolean;
+  /** Whether senderEmail resolved to a real address. */
+  senderConfigured: boolean;
+  /** True only when PLATFORM_REPLY_TO_EMAIL was explicitly set — false means replyToEmail above is senderEmail's fallback value, not an operator choice. */
+  replyToConfigured: boolean;
+};
+
 export type PlatformLegalConfig = {
   /** Legal/trading name of the entity operating this Service. */
   legalName: string;
@@ -87,5 +106,32 @@ export function getPlatformLegalConfig(): PlatformLegalConfig {
     jurisdiction: trimmedEnv("PLATFORM_JURISDICTION") ?? "the jurisdiction in which the Service operator is located",
     privacyEffectiveDate: trimmedEnv("PRIVACY_POLICY_EFFECTIVE_DATE") ?? "August 9, 2026",
     tosEffectiveDate: trimmedEnv("TOS_EFFECTIVE_DATE") ?? "August 9, 2026",
+  };
+}
+
+/**
+ * Sale-Ready Phase D, D3 (Platform Configuration — Email Configuration).
+ * Read-only status of the platform's outbound email setup — never sends
+ * anything, never calls Resend, never validates SMTP; purely reflects
+ * what's already configured via existing env vars (RESEND_API_KEY,
+ * INVITATION_FROM_EMAIL — both already read by src/lib/email/resend-
+ * client.ts and callers) plus two new, display-only ones. supportEmail
+ * reuses getPlatformLegalConfig()'s own value rather than re-deriving it
+ * — one support mailbox, one source, same discipline PR2 established for
+ * PLATFORM_NAME.
+ */
+export function getPlatformEmailConfig(): PlatformEmailConfig {
+  const senderEmail = extractEmailAddress(process.env.INVITATION_FROM_EMAIL);
+  const explicitReplyTo = trimmedEnv("PLATFORM_REPLY_TO_EMAIL");
+
+  return {
+    supportEmail: getPlatformLegalConfig().supportEmail,
+    billingEmail: trimmedEnv("PLATFORM_BILLING_EMAIL"),
+    senderEmail,
+    replyToEmail: explicitReplyTo ?? senderEmail,
+    providerName: "Resend",
+    providerConfigured: trimmedEnv("RESEND_API_KEY") !== null,
+    senderConfigured: senderEmail !== null,
+    replyToConfigured: explicitReplyTo !== null,
   };
 }

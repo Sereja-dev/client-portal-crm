@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getPlatformBranding, getPlatformLegalConfig } from "@/lib/legal/platform-config";
+import { getPlatformBranding, getPlatformEmailConfig, getPlatformLegalConfig } from "@/lib/legal/platform-config";
 import { DetailSection, Field } from "@/components/platform-admin/detail-section";
 
 export const metadata: Metadata = {
@@ -17,22 +17,24 @@ function isValidUrl(value: string): boolean {
 }
 
 /**
- * Sale-Ready Phase D, D1 (foundation) + D2 (Branding). Read-only for this
- * phase, deliberately — see the plan's own framing: this is a Phase D
- * scoping decision, not a claim that env-var-only configuration is this
- * module's permanent shape. Every section's data comes from one small,
- * typed reader (getPlatformBranding()/getPlatformLegalConfig(), both
- * unchanged in shape from platform-config.ts) returning a plain object
- * the page renders via DetailSection/Field — never process.env read
- * inline — so a future editable Platform Configuration service can
+ * Sale-Ready Phase D, D1 (foundation) + D2 (Branding) + D3 (Email
+ * Configuration). Read-only for this phase, deliberately — see the
+ * plan's own framing: this is a Phase D scoping decision, not a claim
+ * that env-var-only configuration is this module's permanent shape.
+ * Every section's data comes from one small, typed reader
+ * (getPlatformBranding()/getPlatformEmailConfig()/getPlatformLegalConfig(),
+ * all unchanged in shape from platform-config.ts) returning a plain
+ * object the page renders via DetailSection/Field — never process.env
+ * read inline — so a future editable Platform Configuration service can
  * change what's *behind* each reader without this page changing at all.
  *
- * Email (D3), Billing (D4), Domain & Deployment (D5), and Environment
- * (D6) each add one more DetailSection call in a later PR, never a
- * redesign of this page.
+ * Billing (D4), Domain & Deployment (D5), and Environment (D6) each add
+ * one more DetailSection call in a later PR, never a redesign of this
+ * page.
  */
 export default async function PlatformAdminConfigurationPage() {
   const branding = getPlatformBranding();
+  const email = getPlatformEmailConfig();
   const legal = getPlatformLegalConfig();
   const logoPreviewUrl = branding.logoUrl && isValidUrl(branding.logoUrl) ? branding.logoUrl : null;
 
@@ -67,6 +69,23 @@ export default async function PlatformAdminConfigurationPage() {
               )
             }
           />
+        </dl>
+      </DetailSection>
+
+      <DetailSection id="email" title="Email Configuration">
+        <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Support email" value={email.supportEmail ?? "Not set"} />
+          <Field label="Billing email" value={email.billingEmail ?? "Not set"} />
+          <Field label="Sender email" value={email.senderEmail ?? "Not set"} />
+          <Field label="Reply-to email" value={email.replyToEmail ?? "Not set"} />
+        </dl>
+
+        <h3 className="mt-6 text-xs font-semibold uppercase tracking-wide text-gray-500">Status</h3>
+        <dl className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label="Email provider" value={email.providerName} />
+          <Field label="Provider status" value={email.providerConfigured ? "Configured" : "Not configured"} />
+          <Field label="Sender status" value={email.senderConfigured ? "Configured" : "Missing"} />
+          <Field label="Reply-to status" value={email.replyToConfigured ? "Configured" : "Fallback"} />
         </dl>
       </DetailSection>
 

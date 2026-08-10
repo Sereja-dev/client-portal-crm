@@ -5,12 +5,13 @@ import { dbQuery } from "./fixtures";
 
 /**
  * Sale-Ready Phase D — Platform Configuration: D1 (foundation + Legal
- * Configuration surface) and D2 (Branding). Its own file, matching the
- * precedent PR2's Dashboard already set: Configuration is a genuinely
- * new top-level feature area (its own nav entry), not an extension of an
- * existing one the way PR3.2/PR3.3 extended the Organizations file.
- * Guard/nav coverage stays in platform-admin.spec.ts (already updated
- * for the new nav entry) and isn't repeated here.
+ * Configuration surface), D2 (Branding), and D3 (Email Configuration).
+ * Its own file, matching the precedent PR2's Dashboard already set:
+ * Configuration is a genuinely new top-level feature area (its own nav
+ * entry), not an extension of an existing one the way PR3.2/PR3.3
+ * extended the Organizations file. Guard/nav coverage stays in
+ * platform-admin.spec.ts (already updated for the new nav entry) and
+ * isn't repeated here.
  */
 
 const PLATFORM_ADMIN_EMAIL = "platform-admin-e2e@example.com";
@@ -77,6 +78,51 @@ test("renders the Branding section with the configured name/tagline/logo, an hon
   const logoPreview = brandingSection.getByRole("img", { name: /logo/i });
   await expect(logoPreview).toBeVisible();
   await expect(logoPreview).toHaveAttribute("src", "https://example.com/e2e-test-logo.png");
+});
+
+test("renders the Email Configuration section with real addresses, an honest 'Missing'/'Fallback' distinction, and Resend's provider status", async ({
+  context,
+  baseURL,
+}) => {
+  await injectTestSession(context, { id: "e2e-platform-admin-configuration-email", email: PLATFORM_ADMIN_EMAIL }, baseURL!);
+  const page = await context.newPage();
+  await page.goto(BASE_PATH);
+
+  await expect(page.getByRole("heading", { level: 2, name: "Email Configuration" })).toBeVisible();
+  const emailSection = page.getByRole("region", { name: "Email Configuration" });
+  await expect(emailSection).toBeVisible();
+
+  // Support email resolves through the same INVITATION_FROM_EMAIL
+  // fallback getPlatformLegalConfig() already exercises — proves
+  // getPlatformEmailConfig() reuses that one fact rather than deriving
+  // its own second value.
+  await expect(emailSection.getByText("Support email", { exact: true })).toBeVisible();
+  await expect(emailSection.getByText("test@example.com").first()).toBeVisible();
+
+  // PLATFORM_BILLING_EMAIL is explicitly set in the webServer env.
+  await expect(emailSection.getByText("Billing email", { exact: true })).toBeVisible();
+  await expect(emailSection.getByText("billing@example.com")).toBeVisible();
+
+  // Sender email is the address portion of INVITATION_FROM_EMAIL.
+  await expect(emailSection.getByText("Sender email", { exact: true })).toBeVisible();
+
+  // Reply-to is deliberately left unset in the webServer env — it must
+  // fall back to the sender address (also "test@example.com"), not "Not
+  // set", while its own status below honestly reports that as a
+  // fallback rather than an operator's explicit choice.
+  await expect(emailSection.getByText("Reply-to email", { exact: true })).toBeVisible();
+
+  await expect(emailSection.getByText("Email provider", { exact: true })).toBeVisible();
+  await expect(emailSection.getByText("Resend", { exact: true })).toBeVisible();
+
+  // RESEND_API_KEY is set (to a fake value never actually used, since
+  // TEST_MODE intercepts every send) — proves the "Configured" path.
+  await expect(emailSection.getByText("Provider status", { exact: true })).toBeVisible();
+  await expect(emailSection.getByText("Configured", { exact: true }).first()).toBeVisible();
+
+  await expect(emailSection.getByText("Sender status", { exact: true })).toBeVisible();
+  await expect(emailSection.getByText("Reply-to status", { exact: true })).toBeVisible();
+  await expect(emailSection.getByText("Fallback", { exact: true })).toBeVisible();
 });
 
 test("an ordinary tenant user is redirected away from Configuration", async ({ context, baseURL }) => {
