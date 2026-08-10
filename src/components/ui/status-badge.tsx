@@ -72,6 +72,22 @@ export const STATUS_TONES: Record<string, StatusTone> = {
   // Customer Setup Wizard (Stage 6.2) — DomainVerificationStatus.
   // PENDING already shares tone with the values above; VERIFIED is new.
   VERIFIED: "success",
+
+  // Sale-Ready Phase C, PR3.2 (Organization Explorer) —
+  // OrganizationLifecycleStatus and AccessMode. PAID/EXPIRED/CANCELED/
+  // LEGACY/ARCHIVED above are already exactly right and deliberately
+  // reused unchanged (CANCELED keeps the same "danger" tone its existing
+  // Subscription.status usage already has elsewhere — this is genuinely
+  // the same underlying concept, not a coincidence). SUSPENDED gets its
+  // own "warning" tone rather than reusing CANCELED's "danger" — the two
+  // are kept classified as distinct business states on purpose (see
+  // classifyOrganizationLifecycle's own doc comment), and giving them the
+  // same color would visually erase that distinction at a glance.
+  TRIAL: "info",
+  SUSPENDED: "warning",
+  FULL_ACCESS: "success",
+  LIMITED_WRITES: "warning",
+  READ_ONLY: "danger",
 };
 
 export function StatusBadge({ status }: { status: string }) {
