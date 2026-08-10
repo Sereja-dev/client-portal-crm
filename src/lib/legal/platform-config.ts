@@ -205,3 +205,41 @@ export function getPlatformDomainConfig(): PlatformDomainConfig {
     deploymentUrl,
   };
 }
+
+/**
+ * Sale-Ready Phase D, D6 (Platform Configuration — Deployment
+ * Information). Vercel's own system env vars — auto-injected on every
+ * real deployment, never set outside Vercel (local dev sees every field
+ * as null, honestly). Pure string reads: no Vercel API call, no GitHub
+ * API call, no network request of any kind.
+ */
+export type PlatformDeploymentConfig = {
+  /** VERCEL_ENV raw value ("production" | "preview" | "development"). */
+  environment: string | null;
+  /** The full commit SHA this deployment was built from. */
+  commitSha: string | null;
+  /** First 7 characters of commitSha — the same short-SHA length GitHub's own UI uses. */
+  commitShaShort: string | null;
+  /** A real GitHub commit URL, built only when VERCEL_GIT_PROVIDER is confirmed "github" and the owner/repo/sha are all present — never guessed for an unconfirmed or absent provider. */
+  commitUrl: string | null;
+};
+
+export function getPlatformDeploymentConfig(): PlatformDeploymentConfig {
+  const environment = trimmedEnv("VERCEL_ENV");
+  const commitSha = trimmedEnv("VERCEL_GIT_COMMIT_SHA");
+  const provider = trimmedEnv("VERCEL_GIT_PROVIDER");
+  const repoOwner = trimmedEnv("VERCEL_GIT_REPO_OWNER");
+  const repoSlug = trimmedEnv("VERCEL_GIT_REPO_SLUG");
+
+  const commitUrl =
+    provider === "github" && repoOwner && repoSlug && commitSha
+      ? `https://github.com/${repoOwner}/${repoSlug}/commit/${commitSha}`
+      : null;
+
+  return {
+    environment,
+    commitSha,
+    commitShaShort: commitSha ? commitSha.slice(0, 7) : null,
+    commitUrl,
+  };
+}

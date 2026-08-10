@@ -112,6 +112,17 @@ export default defineConfig({
       // covers the honest "Custom domain: Not configured" path — same
       // one-var-left-unset technique D2/D3 used.
       VERCEL_URL: "e2e-test-app.vercel.app",
+      // Sale-Ready Phase D, D6 (Platform Configuration — Deployment
+      // Information). All five set so platform-admin-configuration
+      // .spec.ts can assert the real "commit link built" path — Domain
+      // Configuration's own test already covers VERCEL_URL alone
+      // resolving without any of these, so no "left unset" var is needed
+      // here to get honest fallback coverage in this same run.
+      VERCEL_ENV: "production",
+      VERCEL_GIT_COMMIT_SHA: "abcdef1234567890abcdef1234567890abcdef12",
+      VERCEL_GIT_PROVIDER: "github",
+      VERCEL_GIT_REPO_OWNER: "e2e-test-owner",
+      VERCEL_GIT_REPO_SLUG: "e2e-test-repo",
     },
   },
 });

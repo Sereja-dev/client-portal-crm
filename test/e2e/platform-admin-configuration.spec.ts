@@ -6,12 +6,14 @@ import { dbQuery } from "./fixtures";
 /**
  * Sale-Ready Phase D — Platform Configuration: D1 (foundation + Legal
  * Configuration surface), D2 (Branding), D3 (Email Configuration), D4
- * (Billing Configuration), and D5 (Domain Configuration). Its own file,
- * matching the precedent PR2's Dashboard already set: Configuration is a
- * genuinely new top-level feature area (its own nav entry), not an
- * extension of an existing one the way PR3.2/PR3.3 extended the
- * Organizations file. Guard/nav coverage stays in platform-admin.spec.ts
- * (already updated for the new nav entry) and isn't repeated here.
+ * (Billing Configuration), D5 (Domain Configuration), and D6
+ * (Deployment Information + Environment Information — the final Phase D
+ * PR). Its own file, matching the precedent PR2's Dashboard already
+ * set: Configuration is a genuinely new top-level feature area (its own
+ * nav entry), not an extension of an existing one the way PR3.2/PR3.3
+ * extended the Organizations file. Guard/nav coverage stays in
+ * platform-admin.spec.ts (already updated for the new nav entry) and
+ * isn't repeated here.
  */
 
 const PLATFORM_ADMIN_EMAIL = "platform-admin-e2e@example.com";
@@ -192,6 +194,60 @@ test("renders the Domain Configuration section from the real VERCEL_URL, with an
 
   await expect(domainSection.getByText("Deployment URL", { exact: true })).toBeVisible();
   await expect(domainSection.getByText("https://e2e-test-app.vercel.app", { exact: true })).toBeVisible();
+});
+
+test("renders the Deployment Information section with a real GitHub commit link built from VERCEL_GIT_* vars", async ({
+  context,
+  baseURL,
+}) => {
+  await injectTestSession(context, { id: "e2e-platform-admin-configuration-deployment", email: PLATFORM_ADMIN_EMAIL }, baseURL!);
+  const page = await context.newPage();
+  await page.goto(BASE_PATH);
+
+  await expect(page.getByRole("heading", { level: 2, name: "Deployment Information" })).toBeVisible();
+  const deploymentSection = page.getByRole("region", { name: "Deployment Information" });
+  await expect(deploymentSection).toBeVisible();
+
+  await expect(deploymentSection.getByText("Environment", { exact: true })).toBeVisible();
+  await expect(deploymentSection.getByText("production", { exact: true })).toBeVisible();
+
+  await expect(deploymentSection.getByText("Git commit", { exact: true })).toBeVisible();
+  const commitLink = deploymentSection.getByRole("link", { name: "abcdef1" });
+  await expect(commitLink).toBeVisible();
+  await expect(commitLink).toHaveAttribute(
+    "href",
+    "https://github.com/e2e-test-owner/e2e-test-repo/commit/abcdef1234567890abcdef1234567890abcdef12",
+  );
+});
+
+test("renders the Environment Information rollup, deriving every row from the same readers the sections above already used", async ({
+  context,
+  baseURL,
+}) => {
+  await injectTestSession(context, { id: "e2e-platform-admin-configuration-environment", email: PLATFORM_ADMIN_EMAIL }, baseURL!);
+  const page = await context.newPage();
+  await page.goto(BASE_PATH);
+
+  await expect(page.getByRole("heading", { level: 2, name: "Environment Information" })).toBeVisible();
+  const environmentSection = page.getByRole("region", { name: "Environment Information" });
+  await expect(environmentSection).toBeVisible();
+
+  // A representative mix, not exhaustive per-row assertions (unit tests
+  // already cover every reader's own Set/Configured/Not-set branches) —
+  // this proves the rollup is wired to the real, already-computed
+  // section state, both the "present" and "absent" sides of it.
+  await expect(environmentSection.getByText("Platform logo", { exact: true })).toBeVisible();
+  await expect(environmentSection.getByText("Favicon", { exact: true })).toBeVisible();
+  await expect(environmentSection.getByText("Email provider (Resend)", { exact: true })).toBeVisible();
+  await expect(environmentSection.getByText("Custom domain", { exact: true })).toBeVisible();
+  await expect(environmentSection.getByText("Legal registered address", { exact: true })).toBeVisible();
+
+  // PLATFORM_LOGO_URL, RESEND_API_KEY are set in the webServer env ->
+  // "Set"/"Configured"; PLATFORM_FAVICON_URL and PLATFORM_LEGAL_ADDRESS
+  // are not -> "Not set". Both states genuinely present in one run.
+  await expect(environmentSection.getByText("Set", { exact: true }).first()).toBeVisible();
+  await expect(environmentSection.getByText("Not set", { exact: true }).first()).toBeVisible();
+  await expect(environmentSection.getByText("Configured", { exact: true }).first()).toBeVisible();
 });
 
 test("an ordinary tenant user is redirected away from Configuration", async ({ context, baseURL }) => {
