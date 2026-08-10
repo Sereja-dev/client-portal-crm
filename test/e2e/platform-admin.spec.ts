@@ -40,7 +40,7 @@ test("an authenticated but non-allowlisted staff user is redirected to /dashboar
   await expect(page.getByText("Access denied")).toHaveCount(0);
 });
 
-test("the allowlisted identity reaches the Platform Admin shell, with nav to all three sections", async ({ context, baseURL }) => {
+test("the allowlisted identity reaches the Platform Admin shell, with nav to all four sections", async ({ context, baseURL }) => {
   await injectTestSession(context, { id: "e2e-platform-admin-user", email: PLATFORM_ADMIN_EMAIL }, baseURL!);
   const page = await context.newPage();
 
@@ -56,6 +56,10 @@ test("the allowlisted identity reaches the Platform Admin shell, with nav to all
   await page.getByRole("navigation", { name: "Platform Admin" }).getByRole("link", { name: "Users" }).click();
   await expect(page).toHaveURL(/\/platform-admin\/users$/);
   await expect(page.getByRole("heading", { name: "Users", level: 1 })).toBeVisible();
+
+  await page.getByRole("navigation", { name: "Platform Admin" }).getByRole("link", { name: "Configuration" }).click();
+  await expect(page).toHaveURL(/\/platform-admin\/configuration$/);
+  await expect(page.getByRole("heading", { name: "Configuration", level: 1 })).toBeVisible();
 });
 
 test("a Client Portal identity is redirected away, same as any other non-allowlisted identity", async ({ context, baseURL }) => {

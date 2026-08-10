@@ -5,6 +5,7 @@ const links = [
   { href: "/platform-admin", label: "Dashboard" },
   { href: "/platform-admin/organizations", label: "Organizations" },
   { href: "/platform-admin/users", label: "Users" },
+  { href: "/platform-admin/configuration", label: "Configuration" },
 ];
 
 /**
@@ -30,11 +31,22 @@ export default async function PlatformAdminLayout({
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-6">
+          {/*
+            min-w-0 lets this group actually shrink below its content's
+            intrinsic width, and flex-wrap on the nav itself lets the
+            links wrap onto a second line once they no longer fit one —
+            the same min-w-0 fix layout/header.tsx's own doc comment
+            documents (flex items default to `min-width: auto`, which
+            otherwise silently blocks any shrinking at all). Found by
+            responsive-layout.spec.ts's own app-wide overflow regression
+            coverage the moment a 4th nav link (Configuration) made this
+            row wider than a 375px viewport.
+          */}
+          <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-2">
             <span className="text-sm font-semibold tracking-tight text-gray-900">
               Platform Admin
             </span>
-            <nav aria-label="Platform Admin" className="flex gap-4">
+            <nav aria-label="Platform Admin" className="flex flex-wrap gap-4">
               {links.map((link) => (
                 <Link
                   key={link.href}

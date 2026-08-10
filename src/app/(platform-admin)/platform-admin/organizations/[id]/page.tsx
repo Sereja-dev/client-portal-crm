@@ -1,11 +1,11 @@
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getOrganizationDetail } from "@/lib/platform-admin/queries/organization-detail";
 import { formatFileSize } from "@/lib/format";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { DetailSection, Field } from "@/components/platform-admin/detail-section";
 
 export const metadata: Metadata = {
   title: "Organization — Platform Admin",
@@ -17,39 +17,6 @@ function formatDate(date: Date | null): string {
 
 function formatLimit(value: number | null): string {
   return value === null ? "Unlimited" : String(value);
-}
-
-/**
- * One consistent wrapper for every real section on this page — a proper
- * landmark (<section>) associated with its own heading via
- * aria-labelledby, and the exact heading level (h2) every section shares.
- * Reserves the page's structure for Health/Billing history/Audit log/
- * Webhooks/Storage/Email delivery (see the Phase C, PR3 plan): each of
- * those, once built, is one more <DetailSection> call — never a redesign
- * of this page's layout. None are rendered as empty placeholders today —
- * a visible "Health" box with no real data would be exactly the kind of
- * invented functionality this app's own legal/dashboard pages have
- * deliberately avoided elsewhere.
- */
-function DetailSection({ id, title, children }: { id: string; title: string; children: ReactNode }) {
-  const headingId = `${id}-heading`;
-  return (
-    <section aria-labelledby={headingId} className="rounded-lg border border-gray-200 bg-white p-6">
-      <h2 id={headingId} className="text-lg font-semibold tracking-tight text-gray-900">
-        {title}
-      </h2>
-      <div className="mt-4">{children}</div>
-    </section>
-  );
-}
-
-function Field({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div>
-      <dt className="text-xs font-medium text-gray-500">{label}</dt>
-      <dd className="mt-0.5 text-sm text-gray-900">{value}</dd>
-    </div>
-  );
 }
 
 export default async function PlatformAdminOrganizationDetailPage({
