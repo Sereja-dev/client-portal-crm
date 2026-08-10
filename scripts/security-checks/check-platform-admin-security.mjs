@@ -33,6 +33,7 @@ function stripBlockComments(content) {
 let ok = true;
 
 const LIB_DIR = "src/lib/platform-admin";
+const APP_DIR = "src/app/(platform-admin)";
 const LAYOUT_FILE = "src/app/(platform-admin)/layout.tsx";
 
 // 1. Nothing under (dashboard) or portal ever imports the Platform Admin
@@ -86,5 +87,32 @@ ok = report(
 const rawQueryPattern = /\$queryRaw|\$executeRaw/;
 const filesWithRawQueries = libFiles.filter((f) => rawQueryPattern.test(stripBlockComments(readFileSync(f, "utf8"))));
 ok = report("no raw query anywhere in src/lib/platform-admin", filesWithRawQueries.length === 0, filesWithRawQueries.join(", ")) && ok;
+
+// 5. No "use server" directive anywhere under src/lib/platform-admin or
+// src/app/(platform-admin) — Sale-Ready Phase C, PR3's own explicit
+// "read-only, no mutations, no server actions" requirement, made
+// structural rather than a code-review hope. A real directive is always
+// the first non-empty line of a file, quoted with either quote style —
+// checking that (not just "the string appears anywhere") means a file
+// that merely *mentions* "use server" in a comment explaining why it
+// deliberately has none can never trip this.
+const appFiles = listTsFiles(APP_DIR);
+const useServerPattern = /^["']use server["'];?\s*$/;
+function firstNonEmptyLine(content) {
+  return content.split("\n").find((line) => line.trim().length > 0)?.trim() ?? "";
+}
+const filesWithUseServer = [...libFiles, ...appFiles].filter((f) => useServerPattern.test(firstNonEmptyLine(readFileSync(f, "utf8"))));
+ok = report(
+  'no "use server" directive anywhere in src/lib/platform-admin or src/app/(platform-admin)',
+  filesWithUseServer.length === 0,
+  filesWithUseServer.join(", "),
+) && ok;
+
+// 6. No actions.ts file anywhere under src/app/(platform-admin) — the
+// same "the absence of a mutation surface is itself auditable" property
+// PR1 established (no actions.ts existed at all in the Foundation),
+// extended to cover every route this and future Phase C PRs add.
+const actionsFiles = appFiles.filter((f) => f.endsWith("/actions.ts") || f.endsWith("\\actions.ts"));
+ok = report("no actions.ts file anywhere under src/app/(platform-admin)", actionsFiles.length === 0, actionsFiles.join(", ")) && ok;
 
 process.exit(ok ? 0 : 1);
