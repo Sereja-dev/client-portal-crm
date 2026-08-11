@@ -28,16 +28,28 @@ route's own trust/idempotency/ordering logic.
 
 - **E2.2** — `src/lib/billing/provider/paddle-config.ts`: reads and
   validates the env vars below (fail-closed on any partial config).
-- **E2.3 (this PR)** — `src/lib/billing/provider/paddle-provider.ts`: a
-  real, server-only Paddle adapter. **`createCheckoutSession` and
-  `createCustomerPortalSession` are implemented** against the actual
-  Paddle Transactions API and Customer Portal Sessions API (via the
-  official `@paddle/paddle-node-sdk`). **`verifyWebhook`/
-  `parseWebhookEvent` are still safe, fail-closed placeholders** —
-  `verifyWebhook` always returns `{ verified: false, reason:
-  "not_implemented" }`, `parseWebhookEvent` always returns `null`. Real
-  webhook signature verification and event parsing are a later PR
-  (E2.4+).
+- **E2.3** — `src/lib/billing/provider/paddle-provider.ts`:
+  `createCheckoutSession` and `createCustomerPortalSession` implemented
+  against the actual Paddle Transactions API and Customer Portal
+  Sessions API (via the official `@paddle/paddle-node-sdk`).
+- **E2.4 (this PR)** — the same file's `verifyWebhook`/
+  `parseWebhookEvent` are now **real implementations** too, replacing
+  E2.3's fail-closed placeholders:
+  - `verifyWebhook` performs real `Paddle-Signature` HMAC-SHA256
+    verification (`ts=<unix>;h1=<hex>`, signed string `${ts}:${rawBody}`,
+    plain `node:crypto`, timing-safe comparison) with a 5-second
+    timestamp tolerance — Paddle's own documented SDK default — and
+    accepts a match against any `h1` value present (Paddle's own
+    secret-rotation format sends more than one while a secret is being
+    rotated on Paddle's side). Deliberately does **not** use the SDK's
+    own combined `webhooks.unmarshal()` helper — this app's adapter
+    contract is a separate verify-then-parse pair, not one combined
+    call.
+  - `parseWebhookEvent` parses the raw body as JSON and normalizes the
+    subscription lifecycle events below into `NormalizedBillingEvent`.
+    See "Supported and ignored webhook events" below for the full list.
+  - Both remain pure/synchronous (no network, no DB) and never log the
+    raw body, signature header, or webhook secret.
 - **The provider registry (`getBillingProviderAdapter()`,
   `./provider.ts`) is still unchanged** — it still only ever resolves to
   the mock (`TEST_MODE`) or the fail-closed unconfigured adapter. The
@@ -45,26 +57,30 @@ route's own trust/idempotency/ordering logic.
   reachable from anywhere in the running application. Wiring it in as
   the real third branch is a later PR.
 - **No Paddle account was created or required for this PR** — every
-  test uses a fully mocked SDK client, no network call is ever made. Per
-  the sale-ready framing established in E2.2: real credentials are still
-  supplied later, by whoever actually connects a Paddle account —
-  never by this repository.
+  test uses a fully mocked SDK client and a locally computed signature,
+  no network call is ever made. Per the sale-ready framing established
+  in E2.2: real credentials are still supplied later, by whoever
+  actually connects a Paddle account — never by this repository.
 
-**E2.3 is not an end-to-end payment flow yet — three real gaps remain
-even once real credentials exist:** (1) the webhook placeholders above
-mean no subscription ever actually activates, regardless of how
-checkout goes; (2) `createCheckoutSession`'s returned `checkout.url`
-resolves to Paddle's own hosted checkout only once this app also hosts
-a Paddle.js-enabled page as its default payment link (Paddle Billing's
-checkout is not a pure server-redirect-and-done flow the way Stripe
-Checkout is — confirmed against Paddle's own docs, not assumed) — that
-page doesn't exist in this codebase yet and is a separate future PR,
-not part of E2.3; (3) relatedly, `input.returnUrl`/`cancelUrl` are
-accepted by this app's own contract but never sent to Paddle at all —
-Transactions API has no such field, and a subscription's real
-post-checkout redirect is set via Paddle.js's own `successUrl`
-argument or a per-Product dashboard default, neither of which this PR
-wires up.
+**Even with E2.4, this is not an end-to-end payment flow yet — two real
+gaps remain once real credentials exist (a third, the webhook
+placeholders, is now closed by this PR):** (1) `createCheckoutSession`'s
+returned `checkout.url` resolves to Paddle's own hosted checkout only
+once this app also hosts a Paddle.js-enabled page as its default
+payment link (Paddle Billing's checkout is not a pure
+server-redirect-and-done flow the way Stripe Checkout is — confirmed
+against Paddle's own docs, not assumed) — that page doesn't exist in
+this codebase yet and is a separate future PR; (2) relatedly,
+`input.returnUrl`/`cancelUrl` are accepted by this app's own contract
+but never sent to Paddle at all — the Transactions API has no such
+field, and a subscription's real post-checkout redirect is set via
+Paddle.js's own `successUrl` argument or a per-Product dashboard
+default, neither of which any PR so far wires up. Additionally, this
+adapter is still never reached by the resolver in production (see
+above) — real signature verification against a live Paddle sandbox
+delivery has not been exercised, only against locally-computed
+fixtures built the same way Paddle's own documentation describes; see
+"Open questions" below.
 
 ## The adapter contract
 
@@ -107,6 +123,67 @@ header names entirely (Paddle: `Paddle-Signature`, Stripe:
 what keeps `src/app/api/billing/webhook/route.ts` itself genuinely
 provider-neutral: it never needs to know which header any given provider
 uses.
+
+## Supported and ignored webhook events (E2.4, Paddle adapter)
+
+Paddle's own `event_type` string → this app's normalized
+`BillingProviderEventType` (`src/lib/billing/provider/types.ts`), as
+implemented by `paddle-provider.ts`'s `parseWebhookEvent`:
+
+| Paddle `event_type` | Normalized as |
+|---|---|
+| `subscription.created` | `SUBSCRIPTION_CREATED` |
+| `subscription.activated` | `SUBSCRIPTION_ACTIVATED` |
+| `subscription.updated` | `SUBSCRIPTION_UPDATED` |
+| `subscription.resumed` | `SUBSCRIPTION_UPDATED` |
+| `subscription.trialing` | `SUBSCRIPTION_UPDATED` |
+| `subscription.canceled` | `SUBSCRIPTION_CANCELED` |
+| `subscription.past_due` | `SUBSCRIPTION_PAST_DUE` |
+| `subscription.paused` (or `status: "paused"` on any other event) | `EVENT_IGNORED` |
+| `subscription.imported` | `EVENT_IGNORED` |
+| any other `subscription.*` event | `EVENT_IGNORED` |
+| any non-`subscription.*` event (e.g. `transaction.*`, `customer.*`) | `EVENT_IGNORED` |
+
+`EVENT_IGNORED` is a normal, successfully-parsed result (recorded for
+idempotency/audit, never acted on) — distinct from `null`, which
+`parseWebhookEvent` returns only for a payload that can't be parsed at
+all (not valid JSON, or missing `event_id`/`event_type`/`occurred_at`,
+or a `subscription.*` event with no `data` object).
+
+**Why no `transaction.*` events are mapped:** re-reading
+`src/app/api/billing/webhook/route.ts` before writing this PR confirmed
+that its `PAYMENT_FAILED` notification is driven entirely by the
+`becamePastDue` status transition (i.e. `subscription.past_due`), with
+no dependency on any transaction-level event at all. Adding
+`transaction.payment_failed`/`transaction.completed` mapping would be
+unused scope, not a missing feature — payment failure is already
+covered end to end.
+
+**Why no dedicated `PAUSED`/`UNPAID` status:** this app's own
+`SubscriptionStatus` enum has no `PAUSED` value (deliberately, "provider-
+conditional, not needed for v1") — any event carrying `status: "paused"`
+is ignored regardless of which `event_type` carried it, never coerced
+into a different status. Paddle's own subscription status vocabulary is
+confirmed to have exactly 5 values (`trialing`, `active`, `past_due`,
+`paused`, `canceled`) — there is no Paddle event that can ever produce
+`SubscriptionStatus.UNPAID`; a `status` value this app doesn't
+recognize (there currently are none among Paddle's real values, since
+`paused` is filtered out before the status map is even consulted) maps
+to `status: null` rather than being fabricated.
+
+**`cancelAtPeriodEnd`** is derived from `subscription.updated` payloads
+whose own `data.scheduled_change.action === "cancel"` — Paddle only
+fires `subscription.canceled` once a cancellation actually takes effect,
+not when it's merely scheduled, so this is the only way to learn a
+cancellation is pending.
+
+**Trust boundary:** `parseWebhookEvent` only normalizes data — it never
+queries the database, never mutates `Subscription`, and treats
+`organizationId` (read from `data.custom_data.organizationId`) as an
+unverified claim, never authoritative. Validating that claim against
+the database, and rejecting an unknown organization or a provider id
+already bound to a different org, stays entirely in the webhook route,
+unchanged by this PR.
 
 ## The registry
 
@@ -283,6 +360,33 @@ validates that claim against the database before ever applying it (see
 "The webhook route" above). Never accept an organization id from
 anywhere else in a webhook payload.
 
+## Open questions (sandbox-only validation gaps)
+
+Everything above is confirmed against Paddle's own current, real
+documentation and quoted example payloads — not assumed. What remains
+genuinely unverified, because this PR (like E2.2/E2.3 before it) uses no
+real Paddle account and makes no network call:
+
+- **Real signature delivery.** `verifyWebhook` is tested against
+  locally-computed HMAC fixtures built the same way Paddle's own docs
+  describe the algorithm, but has never been exercised against an actual
+  webhook delivered by Paddle's own infrastructure (header casing,
+  transport-level body encoding, etc., in practice rather than in
+  documentation). Recommended first live step once a sandbox Paddle
+  account exists: point a sandbox webhook endpoint at this route and
+  confirm a real delivery verifies successfully before trusting this in
+  production.
+- **`subscription.resumed`/`subscription.trialing` in practice.** Their
+  existence and rough shape are confirmed by Paddle's docs, but no real
+  example payload for either was available to fetch during this PR
+  (unlike `created`/`updated`/`canceled`/`activated`, which were
+  verified against real quoted examples). The mapping (`SUBSCRIPTION_
+  UPDATED`) is conservative and should be safe regardless of minor field
+  differences, but hasn't been sandbox-confirmed field-by-field.
+- **`status: "unpaid"`.** Confirmed absent from Paddle's real status
+  enum today; flagged here only so this stays a checked fact rather than
+  a silent assumption if Paddle's own API ever changes.
+
 ## Test-mode → live checklist
 
 1. Choose and confirm provider eligibility (Paddle vs. Stripe) — still an
@@ -330,3 +434,10 @@ keep every one of these true:
 - The webhook route validates organization existence and rejects
   cross-org provider id reuse.
 - The Client Portal never imports any part of the Billing UI or `src/lib/billing`.
+- (E2.4) `paddle-provider.ts`'s `verifyWebhook` is a real HMAC-SHA256
+  implementation, not a placeholder that always fails closed.
+- (E2.4) `paddle-provider.ts`'s `parseWebhookEvent` is a real
+  implementation, not a placeholder that always returns `null`.
+- (E2.3, unchanged) The provider registry does not yet reference
+  `createPaddleBillingProvider` — the real adapter exists but is not
+  wired into `getBillingProviderAdapter()`.

@@ -1,6 +1,11 @@
+import { createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "@paddle/paddle-node-sdk";
-import { createPaddleBillingProvider, PaddleAdapterError } from "@/lib/billing/provider/paddle-provider";
+import {
+  createPaddleBillingProvider,
+  PaddleAdapterError,
+  PADDLE_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS,
+} from "@/lib/billing/provider/paddle-provider";
 import type { PaddleSdkClient } from "@/lib/billing/provider/paddle-client";
 import type { PaddleProviderConfig } from "@/lib/billing/provider/paddle-config";
 
@@ -30,6 +35,40 @@ function fakeSdkClient(overrides: Partial<PaddleSdkClient> = {}): PaddleSdkClien
     customerPortalSessions: { create: vi.fn() },
     ...overrides,
   } as PaddleSdkClient;
+}
+
+/** Builds a real `Paddle-Signature` header value the same way Paddle itself would — used to construct valid fixtures, and mutated field-by-field to construct invalid ones. */
+function signPaddleWebhook(rawBody: string, secret: string, timestampSeconds: number, extraSignatures: string[] = []): string {
+  const signature = createHmac("sha256", secret).update(`${timestampSeconds}:${rawBody}`).digest("hex");
+  const h1Values = [signature, ...extraSignatures];
+  return `ts=${timestampSeconds};${h1Values.map((value) => `h1=${value}`).join(";")}`;
+}
+
+function nowSeconds(): number {
+  return Math.floor(Date.now() / 1000);
+}
+
+type SubscriptionEventDataOverrides = Record<string, unknown>;
+
+/** A well-formed `subscription.*` webhook envelope, matching Paddle's own real, current payload shape (confirmed against developer.paddle.com's own quoted examples before writing this adapter) — every test overrides only the fields it's actually exercising. */
+function subscriptionEventBody(eventType: string, dataOverrides: SubscriptionEventDataOverrides = {}, envelopeOverrides: Record<string, unknown> = {}): string {
+  return JSON.stringify({
+    event_id: "evt_01hxxx",
+    event_type: eventType,
+    occurred_at: "2026-01-15T10:00:00.000000Z",
+    data: {
+      id: "sub_01hxxx",
+      customer_id: "ctm_01hxxx",
+      status: "active",
+      updated_at: "2026-01-15T10:00:00.000000Z",
+      current_billing_period: { starts_at: "2026-01-15T10:00:00.000000Z", ends_at: "2026-02-15T10:00:00.000000Z" },
+      scheduled_change: null,
+      custom_data: { organizationId: ORG_ID },
+      items: [{ price: { id: "pri_test_starter" }, trial_dates: null }],
+      ...dataOverrides,
+    },
+    ...envelopeOverrides,
+  });
 }
 
 describe("createPaddleBillingProvider", () => {
@@ -267,24 +306,353 @@ describe("createPaddleBillingProvider", () => {
     });
   });
 
-  describe("webhook placeholders (E2.3 scope — real verification/parsing is a later PR)", () => {
-    it("verifyWebhook always fails closed with a safe, generic reason", () => {
+  describe("verifyWebhook (E2.4 — real Paddle-Signature HMAC-SHA256 verification)", () => {
+    const rawBody = subscriptionEventBody("subscription.created");
+
+    it("verifies a correctly signed payload", () => {
       const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+      const ts = nowSeconds();
+      const headers = new Headers({ "Paddle-Signature": signPaddleWebhook(rawBody, CONFIG.webhookSecret, ts) });
 
-      const result = provider.verifyWebhook({ rawBody: "{}", headers: new Headers() });
-
-      expect(result).toEqual({ verified: false, reason: "not_implemented" });
+      expect(provider.verifyWebhook({ rawBody, headers })).toEqual({ verified: true });
     });
 
-    it("parseWebhookEvent always returns null", () => {
+    it("reads the signature header case-insensitively via the Headers API", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+      const ts = nowSeconds();
+      const headers = new Headers({ "paddle-signature": signPaddleWebhook(rawBody, CONFIG.webhookSecret, ts) });
+
+      expect(provider.verifyWebhook({ rawBody, headers })).toEqual({ verified: true });
+    });
+
+    it("fails closed, without throwing, when the signature header is missing", () => {
       const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
 
-      expect(provider.parseWebhookEvent('{"event_type":"subscription.created"}')).toBeNull();
+      const result = provider.verifyWebhook({ rawBody, headers: new Headers() });
+
+      expect(result).toEqual({ verified: false, reason: "missing_signature_header" });
+    });
+
+    it("fails closed when the signature header is malformed (no recognizable ts/h1 pairs)", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+      const headers = new Headers({ "Paddle-Signature": "not-a-valid-header" });
+
+      const result = provider.verifyWebhook({ rawBody, headers });
+
+      expect(result).toEqual({ verified: false, reason: "malformed_signature_header" });
+    });
+
+    it("fails closed when the header has a ts but no h1", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+      const headers = new Headers({ "Paddle-Signature": `ts=${nowSeconds()}` });
+
+      const result = provider.verifyWebhook({ rawBody, headers });
+
+      expect(result).toEqual({ verified: false, reason: "malformed_signature_header" });
+    });
+
+    it("fails closed when the header has an h1 but no ts", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+      const headers = new Headers({ "Paddle-Signature": "h1=deadbeef" });
+
+      const result = provider.verifyWebhook({ rawBody, headers });
+
+      expect(result).toEqual({ verified: false, reason: "malformed_signature_header" });
+    });
+
+    it("accepts a match against any h1 value when multiple are present (Paddle's own secret-rotation format)", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+      const ts = nowSeconds();
+      const header = signPaddleWebhook(rawBody, CONFIG.webhookSecret, ts, ["0000000000000000000000000000000000000000000000000000000000000000"]);
+      const headers = new Headers({ "Paddle-Signature": header });
+
+      expect(provider.verifyWebhook({ rawBody, headers })).toEqual({ verified: true });
+    });
+
+    it("fails closed when the signature was computed with a different secret", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+      const ts = nowSeconds();
+      const headers = new Headers({ "Paddle-Signature": signPaddleWebhook(rawBody, "wrong-secret", ts) });
+
+      const result = provider.verifyWebhook({ rawBody, headers });
+
+      expect(result).toEqual({ verified: false, reason: "signature_mismatch" });
+    });
+
+    it("fails closed when the raw body is mutated after signing (tamper detection)", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+      const ts = nowSeconds();
+      const headers = new Headers({ "Paddle-Signature": signPaddleWebhook(rawBody, CONFIG.webhookSecret, ts) });
+      const tamperedBody = rawBody.replace("subscription.created", "subscription.canceled");
+
+      const result = provider.verifyWebhook({ rawBody: tamperedBody, headers });
+
+      expect(result).toEqual({ verified: false, reason: "signature_mismatch" });
+    });
+
+    it(`fails closed when the timestamp is older than the documented ${PADDLE_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS}-second tolerance`, () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+      const ts = nowSeconds() - PADDLE_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS - 30;
+      const headers = new Headers({ "Paddle-Signature": signPaddleWebhook(rawBody, CONFIG.webhookSecret, ts) });
+
+      const result = provider.verifyWebhook({ rawBody, headers });
+
+      expect(result).toEqual({ verified: false, reason: "timestamp_too_old" });
+    });
+
+    it("verifies a timestamp within the documented tolerance", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+      const ts = nowSeconds() - (PADDLE_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS - 1);
+      const headers = new Headers({ "Paddle-Signature": signPaddleWebhook(rawBody, CONFIG.webhookSecret, ts) });
+
+      expect(provider.verifyWebhook({ rawBody, headers })).toEqual({ verified: true });
+    });
+
+    it("fails closed when the ts value is not a number", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+      const headers = new Headers({ "Paddle-Signature": "ts=not-a-number;h1=deadbeef" });
+
+      const result = provider.verifyWebhook({ rawBody, headers });
+
+      expect(result).toEqual({ verified: false, reason: "malformed_timestamp" });
+    });
+
+    it("never throws for a normal invalid signature", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+      const headers = new Headers({ "Paddle-Signature": "ts=123;h1=deadbeef" });
+
+      expect(() => provider.verifyWebhook({ rawBody, headers })).not.toThrow();
+    });
+  });
+
+  describe("parseWebhookEvent (E2.4 — real event normalization)", () => {
+    it("normalizes subscription.created", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      const event = provider.parseWebhookEvent(subscriptionEventBody("subscription.created"));
+
+      expect(event).toMatchObject({
+        type: "SUBSCRIPTION_CREATED",
+        providerEventId: "evt_01hxxx",
+        providerCustomerId: "ctm_01hxxx",
+        providerSubscriptionId: "sub_01hxxx",
+        organizationId: ORG_ID,
+        planKey: "STARTER",
+        status: "ACTIVE",
+        cancelAtPeriodEnd: false,
+      });
+      expect(event?.currentPeriodStart).toEqual(new Date("2026-01-15T10:00:00.000000Z"));
+      expect(event?.currentPeriodEnd).toEqual(new Date("2026-02-15T10:00:00.000000Z"));
+    });
+
+    it("normalizes subscription.activated", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      const event = provider.parseWebhookEvent(subscriptionEventBody("subscription.activated"));
+
+      expect(event?.type).toBe("SUBSCRIPTION_ACTIVATED");
+    });
+
+    it("normalizes subscription.updated", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      const event = provider.parseWebhookEvent(subscriptionEventBody("subscription.updated"));
+
+      expect(event?.type).toBe("SUBSCRIPTION_UPDATED");
+    });
+
+    it("normalizes subscription.canceled", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      const event = provider.parseWebhookEvent(
+        subscriptionEventBody("subscription.canceled", { status: "canceled", current_billing_period: null }),
+      );
+
+      expect(event?.type).toBe("SUBSCRIPTION_CANCELED");
+      expect(event?.status).toBe("CANCELED");
+      expect(event?.currentPeriodStart).toBeNull();
+      expect(event?.currentPeriodEnd).toBeNull();
+    });
+
+    it("normalizes subscription.past_due", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      const event = provider.parseWebhookEvent(subscriptionEventBody("subscription.past_due", { status: "past_due" }));
+
+      expect(event?.type).toBe("SUBSCRIPTION_PAST_DUE");
+      expect(event?.status).toBe("PAST_DUE");
+    });
+
+    it("maps a plan change (subscription.updated with the PRO price) to planKey PRO", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      const event = provider.parseWebhookEvent(
+        subscriptionEventBody("subscription.updated", { items: [{ price: { id: "pri_test_pro" }, trial_dates: null }] }),
+      );
+
+      expect(event?.planKey).toBe("PRO");
+    });
+
+    it("derives cancelAtPeriodEnd: true from scheduled_change.action === 'cancel' on subscription.updated", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      const event = provider.parseWebhookEvent(
+        subscriptionEventBody("subscription.updated", {
+          scheduled_change: { action: "cancel", effective_at: "2026-02-15T10:00:00.000000Z", resume_at: null },
+        }),
+      );
+
+      expect(event?.cancelAtPeriodEnd).toBe(true);
+    });
+
+    it("recognizes a known STARTER price id", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      const event = provider.parseWebhookEvent(
+        subscriptionEventBody("subscription.created", { items: [{ price: { id: "pri_test_starter" }, trial_dates: null }] }),
+      );
+
+      expect(event?.planKey).toBe("STARTER");
+    });
+
+    it("recognizes a known PRO price id", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      const event = provider.parseWebhookEvent(
+        subscriptionEventBody("subscription.created", { items: [{ price: { id: "pri_test_pro" }, trial_dates: null }] }),
+      );
+
+      expect(event?.planKey).toBe("PRO");
+    });
+
+    it("maps an unknown/unconfigured price id to planKey: null, never throwing", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      const event = provider.parseWebhookEvent(
+        subscriptionEventBody("subscription.created", { items: [{ price: { id: "pri_unknown_price" }, trial_dates: null }] }),
+      );
+
+      expect(event?.planKey).toBeNull();
+    });
+
+    it("maps a missing custom_data to organizationId: null rather than throwing or fabricating one", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      const event = provider.parseWebhookEvent(subscriptionEventBody("subscription.created", { custom_data: null }));
+
+      expect(event?.organizationId).toBeNull();
+    });
+
+    it("falls back to the event's own occurred_at for providerUpdatedAt when updated_at is malformed", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      const event = provider.parseWebhookEvent(subscriptionEventBody("subscription.created", { updated_at: "not-a-date" }));
+
+      expect(event?.providerUpdatedAt).toEqual(new Date("2026-01-15T10:00:00.000000Z"));
+    });
+
+    it("returns EVENT_IGNORED (a successful parse, not null) for an unrecognized subscription event type", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      const event = provider.parseWebhookEvent(subscriptionEventBody("subscription.some_future_event"));
+
+      expect(event).toMatchObject({ type: "EVENT_IGNORED", providerEventId: "evt_01hxxx" });
+    });
+
+    it("returns EVENT_IGNORED for a non-subscription event category (e.g. transaction.completed) rather than acting on it", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      const event = provider.parseWebhookEvent(subscriptionEventBody("transaction.completed"));
+
+      expect(event).toMatchObject({ type: "EVENT_IGNORED" });
+    });
+
+    it("returns null for a payload that isn't valid JSON", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      expect(provider.parseWebhookEvent("not json")).toBeNull();
+    });
+
+    it("returns null when required envelope fields (event_id/event_type/occurred_at) are missing", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      expect(provider.parseWebhookEvent(JSON.stringify({ data: {} }))).toBeNull();
+    });
+
+    it("returns null when a subscription.* event has no data object at all", () => {
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+      const body = JSON.stringify({ event_id: "evt_1", event_type: "subscription.created", occurred_at: "2026-01-15T10:00:00.000000Z" });
+
+      expect(provider.parseWebhookEvent(body)).toBeNull();
+    });
+
+    describe("edge lifecycle states", () => {
+      it("ignores subscription.paused (this app's schema has no PAUSED status)", () => {
+        const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+        const event = provider.parseWebhookEvent(subscriptionEventBody("subscription.paused", { status: "paused" }));
+
+        expect(event).toMatchObject({ type: "EVENT_IGNORED" });
+      });
+
+      it("ignores a status: 'paused' payload even when it arrives via subscription.updated", () => {
+        const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+        const event = provider.parseWebhookEvent(subscriptionEventBody("subscription.updated", { status: "paused" }));
+
+        expect(event).toMatchObject({ type: "EVENT_IGNORED" });
+      });
+
+      it("maps subscription.resumed to SUBSCRIPTION_UPDATED", () => {
+        const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+        const event = provider.parseWebhookEvent(subscriptionEventBody("subscription.resumed"));
+
+        expect(event?.type).toBe("SUBSCRIPTION_UPDATED");
+      });
+
+      it("maps subscription.trialing to SUBSCRIPTION_UPDATED with status TRIALING", () => {
+        const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+        const event = provider.parseWebhookEvent(subscriptionEventBody("subscription.trialing", { status: "trialing" }));
+
+        expect(event?.type).toBe("SUBSCRIPTION_UPDATED");
+        expect(event?.status).toBe("TRIALING");
+      });
+
+      it("ignores subscription.imported", () => {
+        const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+        const event = provider.parseWebhookEvent(subscriptionEventBody("subscription.imported"));
+
+        expect(event).toMatchObject({ type: "EVENT_IGNORED" });
+      });
+
+      it("maps a status this app has no equivalent for (Paddle has no 'unpaid' status) to status: null rather than fabricating one", () => {
+        const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+        const event = provider.parseWebhookEvent(subscriptionEventBody("subscription.updated", { status: "unpaid" }));
+
+        expect(event?.status).toBeNull();
+      });
+    });
+
+    describe("trust boundary", () => {
+      it("does not throw or reject when organizationId claims an organization this test never validates — parseWebhookEvent performs no DB lookups", () => {
+        const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient());
+
+        const event = provider.parseWebhookEvent(
+          subscriptionEventBody("subscription.created", { custom_data: { organizationId: "not-a-real-org-id" } }),
+        );
+
+        expect(event?.organizationId).toBe("not-a-real-org-id");
+      });
     });
   });
 
   describe("security", () => {
-    it("never logs the api key or webhook secret across the full checkout + portal + webhook-placeholder surface", async () => {
+    it("never logs the api key or webhook secret across the full checkout + portal + webhook surface, including a real signed payload", async () => {
       const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -308,8 +676,12 @@ describe("createPaddleBillingProvider", () => {
         providerCustomerId: "ctm_abc123",
         returnUrl: "/settings/billing",
       });
-      provider.verifyWebhook({ rawBody: "{}", headers: new Headers() });
-      provider.parseWebhookEvent("{}");
+
+      const rawBody = subscriptionEventBody("subscription.created");
+      const validHeaders = new Headers({ "Paddle-Signature": signPaddleWebhook(rawBody, CONFIG.webhookSecret, nowSeconds()) });
+      provider.verifyWebhook({ rawBody, headers: validHeaders });
+      provider.verifyWebhook({ rawBody, headers: new Headers() });
+      provider.parseWebhookEvent(rawBody);
 
       expect(logSpy).not.toHaveBeenCalled();
       expect(warnSpy).not.toHaveBeenCalled();

@@ -412,4 +412,41 @@ ok = report(
   providerRegistrySource === "" ? "provider registry file not found" : "registry already references the real Paddle adapter",
 ) && ok;
 
+// Sale-Ready Phase E, E2.4 (Paddle Webhook Verification + Event
+// Normalization) — 2 additional checks, appended rather than replacing
+// anything above. Both are regression guards against silently reverting
+// to E2.3's safe-but-inert placeholders (`verified: false,
+// reason: "not_implemented"` / always `null`) — a real, non-placeholder
+// implementation is required now that this PR adds one, the same
+// "guard against a silent regression back to the safe default" shape as
+// check 24 above.
+
+const PADDLE_PROVIDER_FILE = "src/lib/billing/provider/paddle-provider.ts";
+const paddleProviderSource = existsSync(PADDLE_PROVIDER_FILE) ? readFileSync(PADDLE_PROVIDER_FILE, "utf8") : "";
+
+// 25. verifyWebhook is a real HMAC-SHA256 implementation (node:crypto),
+// not the E2.3 "always verified: false" placeholder.
+const verifyWebhookIsReal =
+  /createHmac\(\s*["']sha256["']/.test(paddleProviderSource) &&
+  /timingSafeEqual/.test(paddleProviderSource) &&
+  !/return \{\s*verified:\s*false,\s*reason:\s*"not_implemented"\s*\}/.test(paddleProviderSource);
+ok = report(
+  "paddle-provider.ts's verifyWebhook is a real HMAC-SHA256 implementation, not the E2.3 placeholder",
+  verifyWebhookIsReal,
+  paddleProviderSource ? "" : "paddle-provider.ts not found",
+) && ok;
+
+// 26. parseWebhookEvent is a real implementation — parses the raw body as
+// JSON and normalizes known subscription events, not the E2.3 "always
+// null" placeholder.
+const parseWebhookEventIsReal =
+  /JSON\.parse\(rawBody\)/.test(paddleProviderSource) &&
+  /SUBSCRIPTION_CREATED/.test(paddleProviderSource) &&
+  !/void rawBody;[\s\S]{0,120}return null;/.test(paddleProviderSource);
+ok = report(
+  "paddle-provider.ts's parseWebhookEvent is a real implementation, not the E2.3 placeholder",
+  parseWebhookEventIsReal,
+  paddleProviderSource ? "" : "paddle-provider.ts not found",
+) && ok;
+
 process.exit(ok ? 0 : 1);
