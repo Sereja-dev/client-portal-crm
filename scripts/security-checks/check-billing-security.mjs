@@ -74,10 +74,22 @@ ok = report(
 // id, the server-side API key, the webhook secret, or any future one)
 // stays banned with a NEXT_PUBLIC_ prefix.
 const ALLOWED_PUBLIC_BILLING_ENV_VAR = "NEXT_PUBLIC_BILLING_CLIENT_TOKEN";
+// Exact identifier match, not a substring check — `.includes()` would
+// also silently allow a differently-named variant like
+// NEXT_PUBLIC_BILLING_CLIENT_TOKEN_2 or NEXT_PUBLIC_BILLING_CLIENT_TOKEN_LEAK
+// just because it happens to contain the allowed name. `_` counts as a
+// \w character in JS regex, so `\b` only matches at a genuine identifier
+// boundary (a quote, a dot, whitespace, etc.) — it correctly rejects
+// both a suffixed and a prefixed variant while still matching every real
+// reference (`process.env.NEXT_PUBLIC_BILLING_CLIENT_TOKEN`,
+// `"NEXT_PUBLIC_BILLING_CLIENT_TOKEN"`, ...).
+const ALLOWED_PUBLIC_BILLING_ENV_VAR_PATTERN = new RegExp(`\\b${ALLOWED_PUBLIC_BILLING_ENV_VAR}\\b`);
 const publicBillingEnvVarLines = grep("NEXT_PUBLIC_[A-Z_]*(PADDLE|STRIPE|BILLING|PRICE)", "src")
   .split("\n")
   .filter(Boolean);
-const unexpectedPublicBillingEnvVarLines = publicBillingEnvVarLines.filter((line) => !line.includes(ALLOWED_PUBLIC_BILLING_ENV_VAR));
+const unexpectedPublicBillingEnvVarLines = publicBillingEnvVarLines.filter(
+  (line) => !ALLOWED_PUBLIC_BILLING_ENV_VAR_PATTERN.test(line),
+);
 ok = report(
   `no NEXT_PUBLIC billing/provider env var referenced anywhere, other than ${ALLOWED_PUBLIC_BILLING_ENV_VAR}`,
   unexpectedPublicBillingEnvVarLines.length === 0,
