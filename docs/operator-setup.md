@@ -116,16 +116,47 @@ already has.
   `prisma/migrations/20260830090000_add_billing_foundation/` (Stage 2:
   the `Subscription`/`WebhookEvent` schema) and
   `prisma/migrations/20260907100000_add_billing_notification_types/`
-  (Stage 4: four additive `NotificationType` enum values). **Neither has
-  been applied to any shared or production database** — both were
-  generated and verified only against a disposable local test database.
-  Review and apply them deliberately, the same as any other migration,
-  before this code is deployed anywhere it matters.
+  (Stage 4: four additive `NotificationType` enum values). **Both have
+  been applied to production** (Sale-Ready Phase E, E1) — verified
+  directly against the production database via `prisma migrate status`:
+  all 22 migrations report applied, schema up to date, the billing
+  foundation migration present, no migrations pending.
 - `prisma/backfill-subscriptions.ts` (idempotent, dry-run by default) gives
   every pre-existing organization an explicit `LEGACY` Subscription row
   instead of relying indefinitely on the "no row = legacy access" fallback.
-  It has **not** been run against any shared or production database. Run
-  it (dry-run first) only when you're ready to make that state explicit.
+  **Verified against production** (Sale-Ready Phase E, E1): a dry run
+  reported `Organizations without a Subscription row: 0` — every
+  organization already has one, so `--apply` was not needed and no write
+  was performed.
+- Production runtime was confirmed healthy after this verification —
+  including after an unrelated Supabase database password rotation (see
+  the security note below) — with a real staff session reaching
+  `/dashboard` and `/clients` with no Prisma connection errors.
+
+### Security note — handling production database credentials
+
+Operating against the production database (checking migration status,
+running the backfill script) requires `DATABASE_URL`/`DIRECT_URL`
+locally, per the [README's own Environment variables table](../README.md#environment-variables)
+(Supabase → Project Settings → Database → Connection string). A few
+rules, reinforced by an actual incident during Sale-Ready Phase E, E1:
+
+- Production secrets must never be printed to a shell, logged, or pasted
+  into a chat/AI session — not even partially. If one is exposed this
+  way regardless, treat it as compromised and rotate it immediately, the
+  same as if it had been committed to git.
+- A local file holding real production credentials (e.g.
+  `.env.production.local`) stays gitignored (`.env*` is ignored except
+  `.env.example`/`.env.test.example`) and should be deleted once the
+  task that needed it is done.
+- After rotating the database password in Supabase, **both** Vercel's
+  stored `DATABASE_URL`/`DIRECT_URL` (Project Settings → Environment
+  Variables) **and** any local `.env*` file must be updated to match —
+  and production must be redeployed afterward, since a running
+  deployment does not pick up an env var change without a new build.
+  Until both are done, production will fail every database query with
+  Prisma error `P1000` ("Authentication failed against the database
+  server").
 
 ### Live payments
 
