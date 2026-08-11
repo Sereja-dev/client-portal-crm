@@ -24,6 +24,32 @@ now a matter of implementing one interface and wiring a few environment
 variables — no changes to entitlements, the Billing UI, or the webhook
 route's own trust/idempotency/ordering logic.
 
+## Implementation status (Sale-Ready Phase E)
+
+- **E2.2** — `src/lib/billing/provider/paddle-config.ts`: reads and
+  validates the env vars below (fail-closed on any partial config).
+- **E2.3 (this PR)** — `src/lib/billing/provider/paddle-provider.ts`: a
+  real, server-only Paddle adapter. **`createCheckoutSession` and
+  `createCustomerPortalSession` are implemented** against the actual
+  Paddle Transactions API and Customer Portal Sessions API (via the
+  official `@paddle/paddle-node-sdk`). **`verifyWebhook`/
+  `parseWebhookEvent` are still safe, fail-closed placeholders** —
+  `verifyWebhook` always returns `{ verified: false, reason:
+  "not_implemented" }`, `parseWebhookEvent` always returns `null`. Real
+  webhook signature verification and event parsing are a later PR
+  (E2.4+).
+- **The provider registry (`getBillingProviderAdapter()`,
+  `./provider.ts`) is still unchanged** — it still only ever resolves to
+  the mock (`TEST_MODE`) or the fail-closed unconfigured adapter. The
+  real Paddle adapter exists and is fully unit-tested, but is not yet
+  reachable from anywhere in the running application. Wiring it in as
+  the real third branch is a later PR.
+- **No Paddle account was created or required for this PR** — every
+  test uses a fully mocked SDK client, no network call is ever made. Per
+  the sale-ready framing established in E2.2: real credentials are still
+  supplied later, by whoever actually connects a Paddle account —
+  never by this repository.
+
 ## The adapter contract
 
 `src/lib/billing/provider/types.ts` defines `BillingProviderAdapter`:

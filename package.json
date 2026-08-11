@@ -18,6 +18,7 @@
     "security:check": "node scripts/security-checks/run-all.mjs"
   },
   "dependencies": {
+    "@paddle/paddle-node-sdk": "^3.10.0",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "7.9.1",
     "@supabase/ssr": "^0.12.4",

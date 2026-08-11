@@ -16,18 +16,45 @@ const BILLING_LIB_DIR = "src/lib/billing";
 const PORTAL_APP_DIR = "src/app/portal";
 const SCHEMA_FILE = "prisma/schema.prisma";
 
-// 1. No Paddle/Stripe SDK dependency yet — Stage 2 is provider-neutral by
-// requirement; a real provider client is Stage 3+'s job.
+// 1. No Paddle/Stripe SDK dependency OTHER than the one official package
+// this app actually uses. Stages 1-4's original rule ("no SDK at all")
+// was correct while this was genuinely provider-neutral with no provider
+// chosen; Sale-Ready Phase E, E2.3 replaces it with this narrower check
+// now that a real, server-only Paddle adapter exists —
+// @paddle/paddle-node-sdk is expected and allowed, but a stray Stripe
+// package, a second/competing Paddle package, or a typosquatted lookalike
+// is still rejected outright.
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 const allDeps = { ...packageJson.dependencies, ...packageJson.devDependencies };
+const ALLOWED_PROVIDER_SDK_PACKAGE = "@paddle/paddle-node-sdk";
 const providerSdkDeps = Object.keys(allDeps).filter((name) => /paddle|stripe/i.test(name));
-ok = report("no Paddle/Stripe SDK dependency in package.json", providerSdkDeps.length === 0, providerSdkDeps.join(", ")) && ok;
+const unexpectedProviderSdkDeps = providerSdkDeps.filter((name) => name !== ALLOWED_PROVIDER_SDK_PACKAGE);
+ok = report(
+  `no Paddle/Stripe SDK dependency other than ${ALLOWED_PROVIDER_SDK_PACKAGE}`,
+  unexpectedProviderSdkDeps.length === 0,
+  unexpectedProviderSdkDeps.join(", "),
+) && ok;
 
-// 2. No import of a paddle/stripe package anywhere in src/ — belt and
-// suspenders alongside check 1 (a transitive/undeclared import would slip
-// past a package.json-only check).
-const providerImports = grep('from "(@paddle|@stripe|paddle-|stripe)', "src");
-ok = report("no Paddle/Stripe package import anywhere in src/", providerImports === "", providerImports) && ok;
+// 2. The Paddle SDK is only ever imported from
+// src/lib/billing/provider/ — never from a "use client" file, never from
+// the Billing UI tree (src/app/(dashboard)/settings/billing), never from
+// the Client Portal, never from anywhere else in src/app or src/lib. A
+// blanket "no import anywhere in src/" ban (the original Stage 1-4 rule)
+// is no longer correct now that a real adapter genuinely does import the
+// SDK; this is the narrower, still-meaningful replacement — the SDK
+// (and, transitively, the server-side API key it's constructed with)
+// must never reach a client bundle or any code path outside the
+// provider-adapter boundary.
+const PROVIDER_DIR_PREFIX = "src/lib/billing/provider/";
+const providerSdkImportLines = grep('from "(@paddle|@stripe|paddle-|stripe)', "src")
+  .split("\n")
+  .filter(Boolean);
+const providerSdkImportsOutsideProviderDir = providerSdkImportLines.filter((line) => !line.startsWith(PROVIDER_DIR_PREFIX));
+ok = report(
+  "the Paddle SDK is only ever imported from src/lib/billing/provider/, never anywhere else in src/",
+  providerSdkImportsOutsideProviderDir.length === 0,
+  providerSdkImportsOutsideProviderDir.join(", "),
+) && ok;
 
 // 3. No NEXT_PUBLIC_*-prefixed billing/provider env var referenced
 // anywhere — a provider price id, publishable key, or customer-portal
@@ -362,6 +389,27 @@ ok = report(
   "the webhook route validates organization existence and rejects cross-org provider id reuse",
   webhookHasTrustChecks,
   webhookRouteSource ? "" : "webhook route not found",
+) && ok;
+
+// Sale-Ready Phase E, E2.3 (Paddle Provider Core — checkout + customer
+// portal only) — 1 additional check, appended rather than replacing
+// anything above.
+
+// 24. The provider registry does not yet reference the real Paddle
+// adapter — E2.3 deliberately built createPaddleBillingProvider()
+// without wiring it into getBillingProviderAdapter() as a third branch,
+// so production behavior is unchanged by this PR (still only ever
+// resolves to the mock or the fail-closed unconfigured adapter). This
+// check is a regression guard for that specific promise, not a
+// permanent rule — it's expected to be removed in the PR that
+// deliberately does wire the real branch in.
+const PROVIDER_REGISTRY_FILE = "src/lib/billing/provider/provider.ts";
+const providerRegistrySource = existsSync(PROVIDER_REGISTRY_FILE) ? readFileSync(PROVIDER_REGISTRY_FILE, "utf8") : "";
+const registryReferencesPaddleAdapter = /createPaddleBillingProvider/.test(providerRegistrySource);
+ok = report(
+  "the provider registry does not yet reference createPaddleBillingProvider (E2.3 scope: adapter built, not wired in)",
+  providerRegistrySource !== "" && !registryReferencesPaddleAdapter,
+  providerRegistrySource === "" ? "provider registry file not found" : "registry already references the real Paddle adapter",
 ) && ok;
 
 process.exit(ok ? 0 : 1);
