@@ -427,21 +427,40 @@ ok = report(
 // portal only) — 1 additional check, appended rather than replacing
 // anything above.
 
-// 24. The provider registry does not yet reference the real Paddle
-// adapter — E2.3 deliberately built createPaddleBillingProvider()
-// without wiring it into getBillingProviderAdapter() as a third branch,
-// so production behavior is unchanged by this PR (still only ever
-// resolves to the mock or the fail-closed unconfigured adapter). This
-// check is a regression guard for that specific promise, not a
-// permanent rule — it's expected to be removed in the PR that
-// deliberately does wire the real branch in.
+// 24. The provider registry activates the real Paddle adapter only
+// through getPaddleProviderConfig() — never a hardcoded or
+// independently-assembled config. E2.3-E2.5 built createPaddleBillingProvider()
+// without wiring it into getBillingProviderAdapter(); E2.6 (Paddle
+// Provider Resolver Activation) is the PR that deliberately does wire it
+// in — this check's own original text ("the registry does not yet
+// reference createPaddleBillingProvider") was written expecting exactly
+// this PR to flip it, per its own prior comment. Now that it's wired in,
+// the check's job changes from "prove it's NOT referenced" to "prove
+// it's referenced only the one safe way": both `createPaddleBillingProvider`
+// and `getPaddleProviderConfig` must be referenced, and
+// `createPaddleBillingProvider` must never be called with an inline
+// object literal (`createPaddleBillingProvider({...})`) — the only
+// argument it's ever given must be whatever `getPaddleProviderConfig()`
+// itself returned, never a hand-assembled or partially-filled substitute.
+// Further resolver-specific checks (env-read discipline, TEST_MODE
+// ordering, the unconfigured fallback, no network calls) are their own,
+// more specific checks appended at the end of this file (E2.6 section).
 const PROVIDER_REGISTRY_FILE = "src/lib/billing/provider/provider.ts";
 const providerRegistrySource = existsSync(PROVIDER_REGISTRY_FILE) ? readFileSync(PROVIDER_REGISTRY_FILE, "utf8") : "";
-const registryReferencesPaddleAdapter = /createPaddleBillingProvider/.test(providerRegistrySource);
+// Comment-stripped variant — same shape as check 12's own `actionsCodeOnly`
+// above — used only by the checks below that would otherwise false-positive
+// on this file's own doc comments (which legitimately name BILLING_* env
+// vars and mention "await"/"fetch" in prose while documenting exactly why
+// the real code never does either).
+const providerRegistryCodeOnly = providerRegistrySource.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+const registryActivatesPaddleOnlyViaConfig =
+  /createPaddleBillingProvider/.test(providerRegistrySource) &&
+  /getPaddleProviderConfig/.test(providerRegistrySource) &&
+  !/createPaddleBillingProvider\(\s*\{/.test(providerRegistrySource);
 ok = report(
-  "the provider registry does not yet reference createPaddleBillingProvider (E2.3 scope: adapter built, not wired in)",
-  providerRegistrySource !== "" && !registryReferencesPaddleAdapter,
-  providerRegistrySource === "" ? "provider registry file not found" : "registry already references the real Paddle adapter",
+  "the provider registry activates the real Paddle adapter only via getPaddleProviderConfig(), never an inline/hardcoded config",
+  providerRegistrySource !== "" && registryActivatesPaddleOnlyViaConfig,
+  providerRegistrySource === "" ? "provider registry file not found" : "registry does not reference both createPaddleBillingProvider and getPaddleProviderConfig, or calls createPaddleBillingProvider with an inline object literal",
 ) && ok;
 
 // Sale-Ready Phase E, E2.4 (Paddle Webhook Verification + Event
@@ -543,6 +562,87 @@ ok = report(
   'BILLING_API_KEY/BILLING_WEBHOOK_SECRET are never referenced by name in any "use client" file',
   clientFilesReferencingServerSecretNames.length === 0,
   clientFilesReferencingServerSecretNames.join(", "),
+) && ok;
+
+// Sale-Ready Phase E, E2.6 (Paddle Provider Resolver Activation) — 5
+// additional checks, appended rather than replacing anything above.
+// Check 24 (above) already confirms Paddle is only ever activated
+// through getPaddleProviderConfig(); these five cover the remaining
+// resolver-specific properties E2.6's own instructions call out
+// individually — direct-env-read discipline, no hand-assembled config,
+// TEST_MODE ordering, the unconfigured fallback still existing, and no
+// network call during resolution.
+
+// 30. provider.ts never reads a BILLING_* env var directly (by
+// process.env access or by literal name) — every one of the six real
+// Paddle env vars must be read exactly once, inside
+// getPaddleProviderConfig() (paddle-config.ts), never duplicated or
+// re-read here. A stray `process.env.BILLING_API_KEY` in the resolver
+// itself would be a second, unvalidated read path — exactly what this
+// check exists to catch.
+const registryReadsBillingEnvDirectly =
+  /process\.env\.BILLING_/.test(providerRegistryCodeOnly) ||
+  /\bBILLING_(PROVIDER|ENVIRONMENT|API_KEY|WEBHOOK_SECRET|STARTER_PRICE_ID|PRO_PRICE_ID)\b/.test(providerRegistryCodeOnly);
+ok = report(
+  "provider.ts never reads a BILLING_* env var directly — only through getPaddleProviderConfig()",
+  providerRegistrySource !== "" && !registryReadsBillingEnvDirectly,
+  providerRegistrySource === "" ? "provider registry file not found" : "a BILLING_* env var or literal name was found directly in provider.ts",
+) && ok;
+
+// 31. provider.ts never assembles its own PaddleProviderConfig-shaped
+// object — no `apiKey:`, `webhookSecret:`, or `priceIdByPlanKey:` field
+// name anywhere in the file. The only legitimate config object is the
+// one getPaddleProviderConfig() itself constructs and returns; a
+// hand-assembled one in the resolver would be exactly the kind of
+// partial/fallback construction E2.6 is required not to introduce.
+const registryAssemblesOwnConfig = /\b(apiKey|webhookSecret|priceIdByPlanKey)\s*:/.test(providerRegistrySource);
+ok = report(
+  "provider.ts never hand-assembles its own Paddle config object (apiKey:/webhookSecret:/priceIdByPlanKey: field names)",
+  providerRegistrySource !== "" && !registryAssemblesOwnConfig,
+  providerRegistrySource === "" ? "provider registry file not found" : "found a config-shaped field name directly in provider.ts",
+) && ok;
+
+// 32. The TEST_MODE branch appears strictly before the Paddle-activation
+// branch in source order — TEST_MODE must take priority over a real
+// Paddle config even when both are present, so a local/test environment
+// can never accidentally resolve to a real Paddle adapter.
+const testModeIndex = providerRegistrySource.indexOf("TEST_MODE");
+const paddleConfigIndex = providerRegistrySource.indexOf("getPaddleProviderConfig(");
+ok = report(
+  "the TEST_MODE branch appears before the Paddle-activation branch in provider.ts, so TEST_MODE always takes priority",
+  testModeIndex !== -1 && paddleConfigIndex !== -1 && testModeIndex < paddleConfigIndex,
+  `TEST_MODE index: ${testModeIndex}, getPaddleProviderConfig( index: ${paddleConfigIndex}`,
+) && ok;
+
+// 33. The fail-closed unconfigured fallback is still present and still
+// imported — a regression here (e.g. an accidental early return, or the
+// import being dropped while refactoring) would mean an invalid/partial
+// Paddle config falls through to `undefined` instead of a safe,
+// controlled adapter.
+const registryHasUnconfiguredFallback =
+  /import\s*\{\s*createUnconfiguredBillingProvider\s*\}\s*from\s*"\.\/unconfigured-provider"/.test(providerRegistrySource) &&
+  /createUnconfiguredBillingProvider\(\)/.test(providerRegistrySource);
+ok = report(
+  "the fail-closed unconfigured provider fallback is still imported and still referenced in provider.ts",
+  providerRegistrySource !== "" && registryHasUnconfiguredFallback,
+  providerRegistrySource === "" ? "provider registry file not found" : "createUnconfiguredBillingProvider is no longer imported/referenced",
+) && ok;
+
+// 34. getBillingProviderAdapter() itself makes no network call —
+// provider.ts's own exported resolver function must stay fully
+// synchronous (no `async`, no `await`, no `fetch(` anywhere in the
+// file). Every actual Paddle API request happens lazily, later, inside a
+// specific adapter method (createCheckoutSession/
+// createCustomerPortalSession) — never merely by resolving which
+// adapter to use.
+const registryIsAsyncOrNetworked =
+  /\basync\s+function\s+getBillingProviderAdapter\b/.test(providerRegistryCodeOnly) ||
+  /\bawait\b/.test(providerRegistryCodeOnly) ||
+  /\bfetch\(/.test(providerRegistryCodeOnly);
+ok = report(
+  "getBillingProviderAdapter() stays fully synchronous — no async/await/fetch anywhere in provider.ts",
+  providerRegistrySource !== "" && !registryIsAsyncOrNetworked,
+  providerRegistrySource === "" ? "provider registry file not found" : "found async/await/fetch in provider.ts",
 ) && ok;
 
 process.exit(ok ? 0 : 1);

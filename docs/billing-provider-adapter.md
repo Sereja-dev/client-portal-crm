@@ -85,30 +85,41 @@ route's own trust/idempotency/ordering logic.
   new, deliberately public environment variable,
   `NEXT_PUBLIC_BILLING_CLIENT_TOKEN` (see "Required environment
   variables" below).
-- **The provider registry (`getBillingProviderAdapter()`,
-  `./provider.ts`) is still unchanged** — it still only ever resolves to
-  the mock (`TEST_MODE`) or the fail-closed unconfigured adapter. The
-  real Paddle adapter exists and is fully unit-tested, but is not yet
-  reachable from anywhere in the running application. Wiring it in as
-  the real third branch is a later PR.
+- **E2.6 (this PR) — the provider registry is now active.**
+  `getBillingProviderAdapter()` (`./provider.ts`) resolves, strictly in
+  this order: (1) `TEST_MODE` → the mock adapter, taking priority over a
+  real Paddle config even if one is also present; (2) otherwise,
+  `getPaddleProviderConfig()` — a fully valid config → the real
+  `createPaddleBillingProvider(config)`; (3) anything else (nothing set,
+  one var missing, an invalid value) → the fail-closed unconfigured
+  adapter. `provider.ts` itself never reads a `BILLING_*` variable
+  directly and never assembles its own config object — the only config
+  ever passed to the real adapter is whatever `getPaddleProviderConfig()`
+  itself returned. See "The registry" below for the exact code. Resolving
+  the adapter still makes no network call of its own — confirmed against
+  the installed `@paddle/paddle-node-sdk`'s own source that its `Paddle`
+  constructor only stores the API key/options and builds resource
+  wrapper objects (no `fetch`, no `await`, anywhere in it); every actual
+  Paddle API request happens lazily, later, only when a specific adapter
+  method is actually called by a real checkout/portal action.
 - **No Paddle account was created or required for this PR** — every
-  test uses a fully mocked SDK client and a locally computed signature,
-  no network call is ever made. Per the sale-ready framing established
-  in E2.2: real credentials are still supplied later, by whoever
-  actually connects a Paddle account — never by this repository.
+  test uses a fully mocked SDK client, stubbed env vars, and a locally
+  computed signature; no network call is ever made, confirmed by a
+  dedicated test that fails the build if `fetch` is ever called while
+  resolving the adapter. Per the sale-ready framing established in E2.2:
+  real credentials are still supplied later, by whoever actually
+  connects a Paddle account — never by this repository.
 
-**Even with E2.5, this is not a fully sandbox-verified payment flow
-yet** — every checkout-flow gap E2.3/E2.4 identified is now closed in
-code (webhook verification/parsing is real, `createCheckoutSession`
-returns a working bridge URL, `returnUrl`/`cancelUrl` are actually used),
-but this adapter is still never reached by the resolver in production
-(see above), and neither the webhook signature verification nor the
-checkout bridge's own Paddle.js call has ever been exercised against a
-real Paddle sandbox account — both are built and tested against
-locally-computed fixtures / a fully mocked SDK client, matching Paddle's
-own current, real documentation as closely as this PR could verify
-without creating an account. See "Open questions" below for the specific
-remaining gaps.
+**Even with E2.6, this is not a sandbox-verified payment flow yet** —
+every checkout-flow gap E2.3/E2.4/E2.5 identified is now closed in code,
+*and* the resolver can now genuinely activate the real adapter given a
+complete, valid config — but neither the webhook signature verification
+nor the checkout bridge's own Paddle.js call has ever been exercised
+against a real Paddle sandbox account. Both are built and tested against
+locally-computed fixtures / a fully mocked SDK client / stubbed env
+vars, matching Paddle's own current, real documentation as closely as
+this PR could verify without creating an account. See "Open questions"
+below for the specific remaining gaps.
 
 ## The adapter contract
 
@@ -293,11 +304,19 @@ unchanged by this PR.
 
 ## The registry
 
-`src/lib/billing/provider/provider.ts`:
+`src/lib/billing/provider/provider.ts` (E2.6 — active):
 
 ```ts
 export function getBillingProviderAdapter(): BillingProviderAdapter {
-  if (TEST_MODE) return createMockBillingProvider();
+  if (TEST_MODE) {
+    return createMockBillingProvider();
+  }
+
+  const config = getPaddleProviderConfig();
+  if (config) {
+    return createPaddleBillingProvider(config);
+  }
+
   return createUnconfiguredBillingProvider();
 }
 ```
@@ -307,18 +326,26 @@ never construct an adapter any other way. `getBillingProviderAvailability()`
 (`src/lib/billing/provider-availability.ts`) derives the Billing UI's
 `configured`/`checkoutAvailable`/`portalAvailable` flags from
 `adapter.kind` — the UI never has its own opinion about whether a
-provider is connected.
+provider is connected. Neither the webhook route nor either checkout/
+portal Server Action changed for E2.6 — both were already fully
+provider-neutral (they only ever call `getBillingProviderAdapter()` and
+branch on the returned adapter's own `kind`/methods), so a real,
+correctly-configured Paddle adapter flows through automatically.
 
-**Adding a real provider is a third branch here** — gated on a real
-env var this stage deliberately does not read (see below), returning a
-new `createPaddleBillingProvider()` (or `createStripeBillingProvider()`)
-that implements `BillingProviderAdapter` against the provider's real SDK.
-Nothing else in the registry, the actions, or the webhook route needs to
-change. Importing this module must never throw or fail in a production
-deployment with no billing env vars configured at all — the two-branch
-behavior above already guarantees that; a third, real-provider branch
-must preserve it (e.g. `if (isPaddleConfigured()) return
-createPaddleBillingProvider(); return createUnconfiguredBillingProvider();`).
+**Priority order, and why:** `TEST_MODE` is checked first and
+unconditionally wins, even when a full, valid Paddle config also happens
+to be present in the environment — a local/test environment must never
+be able to accidentally talk to a real Paddle account just because its
+own `.env` also has billing vars set for some unrelated reason (a real
+scenario a solo/dev environment can easily end up in). `getPaddleProviderConfig()`
+is Stage 2's own all-or-nothing validator (see "Required environment
+variables" below) — there is no partial-config state: either every one
+of the six required variables is present and valid, or the resolver
+never calls `createPaddleBillingProvider` at all and falls through to
+the fail-closed unconfigured adapter. `provider.ts` never reads a
+`BILLING_*` variable itself and never constructs a config object of its
+own — enforced by dedicated security checks (`check-billing-security.mjs`,
+checks 24/30/31), not just this doc's own description of the intent.
 
 ## The mock provider
 
@@ -402,11 +429,14 @@ was used to write.
 Documented as empty placeholders in `.env.example` — see that file's own
 comments. **Sale-Ready Phase E, E2.2** added
 `src/lib/billing/provider/paddle-config.ts`, which reads and validates
-the six server-only variables below — but nothing calls that module
-yet, and `getBillingProviderAdapter()` still only ever resolves to the
-mock (`TEST_MODE`) or the fail-closed unconfigured adapter (deliberately
-does not add the third branch). Setting these today still has zero
-effect on runtime behavior:
+the six server-only variables below. **As of E2.6**,
+`getBillingProviderAdapter()` (`./provider.ts`) actually calls this
+module and activates the real Paddle adapter once every one of the six
+is present and valid (see "The registry" above) — so, in a real
+deployment (`TEST_MODE` off), setting all six for real is exactly what
+turns Paddle on. This repository itself never sets any of them for
+real — no Paddle account exists here, and none of these placeholders
+have ever been filled with a real value in this codebase:
 
 | Variable | Purpose |
 |---|---|
@@ -438,15 +468,19 @@ not (E2.5's own check).
 **All seven values are supplied later, by whoever actually connects a
 real Paddle account — never by this repository.** This project is
 designed to be sold as a SaaS foundation: the current owner does not
-create a Paddle account, does not go through KYC/KYB, and does not enter
-any real credentials here. A future buyer creates their own Paddle
-account (sandbox first, then live), creates their own client-side token
-alongside their API key/webhook secret/price ids, fills in their own
-values for these seven variables in their own deployment's environment,
-and registers their own webhook endpoint — with zero application code
-changes required. No real key, secret, price id, or client token belongs
-in this file, `.env.example`, or any other committed file, ever (a
-client-side token is not itself highly sensitive — Paddle documents it
+create a Paddle account, does not go through KYC/KYB, does not supply
+any payout/banking information, and does not enter any real credentials
+here — this repository contains code, placeholders, and a configuration
+contract, nothing account-specific. A future buyer creates their own
+Paddle account (sandbox first, then live), completes their own KYC/KYB
+and payout setup with Paddle directly (entirely outside this
+repository), creates their own client-side token alongside their API
+key/webhook secret/price ids, fills in their own values for these seven
+variables in their own deployment's environment, and registers their
+own webhook endpoint — with zero application code changes required. No
+real key, secret, price id, or client token belongs in this file,
+`.env.example`, or any other committed file, ever (a client-side token
+is not itself highly sensitive — Paddle documents it
 as browser-safe — but this repository still never commits a *real* one,
 same as every other placeholder here).
 
@@ -525,28 +559,38 @@ real Paddle account and makes no network call:
 
 ## Test-mode → live checklist
 
-1. Choose and confirm provider eligibility (Paddle vs. Stripe) — still an
-   open, unverified item per `docs/billing-architecture.md` §2/§16. Get
-   accountant/legal sign-off before proceeding.
-2. Implement `createPaddleBillingProvider()` (or Stripe's equivalent)
-   against `BillingProviderAdapter`, using the provider's real SDK/API —
-   confined entirely to its own file(s) under
-   `src/lib/billing/provider/`.
-3. Add the real environment variables (above, all seven — including
+Steps 1-2 and 5 (choosing/confirming Paddle, implementing the adapter,
+and wiring it into the registry) are already done as of E2.6 — nothing
+further needed there for a future buyer. What remains is entirely
+buyer-supplied configuration and testing, never a code change:
+
+1. ~~Choose and confirm provider eligibility (Paddle vs. Stripe)~~ —
+   done: this codebase is built specifically against Paddle (see
+   `docs/billing-architecture.md` §2/§16 for the original comparison).
+2. ~~Implement `createPaddleBillingProvider()` against
+   `BillingProviderAdapter`~~ — done (E2.2-E2.5).
+3. Create a real Paddle account (sandbox first) and add the real
+   environment variables (above, all seven — including
    `NEXT_PUBLIC_BILLING_CLIENT_TOKEN`) to the deployment — never commit
-   them.
+   them. As soon as all six server-only variables are valid, the
+   registry activates the real adapter automatically — no code change,
+   no redeploy of application code needed, just the environment.
 4. Request domain approval for the deployment's own domain in Paddle >
    Checkout > Website approval (auto-approved on sandbox; start this
    early on live per Paddle's own recommendation — see "Open questions"
    above).
-5. Add the real provider as a third branch in `getBillingProviderAdapter()`,
-   gated on the new env var(s) actually being present.
+5. ~~Add the real provider as a third branch in
+   `getBillingProviderAdapter()`~~ — done (E2.6, this section's own "The
+   registry" above).
 6. Point the provider's real webhook configuration at
    `/api/billing/webhook` (this app's route needs no change).
 7. Test against the provider's own test/sandbox mode end to end — real
    checkout through `/billing/checkout`'s own Paddle.js overlay, real
    webhook delivery, confirm `Subscription` updates and `Notification`s
-   fire exactly as the mock already proved they would.
+   fire exactly as the mock already proved they would. **Not yet done by
+   this repository** — see "Open questions" above; this is the first
+   genuinely required manual step before trusting any of this in
+   production.
 8. Only after that: flip to live-mode credentials/price ids/client
    token. Treat this as a deliberate, reviewed deploy step, never an
    automatic migration — see `docs/operator-setup.md`'s own "Live
@@ -581,9 +625,6 @@ keep every one of these true:
   implementation, not a placeholder that always fails closed.
 - (E2.4) `paddle-provider.ts`'s `parseWebhookEvent` is a real
   implementation, not a placeholder that always returns `null`.
-- (E2.3, unchanged) The provider registry does not yet reference
-  `createPaddleBillingProvider` — the real adapter exists but is not
-  wired into `getBillingProviderAdapter()`.
 - (E2.5) `@paddle/paddle-js` is only ever imported from
   `src/app/billing/checkout/`, never anywhere else in `src/` — and only
   ever by a file that starts with `"use client"`.
@@ -592,3 +633,18 @@ keep every one of these true:
   than the `NEXT_PUBLIC_` prefix rule above.
 - (E2.5) No `NEXT_PUBLIC_` billing/provider variable other than exactly
   `NEXT_PUBLIC_BILLING_CLIENT_TOKEN`.
+- (E2.6) The provider registry activates the real Paddle adapter only
+  via `getPaddleProviderConfig()` — never a hardcoded or
+  inline-object-literal config passed to `createPaddleBillingProvider`.
+- (E2.6) `provider.ts` never reads a `BILLING_*` env var directly (by
+  `process.env` access or literal name) — only `paddle-config.ts` does.
+- (E2.6) `provider.ts` never hand-assembles its own Paddle config object
+  (no `apiKey:`/`webhookSecret:`/`priceIdByPlanKey:` field name in the
+  file).
+- (E2.6) The `TEST_MODE` branch appears before the Paddle-activation
+  branch in `provider.ts`'s own source — `TEST_MODE` always takes
+  priority.
+- (E2.6) The fail-closed unconfigured provider fallback is still
+  imported and still referenced in `provider.ts`.
+- (E2.6) `getBillingProviderAdapter()` stays fully synchronous — no
+  `async`/`await`/`fetch(` anywhere in `provider.ts`.

@@ -82,10 +82,15 @@ exists yet:
 4. **New environment variables — placeholders only today.**
    `BILLING_PROVIDER`, `BILLING_API_KEY`, `BILLING_WEBHOOK_SECRET`,
    `BILLING_STARTER_PRICE_ID`, `BILLING_PRO_PRICE_ID` are listed, empty,
-   in `.env.example` — no code reads any of them yet. When they're set
-   for real, they must stay server-only; never give any of them a
-   `NEXT_PUBLIC_` prefix (`scripts/security-checks/check-billing-security.mjs`
-   already guards against that mistake).
+   in `.env.example`. As of Sale-Ready Phase E, E2.6, the code *does*
+   read and act on them (`getBillingProviderAdapter()` activates the
+   real Paddle adapter once every one of them is set to a valid,
+   complete value) — but none has ever been set to a real value in this
+   repository, so this still has zero effect until a real Paddle account
+   supplies them. When they're set for real, they must stay server-only;
+   never give any of them a `NEXT_PUBLIC_` prefix
+   (`scripts/security-checks/check-billing-security.mjs` already guards
+   against that mistake).
 5. **The provider's own webhook configuration.** Once a real adapter and
    `BILLING_WEBHOOK_SECRET` exist, point the provider's webhook settings
    at `POST /api/billing/webhook` — the route itself needs no change.

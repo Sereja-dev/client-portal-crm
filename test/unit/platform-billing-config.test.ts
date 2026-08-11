@@ -51,12 +51,91 @@ describe("getPlatformBillingConfig", () => {
     });
   });
 
-  it("never reports 'Live' mode today — no real provider adapter exists yet to resolve to", async () => {
+  it("never reports 'Live' mode under TEST_MODE — the mock adapter takes priority over any Paddle config, even a full 'live' one", async () => {
     vi.stubEnv("TEST_MODE", "1");
+    vi.stubEnv("BILLING_PROVIDER", "PADDLE");
+    vi.stubEnv("BILLING_ENVIRONMENT", "live");
+    vi.stubEnv("BILLING_API_KEY", "test-api-key");
+    vi.stubEnv("BILLING_WEBHOOK_SECRET", "test-webhook-secret");
+    vi.stubEnv("BILLING_STARTER_PRICE_ID", "test-starter-price-id");
+    vi.stubEnv("BILLING_PRO_PRICE_ID", "test-pro-price-id");
     const { getPlatformBillingConfig } = await importFresh();
 
     const config = await getPlatformBillingConfig();
 
-    expect(config.mode).not.toBe("Live");
+    expect(config.mode).toBe("Test");
+  });
+
+  it("reports Mode as 'Sandbox' (E2.6) for a full, valid Paddle config with BILLING_ENVIRONMENT=sandbox", async () => {
+    vi.stubEnv("TEST_MODE", "");
+    vi.stubEnv("BILLING_PROVIDER", "PADDLE");
+    vi.stubEnv("BILLING_ENVIRONMENT", "sandbox");
+    vi.stubEnv("BILLING_API_KEY", "test-api-key");
+    vi.stubEnv("BILLING_WEBHOOK_SECRET", "test-webhook-secret");
+    vi.stubEnv("BILLING_STARTER_PRICE_ID", "test-starter-price-id");
+    vi.stubEnv("BILLING_PRO_PRICE_ID", "test-pro-price-id");
+    const { getPlatformBillingConfig } = await importFresh();
+
+    const config = await getPlatformBillingConfig();
+
+    expect(config).toEqual({
+      providerName: "Paddle",
+      providerConfigured: true,
+      mode: "Sandbox",
+      checkoutConfigured: true,
+      customerPortalConfigured: true,
+      webhookConfigured: true,
+      planSynchronizationConfigured: true,
+    });
+  });
+
+  it("reports Mode as 'Live' (E2.6) for a full, valid Paddle config with BILLING_ENVIRONMENT=live", async () => {
+    vi.stubEnv("TEST_MODE", "");
+    vi.stubEnv("BILLING_PROVIDER", "PADDLE");
+    vi.stubEnv("BILLING_ENVIRONMENT", "live");
+    vi.stubEnv("BILLING_API_KEY", "test-api-key");
+    vi.stubEnv("BILLING_WEBHOOK_SECRET", "test-webhook-secret");
+    vi.stubEnv("BILLING_STARTER_PRICE_ID", "test-starter-price-id");
+    vi.stubEnv("BILLING_PRO_PRICE_ID", "test-pro-price-id");
+    const { getPlatformBillingConfig } = await importFresh();
+
+    const config = await getPlatformBillingConfig();
+
+    expect(config).toEqual({
+      providerName: "Paddle",
+      providerConfigured: true,
+      mode: "Live",
+      checkoutConfigured: true,
+      customerPortalConfigured: true,
+      webhookConfigured: true,
+      planSynchronizationConfigured: true,
+    });
+  });
+
+  it("never displays a secret or price id — only providerName/mode/booleans are ever present on the returned object", async () => {
+    vi.stubEnv("TEST_MODE", "");
+    vi.stubEnv("BILLING_PROVIDER", "PADDLE");
+    vi.stubEnv("BILLING_ENVIRONMENT", "sandbox");
+    vi.stubEnv("BILLING_API_KEY", "test-api-key-should-never-appear");
+    vi.stubEnv("BILLING_WEBHOOK_SECRET", "test-webhook-secret-should-never-appear");
+    vi.stubEnv("BILLING_STARTER_PRICE_ID", "test-starter-price-id-should-never-appear");
+    vi.stubEnv("BILLING_PRO_PRICE_ID", "test-pro-price-id-should-never-appear");
+    const { getPlatformBillingConfig } = await importFresh();
+
+    const config = await getPlatformBillingConfig();
+
+    const serialized = JSON.stringify(config);
+    expect(serialized).not.toContain("should-never-appear");
+    expect(Object.keys(config).sort()).toEqual(
+      [
+        "checkoutConfigured",
+        "customerPortalConfigured",
+        "mode",
+        "planSynchronizationConfigured",
+        "providerConfigured",
+        "providerName",
+        "webhookConfigured",
+      ].sort(),
+    );
   });
 });
