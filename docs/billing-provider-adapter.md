@@ -37,14 +37,32 @@ route's own trust/idempotency/ordering logic.
   E2.3's fail-closed placeholders:
   - `verifyWebhook` performs real `Paddle-Signature` HMAC-SHA256
     verification (`ts=<unix>;h1=<hex>`, signed string `${ts}:${rawBody}`,
-    plain `node:crypto`, timing-safe comparison) with a 5-second
-    timestamp tolerance — Paddle's own documented SDK default — and
-    accepts a match against any `h1` value present (Paddle's own
+    plain `node:crypto`, timing-safe comparison) with a **30-second**
+    timestamp tolerance (`PADDLE_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS`)
+    and accepts a match against any `h1` value present (Paddle's own
     secret-rotation format sends more than one while a secret is being
     rotated on Paddle's side). Deliberately does **not** use the SDK's
     own combined `webhooks.unmarshal()` helper — this app's adapter
     contract is a separate verify-then-parse pair, not one combined
     call.
+    - **Why 30s, not Paddle's own literal 5-second SDK default:** found
+      during E2.4 PR review that the 5-second default has a real,
+      documented false-rejection history —
+      [PaddleHQ/paddle-node-sdk#30](https://github.com/PaddleHQ/paddle-node-sdk/issues/30)
+      reports it rejecting genuinely valid deliveries, resolved for that
+      integrator by widening to 10 seconds. This app's own deployment
+      target (a Vercel serverless Next.js route) is exactly the kind of
+      environment where cold start plus normal network latency can
+      plausibly eat a multi-second chunk of a 5-second budget before
+      Paddle's own delivery latency is even considered. 30 seconds stays
+      inside the commonly cited "5-30 seconds is a reasonable range" for
+      this kind of check. This is a small concession given the webhook
+      route's own independent, unconditional idempotency guard (a real
+      `P2002` unique-constraint catch on `WebhookEvent.providerEventId`)
+      — a replayed-but-still-within-tolerance event can never be
+      reapplied even once accepted here, so this constant's real job is
+      rejecting a *stale* signed payload, not being the sole anti-replay
+      control.
   - `parseWebhookEvent` parses the raw body as JSON and normalizes the
     subscription lifecycle events below into `NormalizedBillingEvent`.
     See "Supported and ignored webhook events" below for the full list.

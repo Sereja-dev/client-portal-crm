@@ -70,16 +70,38 @@ function planKeyForPriceId(config: PaddleProviderConfig, priceId: string): keyof
 // assumed, before writing any of this.
 
 /**
- * Paddle's own documented SDK default — "reject events where the ts
- * timestamp in the Paddle-Signature header is more than 5 seconds old."
+ * Deliberately WIDER than Paddle's own literal SDK default (5 seconds —
+ * "reject events where the ts timestamp in the Paddle-Signature header
+ * is more than 5 seconds old"), found during E2.4 PR review to have a
+ * real, documented false-rejection history: PaddleHQ/paddle-node-sdk
+ * issue #30 ("Webhook time validation error") reports the 5-second
+ * default rejecting genuinely valid deliveries, resolved for that
+ * integrator by widening to 10 seconds. This app's own deployment target
+ * (a Vercel serverless Next.js route) is exactly the kind of environment
+ * where a cold start plus normal network latency can plausibly eat a
+ * multi-second chunk of a 5-second budget on its own, before Paddle's
+ * own delivery latency is even considered — a false rejection here would
+ * silently drop a legitimate event (Paddle does retry failed
+ * deliveries, but that's an operational band-aid, not something to
+ * design around). 30 seconds keeps meaningful margin while staying
+ * inside the "5-30 seconds is a typical, reasonable range" guidance
+ * commonly given for this kind of check, and is a small concession
+ * given this route's own independent, unconditional idempotency
+ * guard — every event is deduped on `WebhookEvent.providerEventId` via a
+ * real unique-constraint (`P2002`) catch regardless of how fresh its
+ * timestamp was judged to be, so a replayed-but-still-within-tolerance
+ * event can never be reapplied even once accepted here; this constant's
+ * real job is rejecting a *stale* signed payload, not being the sole
+ * anti-replay control.
+ *
  * Exported so tests reference this exact value rather than a hardcoded
- * magic number, and so it's trivially auditable if Paddle's own
- * recommendation ever changes. NOT yet exercised against a real Paddle
+ * magic number, and so it's trivially auditable if this reasoning ever
+ * needs revisiting. Still NOT yet exercised against a real Paddle
  * sandbox delivery — see this PR's own report for why that's flagged as
  * an open question rather than assumed safe under real network
  * conditions.
  */
-export const PADDLE_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 5;
+export const PADDLE_WEBHOOK_TIMESTAMP_TOLERANCE_SECONDS = 30;
 
 type ParsedPaddleSignatureHeader = { timestamp: string; signatures: string[] };
 
