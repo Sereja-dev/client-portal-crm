@@ -68,6 +68,23 @@ route's own trust/idempotency/ordering logic.
     See "Supported and ignored webhook events" below for the full list.
   - Both remain pure/synchronous (no network, no DB) and never log the
     raw body, signature header, or webhook secret.
+- **E2.5 (this PR)** — closes the two remaining checkout-flow gaps E2.4's
+  own report flagged. `createCheckoutSession` no longer returns Paddle's
+  own `transaction.checkout.url` at all — it now returns this app's own
+  `/billing/checkout` bridge page URL (carrying the new transaction's
+  id), which opens a Paddle.js overlay checkout for that exact
+  transaction. `input.returnUrl`/`cancelUrl` are now actually used —
+  threaded through to the bridge page, which passes `returnUrl` to
+  Paddle.js as `settings.successUrl` (absolute, resolved against the
+  browser's own origin) and navigates to `cancelUrl` itself when the user
+  closes the overlay without paying (`checkout.closed`). See "The
+  checkout bridge" below for the full architecture and reasoning. Adds
+  one new dependency, `@paddle/paddle-js` (the official, client-side,
+  TypeScript-typed Paddle.js wrapper — never the server-side
+  `@paddle/paddle-node-sdk`), imported only by the bridge page, and one
+  new, deliberately public environment variable,
+  `NEXT_PUBLIC_BILLING_CLIENT_TOKEN` (see "Required environment
+  variables" below).
 - **The provider registry (`getBillingProviderAdapter()`,
   `./provider.ts`) is still unchanged** — it still only ever resolves to
   the mock (`TEST_MODE`) or the fail-closed unconfigured adapter. The
@@ -80,25 +97,18 @@ route's own trust/idempotency/ordering logic.
   in E2.2: real credentials are still supplied later, by whoever
   actually connects a Paddle account — never by this repository.
 
-**Even with E2.4, this is not an end-to-end payment flow yet — two real
-gaps remain once real credentials exist (a third, the webhook
-placeholders, is now closed by this PR):** (1) `createCheckoutSession`'s
-returned `checkout.url` resolves to Paddle's own hosted checkout only
-once this app also hosts a Paddle.js-enabled page as its default
-payment link (Paddle Billing's checkout is not a pure
-server-redirect-and-done flow the way Stripe Checkout is — confirmed
-against Paddle's own docs, not assumed) — that page doesn't exist in
-this codebase yet and is a separate future PR; (2) relatedly,
-`input.returnUrl`/`cancelUrl` are accepted by this app's own contract
-but never sent to Paddle at all — the Transactions API has no such
-field, and a subscription's real post-checkout redirect is set via
-Paddle.js's own `successUrl` argument or a per-Product dashboard
-default, neither of which any PR so far wires up. Additionally, this
-adapter is still never reached by the resolver in production (see
-above) — real signature verification against a live Paddle sandbox
-delivery has not been exercised, only against locally-computed
-fixtures built the same way Paddle's own documentation describes; see
-"Open questions" below.
+**Even with E2.5, this is not a fully sandbox-verified payment flow
+yet** — every checkout-flow gap E2.3/E2.4 identified is now closed in
+code (webhook verification/parsing is real, `createCheckoutSession`
+returns a working bridge URL, `returnUrl`/`cancelUrl` are actually used),
+but this adapter is still never reached by the resolver in production
+(see above), and neither the webhook signature verification nor the
+checkout bridge's own Paddle.js call has ever been exercised against a
+real Paddle sandbox account — both are built and tested against
+locally-computed fixtures / a fully mocked SDK client, matching Paddle's
+own current, real documentation as closely as this PR could verify
+without creating an account. See "Open questions" below for the specific
+remaining gaps.
 
 ## The adapter contract
 
@@ -141,6 +151,84 @@ header names entirely (Paddle: `Paddle-Signature`, Stripe:
 what keeps `src/app/api/billing/webhook/route.ts` itself genuinely
 provider-neutral: it never needs to know which header any given provider
 uses.
+
+## The checkout bridge (E2.5, Paddle adapter)
+
+**Why Paddle.js is required, not a plain server redirect.** Paddle
+Billing has a separate, sales-team-gated "Hosted Checkout" feature that
+would let `createCheckoutSession` return a URL the browser could be
+redirected to directly, with no Paddle.js on this app's own side at
+all — but that feature requires emailing sellers@paddle.com for
+approval and is live-accounts-only, not something guaranteed available
+to every future buyer's self-serve Paddle account. The overlay checkout
+built here (`Paddle.Checkout.open({ transactionId })`, via the official
+`@paddle/paddle-js` wrapper) is the standard, self-serve, officially
+documented path every real Paddle Billing integration uses — gated only
+on the ordinary domain-approval step every Paddle.js integration needs
+regardless of which specific checkout flow is used (auto-approved on
+Paddle's sandbox; usually fast/automatic on live, see "Test-mode → live
+checklist" below).
+
+**Architecture.** `requestPlanChangeAction` → `adapter
+.createCheckoutSession()` → `{ url }` → `redirect(url)` is completely
+unchanged as a contract (`src/app/(dashboard)/settings/billing/actions.ts`).
+What changed is what that `url` actually points to:
+
+1. `paddle-provider.ts`'s `createCheckoutSession` creates a real Paddle
+   Transaction exactly as before (E2.3), then builds a same-origin URL
+   to this app's own new page, `src/app/billing/checkout/page.tsx`
+   (`buildCheckoutBridgeUrl`), carrying the transaction's own `id`
+   (always present and non-nullable per the SDK's own `Transaction`
+   type — deliberately not `transaction.checkout.url`, which is
+   nullable and, per the above, only resolves to a working page under a
+   separate, uncertain setup step), this adapter's own configured
+   `sandbox`/`live` environment, and the already-sanitized
+   `returnUrl`/`cancelUrl` (see `BillingCheckoutSessionInput`'s own doc
+   comment in `types.ts` — already sanitized/allowlisted by the caller
+   before ever reaching this adapter).
+2. The browser is redirected to that bridge page — still fully on this
+   app's own domain the entire time, never a cross-origin navigation at
+   any point up to this line.
+3. The bridge page (`"use client"`) re-validates every query param as
+   untrusted input (`src/app/billing/checkout/checkout-bridge.ts`'s own
+   `resolveCheckoutBridgeParams` — pure, fails closed, unit-tested; it's
+   a public route, reachable with an arbitrary query string, so nothing
+   from the URL is trusted just because the happy-path caller always
+   sends well-formed values), loads `@paddle/paddle-js`, calls
+   `initializePaddle({ environment, token: NEXT_PUBLIC_BILLING_CLIENT_TOKEN })`,
+   then `paddle.Checkout.open({ transactionId, settings: { successUrl } })`
+   — an overlay rendered directly on top of this same page, never a
+   further navigation away from this app's own domain.
+4. **Success:** Paddle.js itself redirects the top-level browser window
+   to `settings.successUrl` (the sanitized `returnUrl`, resolved to an
+   absolute URL against the browser's own origin) once payment
+   completes inside the overlay.
+5. **Close/cancel:** if the user closes the overlay without completing
+   payment, the bridge page's own `eventCallback` catches Paddle.js's
+   `checkout.closed` event and does an in-app `router.push(cancelPath)`
+   back to `/settings/billing?checkout=cancel`.
+
+**Subscription activation is still never triggered by this page or by
+either redirect target.** Neither this page nor `requestPlanChangeAction`
+ever touches `Subscription`; the only thing this whole bridge does is
+get the browser to Paddle's overlay and back. The existing
+`?checkout=success` notice on `/settings/billing`
+(`src/app/(dashboard)/settings/billing/page.tsx`, Stage 4, unchanged by
+E2.5) already covers "the user came back before the real webhook
+did" — it was written generically enough for exactly this case, so E2.5
+needed no new pending-state UI. Real state changes only ever happen via
+`src/app/api/billing/webhook/route.ts`, unchanged by E2.5.
+
+**Trust boundary.** The bridge page is deliberately a public route with
+no auth check — it makes no trust decision of its own. `transactionId`
+is an opaque string only ever passed through to Paddle.js; the
+transaction it refers to already carries whichever organization's
+`custom_data.organizationId` `createCheckoutSession` embedded
+server-side, before this page was ever reached. `requestPlanChangeAction`
+(the only real caller) already fully authorizes (OWNER-only,
+server-resolved org) before ever creating the transaction or
+redirecting here — nothing in this app's own security model depends on
+who is looking at the bridge page.
 
 ## Supported and ignored webhook events (E2.4, Paddle adapter)
 
@@ -314,11 +402,11 @@ was used to write.
 Documented as empty placeholders in `.env.example` — see that file's own
 comments. **Sale-Ready Phase E, E2.2** added
 `src/lib/billing/provider/paddle-config.ts`, which reads and validates
-all six variables below — but nothing calls that module yet, and
-`getBillingProviderAdapter()` still only ever resolves to the mock
-(`TEST_MODE`) or the fail-closed unconfigured adapter (E2.2's own PR
-deliberately does not add the third branch). Setting these today still
-has zero effect on runtime behavior:
+the six server-only variables below — but nothing calls that module
+yet, and `getBillingProviderAdapter()` still only ever resolves to the
+mock (`TEST_MODE`) or the fail-closed unconfigured adapter (deliberately
+does not add the third branch). Setting these today still has zero
+effect on runtime behavior:
 
 | Variable | Purpose |
 |---|---|
@@ -329,23 +417,38 @@ has zero effect on runtime behavior:
 | `BILLING_STARTER_PRICE_ID` | The real provider price id for the `STARTER` plan (`src/lib/billing/plans.ts`'s `PLAN_CATALOG.STARTER`). |
 | `BILLING_PRO_PRICE_ID` | Same, for `PRO`. |
 
-`scripts/security-checks/check-billing-security.mjs` already fails the
-build if any of these (or any future billing/provider variable) is ever
-given a `NEXT_PUBLIC_` prefix — `paddle-config.ts` lives under
-`src/lib/billing/provider/`, so it's automatically covered by that same
-script's existing "every file here is server-only" and "no console
-logging here" checks too, with no new assertions needed.
+**Sale-Ready Phase E, E2.5** adds one more, deliberately different in
+kind from the six above:
 
-**All six values are supplied later, by whoever actually connects a real
-Paddle account — never by this repository.** This project is designed to
-be sold as a SaaS foundation: the current owner does not create a Paddle
-account, does not go through KYC/KYB, and does not enter any real
-credentials here. A future buyer creates their own Paddle account
-(sandbox first, then live), fills in their own values for these six
-variables in their own deployment's environment, and registers their own
-webhook endpoint — with zero application code changes required. No real
-key, secret, or price id belongs in this file, `.env.example`, or any
-other committed file, ever.
+| Variable | Purpose |
+|---|---|
+| `NEXT_PUBLIC_BILLING_CLIENT_TOKEN` | Paddle's own dedicated **client-side token** (created and managed in Paddle > Developer tools > Authentication) — explicitly documented by Paddle as safe for a browser bundle. Used only by `src/app/billing/checkout/page.tsx` to call `Paddle.Initialize()`/`initializePaddle()`; cannot be used to call any server-side Paddle API, and is a **completely different credential** from `BILLING_API_KEY`. This is the one and only billing/provider variable this project ever gives a `NEXT_PUBLIC_` prefix — `scripts/security-checks/check-billing-security.mjs` allowlists exactly this one and rejects any other. |
+
+`scripts/security-checks/check-billing-security.mjs` already fails the
+build if any variable other than `NEXT_PUBLIC_BILLING_CLIENT_TOKEN` (any
+of the six server-only ones above, or any future billing/provider
+variable) is ever given a `NEXT_PUBLIC_` prefix — `paddle-config.ts`
+lives under `src/lib/billing/provider/`, so it's automatically covered
+by that same script's existing "every file here is server-only" and "no
+console logging here" checks too, with no new assertions needed there.
+Separately, `BILLING_API_KEY`/`BILLING_WEBHOOK_SECRET` are checked by
+name to never be referenced in any `"use client"` file at all, prefix or
+not (E2.5's own check).
+
+**All seven values are supplied later, by whoever actually connects a
+real Paddle account — never by this repository.** This project is
+designed to be sold as a SaaS foundation: the current owner does not
+create a Paddle account, does not go through KYC/KYB, and does not enter
+any real credentials here. A future buyer creates their own Paddle
+account (sandbox first, then live), creates their own client-side token
+alongside their API key/webhook secret/price ids, fills in their own
+values for these seven variables in their own deployment's environment,
+and registers their own webhook endpoint — with zero application code
+changes required. No real key, secret, price id, or client token belongs
+in this file, `.env.example`, or any other committed file, ever (a
+client-side token is not itself highly sensitive — Paddle documents it
+as browser-safe — but this repository still never commits a *real* one,
+same as every other placeholder here).
 
 `getPaddleProviderConfig()` (`paddle-config.ts`) treats any single
 missing or invalid value — including an unrecognized `BILLING_ENVIRONMENT`
@@ -404,6 +507,21 @@ real Paddle account and makes no network call:
 - **`status: "unpaid"`.** Confirmed absent from Paddle's real status
   enum today; flagged here only so this stays a checked fact rather than
   a silent assumption if Paddle's own API ever changes.
+- **The checkout bridge's own Paddle.js call (E2.5).** `Paddle.Checkout
+  .open({ transactionId, settings: { successUrl } })` and the
+  `checkout.closed` event are both confirmed against Paddle's own
+  current documentation and the `@paddle/paddle-js` package's own real,
+  installed TypeScript types (not guessed) — but, like the webhook
+  signature above, has never actually been opened against a real Paddle
+  sandbox transaction. Recommended first live step once a sandbox Paddle
+  account and client-side token exist: run a real checkout end to end
+  and confirm the overlay opens, completes, and redirects correctly.
+- **Domain approval.** Paddle.js requires the hosting domain to be
+  approved in Paddle's own dashboard (Checkout > Website approval) —
+  automatic on Paddle's sandbox, but on live accounts this can be a
+  manual review (Paddle's own docs cite an estimated 5-7 business days
+  in some cases). A future buyer should start this step early, before
+  attempting a live checkout, per Paddle's own recommendation.
 
 ## Test-mode → live checklist
 
@@ -414,18 +532,25 @@ real Paddle account and makes no network call:
    against `BillingProviderAdapter`, using the provider's real SDK/API —
    confined entirely to its own file(s) under
    `src/lib/billing/provider/`.
-3. Add the real environment variables (above) to the deployment — never
-   commit them.
-4. Add the real provider as a third branch in `getBillingProviderAdapter()`,
+3. Add the real environment variables (above, all seven — including
+   `NEXT_PUBLIC_BILLING_CLIENT_TOKEN`) to the deployment — never commit
+   them.
+4. Request domain approval for the deployment's own domain in Paddle >
+   Checkout > Website approval (auto-approved on sandbox; start this
+   early on live per Paddle's own recommendation — see "Open questions"
+   above).
+5. Add the real provider as a third branch in `getBillingProviderAdapter()`,
    gated on the new env var(s) actually being present.
-5. Point the provider's real webhook configuration at
+6. Point the provider's real webhook configuration at
    `/api/billing/webhook` (this app's route needs no change).
-6. Test against the provider's own test/sandbox mode end to end — real
-   checkout, real webhook delivery, confirm `Subscription` updates and
-   `Notification`s fire exactly as the mock already proved they would.
-7. Only after that: flip to live-mode credentials/price ids. Treat this
-   as a deliberate, reviewed deploy step, never an automatic migration —
-   see `docs/operator-setup.md`'s own "Live payments" section.
+7. Test against the provider's own test/sandbox mode end to end — real
+   checkout through `/billing/checkout`'s own Paddle.js overlay, real
+   webhook delivery, confirm `Subscription` updates and `Notification`s
+   fire exactly as the mock already proved they would.
+8. Only after that: flip to live-mode credentials/price ids/client
+   token. Treat this as a deliberate, reviewed deploy step, never an
+   automatic migration — see `docs/operator-setup.md`'s own "Live
+   payments" section.
 
 ## Security checklist (already enforced today)
 
@@ -459,3 +584,11 @@ keep every one of these true:
 - (E2.3, unchanged) The provider registry does not yet reference
   `createPaddleBillingProvider` — the real adapter exists but is not
   wired into `getBillingProviderAdapter()`.
+- (E2.5) `@paddle/paddle-js` is only ever imported from
+  `src/app/billing/checkout/`, never anywhere else in `src/` — and only
+  ever by a file that starts with `"use client"`.
+- (E2.5) `BILLING_API_KEY`/`BILLING_WEBHOOK_SECRET` are never referenced
+  by name in any `"use client"` file — a stricter, name-specific check
+  than the `NEXT_PUBLIC_` prefix rule above.
+- (E2.5) No `NEXT_PUBLIC_` billing/provider variable other than exactly
+  `NEXT_PUBLIC_BILLING_CLIENT_TOKEN`.

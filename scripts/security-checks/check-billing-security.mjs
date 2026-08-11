@@ -16,53 +16,73 @@ const BILLING_LIB_DIR = "src/lib/billing";
 const PORTAL_APP_DIR = "src/app/portal";
 const SCHEMA_FILE = "prisma/schema.prisma";
 
-// 1. No Paddle/Stripe SDK dependency OTHER than the one official package
+// 1. No Paddle/Stripe SDK dependency OTHER than the two official packages
 // this app actually uses. Stages 1-4's original rule ("no SDK at all")
 // was correct while this was genuinely provider-neutral with no provider
-// chosen; Sale-Ready Phase E, E2.3 replaces it with this narrower check
-// now that a real, server-only Paddle adapter exists —
-// @paddle/paddle-node-sdk is expected and allowed, but a stray Stripe
-// package, a second/competing Paddle package, or a typosquatted lookalike
-// is still rejected outright.
+// chosen; Sale-Ready Phase E, E2.3 narrowed this to allow the one
+// server-side package a real adapter needs (@paddle/paddle-node-sdk); E2.5
+// (Paddle Checkout UX / Hosted Checkout Bridge) adds the one official
+// client-side package the checkout bridge page needs (@paddle/paddle-js)
+// — a stray Stripe package, a second/competing Paddle package, or a
+// typosquatted lookalike is still rejected outright.
 const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
 const allDeps = { ...packageJson.dependencies, ...packageJson.devDependencies };
-const ALLOWED_PROVIDER_SDK_PACKAGE = "@paddle/paddle-node-sdk";
+const ALLOWED_PROVIDER_SDK_PACKAGES = ["@paddle/paddle-node-sdk", "@paddle/paddle-js"];
 const providerSdkDeps = Object.keys(allDeps).filter((name) => /paddle|stripe/i.test(name));
-const unexpectedProviderSdkDeps = providerSdkDeps.filter((name) => name !== ALLOWED_PROVIDER_SDK_PACKAGE);
+const unexpectedProviderSdkDeps = providerSdkDeps.filter((name) => !ALLOWED_PROVIDER_SDK_PACKAGES.includes(name));
 ok = report(
-  `no Paddle/Stripe SDK dependency other than ${ALLOWED_PROVIDER_SDK_PACKAGE}`,
+  `no Paddle/Stripe SDK dependency other than ${ALLOWED_PROVIDER_SDK_PACKAGES.join(" or ")}`,
   unexpectedProviderSdkDeps.length === 0,
   unexpectedProviderSdkDeps.join(", "),
 ) && ok;
 
-// 2. The Paddle SDK is only ever imported from
-// src/lib/billing/provider/ — never from a "use client" file, never from
-// the Billing UI tree (src/app/(dashboard)/settings/billing), never from
-// the Client Portal, never from anywhere else in src/app or src/lib. A
-// blanket "no import anywhere in src/" ban (the original Stage 1-4 rule)
-// is no longer correct now that a real adapter genuinely does import the
-// SDK; this is the narrower, still-meaningful replacement — the SDK
-// (and, transitively, the server-side API key it's constructed with)
-// must never reach a client bundle or any code path outside the
-// provider-adapter boundary.
+// 2. The server-side Paddle Node SDK (@paddle/paddle-node-sdk) is only
+// ever imported from src/lib/billing/provider/ — never from a "use
+// client" file, never from the Billing UI tree
+// (src/app/(dashboard)/settings/billing), never from the Client Portal,
+// never from anywhere else in src/app or src/lib. A blanket "no import
+// anywhere in src/" ban (the original Stage 1-4 rule) is no longer
+// correct now that a real adapter genuinely does import the SDK; this is
+// the narrower, still-meaningful replacement — the SDK (and,
+// transitively, the server-side API key it's constructed with) must
+// never reach a client bundle or any code path outside the
+// provider-adapter boundary. Sale-Ready Phase E, E2.5 scopes this check
+// to exactly this one server-side package — @paddle/paddle-js (the
+// client-side wrapper E2.5 adds) has its own, separate checks (27-28
+// below), since it's expected to live in a completely different
+// location by design.
 const PROVIDER_DIR_PREFIX = "src/lib/billing/provider/";
-const providerSdkImportLines = grep('from "(@paddle|@stripe|paddle-|stripe)', "src")
+const serverSdkImportLines = grep('from "@paddle/paddle-node-sdk"', "src")
   .split("\n")
   .filter(Boolean);
-const providerSdkImportsOutsideProviderDir = providerSdkImportLines.filter((line) => !line.startsWith(PROVIDER_DIR_PREFIX));
+const serverSdkImportsOutsideProviderDir = serverSdkImportLines.filter((line) => !line.startsWith(PROVIDER_DIR_PREFIX));
 ok = report(
-  "the Paddle SDK is only ever imported from src/lib/billing/provider/, never anywhere else in src/",
-  providerSdkImportsOutsideProviderDir.length === 0,
-  providerSdkImportsOutsideProviderDir.join(", "),
+  "the Paddle Node SDK (@paddle/paddle-node-sdk) is only ever imported from src/lib/billing/provider/, never anywhere else in src/",
+  serverSdkImportsOutsideProviderDir.length === 0,
+  serverSdkImportsOutsideProviderDir.join(", "),
 ) && ok;
 
 // 3. No NEXT_PUBLIC_*-prefixed billing/provider env var referenced
 // anywhere — a provider price id, publishable key, or customer-portal
 // token must never be client-exposed, and Stage 2 doesn't read any real
 // provider env var at all (price IDs are explicitly deferred to Stage 3+,
-// docs/billing-architecture.md §6).
-const publicBillingEnvVar = grep("NEXT_PUBLIC_[A-Z_]*(PADDLE|STRIPE|BILLING|PRICE)", "src");
-ok = report("no NEXT_PUBLIC billing/provider env var referenced anywhere", publicBillingEnvVar === "", publicBillingEnvVar) && ok;
+// docs/billing-architecture.md §6). Sale-Ready Phase E, E2.5 adds exactly
+// one narrow, deliberate exception: NEXT_PUBLIC_BILLING_CLIENT_TOKEN —
+// Paddle's own dedicated, documented-as-client-safe "client-side token"
+// (see .env.example's own comment on this variable for the full
+// reasoning). Every other billing/provider variable (a provider price
+// id, the server-side API key, the webhook secret, or any future one)
+// stays banned with a NEXT_PUBLIC_ prefix.
+const ALLOWED_PUBLIC_BILLING_ENV_VAR = "NEXT_PUBLIC_BILLING_CLIENT_TOKEN";
+const publicBillingEnvVarLines = grep("NEXT_PUBLIC_[A-Z_]*(PADDLE|STRIPE|BILLING|PRICE)", "src")
+  .split("\n")
+  .filter(Boolean);
+const unexpectedPublicBillingEnvVarLines = publicBillingEnvVarLines.filter((line) => !line.includes(ALLOWED_PUBLIC_BILLING_ENV_VAR));
+ok = report(
+  `no NEXT_PUBLIC billing/provider env var referenced anywhere, other than ${ALLOWED_PUBLIC_BILLING_ENV_VAR}`,
+  unexpectedPublicBillingEnvVarLines.length === 0,
+  unexpectedPublicBillingEnvVarLines.join(", "),
+) && ok;
 
 // 4. Billing helpers are never imported from the Client Portal's own app
 // tree — billing is a staff-only concept end to end (docs/billing-
@@ -447,6 +467,70 @@ ok = report(
   "paddle-provider.ts's parseWebhookEvent is a real implementation, not the E2.3 placeholder",
   parseWebhookEventIsReal,
   paddleProviderSource ? "" : "paddle-provider.ts not found",
+) && ok;
+
+// Sale-Ready Phase E, E2.5 (Paddle Checkout UX / Hosted Checkout Bridge)
+// — 3 additional checks, appended rather than replacing anything above.
+// E2.5 adds a second, client-side Paddle SDK (@paddle/paddle-js) and its
+// own bridge page — checks 1-3 above were narrowed in place to allow it,
+// and these three cover the parts of its own boundary that don't fit
+// naturally into any existing check.
+
+const CHECKOUT_BRIDGE_DIR_PREFIX = "src/app/billing/checkout/";
+const clientSdkImportLines = grep('from "@paddle/paddle-js"', "src")
+  .split("\n")
+  .filter(Boolean);
+
+// 27. @paddle/paddle-js is only ever imported from
+// src/app/billing/checkout/ (the checkout bridge page) — never from
+// src/lib/billing/provider/ (which must stay server-only per check 14
+// above), never from the Billing UI tree, never anywhere else. Also
+// requires it to actually be imported somewhere (the same "not silently
+// removed" regression-guard shape as check 14's own
+// `providerFiles.length > 0`) — a change that removes the only import
+// while leaving the dependency in package.json (or vice versa) is
+// exactly the kind of drift this check exists to catch.
+const clientSdkImportsOutsideBridgeDir = clientSdkImportLines.filter((line) => !line.startsWith(CHECKOUT_BRIDGE_DIR_PREFIX));
+ok = report(
+  "@paddle/paddle-js is only ever imported from src/app/billing/checkout/, never anywhere else in src/",
+  clientSdkImportLines.length > 0 && clientSdkImportsOutsideBridgeDir.length === 0,
+  clientSdkImportLines.length === 0 ? "@paddle/paddle-js is not imported anywhere" : clientSdkImportsOutsideBridgeDir.join(", "),
+) && ok;
+
+// 28. Every file that imports @paddle/paddle-js is itself a "use client"
+// file — the client-side wrapper must never be pulled into a Server
+// Component/Server Action bundle by accident (harmless either way
+// content-wise — it carries no secret — but "use client"-only is the
+// correct, intentional boundary for a browser-only library).
+const clientSdkImportingFiles = [...new Set(clientSdkImportLines.map((line) => line.split(":")[0]))];
+const clientSdkFilesMissingUseClient = clientSdkImportingFiles.filter((file) => {
+  if (!existsSync(file)) return true;
+  const content = readFileSync(file, "utf8");
+  return !(content.startsWith('"use client"') || content.startsWith("'use client'"));
+});
+ok = report(
+  'every file importing @paddle/paddle-js starts with "use client"',
+  clientSdkFilesMissingUseClient.length === 0,
+  clientSdkFilesMissingUseClient.join(", "),
+) && ok;
+
+// 29. BILLING_API_KEY and BILLING_WEBHOOK_SECRET — this app's two real
+// server-only secrets — are never referenced by name in any "use
+// client" file, a stricter, name-specific check than check 3 above
+// (which only catches a NEXT_PUBLIC_ prefix; a secret referenced in
+// client code without that prefix would still ship it straight into the
+// browser bundle and wouldn't trip check 3 at all). Reuses
+// findClientComponentFiles() (defined above, check 5's own helper) — a
+// hoisted function declaration, safe to call from here regardless of
+// this check's own position in the file.
+const clientFilesReferencingServerSecretNames = (existsSync("src") ? findClientComponentFiles("src") : []).filter((file) => {
+  const content = readFileSync(file, "utf8");
+  return /BILLING_API_KEY|BILLING_WEBHOOK_SECRET/.test(content);
+});
+ok = report(
+  'BILLING_API_KEY/BILLING_WEBHOOK_SECRET are never referenced by name in any "use client" file',
+  clientFilesReferencingServerSecretNames.length === 0,
+  clientFilesReferencingServerSecretNames.join(", "),
 ) && ok;
 
 process.exit(ok ? 0 : 1);

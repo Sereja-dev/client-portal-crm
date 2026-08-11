@@ -19,22 +19,25 @@ import { createPaddleSdkClient, type PaddleSdkClient } from "./paddle-client";
 /**
  * Sale-Ready Phase E. E2.3 (Paddle Provider Core) added
  * `createCheckoutSession`/`createCustomerPortalSession`. E2.4 (Paddle
- * Webhook Verification + Event Normalization) adds the real
- * `verifyWebhook`/`parseWebhookEvent` implementations. The real,
- * server-only Paddle implementation of `BillingProviderAdapter`
- * (`./types.ts`). Still deliberately NOT wired into
- * `getBillingProviderAdapter()` (`./provider.ts`) — see that file's own
- * doc comment, unchanged by E2.4. Every method here is reachable only by
- * whatever test or future caller constructs this adapter directly;
- * production behavior is unaffected until a later PR adds the real third
- * resolver branch (`scripts/security-checks/check-billing-security.mjs`'s
- * own check 24 guards against that happening by accident).
- *
- * `verifyWebhook` and `parseWebhookEvent` are now real, but this adapter
- * is still never reached by the webhook route in production (the
- * resolver doesn't return it) — see this PR's own report for what
- * remains sandbox-unverified even though the logic itself is complete
- * and unit-tested against real, documented Paddle payload shapes.
+ * Webhook Verification + Event Normalization) added the real
+ * `verifyWebhook`/`parseWebhookEvent` implementations. E2.5 (Paddle
+ * Checkout UX / Hosted Checkout Bridge) closes the gap E2.3 itself
+ * flagged: `createCheckoutSession` no longer returns Paddle's own
+ * `transaction.checkout.url` (which only resolves to a working page once
+ * this app additionally hosts a Paddle.js-enabled "Default Payment
+ * Link" — a separate, uncertain setup step) and instead returns this
+ * app's own `/billing/checkout` bridge page URL, carrying the new
+ * transaction's id — see `buildCheckoutBridgeUrl` below and
+ * `src/app/billing/checkout/page.tsx` for the client-side half of this
+ * bridge. The real, server-only Paddle implementation of
+ * `BillingProviderAdapter` (`./types.ts`). Still deliberately NOT wired
+ * into `getBillingProviderAdapter()` (`./provider.ts`) — see that file's
+ * own doc comment, unchanged by E2.5. Every method here is reachable
+ * only by whatever test or future caller constructs this adapter
+ * directly; production behavior is unaffected until a later PR adds the
+ * real third resolver branch
+ * (`scripts/security-checks/check-billing-security.mjs`'s own check 24
+ * guards against that happening by accident).
  */
 
 /** Thrown for any failure this adapter's own two real methods can produce — never carries the raw Paddle SDK error object, a secret, or a raw provider payload; `code` (if known) is Paddle's own short, non-sensitive error code (e.g. `"not_found"`), safe to surface to logs or a caller. */
@@ -399,6 +402,53 @@ function parsePaddleWebhookEvent(rawBody: string, config: PaddleProviderConfig):
   };
 }
 
+// ---------------------------------------------------------------------------
+// Checkout bridge (E2.5) — same getAppBaseUrl() shape already established
+// by src/lib/email/invitations.ts and its own sibling email modules:
+// APP_BASE_URL is the explicit, trusted override; VERCEL_URL (set
+// automatically by Vercel for every deployment, preview or production —
+// not user input) is a safe fallback so Preview deployments work with
+// zero extra config; localhost is the last resort for local dev.
+// Deliberately duplicated locally rather than imported from one of those
+// email modules — this file has no existing dependency on
+// src/lib/email/*, and those modules don't export this helper publicly;
+// matches this codebase's own established preference for a small local
+// copy over a cross-domain import for a five-line function.
+function getAppBaseUrl(): string {
+  const explicit = process.env.APP_BASE_URL;
+  if (explicit) return explicit.replace(/\/+$/, "");
+
+  const vercelUrl = process.env.VERCEL_URL;
+  if (vercelUrl) return `https://${vercelUrl}`.replace(/\/+$/, "");
+
+  return "http://localhost:3000";
+}
+
+/**
+ * Builds the URL `createCheckoutSession` hands back as its own `{ url }`
+ * — this app's own `/billing/checkout` bridge page
+ * (`src/app/billing/checkout/page.tsx`), carrying everything that page
+ * needs to open a Paddle.js overlay checkout for the transaction just
+ * created: the transaction id itself, this adapter's own `sandbox`/`live`
+ * environment (so the browser knows which Paddle environment to
+ * initialize against, without needing a second public env var — see that
+ * page's own header comment), and the already-sanitized return/cancel
+ * paths (`BillingCheckoutSessionInput.returnUrl`/`.cancelUrl` — sanitized
+ * by the caller before ever reaching this adapter, per that type's own
+ * doc comment in `./types.ts`). Every value here is either this app's own
+ * data or an already-trusted, already-sanitized input — nothing
+ * provider-secret (no API key, no webhook secret) is ever part of this
+ * URL.
+ */
+function buildCheckoutBridgeUrl(config: PaddleProviderConfig, transactionId: string, input: BillingCheckoutSessionInput): string {
+  const url = new URL("/billing/checkout", getAppBaseUrl());
+  url.searchParams.set("transactionId", transactionId);
+  url.searchParams.set("environment", config.environment);
+  url.searchParams.set("returnUrl", input.returnUrl);
+  url.searchParams.set("cancelUrl", input.cancelUrl);
+  return url.toString();
+}
+
 export function createPaddleBillingProvider(
   config: PaddleProviderConfig,
   sdkClient: PaddleSdkClient = createPaddleSdkClient(config),
@@ -408,13 +458,27 @@ export function createPaddleBillingProvider(
     name: "PADDLE",
 
     /**
-     * Server-side only — creates a Paddle Transaction and returns its
-     * hosted `checkout.url` for the caller to redirect the browser to
+     * Server-side only — creates a Paddle Transaction and returns this
+     * app's own `/billing/checkout` bridge page URL (carrying the new
+     * transaction's id), for the caller to redirect the browser to
      * (`requestPlanChangeAction` already does exactly this for every
-     * adapter, unchanged). Confirmed against Paddle's actual current
-     * Transactions API/Node SDK (`CreateTransactionRequestBody`) before
-     * writing this — see this function's own inline notes for what is
-     * and isn't actually supported, rather than guessed.
+     * adapter, unchanged — this method's own return type/contract,
+     * `{ url }`, is unchanged by E2.5). Confirmed against Paddle's actual
+     * current Transactions API/Node SDK (`CreateTransactionRequestBody`)
+     * before writing this — see this function's own inline notes for
+     * what is and isn't actually supported, rather than guessed.
+     *
+     * E2.5 change from E2.3: no longer reads `transaction.checkout.url`
+     * at all (and never sets the request body's own `checkout.url`
+     * field either) — that field only resolves to a genuinely working
+     * page once a "Default Payment Link" is separately configured in the
+     * Paddle dashboard AND that page itself embeds Paddle.js, a setup
+     * step this app can't verify or guarantee for every future buyer.
+     * `transaction.id` (always present, non-nullable per the SDK's own
+     * `Transaction` type — unlike `checkout`, which is nullable) is a
+     * strictly more reliable value to depend on, and is all this app's
+     * own bridge page actually needs to open a Paddle.js overlay
+     * checkout for this exact transaction.
      */
     async createCheckoutSession(input: BillingCheckoutSessionInput): Promise<BillingCheckoutSession> {
       if (!hasConfiguredPriceId(input.planKey)) {
@@ -422,23 +486,6 @@ export function createPaddleBillingProvider(
       }
       const priceId = config.priceIdByPlanKey[input.planKey];
 
-      // input.returnUrl/input.cancelUrl are deliberately NOT sent anywhere
-      // below — CreateTransactionRequestBody has no field for either.
-      // Confirmed against the SDK's own type: the only checkout-adjacent
-      // input field is `checkout?: { url?: string }`, which controls
-      // *which page renders the checkout widget* (must be a domain
-      // approved in the Paddle dashboard, and that page must itself embed
-      // Paddle.js — this app has no such page yet, out of this PR's
-      // scope), not a post-payment return/cancel redirect. For a
-      // subscription specifically, Paddle's own documented way to set a
-      // post-checkout redirect is Paddle.js's client-side
-      // `Checkout.open({ settings: { successUrl } })` call, or a
-      // per-Product default configured once in the Paddle dashboard —
-      // neither is a server-side Transactions API parameter. Omitting
-      // `checkout` here lets Paddle fall back to the account's own
-      // configured default payment link, which is the correct behavior
-      // until a later PR adds this app's own Paddle.js-enabled checkout
-      // page. See this PR's own report for the same finding in full.
       let transaction: Awaited<ReturnType<PaddleSdkClient["transactions"]["create"]>>;
       try {
         transaction = await sdkClient.transactions.create({
@@ -451,34 +498,25 @@ export function createPaddleBillingProvider(
           // the buyer enters during checkout when no customerId is given
           // — this app never needs to create a Customer object itself
           // ahead of time. The real provider customer id first becomes
-          // known to this app when the resulting webhook event arrives
-          // (a later PR), the same "we learn it from the webhook, never
-          // create it ourselves speculatively" discipline this whole
-          // adapter boundary already follows for Subscription state.
+          // known to this app when the resulting webhook event arrives,
+          // the same "we learn it from the webhook, never create it
+          // ourselves speculatively" discipline this whole adapter
+          // boundary already follows for Subscription state.
           ...(input.existingProviderCustomerId ? { customerId: input.existingProviderCustomerId } : {}),
           // The organization id, embedded as trusted, provider-echoed
           // metadata — exactly what docs/billing-provider-adapter.md's
-          // "Required provider metadata" section already specifies. A
-          // future real parseWebhookEvent (E2.4+) reads this back out of
-          // the webhook payload as an unverified claim; the webhook route
-          // (never the adapter) is what validates it against the
-          // database before ever applying it.
+          // "Required provider metadata" section already specifies.
+          // parseWebhookEvent (E2.4) reads this back out of the webhook
+          // payload as an unverified claim; the webhook route (never the
+          // adapter) is what validates it against the database before
+          // ever applying it.
           customData: { organizationId: input.organizationId },
         });
       } catch (err) {
         throw new PaddleAdapterError("Paddle checkout session creation failed.", toSafeErrorCode(err));
       }
 
-      const url = transaction.checkout?.url;
-      if (!url) {
-        // Genuinely possible per Paddle's own API: checkout details are
-        // only populated for automatically-collected transactions (or
-        // manually-collected ones with checkout explicitly enabled) —
-        // never assume it's always present.
-        throw new PaddleAdapterError("Paddle did not return a checkout URL for this transaction.", "checkout_url_missing");
-      }
-
-      return { url };
+      return { url: buildCheckoutBridgeUrl(config, transaction.id, input) };
     },
 
     /**

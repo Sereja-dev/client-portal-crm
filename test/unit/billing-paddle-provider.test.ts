@@ -80,7 +80,7 @@ describe("createPaddleBillingProvider", () => {
 
   describe("createCheckoutSession", () => {
     it("resolves STARTER to its own configured price id", async () => {
-      const create = vi.fn().mockResolvedValue({ checkout: { url: "https://checkout.paddle.com/txn_1" } });
+      const create = vi.fn().mockResolvedValue({ id: "txn_1" });
       const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient({ transactions: { create } }));
 
       await provider.createCheckoutSession({
@@ -97,7 +97,7 @@ describe("createPaddleBillingProvider", () => {
     });
 
     it("resolves PRO to its own, distinct configured price id", async () => {
-      const create = vi.fn().mockResolvedValue({ checkout: { url: "https://checkout.paddle.com/txn_2" } });
+      const create = vi.fn().mockResolvedValue({ id: "txn_2" });
       const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient({ transactions: { create } }));
 
       await provider.createCheckoutSession({
@@ -112,7 +112,7 @@ describe("createPaddleBillingProvider", () => {
     });
 
     it("always requests quantity: 1", async () => {
-      const create = vi.fn().mockResolvedValue({ checkout: { url: "https://checkout.paddle.com/txn_3" } });
+      const create = vi.fn().mockResolvedValue({ id: "txn_3" });
       const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient({ transactions: { create } }));
 
       await provider.createCheckoutSession({
@@ -128,7 +128,7 @@ describe("createPaddleBillingProvider", () => {
     });
 
     it("passes existingProviderCustomerId as customerId when present — reuses the existing provider customer, never creates a second one", async () => {
-      const create = vi.fn().mockResolvedValue({ checkout: { url: "https://checkout.paddle.com/txn_4" } });
+      const create = vi.fn().mockResolvedValue({ id: "txn_4" });
       const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient({ transactions: { create } }));
 
       await provider.createCheckoutSession({
@@ -143,7 +143,7 @@ describe("createPaddleBillingProvider", () => {
     });
 
     it("omits customerId entirely when existingProviderCustomerId is null — never sends null/undefined, lets Paddle resolve/create the customer itself", async () => {
-      const create = vi.fn().mockResolvedValue({ checkout: { url: "https://checkout.paddle.com/txn_5" } });
+      const create = vi.fn().mockResolvedValue({ id: "txn_5" });
       const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient({ transactions: { create } }));
 
       await provider.createCheckoutSession({
@@ -159,7 +159,7 @@ describe("createPaddleBillingProvider", () => {
     });
 
     it("embeds organizationId as customData, so a future webhook can recover which organization a delivered event is about", async () => {
-      const create = vi.fn().mockResolvedValue({ checkout: { url: "https://checkout.paddle.com/txn_6" } });
+      const create = vi.fn().mockResolvedValue({ id: "txn_6" });
       const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient({ transactions: { create } }));
 
       await provider.createCheckoutSession({
@@ -173,8 +173,92 @@ describe("createPaddleBillingProvider", () => {
       expect(create).toHaveBeenCalledWith(expect.objectContaining({ customData: { organizationId: ORG_ID } }));
     });
 
-    it("returns the hosted checkout URL from a successful transaction", async () => {
-      const create = vi.fn().mockResolvedValue({ checkout: { url: "https://checkout.paddle.com/txn_7" } });
+    it("returns this app's own /billing/checkout bridge URL, carrying the transaction id (E2.5 — never Paddle's own transaction.checkout.url)", async () => {
+      const create = vi.fn().mockResolvedValue({ id: "txn_7", checkout: { url: "https://should-not-be-used.example/checkout" } });
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient({ transactions: { create } }));
+
+      const session = await provider.createCheckoutSession({
+        organizationId: ORG_ID,
+        planKey: "STARTER",
+        returnUrl: "/settings/billing?checkout=success",
+        cancelUrl: "/settings/billing?checkout=canceled",
+        existingProviderCustomerId: null,
+      });
+
+      const url = new URL(session.url);
+      expect(url.pathname).toBe("/billing/checkout");
+      expect(url.hostname).not.toBe("should-not-be-used.example");
+      expect(url.searchParams.get("transactionId")).toBe("txn_7");
+    });
+
+    it("embeds this adapter's own configured environment (sandbox/live) on the bridge URL, so the browser knows which Paddle environment to initialize", async () => {
+      const create = vi.fn().mockResolvedValue({ id: "txn_8" });
+      const sandboxProvider = createPaddleBillingProvider(CONFIG, fakeSdkClient({ transactions: { create } }));
+      const liveProvider = createPaddleBillingProvider(
+        { ...CONFIG, environment: "live" },
+        fakeSdkClient({ transactions: { create } }),
+      );
+
+      const sandboxSession = await sandboxProvider.createCheckoutSession({
+        organizationId: ORG_ID,
+        planKey: "STARTER",
+        returnUrl: "/x",
+        cancelUrl: "/y",
+        existingProviderCustomerId: null,
+      });
+      const liveSession = await liveProvider.createCheckoutSession({
+        organizationId: ORG_ID,
+        planKey: "STARTER",
+        returnUrl: "/x",
+        cancelUrl: "/y",
+        existingProviderCustomerId: null,
+      });
+
+      expect(new URL(sandboxSession.url).searchParams.get("environment")).toBe("sandbox");
+      expect(new URL(liveSession.url).searchParams.get("environment")).toBe("live");
+    });
+
+    it("carries returnUrl/cancelUrl through to the bridge URL, so the checkout bridge page can send the browser back to the right place", async () => {
+      const create = vi.fn().mockResolvedValue({ id: "txn_9" });
+      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient({ transactions: { create } }));
+
+      const session = await provider.createCheckoutSession({
+        organizationId: ORG_ID,
+        planKey: "STARTER",
+        returnUrl: "/settings/billing?checkout=success",
+        cancelUrl: "/settings/billing?checkout=canceled",
+        existingProviderCustomerId: null,
+      });
+
+      const url = new URL(session.url);
+      expect(url.searchParams.get("returnUrl")).toBe("/settings/billing?checkout=success");
+      expect(url.searchParams.get("cancelUrl")).toBe("/settings/billing?checkout=canceled");
+    });
+
+    it("builds the bridge URL against APP_BASE_URL when set", async () => {
+      const previous = process.env.APP_BASE_URL;
+      process.env.APP_BASE_URL = "https://buyer-app.example.org/";
+      try {
+        const create = vi.fn().mockResolvedValue({ id: "txn_10" });
+        const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient({ transactions: { create } }));
+
+        const session = await provider.createCheckoutSession({
+          organizationId: ORG_ID,
+          planKey: "STARTER",
+          returnUrl: "/x",
+          cancelUrl: "/y",
+          existingProviderCustomerId: null,
+        });
+
+        expect(session.url.startsWith("https://buyer-app.example.org/billing/checkout")).toBe(true);
+      } finally {
+        if (previous === undefined) delete process.env.APP_BASE_URL;
+        else process.env.APP_BASE_URL = previous;
+      }
+    });
+
+    it("never leaks the API key or webhook secret into the bridge URL", async () => {
+      const create = vi.fn().mockResolvedValue({ id: "txn_11" });
       const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient({ transactions: { create } }));
 
       const session = await provider.createCheckoutSession({
@@ -185,7 +269,8 @@ describe("createPaddleBillingProvider", () => {
         existingProviderCustomerId: null,
       });
 
-      expect(session).toEqual({ url: "https://checkout.paddle.com/txn_7" });
+      expect(session.url).not.toContain(CONFIG.apiKey);
+      expect(session.url).not.toContain(CONFIG.webhookSecret);
     });
 
     it("fails closed with a controlled error when the plan key has no configured price id", async () => {
@@ -202,21 +287,6 @@ describe("createPaddleBillingProvider", () => {
         }),
       ).rejects.toThrow(PaddleAdapterError);
       expect(create).not.toHaveBeenCalled();
-    });
-
-    it("fails closed with a controlled error when Paddle returns a transaction with no checkout URL", async () => {
-      const create = vi.fn().mockResolvedValue({ checkout: null });
-      const provider = createPaddleBillingProvider(CONFIG, fakeSdkClient({ transactions: { create } }));
-
-      await expect(
-        provider.createCheckoutSession({
-          organizationId: ORG_ID,
-          planKey: "STARTER",
-          returnUrl: "/x",
-          cancelUrl: "/y",
-          existingProviderCustomerId: null,
-        }),
-      ).rejects.toThrow(PaddleAdapterError);
     });
 
     it("fails closed with a controlled error, never the raw SDK error, when the SDK call throws", async () => {
@@ -657,7 +727,7 @@ describe("createPaddleBillingProvider", () => {
       const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
       const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-      const create = vi.fn().mockResolvedValue({ checkout: { url: "https://checkout.paddle.com/txn_8" } });
+      const create = vi.fn().mockResolvedValue({ id: "txn_8" });
       const portalCreate = vi.fn().mockResolvedValue({ urls: { general: { overview: "https://portal.paddle.com/abc" } } });
       const provider = createPaddleBillingProvider(
         CONFIG,
@@ -693,7 +763,7 @@ describe("createPaddleBillingProvider", () => {
     });
 
     it("makes no real network call — every SDK method used in these tests is this file's own fake, never the real @paddle/paddle-node-sdk client", async () => {
-      const create = vi.fn().mockResolvedValue({ checkout: { url: "https://checkout.paddle.com/txn_9" } });
+      const create = vi.fn().mockResolvedValue({ id: "txn_9" });
       const client = fakeSdkClient({ transactions: { create } });
       const provider = createPaddleBillingProvider(CONFIG, client);
 
