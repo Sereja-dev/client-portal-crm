@@ -172,23 +172,48 @@ the entitlement engine directly — `getOrganizationEntitlements()`
 continues to just read whatever `Subscription` row this mapper's output
 was used to write.
 
-## Required environment variables (not yet read by any code)
+## Required environment variables
 
 Documented as empty placeholders in `.env.example` — see that file's own
-comments. **None of these are read anywhere in the codebase yet**; they
-exist only as the documented future contract:
+comments. **Sale-Ready Phase E, E2.2** added
+`src/lib/billing/provider/paddle-config.ts`, which reads and validates
+all six variables below — but nothing calls that module yet, and
+`getBillingProviderAdapter()` still only ever resolves to the mock
+(`TEST_MODE`) or the fail-closed unconfigured adapter (E2.2's own PR
+deliberately does not add the third branch). Setting these today still
+has zero effect on runtime behavior:
 
 | Variable | Purpose |
 |---|---|
-| `BILLING_PROVIDER` | Which real provider is configured (e.g. `PADDLE`) — lets `getBillingProviderAdapter()` add its third branch. |
+| `BILLING_PROVIDER` | Which real provider is configured. Must be exactly `PADDLE` (matching the `BillingProvider` Prisma enum's own casing) — anything else, `paddle-config.ts` treats Paddle as entirely unconfigured. |
+| `BILLING_ENVIRONMENT` | Which Paddle mode these credentials are for — exactly `sandbox` or `live`, nothing else accepted (never guessed, never defaulted). The Paddle Node SDK requires this explicitly at client construction; it cannot be inferred from the API key alone. |
 | `BILLING_API_KEY` | The provider's server-side API key. Server-only — never `NEXT_PUBLIC_`. |
 | `BILLING_WEBHOOK_SECRET` | Used by the real adapter's `verifyWebhook` to compute/compare the provider's actual signature. Server-only. |
-| `BILLING_STARTER_PRICE_ID` | The real provider price/product id for the `STARTER` plan (`src/lib/billing/plans.ts`'s `PLAN_CATALOG.STARTER`). |
+| `BILLING_STARTER_PRICE_ID` | The real provider price id for the `STARTER` plan (`src/lib/billing/plans.ts`'s `PLAN_CATALOG.STARTER`). |
 | `BILLING_PRO_PRICE_ID` | Same, for `PRO`. |
 
 `scripts/security-checks/check-billing-security.mjs` already fails the
 build if any of these (or any future billing/provider variable) is ever
-given a `NEXT_PUBLIC_` prefix.
+given a `NEXT_PUBLIC_` prefix — `paddle-config.ts` lives under
+`src/lib/billing/provider/`, so it's automatically covered by that same
+script's existing "every file here is server-only" and "no console
+logging here" checks too, with no new assertions needed.
+
+**All six values are supplied later, by whoever actually connects a real
+Paddle account — never by this repository.** This project is designed to
+be sold as a SaaS foundation: the current owner does not create a Paddle
+account, does not go through KYC/KYB, and does not enter any real
+credentials here. A future buyer creates their own Paddle account
+(sandbox first, then live), fills in their own values for these six
+variables in their own deployment's environment, and registers their own
+webhook endpoint — with zero application code changes required. No real
+key, secret, or price id belongs in this file, `.env.example`, or any
+other committed file, ever.
+
+`getPaddleProviderConfig()` (`paddle-config.ts`) treats any single
+missing or invalid value — including an unrecognized `BILLING_ENVIRONMENT`
+— as "Paddle is not configured" (returns `null`), never a partial or
+best-effort configuration.
 
 ### Where plan → price id mapping belongs
 
