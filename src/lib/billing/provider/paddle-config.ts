@@ -8,15 +8,15 @@ import type { PlanKey } from "@/lib/billing/plans";
  * `.env.example`/`docs/billing-provider-adapter.md`, and nothing else —
  * no network call, no SDK import, no Paddle account required to exist.
  *
- * Deliberately has no caller yet: `getBillingProviderAdapter()`
- * (`./provider.ts`) is not wired to this module in this PR — the
- * registry still only ever resolves to the mock (`TEST_MODE`) or the
- * fail-closed unconfigured adapter, exactly as before. This module exists
- * so a future `paddle-provider.ts` has a single, already-tested place to
- * get its validated configuration from, rather than each adapter method
- * re-reading and re-validating `process.env` independently. Wiring this
- * into the registry as a real third branch is a later PR (E2.3+), not
- * this one.
+ * As of Sale-Ready Phase E, E2.6 (Paddle Provider Resolver Activation),
+ * `getBillingProviderAdapter()` (`./provider.ts`) calls this module
+ * directly: a fully valid config (every field below present) resolves to
+ * the real Paddle adapter; anything else (nothing set, TEST_MODE on, one
+ * var missing/invalid) still resolves to the mock or the fail-closed
+ * unconfigured adapter exactly as before. This module remains the single,
+ * already-tested place every caller gets its validated configuration
+ * from, rather than each adapter method re-reading and re-validating
+ * `process.env` independently.
  */
 
 export type PaddleEnvironment = "sandbox" | "live";

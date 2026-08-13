@@ -102,6 +102,17 @@ route's own trust/idempotency/ordering logic.
   wrapper objects (no `fetch`, no `await`, anywhere in it); every actual
   Paddle API request happens lazily, later, only when a specific adapter
   method is actually called by a real checkout/portal action.
+- **Platform Admin's own "Mode" display now distinguishes Sandbox from
+  Live.** `src/lib/billing/platform-billing-config.ts`'s `PlatformBillingConfig
+  .mode` (rendered on `/platform-admin/configuration`) is now `"Test"` |
+  `"Sandbox"` | `"Live"` | `"Not configured"` — before E2.6, `"paddle"`
+  was an adapter `kind` this code could never actually reach, so it
+  collapsed straight to `"Live"`; now that it's reachable, that would have
+  misleadingly shown "Live" for a Paddle account correctly configured in
+  its own `sandbox` (test-money) environment. The distinction is derived
+  from `getPaddleProviderConfig()`'s own non-sensitive `environment`
+  field — this page still never reads or displays `apiKey`,
+  `webhookSecret`, any price id, or the client token.
 - **No Paddle account was created or required for this PR** — every
   test uses a fully mocked SDK client, stubbed env vars, and a locally
   computed signature; no network call is ever made, confirmed by a

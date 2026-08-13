@@ -606,12 +606,30 @@ ok = report(
 // branch in source order — TEST_MODE must take priority over a real
 // Paddle config even when both are present, so a local/test environment
 // can never accidentally resolve to a real Paddle adapter.
-const testModeIndex = providerRegistrySource.indexOf("TEST_MODE");
-const paddleConfigIndex = providerRegistrySource.indexOf("getPaddleProviderConfig(");
+//
+// Two false-negative traps were found and fixed here during E2.6 PR
+// review, both confirmed with a temporary, reverted PoC that introduced
+// a real precedence bug (checking/activating Paddle before TEST_MODE) —
+// the real unit test suite correctly failed on it, but this dedicated
+// security check did not, until both traps below were fixed:
+//   1. Matching against the raw source (not comment-stripped) only ever
+//      verifies this file's own header doc comment's prose order ("TEST_MODE
+//      on → ...", then "getPaddleProviderConfig()..."), never the real
+//      code below it — fixed by matching against providerRegistryCodeOnly.
+//   2. A bare `"TEST_MODE"` substring search matches this file's own
+//      `import { TEST_MODE } from "@/lib/test-mode"` line, which always
+//      sits at the top of the file regardless of the real function
+//      body's branch order — so the check was structurally blind to any
+//      reordering inside the function. Fixed by matching the actual
+//      conditional (`if (TEST_MODE)` / `if(TEST_MODE)`) instead of the
+//      bare identifier — the import line has no `if (...)` around it, so
+//      it can never satisfy this pattern.
+const testModeIndex = providerRegistryCodeOnly.search(/if\s*\(\s*TEST_MODE\s*\)/);
+const paddleConfigIndex = providerRegistryCodeOnly.indexOf("getPaddleProviderConfig(");
 ok = report(
   "the TEST_MODE branch appears before the Paddle-activation branch in provider.ts, so TEST_MODE always takes priority",
   testModeIndex !== -1 && paddleConfigIndex !== -1 && testModeIndex < paddleConfigIndex,
-  `TEST_MODE index: ${testModeIndex}, getPaddleProviderConfig( index: ${paddleConfigIndex}`,
+  `if (TEST_MODE) index: ${testModeIndex}, getPaddleProviderConfig( index: ${paddleConfigIndex}`,
 ) && ok;
 
 // 33. The fail-closed unconfigured fallback is still present and still
