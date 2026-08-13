@@ -99,9 +99,34 @@ export async function startTestDatabase(): Promise<void> {
   });
 }
 
+/**
+ * Sale-Ready Phase E, E3.4. `pglite.close()` below is Postgres itself
+ * shutting down inside the WASM sandbox — Emscripten's generated runtime
+ * maps that internal `exit()`/`proc_exit()` call to its own `quit_`
+ * helper, which does a bare `process.exitCode = status` on the *host*
+ * Node process (confirmed by reading `node_modules/@electric-sql/pglite/
+ * dist/pglite.js`'s own `quit_=(status,toThrow)=>{process.exitCode=status;
+ * throw toThrow}`, and proven live: instrumenting a run showed
+ * `process.exitCode` flip from Vitest's own correctly-set `1` to `0`
+ * across exactly this call, with no other code in between). Postgres always
+ * shuts down "successfully" from its own WASM-internal point of view
+ * (`status` 0) regardless of whether the test suite that happened to be
+ * using it passed or failed — so left alone, this unconditionally
+ * overwrites Vitest's real exit code with 0 during every single
+ * integration run, which is exactly why `npm run test:integration` was
+ * reporting failing tests but exiting 0 (masking real regressions from
+ * CI). Saving/restoring `process.exitCode` around this one shutdown
+ * sequence is the narrowest fix: it doesn't touch Vitest, doesn't touch
+ * `@electric-sql/pglite`, and doesn't change what either program observes
+ * about its own execution — only that a third party's internal "I exited
+ * 0" no longer leaks into a process-global property this test runner
+ * doesn't own.
+ */
 export async function stopTestDatabase(): Promise<void> {
+  const exitCodeBeforeShutdown = process.exitCode;
   await socketServer?.stop();
   await pglite?.close();
+  process.exitCode = exitCodeBeforeShutdown;
   pglite = undefined;
   socketServer = undefined;
 }

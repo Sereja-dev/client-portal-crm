@@ -6,6 +6,19 @@ import { AnalyticsAccessError } from "@/lib/analytics/authorization";
 import { testEmail, testSlug } from "../../support/run-id";
 
 const NOW = new Date("2026-08-12T15:30:00.000Z");
+// One minute before NOW, comfortably inside every window this file exercises
+// (last7Days/last30Days/allTime) and strictly less than `bounds.end` (=NOW),
+// which growth-metrics.ts's own `windowFilter` requires (`createdAt: { lt:
+// bounds.end } }` — a strict `<`, so `createdAt: NOW` itself would NOT
+// satisfy it). Explicit, not `@default(now())`: Prisma's schema default
+// stamps the real wall clock, which drifts past this file's frozen `NOW` as
+// soon as real time moves on — exactly what made
+// `growth.clientGrowth.currentPeriodCount` flip from 1 to 0 once the
+// calendar caught up to this fixture (Sale-Ready Phase E, E3.4). Every
+// row this file creates that growth metrics can see must set `createdAt`
+// explicitly to a fixed instant relative to `NOW`, never rely on the
+// column's own default.
+const CLIENT_CREATED_AT = new Date(NOW.getTime() - 60_000);
 
 async function createOrgWithOwner(label: string) {
   const runSuffix = randomUUID().slice(0, 8);
@@ -24,7 +37,9 @@ describe("getOrganizationAnalytics", () => {
 
   beforeAll(async () => {
     org = await createOrgWithOwner("A");
-    await prisma.client.create({ data: { name: "Service Client", userId: org.owner.id, organizationId: org.org.id } });
+    await prisma.client.create({
+      data: { name: "Service Client", userId: org.owner.id, organizationId: org.org.id, createdAt: CLIENT_CREATED_AT },
+    });
   });
 
   afterAll(async () => {
@@ -76,7 +91,7 @@ describe("getOrganizationAnalytics", () => {
   it("allTime falls back to the default growth window instead of throwing", async () => {
     const snapshot = await getOrganizationAnalytics(org.org.id, "OWNER", "allTime", NOW);
     expect(snapshot.timeRange).toBe("allTime");
-    expect(snapshot.growth.clientGrowth.currentPeriodCount).toBe(1); // still finds the one client created "now"
+    expect(snapshot.growth.clientGrowth.currentPeriodCount).toBe(1); // still finds the one client created at CLIENT_CREATED_AT
   });
 
   it("is fully scoped to the given organization — never leaks another org's data", async () => {
