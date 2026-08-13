@@ -85,10 +85,22 @@ describe("getOnboardingStepRowActions", () => {
     expect(actions.showSkip).toBe(false);
   });
 
-  it("the billing placeholder (NOT_APPLICABLE) shows no action at all", () => {
+  it("REVIEW_BILLING (Sale-Ready Phase E, E3.3 — available, unblocked, skippable) shows both Go-to and Skip, same shape as INVITE_TEAMMATE", () => {
     const progress = buildOnboardingProgress(signals());
     const step = stepOf(progress, "REVIEW_BILLING");
-    expect(step.status).toBe("NOT_APPLICABLE");
+    expect(step.status).toBe("NOT_STARTED");
+    const actions = getOnboardingStepRowActions(step);
+    expect(actions.isBlocked).toBe(false);
+    expect(actions.showGoTo).toBe(true);
+    expect(actions.showSkip).toBe(true);
+  });
+
+  it("a SKIPPED REVIEW_BILLING shows no action at all, same as any other skipped step", () => {
+    const progress = buildOnboardingProgress(
+      signals({ actedStepKeys: new Set<OnboardingStepKey>(["REVIEW_BILLING"]) }),
+    );
+    const step = stepOf(progress, "REVIEW_BILLING");
+    expect(step.status).toBe("SKIPPED");
     const actions = getOnboardingStepRowActions(step);
     expect(actions.showGoTo).toBe(false);
     expect(actions.showSkip).toBe(false);
@@ -163,6 +175,7 @@ describe("shouldRenderOnboardingCard", () => {
         hasCompanyProfile: true,
         hasPaymentDetails: true,
         hasDomainSettings: true,
+        actedStepKeys: new Set<OnboardingStepKey>(["REVIEW_BILLING"]),
       }),
     );
     expect(progress.isComplete).toBe(true);

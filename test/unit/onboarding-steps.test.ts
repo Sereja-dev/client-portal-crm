@@ -91,9 +91,9 @@ describe("ONBOARDING_STEP_ORDER / ONBOARDING_STEPS — catalog invariants", () =
 });
 
 describe("isOnboardingStepAvailable", () => {
-  it("is true for every step except REVIEW_BILLING (Billing branch not merged, §16)", () => {
+  it("is true for every step, including REVIEW_BILLING (Sale-Ready Phase E, E3.3 — billing is merged and live)", () => {
     for (const key of ONBOARDING_STEP_ORDER) {
-      expect(isOnboardingStepAvailable(key)).toBe(key !== "REVIEW_BILLING");
+      expect(isOnboardingStepAvailable(key)).toBe(true);
     }
   });
 });

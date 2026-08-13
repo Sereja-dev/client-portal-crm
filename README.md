@@ -324,7 +324,6 @@ Both are intended to be green before merging a pull request.
 Ideas for future iterations — not required for the product to work today:
 
 - **Custom domain verification.** Settings → Domain lets an organization save a custom domain, but real DNS verification isn't implemented yet — a saved domain stays in a "pending" state indefinitely. This is intentional and disclosed in the UI itself, not a bug.
-- **`REVIEW_BILLING` onboarding step.** The onboarding checklist's step catalog already includes a "Review billing" step, but it's currently hardcoded unavailable (`src/lib/onboarding/steps.ts`) — a known, tracked follow-up now that billing itself is fully implemented (see [Onboarding](#onboarding) and [Billing](#billing) below).
 - **Trial-ending reminders / billing reconciliation.** See [Billing](#billing) below — both are optional, defense-in-depth additions, not required for correctness.
 - **Invoice PDF export / email delivery** — invoices currently exist only as database records with a status field; there's no PDF generation or send-by-email flow.
 
@@ -360,7 +359,7 @@ actions; it disappears once every substantive step is done or skipped,
 or once explicitly dismissed. No settings entry point or resume
 mechanism exists yet (deliberately deferred).
 
-One step, **"Review billing,"** is defined in the step catalog but currently hardcoded unavailable — it was designed to activate once billing existed, and billing is now fully implemented (see [Billing](#billing) above), but flipping this specific step on is a small, tracked follow-up, not yet done (see the Roadmap above).
+One step, **"Review billing,"** points at the real `/settings/billing` page (see [Billing](#billing) above) — every staff role can view it, and it renders safely with no Paddle account configured at all, so reviewing billing never requires setting it up.
 
 The Client Portal side is deliberately separate and much thinner: a
 one-time "Welcome to your client portal" banner on `/portal` for a

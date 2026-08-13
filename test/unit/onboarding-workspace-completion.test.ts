@@ -93,6 +93,7 @@ describe("getWorkspaceCompletionSummary", () => {
         hasCompanyProfile: true,
         hasPaymentDetails: true,
         hasDomainSettings: true,
+        actedStepKeys: new Set<OnboardingStepKey>(["REVIEW_BILLING"]),
       }),
     );
     expect(progress.isComplete).toBe(true);
@@ -108,11 +109,35 @@ describe("getWorkspaceCompletionSummary", () => {
       "INVITE_TEAMMATE",
       "INVITE_PORTAL_USER",
     ]);
+    // REVIEW_BILLING was skipped, not completed — SKIPPED never counts as a
+    // completed accomplishment (only status === "COMPLETE" does).
+    expect(summary.completedSteps.map((s) => s.key)).not.toContain("REVIEW_BILLING");
     expect(summary.nextActions).toEqual([]);
   });
 
-  it("the unavailable REVIEW_BILLING step never appears in either list, regardless of state", () => {
-    const progress = buildOnboardingProgress(signals());
+  it("once every other substantive step is done, REVIEW_BILLING (available since Sale-Ready Phase E, E3.3) becomes the sole remaining next action", () => {
+    const progress = buildOnboardingProgress(
+      signals({
+        hasClient: true,
+        hasProject: true,
+        hasTask: true,
+        hasSecondMember: true,
+        hasPortalUser: true,
+        hasCompanyProfile: true,
+        hasPaymentDetails: true,
+        hasDomainSettings: true,
+      }),
+    );
+    // Not complete yet — REVIEW_BILLING is a substantive step still NOT_STARTED.
+    expect(progress.isComplete).toBe(false);
+
+    const summary = getWorkspaceCompletionSummary(progress);
+    expect(summary.nextActions.map((s) => s.key)).toEqual(["REVIEW_BILLING"]);
+    expect(summary.completedSteps.map((s) => s.key)).not.toContain("REVIEW_BILLING");
+  });
+
+  it("a skipped REVIEW_BILLING is excluded from completedSteps and is no longer offered as a next action", () => {
+    const progress = buildOnboardingProgress(signals({ actedStepKeys: new Set<OnboardingStepKey>(["REVIEW_BILLING"]) }));
     const summary = getWorkspaceCompletionSummary(progress);
     expect(summary.completedSteps.map((s) => s.key)).not.toContain("REVIEW_BILLING");
     expect(summary.nextActions.map((s) => s.key)).not.toContain("REVIEW_BILLING");

@@ -40,13 +40,12 @@ export type OnboardingProgressSummary = {
   steps: OnboardingStepResult[];
   /**
    * The "N of M" display fraction — M excludes WELCOME (a greeting, not
-   * an accomplishment) and excludes any currently-unavailable step
-   * (REVIEW_BILLING on this branch, §16), but DOES include FINISH: seeing
-   * "5 of 6 — click Finish to wrap up" is a deliberate, motivating last
-   * step, not a bookend to hide (docs/onboarding-architecture.md's own
-   * "Welcome → Client → Project → Task → Invite teammate → Invite Portal
-   * User → Finish, six real steps" wording — six, not seven, because only
-   * Welcome is excluded from that count).
+   * an accomplishment) and excludes any currently-unavailable step (none,
+   * as of Sale-Ready Phase E, E3.3 — `isOnboardingStepAvailable` no
+   * longer excludes `REVIEW_BILLING`; this exclusion still exists in the
+   * code for any *future* step that might genuinely need it), but DOES
+   * include FINISH: seeing "9 of 10 — click Finish to wrap up" is a
+   * deliberate, motivating last step, not a bookend to hide.
    */
   completedCount: number;
   totalCount: number;
@@ -146,9 +145,10 @@ export function buildOnboardingProgress(signals: OnboardingRawSignals): Onboardi
 
   // Processed in §5's own dependency-respecting order, so a step's own
   // dependency result (if any) is already computed by the time it's this
-  // step's turn — see `isOnboardingStepAvailable`'s own doc comment for
-  // why REVIEW_BILLING short-circuits to NOT_APPLICABLE regardless of any
-  // row that might (defensively) exist for it.
+  // step's turn. `NOT_APPLICABLE` is unreachable for every current step key
+  // (`isOnboardingStepAvailable` returns true for all of them, Sale-Ready
+  // Phase E, E3.3) — kept as the one seam a genuinely-conditional future
+  // step would use, same as `isOnboardingStepAvailable`'s own comment notes.
   for (const key of ONBOARDING_STEP_ORDER) {
     const def = getOnboardingStep(key);
     resultsByKey[key] = buildStepResult(def, signals, resultsByKey);
@@ -202,9 +202,10 @@ function buildStepResult(
 
   if (!isOnboardingStepAvailable(def.key)) {
     // Unavailable overrides everything else, unconditionally — even a
-    // stray row (which nothing in this stage's own write path can ever
-    // create — see actions.ts's own allowlist check) would never flip
-    // this back to Skipped/Complete on this branch.
+    // stray row would never flip this back to Skipped/Complete. As of
+    // Sale-Ready Phase E, E3.3, isOnboardingStepAvailable() returns true
+    // for every current step key, so this branch is unreachable today —
+    // kept as the one seam a genuinely-conditional future step would use.
     return {
       ...base,
       status: "NOT_APPLICABLE",
@@ -236,11 +237,22 @@ function buildStepResult(
     };
   }
 
-  // Non-computed (WELCOME, FINISH): the only possible states are
-  // Complete-by-acknowledgment or Not Started — there is no business-data
-  // signal and (per §6) neither is ever skippable.
+  // Non-computed: there is no business-data signal, so the only possible
+  // states are Not Started and one of two "acted" outcomes. WELCOME/
+  // FINISH are never skippable (§6), so an acted row for either always
+  // means Complete-by-acknowledgment. REVIEW_BILLING (Sale-Ready Phase E,
+  // E3.3) is the one non-computed step that IS skippable — an acted row
+  // for it must resolve to Skipped, not Complete, exactly like a
+  // computed-but-skipped step above (`def.skippable && acted` there);
+  // otherwise clicking "Skip" would show the same green checkmark as
+  // actually reviewing the page, which OnboardingStepIcon renders as a
+  // visually distinct (and semantically different) state from Skipped on
+  // purpose. This branch is still unreachable for WELCOME/FINISH either
+  // way, since `def.skippable` is `false` for both.
   if (acted) {
-    return { ...base, status: "COMPLETE", actionable: false, blockedReason: null, completionSource: "acknowledged" };
+    return def.skippable
+      ? { ...base, status: "SKIPPED", actionable: false, blockedReason: null, completionSource: "skipped" }
+      : { ...base, status: "COMPLETE", actionable: false, blockedReason: null, completionSource: "acknowledged" };
   }
   return { ...base, status: "NOT_STARTED", actionable: true, blockedReason: null, completionSource: "none" };
 }

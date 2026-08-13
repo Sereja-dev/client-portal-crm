@@ -89,15 +89,15 @@ describe("onboarding actions", () => {
       expect(await skipOnboardingStepAction("FINISH")).toEqual({ ok: false, message: "That step can't be skipped." });
     });
 
-    it("REVIEW_BILLING is rejected as unavailable, even though its own catalog metadata says skippable", async () => {
+    it("REVIEW_BILLING can be skipped (Sale-Ready Phase E, E3.3 — available, no Paddle configuration required)", async () => {
       actAs(fixtures.owner, fixtures.orgA.id);
       const result = await skipOnboardingStepAction("REVIEW_BILLING");
-      expect(result).toEqual({ ok: false, message: "That step isn't available yet." });
+      expect(result).toEqual({ ok: true });
 
       const row = await prisma.organizationOnboardingStep.findUnique({
         where: { organizationId_step: { organizationId: fixtures.orgA.id, step: "REVIEW_BILLING" } },
       });
-      expect(row).toBeNull();
+      expect(row).not.toBeNull();
     });
 
     it("repeated skip of the same step is idempotent — exactly one row, no error", async () => {

@@ -133,15 +133,17 @@ bar below `md:`; the notification dropdown becomes a full-width sheet on
 mobile) — never a second, parallel mobile component tree. §11–§13 apply
 all of these to onboarding rather than inventing new ones.
 
-### 0.6 Billing exists, but not on this branch
+### 0.6 Billing exists, but not on this branch (historical — as originally written)
 
 `docs/billing-architecture.md` and a working Subscription/Entitlements/
-Trial system exist on `feature/billing-subscriptions`, **not yet merged
-into `main`** as of this document. The example step list this stage was
-asked to evaluate includes "Review Billing." §18 addresses this
-directly: the step is designed to be safe to include *today* (before
-billing merges) and to activate automatically once it does, without this
-document assuming billing is present.
+Trial system existed on `feature/billing-subscriptions`, **not yet merged
+into `main`** as of this document's original writing. The example step
+list this stage was asked to evaluate includes "Review Billing." §16
+addresses this directly: the step was designed to be safe to include
+*today* (before billing merged) and to activate automatically once it
+did, without this document assuming billing was present. Billing has
+since fully merged and is live, and `REVIEW_BILLING` itself is now
+available (Sale-Ready Phase E, E3.3) — see §16's own "Current state" note.
 
 ### 0.7 Testing conventions (mirrored unchanged in §19)
 
@@ -209,8 +211,8 @@ deliberately small at the E2E layer — most logic lives at unit/integration.
   louder.
 - **Rewriting or replacing any existing empty state.** §10 is explicit:
   every `EmptyState` in §0.2's table stays exactly as it is.
-- **Applying to Billing before that branch merges.** §18 covers exactly
-  how the design stays correct either way.
+- **Applying to Billing before that branch merges.** §16 covers exactly
+  how the design stayed correct either way, and what happened once it did.
 
 ---
 
@@ -283,11 +285,11 @@ single most important decision in this document and is argued fully in
 | Create first Task | `prisma.task.count({ where: { organizationId } }) > 0` | identical to `tasks/page.tsx`'s own `projectCount`-style check |
 | Invite a teammate | `prisma.membership.count({ where: { organizationId } }) > 1` (more than just the creating OWNER) | new, same shape |
 | Invite a Portal User | `prisma.portalUser.count({ where: { client: { organizationId } } }) > 0` | new, same shape |
-| Review Billing | See §18 — feature-detected, then "has viewed `/settings/billing` at least once" or "has an active (non-trial) plan," once that branch exists | N/A on `main` today |
+| Review Billing | Explicitly acknowledged (no business-data equivalent) — see §16 for why, now that the step is available (Sale-Ready Phase E, E3.3) | persisted (§9) |
 | Finish | Explicitly acknowledged / whole widget dismissed | persisted (§9) |
 
-Every one of these (other than Welcome/Finish, and Billing pending its
-merge) is answerable with a single, cheap, already-indexed `count`/
+Every one of these (other than Welcome/Review Billing/Finish) is
+answerable with a single, cheap, already-indexed `count`/
 `exists` query — the same kind of query `clients/page.tsx`,
 `projects/page.tsx`, and `tasks/page.tsx` already run on every request
 for their own empty states. A dedicated `getOnboardingProgress(organizationId)`
@@ -380,7 +382,7 @@ narrower: whether a step gets an explicit, user-facing **Skip** button.
 | Create first Task | **Yes** | A user may legitimately want to explore Clients/Projects before creating a Task, or may manage tasks outside this product entirely |
 | Invite a teammate | **Yes** | Solo use is a first-class, permanent, valid end state (§1) |
 | Invite a Portal User | **Yes** | Not every freelancer/agency wants client-facing portal access enabled at all |
-| Review Billing | **Yes** | Not always applicable yet (§18); reviewing pricing is never mandatory |
+| Review Billing | **Yes** | Reviewing pricing is never mandatory (§16) |
 | Finish | N/A — this action *is* the "I'm done" action | — |
 
 "No explicit Skip button" for Client/Project does **not** mean blocking —
@@ -840,15 +842,23 @@ regardless of merge order:
   `docs/billing-architecture.md` needed to change, and nothing about
   billing's own entitlements/trial logic depends on onboarding existing.
 
-**Current state: billing is merged and live, but `REVIEW_BILLING`
-itself is still hardcoded unavailable.** Merging the Billing branch did
-not, by itself, flip `isOnboardingStepAvailable()` — that one function
-is the seam this section always said would need to change, and it
-hasn't yet. This is a known, tracked follow-up (Sale-Ready Phase E,
-E3.3), not a currently-active step. Until that lands, the onboarding
-checklist remains "Welcome → Client → Project → Task → Invite teammate
-→ Invite Portal User → Finish," the same six real steps described above
-— do not treat "Review billing" as available in the product today.
+**Current state (Sale-Ready Phase E, E3.3): `REVIEW_BILLING` is now
+available.** `isOnboardingStepAvailable()` (`src/lib/onboarding/steps.ts`)
+returns `true` unconditionally — the seam this section always said would
+need to change, now flipped. The step's `targetHref` points at the real,
+existing `/settings/billing` page (every staff role — OWNER/ADMIN/MEMBER
+— can view it), and it stays `computed: false`, using the same explicit
+acknowledgment/skip mechanism WELCOME/FINISH already use (via
+`skipOnboardingStepAction`) rather than either of the two "done by data"
+signals originally sketched above — both would either require a new
+persisted visit-flag or leave the step permanently incomplete for any
+organization without a real, successful Paddle checkout. The page itself
+renders safely with no Paddle account configured at all
+(`getBillingProviderAvailability()` reports `configured: false`; no
+crash, no secret, no forced checkout) — reviewing billing has never
+required setting it up. The onboarding checklist is now "Welcome →
+Company Profile → Payment Details → Domain Setup → Client → Project →
+Task → Invite teammate → Invite Portal User → Review billing → Finish."
 
 ---
 
@@ -1010,10 +1020,11 @@ production:
   coverage (§18).
 - **Stage 5 — Portal welcome banner** (§17) — small, independent, can
   land before or after Stage 4 with no ordering dependency on it.
-- **Stage 6 — Billing step activation** (§16) — a small follow-up,
-  scoped and triggered only once `feature/billing-subscriptions` (or its
-  successor) actually merges into `main`; not schedulable against a
-  fixed date from this document alone.
+- **Stage 6 — Billing step activation** (§16) — **done** (Sale-Ready
+  Phase E, E3.3). `feature/billing-subscriptions`'s successor merged
+  (E1–E2.6), and `isOnboardingStepAvailable()` was flipped to make
+  `REVIEW_BILLING` available, pointing at the real `/settings/billing`
+  page — see §16's own "Current state" note for the full behavior.
 - **Stage 7 — Full audit & PR.** A comprehensive diff/security/regression
   audit in the same shape as the Comments/Search engagements' own final
   stages, ending in a PR (base `main`, head `feature/onboarding`) only

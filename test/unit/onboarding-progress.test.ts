@@ -30,10 +30,16 @@ describe("buildOnboardingProgress — a fresh, fully empty organization", () => 
     expect(statusOf(progress, "CREATE_TASK")).toBe("NOT_STARTED");
     expect(statusOf(progress, "INVITE_TEAMMATE")).toBe("NOT_STARTED");
     expect(statusOf(progress, "INVITE_PORTAL_USER")).toBe("NOT_STARTED");
+    expect(statusOf(progress, "REVIEW_BILLING")).toBe("NOT_STARTED");
   });
 
-  it("REVIEW_BILLING is NOT_APPLICABLE (Billing branch not merged)", () => {
-    expect(statusOf(progress, "REVIEW_BILLING")).toBe("NOT_APPLICABLE");
+  it("REVIEW_BILLING is available (Sale-Ready Phase E, E3.3) — NOT_STARTED, actionable, with a real targetHref, no Paddle configuration required", () => {
+    const step = progress.steps.find((s) => s.key === "REVIEW_BILLING")!;
+    expect(step.status).toBe("NOT_STARTED");
+    expect(step.actionable).toBe(true);
+    expect(step.blockedReason).toBeNull();
+    expect(step.targetHref).toBe("/settings/billing");
+    expect(step.skippable).toBe(true);
   });
 
   it("CREATE_CLIENT is actionable (no dependency); CREATE_PROJECT/CREATE_TASK are blocked", () => {
@@ -185,12 +191,12 @@ describe("buildOnboardingProgress — skip semantics", () => {
 });
 
 describe("buildOnboardingProgress — percent semantics and boundaries", () => {
-  it("percent denominator is 9 on this branch (excludes WELCOME and the unavailable REVIEW_BILLING; includes FINISH; includes the Customer Setup Wizard's three new steps — Stage 6.2)", () => {
+  it("percent denominator is 10 (excludes WELCOME; includes FINISH; includes the Customer Setup Wizard's three steps — Stage 6.2 — and REVIEW_BILLING, available since Sale-Ready Phase E, E3.3)", () => {
     const progress = buildOnboardingProgress(signals());
-    expect(progress.totalCount).toBe(9);
+    expect(progress.totalCount).toBe(10);
   });
 
-  it("5 of 9 substantive-plus-finish steps done is 56%", () => {
+  it("5 of 10 substantive-plus-finish steps done is 50%", () => {
     const progress = buildOnboardingProgress(
       signals({
         hasClient: true,
@@ -198,12 +204,12 @@ describe("buildOnboardingProgress — percent semantics and boundaries", () => {
         hasTask: true,
         hasSecondMember: true,
         hasPortalUser: true,
-        // COMPANY_PROFILE/PAYMENT_DETAILS/DOMAIN_SETUP and FINISH not yet done/acknowledged.
+        // COMPANY_PROFILE/PAYMENT_DETAILS/DOMAIN_SETUP, REVIEW_BILLING, and FINISH not yet done/acknowledged.
       }),
     );
     expect(progress.completedCount).toBe(5);
-    expect(progress.totalCount).toBe(9);
-    expect(progress.percent).toBe(56);
+    expect(progress.totalCount).toBe(10);
+    expect(progress.percent).toBe(50);
   });
 
   it("every substantive step done AND Finish acknowledged is 100%", () => {
@@ -217,7 +223,7 @@ describe("buildOnboardingProgress — percent semantics and boundaries", () => {
         hasCompanyProfile: true,
         hasPaymentDetails: true,
         hasDomainSettings: true,
-        actedStepKeys: new Set(["FINISH"]),
+        actedStepKeys: new Set(["REVIEW_BILLING", "FINISH"]),
       }),
     );
     expect(progress.percent).toBe(100);
@@ -230,13 +236,28 @@ describe("buildOnboardingProgress — percent semantics and boundaries", () => {
         hasClient: true,
         hasProject: true,
         hasCompanyProfile: true,
-        actedStepKeys: new Set(["PAYMENT_DETAILS", "DOMAIN_SETUP", "CREATE_TASK", "INVITE_TEAMMATE", "INVITE_PORTAL_USER"]),
+        actedStepKeys: new Set([
+          "PAYMENT_DETAILS",
+          "DOMAIN_SETUP",
+          "CREATE_TASK",
+          "INVITE_TEAMMATE",
+          "INVITE_PORTAL_USER",
+          "REVIEW_BILLING",
+        ]),
       }),
     );
     expect(progress.isComplete).toBe(true);
     expect(progress.isDismissed).toBe(false);
     // percent is NOT 100 — Finish itself is still an outstanding, counted step.
     expect(progress.percent).toBeLessThan(100);
+  });
+
+  it("a skipped REVIEW_BILLING resolves to SKIPPED, not COMPLETE — clicking Skip must not show the same green checkmark as actually reviewing the page", () => {
+    const progress = buildOnboardingProgress(signals({ actedStepKeys: new Set(["REVIEW_BILLING"]) }));
+    const step = progress.steps.find((s) => s.key === "REVIEW_BILLING")!;
+    expect(step.status).toBe("SKIPPED");
+    expect(step.completionSource).toBe("skipped");
+    expect(step.actionable).toBe(false);
   });
 
   it("dismissed-but-incomplete: isDismissed true, isComplete false, percent reflects real partial progress (never jumps to 100)", () => {

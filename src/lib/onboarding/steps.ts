@@ -49,9 +49,20 @@ export type OnboardingStepDefinition = {
    * `OrganizationOnboardingStep`. WELCOME/FINISH are never computed —
    * acknowledging either is the *only* thing that can ever mark them done,
    * so they always go through the persisted (row-existence) path.
-   * REVIEW_BILLING is `computed: false` here too, but for a different
-   * reason — see `isOnboardingStepAvailable` below; it isn't computed OR
-   * acknowledgeable on this branch at all today.
+   * REVIEW_BILLING is `computed: false` here too, and stays that way even
+   * now that it's available (Sale-Ready Phase E, E3.3) — deliberately: the
+   * original design's two candidate "done by data" signals ("has viewed
+   * /settings/billing at least once" and "has an active, non-trial plan")
+   * either need a new persisted visit-flag (a schema change E3.3's own
+   * scope explicitly excludes) or would leave this step permanently
+   * incomplete for any organization that hasn't gone through a real
+   * Paddle checkout — which most buyer deployments won't have, especially
+   * before Paddle is even configured. `computed: false` here means
+   * "reviewed" is exactly what it already is for WELCOME/FINISH: an
+   * explicit acknowledgment (via `skipOnboardingStepAction`, since this
+   * step's own `skippable: true` below), never gated on any billing
+   * state — see `isOnboardingStepAvailable` below and this file's own
+   * `buildStepResult`-adjacent notes in `progress.ts`.
    */
   computed: boolean;
   /** Whether a member may explicitly mark this step skipped (§6) — never means "blocking" either way (§6's own "no explicit Skip button does not mean blocking" rule). */
@@ -67,8 +78,10 @@ export type OnboardingStepDefinition = {
    * navigations; INVITE_PORTAL_USER has no single generic route since the
    * real flow is nested under a specific Client's own edit page, so this
    * points at the Clients list — see this file's own comment on that
-   * field below; REVIEW_BILLING has no real route on this branch at all
-   * yet, see §16).
+   * field below; REVIEW_BILLING now points at the real `/settings/billing`
+   * page, Sale-Ready Phase E, E3.3 — that page renders for every staff
+   * role and stays fully safe with no Paddle configured at all, see
+   * `docs/onboarding-architecture.md` §16's own "Current state" note).
    */
   targetHref: string | null;
 };
@@ -189,16 +202,15 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepKey, OnboardingStep
     skippable: true,
     required: false,
     dependsOn: null,
-    // A real /settings/billing route exists now (Sale-Ready Phase E,
-    // merged since this comment was written — see docs/onboarding-
-    // architecture.md §16's own "Current state" note). Still left null
-    // here rather than set to that real path, because this step's own
-    // isOnboardingStepAvailable() gate (below) still hardcodes it
-    // unavailable — setting a real href while the step can never render
-    // would be a partial, confusing change. Flipping availability and
-    // setting a real targetHref together is Sale-Ready Phase E, E3.3's
-    // job, deliberately deferred, not done here.
-    targetHref: null,
+    // Sale-Ready Phase E, E3.3: now that billing is fully implemented and
+    // this step is available (see isOnboardingStepAvailable below), this
+    // points at the real, existing /settings/billing page — every staff
+    // role (OWNER/ADMIN/MEMBER) can view it, and it renders safely with
+    // no Paddle account configured at all (getBillingProviderAvailability()
+    // reports `configured: false`, the page shows the same "not
+    // configured" state it always would — no crash, no secret, no forced
+    // checkout).
+    targetHref: "/settings/billing",
   },
   FINISH: {
     key: "FINISH",
@@ -219,24 +231,23 @@ export function getOnboardingStep(key: OnboardingStepKey): OnboardingStepDefinit
 }
 
 /**
- * True for every step except REVIEW_BILLING (§16). This was originally
- * the one seam this stage built for a billing integration that hadn't
- * merged yet — billing has since fully merged and is live (Sale-Ready
- * Phase E, E1–E2.6), but this specific hardcoded exclusion was never
- * revisited. A single, explicit, hardcoded `false` here (never a
- * feature flag read from an env var, never an import of anything under
- * `src/lib/billing`, per this stage's own original "don't pull the
- * Billing branch in" constraint) is what keeps `REVIEW_BILLING`
- * completely inert today: excluded from `totalCount`/`percent`/
- * `requiredCompleted` (src/lib/onboarding/progress.ts), never
- * actionable, never skippable in practice even though its own
- * `skippable: true` metadata above says it would be once available.
- * Flipping this to a real, billing-aware check is Sale-Ready Phase E,
- * E3.3's job (docs/onboarding-architecture.md §16/§20) — deliberately
- * not done yet; this function is the one line that changes.
+ * True for every step (Sale-Ready Phase E, E3.3). This was originally the
+ * one seam this catalog built for a billing integration that hadn't
+ * merged yet — a single, explicit, hardcoded `false` for `REVIEW_BILLING`
+ * (never a feature flag read from an env var, never an import of
+ * anything under `src/lib/billing`, per the original "don't pull the
+ * Billing branch in" constraint). Billing has since fully merged and is
+ * live (E1–E2.6), and this function now reflects that: every step,
+ * including `REVIEW_BILLING`, is available. Deliberately still
+ * unconditional rather than deleted — it remains the one, single seam
+ * every future step's availability would go through, so a step that
+ * genuinely does need to be conditionally hidden later has exactly one
+ * function to change, matching this catalog's own "one seam, not
+ * scattered checks" precedent.
  */
 export function isOnboardingStepAvailable(key: OnboardingStepKey): boolean {
-  return key !== "REVIEW_BILLING";
+  void key;
+  return true;
 }
 
 /** A fixed allowlist of every href this catalog can ever point at — real, existing routes only, checked by this module's own unit tests and by the security check. */
@@ -244,6 +255,7 @@ export const ONBOARDING_STEP_HREF_ALLOWLIST: readonly string[] = [
   "/settings/company",
   "/settings/payment",
   "/settings/domain",
+  "/settings/billing",
   "/clients/new",
   "/projects/new",
   "/tasks/new",

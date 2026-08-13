@@ -57,10 +57,11 @@ async function recordOnboardingStep(organizationId: string, step: OnboardingStep
 
 /**
  * Marks one step explicitly skipped for the caller's own active
- * organization. Only a step the catalog itself marks `skippable` (and
- * that is currently available — never REVIEW_BILLING on this branch, §16)
- * may ever be skipped; WELCOME/FINISH are rejected here by construction
- * (they're never `skippable`), not as a special case.
+ * organization. Only a step the catalog itself marks `skippable` and
+ * currently available (every step, as of Sale-Ready Phase E, E3.3 — see
+ * `isOnboardingStepAvailable`, §16) may ever be skipped; WELCOME/FINISH
+ * are rejected here by construction (they're never `skippable`), not as
+ * a special case.
  */
 export async function skipOnboardingStepAction(stepKey: string): Promise<OnboardingActionResult> {
   if (!isValidStepKey(stepKey)) {
