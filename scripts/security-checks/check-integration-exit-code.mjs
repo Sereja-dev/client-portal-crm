@@ -27,18 +27,30 @@ import { dirname, join } from "node:path";
  * only that one file, and asserts the child process exits non-zero. Always
  * deletes the throwaway file in a `finally`, so a crash mid-check never
  * leaves it behind for the real suite to pick up.
+ *
+ * A non-zero exit code alone isn't sufficient proof: a spawn failure, a
+ * broken PGlite/migration startup, or a TypeScript error in the spec
+ * itself would *also* exit non-zero, without ever actually exercising the
+ * exit-code-propagation behavior this check exists to guard (confirmed by
+ * temporarily hiding `node_modules/.bin/vitest` during E3.4's own review —
+ * the exit-code check alone reported "OK" even though vitest never ran at
+ * all). So this also asserts the child's own combined output contains the
+ * exact marker string this spec's `it(...)` name carries — proof the
+ * deliberately-failing assertion actually ran and was reported as a
+ * failure, not that something unrelated crashed first.
  */
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const tmpSpecRelative = "test/integration/.tmp-exit-code-smoke.test.ts";
 const tmpSpecAbsolute = join(repoRoot, tmpSpecRelative);
+const FAILING_TEST_NAME = "deliberately fails so the exit-code smoke check can observe a non-zero exit";
 
 const TMP_SPEC_CONTENTS = `import { expect, it } from "vitest";
 
 // Not a real regression — deliberately failing, on purpose, only ever
 // written by scripts/security-checks/check-integration-exit-code.mjs and
 // deleted immediately after. See that script's own header comment.
-it("deliberately fails so the exit-code smoke check can observe a non-zero exit", () => {
+it("${FAILING_TEST_NAME}", () => {
   expect(1).toBe(2);
 });
 `;
@@ -49,11 +61,14 @@ function runIntegrationConfigAgainst(specRelativePath) {
       process.execPath,
       ["node_modules/.bin/vitest", "run", "--config", "vitest.integration.config.mts", specRelativePath],
       { cwd: repoRoot, env: process.env },
-      (error) => {
+      (error, stdout, stderr) => {
         // execFile's callback receives a non-null `error` whenever the
         // child exited non-zero — `error.code` IS that exit code. No error
         // at all means the child exited 0.
-        resolve(error ? (typeof error.code === "number" ? error.code : 1) : 0);
+        resolve({
+          exitCode: error ? (typeof error.code === "number" ? error.code : 1) : 0,
+          output: `${stdout ?? ""}${stderr ?? ""}`,
+        });
       },
     );
   });
@@ -63,12 +78,16 @@ async function main() {
   let ok = false;
   await writeFile(tmpSpecAbsolute, TMP_SPEC_CONTENTS, "utf-8");
   try {
-    const exitCode = await runIntegrationConfigAgainst(tmpSpecRelative);
-    if (exitCode !== 0) {
+    const { exitCode, output } = await runIntegrationConfigAgainst(tmpSpecRelative);
+    const ranAndFailedAsExpected = output.includes(FAILING_TEST_NAME);
+    if (exitCode !== 0 && ranAndFailedAsExpected) {
       console.log(`OK   a deliberately failing integration spec makes \`vitest run --config vitest.integration.config.mts\` exit non-zero (got ${exitCode})`);
       ok = true;
+    } else if (exitCode === 0 && ranAndFailedAsExpected) {
+      console.error("FAIL the deliberately failing integration spec ran and was reported as failed, but the runner still exited 0 — the integration runner would silently accept a real regression as green");
     } else {
-      console.error("FAIL a deliberately failing integration spec still exited 0 — the integration runner would silently accept a real regression as green");
+      console.error("FAIL the deliberately failing integration spec never actually ran (spawn/startup failure before Vitest could report a result) — this check is inconclusive, not a pass; investigate the runner invocation itself");
+      console.error(output);
     }
   } finally {
     await unlink(tmpSpecAbsolute).catch(() => {});
