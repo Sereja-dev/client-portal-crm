@@ -189,11 +189,15 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepKey, OnboardingStep
     skippable: true,
     required: false,
     dependsOn: null,
-    // No real /settings/billing route exists on this branch (§16 —
-    // feature/billing-subscriptions is not merged into main). Left null
-    // rather than a guessed future path, per §14's "no invented routes"
-    // rule; a future Stage 6 sets a real href only once that route
-    // actually exists.
+    // A real /settings/billing route exists now (Sale-Ready Phase E,
+    // merged since this comment was written — see docs/onboarding-
+    // architecture.md §16's own "Current state" note). Still left null
+    // here rather than set to that real path, because this step's own
+    // isOnboardingStepAvailable() gate (below) still hardcodes it
+    // unavailable — setting a real href while the step can never render
+    // would be a partial, confusing change. Flipping availability and
+    // setting a real targetHref together is Sale-Ready Phase E, E3.3's
+    // job, deliberately deferred, not done here.
     targetHref: null,
   },
   FINISH: {
@@ -215,18 +219,21 @@ export function getOnboardingStep(key: OnboardingStepKey): OnboardingStepDefinit
 }
 
 /**
- * True for every step except REVIEW_BILLING (§16). This is the one seam
- * this stage builds for a billing integration that isn't merged yet — a
- * single, explicit, hardcoded `false` here (never a feature flag read
- * from an env var, never an import of anything under `src/lib/billing`,
- * per this stage's own explicit "don't pull the Billing branch in"
- * constraint) is what keeps `REVIEW_BILLING` completely inert on this
- * branch: excluded from `totalCount`/`percent`/`requiredCompleted`
- * (src/lib/onboarding/progress.ts), never actionable, never skippable in
- * practice even though its own `skippable: true` metadata above says it
- * would be once available. Flipping this to a real, billing-aware check
- * is Stage 6's entire job (docs/onboarding-architecture.md §16/§20) —
- * this function is the one line that changes.
+ * True for every step except REVIEW_BILLING (§16). This was originally
+ * the one seam this stage built for a billing integration that hadn't
+ * merged yet — billing has since fully merged and is live (Sale-Ready
+ * Phase E, E1–E2.6), but this specific hardcoded exclusion was never
+ * revisited. A single, explicit, hardcoded `false` here (never a
+ * feature flag read from an env var, never an import of anything under
+ * `src/lib/billing`, per this stage's own original "don't pull the
+ * Billing branch in" constraint) is what keeps `REVIEW_BILLING`
+ * completely inert today: excluded from `totalCount`/`percent`/
+ * `requiredCompleted` (src/lib/onboarding/progress.ts), never
+ * actionable, never skippable in practice even though its own
+ * `skippable: true` metadata above says it would be once available.
+ * Flipping this to a real, billing-aware check is Sale-Ready Phase E,
+ * E3.3's job (docs/onboarding-architecture.md §16/§20) — deliberately
+ * not done yet; this function is the one line that changes.
  */
 export function isOnboardingStepAvailable(key: OnboardingStepKey): boolean {
   return key !== "REVIEW_BILLING";

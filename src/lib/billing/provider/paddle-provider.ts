@@ -30,14 +30,16 @@ import { createPaddleSdkClient, type PaddleSdkClient } from "./paddle-client";
  * transaction's id — see `buildCheckoutBridgeUrl` below and
  * `src/app/billing/checkout/page.tsx` for the client-side half of this
  * bridge. The real, server-only Paddle implementation of
- * `BillingProviderAdapter` (`./types.ts`). Still deliberately NOT wired
- * into `getBillingProviderAdapter()` (`./provider.ts`) — see that file's
- * own doc comment, unchanged by E2.5. Every method here is reachable
- * only by whatever test or future caller constructs this adapter
- * directly; production behavior is unaffected until a later PR adds the
- * real third resolver branch
- * (`scripts/security-checks/check-billing-security.mjs`'s own check 24
- * guards against that happening by accident).
+ * `BillingProviderAdapter` (`./types.ts`). As of E2.6 (Paddle Provider
+ * Resolver Activation), this adapter IS wired into
+ * `getBillingProviderAdapter()` (`./provider.ts`) — that resolver
+ * activates it automatically whenever `getPaddleProviderConfig()`
+ * returns a complete, valid configuration, and falls back to the
+ * fail-closed unconfigured adapter otherwise (see that file's own doc
+ * comment for the exact priority order). No real Paddle account exists
+ * in this repository's own development/CI, so every test here still
+ * exercises this adapter directly via dependency injection, never
+ * through a real deployment.
  */
 
 /** Thrown for any failure this adapter's own two real methods can produce — never carries the raw Paddle SDK error object, a secret, or a raw provider payload; `code` (if known) is Paddle's own short, non-sensitive error code (e.g. `"not_found"`), safe to surface to logs or a caller. */
@@ -556,9 +558,11 @@ export function createPaddleBillingProvider(
      * than the SDK's combined `webhooks.unmarshal` helper. Pure,
      * synchronous, no network — never logs the raw body, signature
      * header, or webhook secret (matches this method's own interface
-     * contract). This adapter is still never reached by the resolver in
-     * production (see this file's own header comment), so this method is
-     * unreachable in production today regardless of being real now.
+     * contract). As of E2.6, this method is reachable in production
+     * whenever the resolver activates this adapter (see this file's own
+     * header comment) — real signature verification against an actual
+     * Paddle-delivered webhook has still never been exercised, though,
+     * since no real Paddle account exists in this repository.
      */
     verifyWebhook(input: WebhookVerificationInput): WebhookVerificationResult {
       return verifyPaddleWebhookSignature(input.rawBody, input.headers, config.webhookSecret);

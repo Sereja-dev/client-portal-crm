@@ -1,8 +1,8 @@
 # Client Portal CRM
 
-A lightweight CRM for freelancers and small agencies to manage clients, projects, tasks, and invoices — built with Next.js App Router, Prisma, and Supabase.
+A multi-tenant CRM SaaS for freelancers and small agencies — every account is an **Organization** with its own team (staff members with roles), its own Clients/Projects/Tasks/Invoices, its own billing subscription, and an optional **Client Portal** its clients can log into directly. Built with Next.js App Router, Prisma, and Supabase.
 
-> Portfolio project. Every module (Clients, Projects, Tasks, Invoices) is a complete CRUD slice with search, filtering, sorting, and pagination, built on Server Components and Server Actions with no client-side data-fetching library.
+> Portfolio project turned into a sale-ready SaaS template: real multi-tenancy, real Paddle billing (buyer supplies their own account/credentials — see [Billing](#billing)), a Client Portal, attachments, comments, notifications, onboarding, analytics, search, and a Platform Admin console — all built on Server Components and Server Actions with no client-side data-fetching library.
 
 ## Live demo
 
@@ -15,7 +15,7 @@ Demo credentials:
 | Email | `demo@clientportal.dev` |
 | Password | `DemoPassword123!` |
 
-This account is seeded via `prisma/seed.ts` (see [Database setup](#database-setup-prisma)) and comes preloaded with sample clients, projects, tasks, and invoices.
+This account is seeded via `prisma/seed.ts` (see [Database setup](#database-setup-prisma)) and comes preloaded with a sample organization, clients, projects, tasks, and invoices.
 
 ## Screenshots
 
@@ -30,26 +30,32 @@ This account is seeded via `prisma/seed.ts` (see [Database setup](#database-setu
 
 ## Features
 
-- **Auth** — email/password sign-up and login via Supabase Auth, session refresh handled in middleware, protected routes redirect unauthenticated users.
-- **Clients, Projects, Tasks, Invoices** — full CRUD for each, with ownership enforced at the database query level, not just the UI.
-- **Search, filter, sort, pagination** — server-side, URL-param-driven (`?q=&status=&sort=field:dir&page=`), so state survives a refresh and is shareable as a link. No client-side filtering, no debounce library.
-- **Dashboard** — live metrics (client count, active projects, open/overdue tasks, unpaid invoices, outstanding amount) and recent-activity feeds, computed with concurrent Prisma queries.
-- **Toast notifications** — success feedback for create/update/delete/login/signup, implemented as a small custom Context provider (no toast library).
-- **Accessible confirmation dialog** — destructive actions (delete) confirm via the native `<dialog>` element, not `window.confirm`.
-- **Error boundaries** — custom 404, global error boundary, and scoped error boundaries for the dashboard and auth route groups.
-- **Seed script** — creates two working demo accounts (real Supabase Auth users, not just database rows) with realistic sample data.
+- **Multi-tenant Organizations** — every account belongs to an `Organization`; staff join it via a `Membership` with a role (`OWNER` / `ADMIN` / `MEMBER`), enforced server-side on every sensitive mutation (team management, billing, etc.), never just in the UI.
+- **Clients, Projects, Tasks, Invoices** — full CRUD for each, scoped to the active organization at the database query level.
+- **Client Portal** (`/portal`) — a separate, thinner identity space (`PortalUser`, invited per-Client) where a client can log in to view their own projects and invoices — no access to staff data, no access to other clients.
+- **Team & invitations** — invite staff by email (token-based, expiring, single-use), manage roles, invite clients to the portal the same way.
+- **Attachments** — real file uploads (Supabase Storage) on clients/projects/tasks, with a server-validated type/size allowlist.
+- **Comments** — threaded comments with @-mentions on projects.
+- **Notifications** — in-app Notification Center + email digest/delivery (Resend), with graceful degradation when no email provider is configured.
+- **Onboarding** — a dismissible "Getting started" checklist on first login, computed live from real data (no separate progress table beyond an explicit skip/dismiss).
+- **Analytics** (`/analytics`, OWNER/ADMIN) — KPIs and trend charts derived entirely from the org's own data; no external analytics provider, no tracking.
+- **Search** — cross-entity search across clients/projects/tasks/invoices/comments.
+- **Billing & subscriptions** — plan catalog, usage-based entitlement enforcement, and a real, buyer-configurable Paddle integration (see [Billing](#billing)).
+- **Platform Admin** (`/platform-admin`) — a read-only, env-var-gated internal console for whoever operates the deployment (see [Platform Admin](#platform-admin)) — separate from any tenant's own Organization.
+- **Search, filter, sort, pagination** — server-side, URL-param-driven (`?q=&status=&sort=field:dir&page=`), so state survives a refresh and is shareable as a link.
+- **Dashboard** — live metrics and recent-activity feeds, computed with concurrent Prisma queries.
+- **Toast notifications, accessible confirmation dialogs, error boundaries** — small hand-built components, no UI/toast/icon library.
+- **Seed script** — creates a working demo organization (real Supabase Auth users, not just database rows) with realistic sample data.
 
 ## Architecture
 
 - **Rendering model**: every list/detail page is a Server Component. Data is fetched directly with Prisma inside the page — there is no client-side data-fetching layer (no SWR/React Query) and no global client state store.
 - **Mutations**: all writes go through Next.js Server Actions (`"use server"` functions), colocated with the route that uses them (e.g. `app/(dashboard)/clients/new/actions.ts`). Forms use React's `useActionState` for pending/error state.
-- **Auth**: Supabase Auth issues a session via cookies. `middleware.ts` refreshes that session on every request. Route protection itself happens in `app/(dashboard)/layout.tsx`, which redirects to `/login` if there's no session — this one check gates every page under the dashboard shell.
-- **Data ownership model**: every row is reachable back to the authenticated user, either directly or through a relation:
-  - `Client.userId → User`
-  - `Project.ownerId → User`
-  - `Task` → scoped through `project.ownerId` (no redundant `userId` column on `Task`)
-  - `Invoice` → scoped through `project.ownerId`; `Invoice.clientId` is still stored (required by the schema) but is always **derived** from the selected project in the server action, never taken from form input.
-- **Auth-to-database identity**: `User.id` is set to the Supabase Auth user's UUID directly (no separate mapping table). `getOrCreateUser()` (`src/lib/current-user.ts`) upserts the Prisma `User` row on first authenticated request.
+- **Auth**: Supabase Auth issues a session via cookies. `middleware.ts` refreshes that session on every request. Route protection happens in `app/(dashboard)/layout.tsx`, which redirects to `/login` if there's no session, and separately routes a Client Portal-only identity to `/portal` instead of the staff app.
+- **Tenancy model**: every business row (`Client`/`Project`/`Task`/`Invoice`/`Attachment`/`Comment`/...) is scoped by `organizationId`. The active organization is resolved **server-side only** — `getCurrentUserOrganization()`/`getCurrentMembership()` (`src/lib/current-user.ts`) verify the authenticated user actually holds a `Membership` in that organization before any query runs; an org id is never trusted from client input. Role-gated actions (billing, team management) additionally check `membership.role`.
+- **Client Portal identity**: a `PortalUser` is a structurally separate identity from staff `User`/`Membership` — it authenticates the same way (Supabase Auth) but has no Membership and no access to the staff app; it's scoped to exactly the `Client` it was invited for.
+- **Platform Admin identity**: separate again from both — gated purely by an env-var email allowlist (`PLATFORM_ADMIN_EMAILS`), not a `Role` or `Membership`, since it's an operator-level concern that spans every organization (see [Platform Admin](#platform-admin)).
+- **Auth-to-database identity**: `User.id`/`PortalUser.id` are set to the Supabase Auth user's UUID directly (no separate mapping table). `getOrCreateUser()` upserts the Prisma `User` row on first authenticated request.
 
 ## Tech stack
 
@@ -61,12 +67,17 @@ This account is seeded via `prisma/seed.ts` (see [Database setup](#database-setu
 | Database | PostgreSQL (via Supabase) |
 | ORM | Prisma 7, with the `@prisma/adapter-pg` driver adapter |
 | Auth | Supabase Auth (`@supabase/ssr`, cookie-based sessions) |
+| File storage | Supabase Storage (attachments + org logos) |
+| Email | Resend |
+| Billing | Paddle (`@paddle/paddle-node-sdk` server-side, `@paddle/paddle-js` for checkout) — buyer-configurable, see [Billing](#billing) |
 | Hosting target | Vercel |
 | Seed runner | `tsx` (dev-only, runs `prisma/seed.ts`) |
 
 No UI component library, no client-side state library, no toast library, no icon library — status badges, tables, dialogs, toasts, and icons are all small hand-built components under `src/components/ui`.
 
 ## Project structure
+
+This is an illustrative subset — the app now spans many more domains (organizations/team, billing, notifications, attachments, comments, search, onboarding, platform admin) under the same conventions shown here. See `src/` for the complete tree.
 
 ```
 prisma/
@@ -77,42 +88,35 @@ prisma/
 src/
   app/
     (auth)/                 # /login, /signup — public
-      login/, signup/
-      error.tsx
-    (dashboard)/             # protected route group, shares one layout
-      layout.tsx             # auth check + Sidebar + Header shell
+    (dashboard)/             # protected staff route group, shares one layout
+      layout.tsx             # auth check + active-org resolution + Sidebar/Header shell
       dashboard/              # metrics + recent activity
       clients/, projects/, tasks/, invoices/
         page.tsx              # list: search/filter/sort/pagination
         query.ts               # param parsing + Prisma where/orderBy builder
         new/                    # create form + action
         [id]/edit/               # edit form + action
-        actions.ts              # delete action
+        actions.ts              # mutations
         loading.tsx             # route-level skeleton
-      error.tsx
-    global-error.tsx
-    not-found.tsx
-    layout.tsx                # root layout — fonts, metadata, ToastProvider
+      team/                    # invitations, roles
+      settings/                # company, domain, notifications, payment, billing
+    portal/                  # Client Portal — separate identity, separate layout
+    (platform-admin)/        # operator-only console, env-var gated
+    api/
+      billing/webhook/        # Paddle webhook route
+      cron/                    # notification delivery/cleanup
+    billing/checkout/         # Paddle.js checkout bridge page
 
   components/
-    ui/                      # Button, Input, Select, Table, StatusBadge,
-                               # ConfirmDialog, DeleteButton, EmptyState, …
-    list/                    # SearchFilterBar, Pagination, AutoSubmitSelect
-    layout/                  # Sidebar, Header
-    toast/                   # ToastProvider, ToastListener
-    dashboard/               # MetricCard
-    clients/ projects/ tasks/ invoices/   # per-module form components
+    ui/                      # Button, Input, Select, Table, StatusBadge, …
+    billing/, platform-admin/, list/, layout/, toast/, dashboard/, …
 
   lib/
     prisma.ts                # Prisma client singleton (driver adapter)
-    current-user.ts          # getOrCreateUser()
-    list-params.ts           # shared search/sort/pagination param parsing
-    toast-url.ts             # post-redirect toast helper
-    format.ts                # currency + status-label formatting
-    validation/               # per-entity form validation
-    supabase/
-      server.ts               # Supabase server client
-      middleware.ts            # session refresh, used by root middleware.ts
+    current-user.ts          # org/membership resolution — the tenancy boundary
+    billing/                 # plans, entitlements, provider adapter, webhook logic
+    storage/                 # Supabase Storage (attachments, logos)
+    notifications/, email/, onboarding/, search/, platform-admin/, rate-limit/, ...
 
   types/index.ts             # shared form-state types
 
@@ -134,7 +138,7 @@ npm install
 
 ### 2. Configure environment variables
 
-Copy the example file and fill in your Supabase project's values (see [Environment variables](#environment-variables) below):
+Copy the example file and fill in your own values (see [Environment variables](#environment-variables) below):
 
 ```bash
 cp .env.example .env
@@ -152,27 +156,66 @@ npm run dev
 
 Visit [http://localhost:3000](http://localhost:3000).
 
+## Buyer setup overview
+
+If you're standing up your own deployment of this codebase, you supply your own infrastructure and billing configuration — nothing account-specific ships with this repository. At a glance, what you'll configure (details in `.env.example` and the docs linked from each row):
+
+| Category | What you supply | Where |
+|---|---|---|
+| PostgreSQL / Supabase project | Your own Supabase project's connection strings | `.env.example` (`DATABASE_URL`/`DIRECT_URL`) |
+| Supabase Auth | Nothing extra — works out of the box once the Supabase project + anon key are set | `.env.example` |
+| Supabase Storage | Two buckets you create yourself in your Supabase project | [Storage setup](#storage-setup-supabase) below |
+| Email (Resend) | Your own Resend API key + sender domain (optional — app degrades gracefully without it) | `.env.example` |
+| Vercel | Your own project/deployment | `.env.example`, [Deployment](#deployment-vercel) |
+| `CRON_SECRET` | A random secret you generate | `.env.example` |
+| Platform Admin | Your own email address(es), added to an env var | [Platform Admin](#platform-admin) below |
+| Billing (Paddle) | Your **own** Paddle account, API key, webhook secret, price IDs, client-side token | [Billing](#billing) below, [`docs/billing-provider-adapter.md`](docs/billing-provider-adapter.md) |
+
+**This repository contains no Paddle account, no real API keys/secrets/price IDs, no KYC/KYB, and no payout/banking information** — the current maintainer of this codebase has not created a Paddle account or entered any billing credentials. All of that is created and entered by whoever deploys their own instance, with zero application code changes required.
+
 ## Environment variables
 
-| Variable | Where to find it | Used by |
-|---|---|---|
-| `DATABASE_URL` | Supabase → Project Settings → Database → Connection string (**Transaction** pooler, port 6543) | App runtime (Prisma client) |
-| `DIRECT_URL` | Same page, **Session** pooler (port 5432) | Prisma CLI: migrations, `db seed`, `validate` |
-| `NEXT_PUBLIC_SUPABASE_URL` | Supabase → Project Settings → API | Supabase client (browser-safe) |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase → Project Settings → API | Supabase client (browser-safe) |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase → Project Settings → API (**keep secret**) | `prisma/seed.ts` (bypasses RLS to create demo auth users), and at runtime by File Attachments' Supabase Storage admin client (`src/lib/storage/admin-client.ts`) — server-only, never sent to the browser. |
-| `RESEND_API_KEY` | [resend.com](https://resend.com) → API Keys (**keep secret**) | Server-only — sends team invitation emails (`src/lib/email/`). Optional: if unset, invites/resends still work, they just fall back to "created, but the email could not be sent" and the Copy link button. |
-| `INVITATION_FROM_EMAIL` | Any address on a domain verified in your Resend account | The "From" address on invitation emails. |
-| `APP_BASE_URL` | Your deployed app's URL (e.g. `https://your-app.vercel.app`) | Server-only — builds the `/invite/{token}` link inside invitation emails. Optional on Vercel (falls back to the auto-provided `VERCEL_URL`, then to `http://localhost:3000` in dev). |
-| `CRON_SECRET` | Generate your own (e.g. `openssl rand -base64 32`) | Server-only — required by every `/api/cron/*` route (notification delivery retry, notification cleanup). Vercel Cron sends it back as `Authorization: Bearer <value>` on every scheduled call (see [Deployment](#deployment-vercel) below). Without it set, cron routes reject everything with 401. |
+Full detail (including exactly where to find each value and what happens if an optional one is left unset) lives in `.env.example` — copy it to `.env` and fill in your own values; no real values are shown here.
 
-No real values are shown here — copy `.env.example` to `.env` and fill in your own Supabase project's credentials.
+| Category | Variables | Notes |
+|---|---|---|
+| Database | `DATABASE_URL`, `DIRECT_URL` | Supabase connection strings — pooled vs. direct, see below |
+| Supabase | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` | Service role key is server-only — used for seeding and Storage |
+| Email | `RESEND_API_KEY`, `INVITATION_FROM_EMAIL` | Optional — invitations fall back to a copyable link if unset |
+| App | `APP_BASE_URL`, `CRON_SECRET` | Base URL for email links; secret required by the two cron routes |
+| Platform branding/legal | `PLATFORM_NAME`, `PLATFORM_TAGLINE`, `PLATFORM_LOGO_URL`, `PLATFORM_FAVICON_URL`, `PLATFORM_LEGAL_NAME`, `PLATFORM_LEGAL_ADDRESS`, `PLATFORM_SUPPORT_EMAIL`, `PLATFORM_JURISDICTION`, `PLATFORM_BILLING_EMAIL`, `PLATFORM_REPLY_TO_EMAIL` | All optional, white-label the product's own identity/legal pages |
+| Platform Admin | `PLATFORM_ADMIN_EMAILS` | Comma-separated allowlist — see [Platform Admin](#platform-admin) |
+| Billing (Paddle) | `BILLING_PROVIDER`, `BILLING_ENVIRONMENT`, `BILLING_API_KEY`, `BILLING_WEBHOOK_SECRET`, `BILLING_STARTER_PRICE_ID`, `BILLING_PRO_PRICE_ID`, `NEXT_PUBLIC_BILLING_CLIENT_TOKEN` | See [Billing](#billing) below |
 
 `DATABASE_URL` uses the pgbouncer transaction pooler because it's what the deployed app talks to under serverless/edge concurrency. `DIRECT_URL` bypasses the pooler because schema migrations need a session-scoped connection — this split is configured in `prisma.config.ts` (CLI operations use `DIRECT_URL`) and `src/lib/prisma.ts` (the app's runtime client uses `DATABASE_URL`).
 
+## Storage setup (Supabase)
+
+Two Supabase Storage buckets must exist in your own Supabase project before file uploads work — this app never creates them automatically (`getStorageAdminClient()` only connects to Storage, it never provisions a bucket):
+
+| Bucket name | Visibility | Used for | Limits |
+|---|---|---|---|
+| `attachments` | **Private** | Client/Project/Task attachments — accessed only via short-lived (60s) signed URLs, never a public link | 10 MB/file, 20 files per entity, allowlisted types (PDF, PNG/JPEG/WebP, TXT/CSV, DOC/DOCX/XLS/XLSX — no SVG/HTML/executables/archives) |
+| `logos` | **Public** | Organization logos — rendered directly via a permanent public URL | 2 MB/file, PNG/JPEG/WebP only |
+
+To create them: in your Supabase project, go to **Storage** → **New bucket**, create `attachments` (leave it private) and `logos` (mark it public), using those exact names. No Storage RLS policies are required — both buckets are accessed exclusively through a server-side service-role client (`SUPABASE_SERVICE_ROLE_KEY`), which bypasses Storage RLS entirely; that key is never sent to the browser.
+
+## Platform Admin
+
+`/platform-admin` is a read-only console for whoever *operates* this deployment (not a tenant/customer concern) — organization/user lookups and a read-only view of platform-level configuration.
+
+Access is controlled entirely by one env var, **`PLATFORM_ADMIN_EMAILS`** (`src/lib/platform-admin/authorization.ts`): a comma-separated, case-insensitive list of Supabase Auth email addresses. To get access yourself:
+
+1. Sign up for a normal account in the app (any email you control) — this creates your Supabase Auth user.
+2. Add that same email to `PLATFORM_ADMIN_EMAILS` in your deployment's environment variables (e.g. `PLATFORM_ADMIN_EMAILS="you@example.com,teammate@example.com"`).
+3. Redeploy — this is a build/runtime env var, not something the app can pick up without a new deployment.
+4. Visit `/platform-admin` while signed in with that email.
+
+Unset (the default) means nobody has access — any request to `/platform-admin/*` from a non-matching (or unauthenticated) user redirects to `/dashboard`, never revealing that the route exists. This grants access across every organization on the deployment, so keep the list to people who should actually operate the platform — never a tenant's own `Role`/`Membership`.
+
 ## Database setup (Prisma)
 
-The data model lives in `prisma/schema.prisma` (`User`, `Client`, `Project`, `Task`, `Invoice`, plus their status/priority enums) and is versioned as SQL migrations under `prisma/migrations/`.
+The full data model lives in `prisma/schema.prisma` — Organizations/Memberships/Invitations, Clients/Projects/Tasks/Invoices, the Client Portal (`PortalUser`), Attachments, Comments, Notifications, Billing (`Subscription`/`WebhookEvent`), and Onboarding — versioned as SQL migrations under `prisma/migrations/`.
 
 1. **Apply the schema** to your database (non-interactive, safe for a fresh database or CI):
 
@@ -180,7 +223,7 @@ The data model lives in `prisma/schema.prisma` (`User`, `Client`, `Project`, `Ta
    npx prisma migrate deploy
    ```
 
-2. **(Optional) Seed demo data.** Requires `SUPABASE_SERVICE_ROLE_KEY` to be set — the seed script (`prisma/seed.ts`) creates two real Supabase Auth accounts via the Admin API, then fills them with realistic sample clients, projects, tasks, and invoices:
+2. **(Optional) Seed demo data.** Requires `SUPABASE_SERVICE_ROLE_KEY` to be set — the seed script (`prisma/seed.ts`) creates a real Supabase Auth account via the Admin API, then fills it with a sample organization and realistic clients, projects, tasks, and invoices:
 
    ```bash
    npm run db:seed
@@ -200,9 +243,10 @@ During active development, use `npx prisma migrate dev` instead of `migrate depl
 
 1. Push the repo to GitHub.
 2. Import it in Vercel.
-3. Add the environment variables above in Vercel's Project Settings → Environment Variables (`SUPABASE_SERVICE_ROLE_KEY` only if you intend to run the seed script against production, which most people won't; `RESEND_API_KEY`/`INVITATION_FROM_EMAIL`/`APP_BASE_URL` only if you want invitation emails actually delivered instead of falling back to Copy link; `CRON_SECRET` is required for the background jobs below to run at all).
+3. Add the environment variables above in Vercel's Project Settings → Environment Variables (Paddle variables only once you're ready to enable real billing — see [Billing](#billing); everything else as needed).
 4. Vercel runs `next build` automatically. Make sure migrations have already been applied to the target database (`npx prisma migrate deploy`, run locally against the production `DIRECT_URL` or via a CI step) — the build does not run migrations for you.
-5. Deploy.
+5. Create the two Supabase Storage buckets in your production project (see [Storage setup](#storage-setup-supabase)) — attachment/logo uploads will fail until this is done.
+6. Deploy.
 
 No further configuration is needed — there's no separate backend to deploy; Server Actions run as part of the Next.js deployment itself.
 
@@ -224,16 +268,19 @@ minutes) needs a **Pro** plan or higher; if you're on Pro, tighten
 
 ## Security approach
 
-- **Every query is ownership-scoped.** Reads and writes filter by `userId`/`ownerId` (directly or via a relation), never by primary key alone. Delete/update operations use Prisma's `updateMany`/`deleteMany` with a compound `{ id, ownerId }`-style `where`, since Prisma's unique-`where` `update()`/`delete()` can't express "this id, but only if it's mine" in one atomic query.
-- **404, not a permission error, on cross-user access.** Trying to open another user's record by guessing its id returns the same `notFound()` response as a record that doesn't exist at all — nothing distinguishes "not yours" from "doesn't exist."
-- **Foreign keys are always re-verified server-side.** A create/edit form's `<select>` only ever lists the current user's own clients/projects, but that's a UI convenience, not the security boundary — every action independently re-checks that a submitted `clientId`/`projectId` actually belongs to the authenticated user before writing.
-- **The service-role key never reaches the app.** It's used exclusively by `prisma/seed.ts` (a local/CI-only script) to provision demo accounts through the Supabase Admin API. Application code only ever uses the anon key + session cookies.
-- **Per-tenant uniqueness, not global.** `Client.email` and `Invoice.invoiceNumber` are unique per owning user/client (composite unique constraints), not globally — so two different freelancers' businesses never collide with each other over something as common as an email address or invoice numbering scheme.
-- **CLI vs. runtime connections are separated.** Prisma CLI operations (migrate, seed) use a direct, non-pooled connection (`DIRECT_URL`); the deployed app uses the pooled connection (`DATABASE_URL`) — configured once in `prisma.config.ts`, so there's no risk of migrations accidentally running through a connection pooler that doesn't support them well.
-- **No public Supabase Data API access.** A migration (`prisma/migrations/20260802120937_lockdown_public_schema_grants`) revokes `anon`/`authenticated` privileges on every table in the `public` schema — the app talks to Postgres exclusively through Prisma, not PostgREST, so there's no table-level REST endpoint a client-side request could hit directly.
-- **Hardened session cookies.** Supabase session cookies are written with one shared `cookieOptions` config (`getSupabaseCookieOptions()` in `src/lib/supabase/cookie-options.ts`), applied at every `createServerClient(...)` call site — `npm run security:check` flags any call site missing it.
+- **Every query is tenant-scoped.** Reads and writes filter by `organizationId` (directly or via a relation), resolved server-side only (`getCurrentUserOrganization()`/`getCurrentMembership()`) — never trusted from client input. Delete/update operations use Prisma's `updateMany`/`deleteMany` with a compound `{ id, organizationId }`-style `where`, since Prisma's unique-`where` `update()`/`delete()` can't express "this id, but only if it's mine" in one atomic query.
+- **404, not a permission error, on cross-tenant access.** Trying to open another organization's record by guessing its id returns the same `notFound()` response as a record that doesn't exist at all.
+- **Foreign keys are always re-verified server-side.** A create/edit form's `<select>` only ever lists the active organization's own clients/projects, but that's a UI convenience, not the security boundary — every action independently re-checks ownership before writing.
+- **Role-gated actions check the role server-side.** Team management and billing actions verify `membership.role` on every call, not just in the UI.
+- **Three structurally separate identities.** Staff (`User`/`Membership`), Client Portal (`PortalUser`), and Platform Admin (email allowlist) never share a resolution path — a Client Portal identity can never reach the staff app or another client's data; Platform Admin can never be granted via a tenant's own `Role`.
+- **The service-role key never reaches the browser.** It's used server-only, for seeding demo data and for the Supabase Storage admin client. Application code otherwise only ever uses the anon key + session cookies.
+- **CLI vs. runtime connections are separated.** Prisma CLI operations (migrate, seed) use a direct, non-pooled connection (`DIRECT_URL`); the deployed app uses the pooled connection (`DATABASE_URL`) — configured once in `prisma.config.ts`.
+- **No public Supabase Data API access.** A migration revokes `anon`/`authenticated` privileges on every table in the `public` schema — the app talks to Postgres exclusively through Prisma, not PostgREST.
+- **Hardened session cookies.** Supabase session cookies are written with one shared `cookieOptions` config, applied at every `createServerClient(...)` call site — `npm run security:check` flags any call site missing it.
 - **HTTP security headers on every response.** `next.config.ts` sets a Content-Security-Policy, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, and a restrictive `Permissions-Policy`, applied to every route including API routes.
-- **Application-level rate limiting.** Sensitive actions (e.g. accepting an invitation, downloading an attachment) are rate-limited in-process (`src/lib/rate-limit`), independent of any platform-level limiting.
+- **Application-level rate limiting.** Sensitive actions (invitations, attachment downloads, billing actions, the webhook route, etc.) are rate-limited in-process (`src/lib/rate-limit`), independent of any platform-level limiting.
+- **Billing webhook trust boundary.** `POST /api/billing/webhook` verifies the provider signature before parsing anything, validates the claimed organization against the database before applying an event, and dedupes via a real database unique constraint — never a check-then-insert race.
+- **100+ automated security checks** (`npm run security:check`) run in CI on every PR, covering tenant isolation, the billing/webhook boundary, TEST_MODE isolation, cron auth, secret handling, and more (see `scripts/security-checks/`).
 
 ## Testing
 
@@ -274,50 +321,33 @@ Both are intended to be green before merging a pull request.
 
 ## Roadmap
 
-Ideas for future iterations. None of these are implemented yet:
+Ideas for future iterations — not required for the product to work today:
 
-- **Enforce the `Role` field.** `User.role` (`OWNER` / `ADMIN` / `MEMBER`) already exists in the schema but isn't checked anywhere in the app — every authenticated user currently has full access to their own data only. A real multi-user/team mode would need role-based permission checks in the Server Actions.
-- **Team/shared workspaces.** Today every `Client`/`Project` is owned by exactly one `User`; there's no concept of a team sharing the same clients.
-- **File attachments** on clients, projects, or invoices (e.g. contracts, deliverables) — no file storage is wired up yet.
+- **Custom domain verification.** Settings → Domain lets an organization save a custom domain, but real DNS verification isn't implemented yet — a saved domain stays in a "pending" state indefinitely. This is intentional and disclosed in the UI itself, not a bug.
+- **`REVIEW_BILLING` onboarding step.** The onboarding checklist's step catalog already includes a "Review billing" step, but it's currently hardcoded unavailable (`src/lib/onboarding/steps.ts`) — a known, tracked follow-up now that billing itself is fully implemented (see [Onboarding](#onboarding) and [Billing](#billing) below).
+- **Trial-ending reminders / billing reconciliation.** See [Billing](#billing) below — both are optional, defense-in-depth additions, not required for correctness.
 - **Invoice PDF export / email delivery** — invoices currently exist only as database records with a status field; there's no PDF generation or send-by-email flow.
 
-## Billing (provider-neutral integration shell, no real provider connected)
+## Billing
 
-A provider-neutral billing foundation exists in code — see
-[`docs/billing-architecture.md`](docs/billing-architecture.md): a
-`Subscription`/`WebhookEvent` schema, a typed plan catalog, organization
-entitlements, and server-side limit enforcement on a small set of write
-paths (staff invites, Client/Project creation, Attachment uploads). A
-staff-only **Billing page** (`/settings/billing`) renders on top of that
-foundation — current plan, status, usage, and Starter/Pro plan cards, all
-sourced from local data.
+A full, real, **buyer-configurable** Paddle billing integration — see [`docs/billing-architecture.md`](docs/billing-architecture.md) for the original design and [`docs/billing-provider-adapter.md`](docs/billing-provider-adapter.md) for the adapter contract, exact env vars, and the sandbox → live checklist.
 
-On top of that, a full **provider-neutral integration shell** now exists
-— see [`docs/billing-provider-adapter.md`](docs/billing-provider-adapter.md):
-a typed adapter contract (`src/lib/billing/provider/*`), a real checkout
-flow and Customer Portal flow, and a real, signature-verified,
-idempotent webhook route (`POST /api/billing/webhook`) that updates
-`Subscription` and notifies the org's OWNER. A full **deterministic mock
-provider** — active only when `TEST_MODE=1` (never set in a real
-deployment) — exercises that entire pipeline end to end with zero
-network calls and zero payment data collected, including two TEST_MODE-
-only pages that simulate a provider's hosted checkout/portal (both 404
-outside TEST_MODE).
+**What's implemented and working today:**
+- A typed plan catalog, organization entitlements, and server-side limit enforcement on staff invites, Client/Project creation, and Attachment uploads.
+- A staff-only Billing page (`/settings/billing`) — current plan, status, usage, Starter/Pro plan cards.
+- A real Paddle adapter (`@paddle/paddle-node-sdk` server-side, `@paddle/paddle-js` for the checkout overlay) — real checkout, real Customer Portal, real signature-verified/idempotent webhook processing (`POST /api/billing/webhook`) that updates `Subscription` and notifies the org's OWNER.
+- **The provider registry activates this real adapter automatically** once a complete, valid Paddle configuration (all six server-only env vars + the client-side token) is present — no application code changes needed. Missing/partial/invalid configuration fails closed to a clearly-labeled "not configured" state; `TEST_MODE` (used only by this repo's own E2E suite, never in a real deployment) always takes priority over a real Paddle config if both happen to be present.
+- A full, deterministic **mock provider**, active only when `TEST_MODE=1`, exercising the entire pipeline end to end with zero network calls and zero payment data collected — this is test infrastructure, not something a real deployment ever uses.
 
-**No real payment provider is connected** (no SDK, no real API keys, no
-real webhook secret, no real price IDs), and **live billing is
-disabled** — nothing in this repository can charge a real customer. A
-future operator must implement and connect a real adapter before any of
-this becomes live billing — see
-[`docs/billing-provider-adapter.md`](docs/billing-provider-adapter.md)'s
-own test-mode → live checklist and
-[`docs/operator-setup.md`](docs/operator-setup.md). Provider eligibility
-(Paddle vs. Stripe) for this project is still an open, unverified item
-pending legal/provider review (see the architecture doc's own §16/§2).
+**What you supply as the buyer:** your own Paddle account (sandbox first, then live), API key, webhook secret, Starter/Pro price IDs, and Paddle client-side token — see the env var table above and `docs/billing-provider-adapter.md`'s checklist for the exact steps, including Paddle's own domain-approval requirement. **This repository contains none of that** — no Paddle account has been created, and no real credentials, KYC/KYB, or payout information exist here; that's entirely your own setup with Paddle directly.
+
+**Deliberately not built (optional, not required for correctness):** trial-ending email reminders and a billing-reconciliation cron job — both are defense-in-depth additions a real deployment can add later if desired; the webhook pipeline is already idempotent and correctly ordered without them.
+
+**Not yet validated against a real Paddle account:** the checkout/webhook code has been built and tested against Paddle's own current, real API/documentation and a fully mocked SDK client, but has never been exercised against an actual Paddle sandbox delivery (since no Paddle account exists in this repository's own development). Recommended first step once you have a sandbox account: a real end-to-end checkout and webhook delivery test.
 
 ## Onboarding
 
-A provider-neutral onboarding checklist — see
+A dismissible "Getting started" checklist — see
 [`docs/onboarding-architecture.md`](docs/onboarding-architecture.md): a
 minimal `OrganizationOnboardingStep` table (only for the two things that
 can't be derived from real data — an explicit skip and an explicit
@@ -328,9 +358,9 @@ the top of `/dashboard` (never a wizard, modal, or blocking overlay)
 showing a progress bar and a per-step checklist with "Go to"/"Skip"
 actions; it disappears once every substantive step is done or skipped,
 or once explicitly dismissed. No settings entry point or resume
-mechanism exists yet (deliberately deferred). Independent of the
-not-yet-merged Billing branch: the "Review billing" step is a fully
-inert placeholder on `main` today.
+mechanism exists yet (deliberately deferred).
+
+One step, **"Review billing,"** is defined in the step catalog but currently hardcoded unavailable — it was designed to activate once billing existed, and billing is now fully implemented (see [Billing](#billing) above), but flipping this specific step on is a small, tracked follow-up, not yet done (see the Roadmap above).
 
 The Client Portal side is deliberately separate and much thinner: a
 one-time "Welcome to your client portal" banner on `/portal` for a

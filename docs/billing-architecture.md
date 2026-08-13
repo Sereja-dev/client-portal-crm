@@ -1507,8 +1507,11 @@ system-triggered event into an actor-shaped audit log, Stage 4 writes
 exactly this situation. No Activity row is created for any billing event;
 `Notification` alone is the owner-visible surface that matters here.
 
-**Status as of Stage 4: provider-neutral integration shell, still no live
-payments.**
+**Historical snapshot — status as it stood when Stage 4 shipped (before
+Sale-Ready Phase E), provider-neutral integration shell, still no live
+payments.** This bullet list describes what was true at that point in
+time, not the current state of `main` — see "Current state" immediately
+below for what's true today.
 - No real Paddle/Stripe SDK, no real API keys, no real webhook secret, no
   real price IDs — `BILLING_PROVIDER`/`BILLING_API_KEY`/
   `BILLING_WEBHOOK_SECRET`/`BILLING_STARTER_PRICE_ID`/`BILLING_PRO_PRICE_ID`
@@ -1524,3 +1527,27 @@ payments.**
   stage's code alone — see `docs/billing-provider-adapter.md`'s own
   test-mode → live checklist for what a real provider connection
   actually requires.
+
+**Current state (Sale-Ready Phase E, E2.2–E2.6 — all merged to `main`).**
+The provider-neutral design above is exactly what got built, and it's no
+longer just a shell:
+- A real Paddle adapter exists (`@paddle/paddle-node-sdk` server-side,
+  `@paddle/paddle-js` for the checkout overlay) — real checkout, real
+  Customer Portal, real signature-verified/idempotent webhook
+  processing. Full detail: `docs/billing-provider-adapter.md` (kept
+  current through every E2.x stage).
+- The provider registry (`getBillingProviderAdapter()`) activates this
+  real adapter automatically once a complete, valid Paddle configuration
+  is present, and still fails closed to the unconfigured adapter
+  otherwise — the exact fail-closed behavior described above is
+  unchanged, it's just no longer the *only* reachable outcome.
+- **This repository still contains no real Paddle account, credentials,
+  KYC/KYB, or payout information** — none of the above required the
+  current maintainer to create one. A future buyer supplies all of that
+  themselves; see `docs/operator-setup.md`'s Billing section for the
+  exact remaining steps.
+- Real signature verification and checkout have been built and tested
+  against Paddle's own current, real documentation and a fully mocked
+  SDK client, but have never been exercised against an actual Paddle
+  sandbox account — see `docs/billing-provider-adapter.md`'s own "Open
+  questions" section.

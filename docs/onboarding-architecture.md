@@ -809,30 +809,46 @@ today, independent of anything this document adds. No new wiring needed.
 
 ---
 
-## 16. Interaction with Billing (not merged yet)
+## 16. Interaction with Billing
 
-Per §0.6, `docs/billing-architecture.md`'s Subscription/Entitlements
-system lives on an unmerged branch. This document's "Review Billing" step
-is designed to degrade safely regardless of merge order:
+**Update (Sale-Ready Phase E):** `docs/billing-architecture.md`'s
+Subscription/Entitlements system, referenced as "an unmerged branch"
+when this section was originally written, has since been fully merged
+and is live on `main` (Sale-Ready Phase E, E1–E2.6 — a real, resolver-
+activated Paddle adapter now exists; see
+`docs/billing-provider-adapter.md`). The rest of this section is kept
+for historical context on the original design intent, with a correction
+at the end for what's actually true today.
+
+Per §0.6 (as originally written), `docs/billing-architecture.md`'s
+Subscription/Entitlements system lived on an unmerged branch. This
+document's "Review Billing" step was designed to degrade safely
+regardless of merge order:
 
 - **The step registry (§9's `OnboardingStepKey` enum) already includes
-  `REVIEW_BILLING`** — adding it now, inert, is a zero-risk placeholder;
+  `REVIEW_BILLING`** — adding it as inert was a zero-risk placeholder;
   removing an unused enum value later would be more disruptive than
   simply never rendering the step until it's meaningful.
-- **The step is feature-detected at render time**, not schema-detected:
-  the onboarding UI (§20 Stage 4) checks whether a `/settings/billing`
-  route actually resolves (or, more directly, whether
-  `getBillingProviderAvailability()`/entitlements helpers are importable
-  — a build-time fact once that branch merges) before ever showing the
-  step. On `main` today, with no billing code present, "Review Billing"
-  simply never appears — the checklist is "Welcome → Client → Project →
-  Task → Invite teammate → Invite Portal User → Finish," six real steps,
-  fully coherent on its own.
+- **The step was designed to be feature-detected at render time**, not
+  schema-detected. What actually shipped is simpler than that original
+  sketch: `isOnboardingStepAvailable()` (`src/lib/onboarding/steps.ts`)
+  hardcodes `REVIEW_BILLING` as unavailable unconditionally
+  (`return key !== "REVIEW_BILLING"`), by explicit design at the time
+  ("don't pull the Billing branch in"), rather than actually importing
+  and checking `getBillingProviderAvailability()`.
 - **No dependency in the other direction.** Nothing in
-  `docs/billing-architecture.md` needs to change, and nothing about
+  `docs/billing-architecture.md` needed to change, and nothing about
   billing's own entitlements/trial logic depends on onboarding existing.
-  Whichever branch merges second simply activates the already-designed
-  seam in the first.
+
+**Current state: billing is merged and live, but `REVIEW_BILLING`
+itself is still hardcoded unavailable.** Merging the Billing branch did
+not, by itself, flip `isOnboardingStepAvailable()` — that one function
+is the seam this section always said would need to change, and it
+hasn't yet. This is a known, tracked follow-up (Sale-Ready Phase E,
+E3.3), not a currently-active step. Until that lands, the onboarding
+checklist remains "Welcome → Client → Project → Task → Invite teammate
+→ Invite Portal User → Finish," the same six real steps described above
+— do not treat "Review billing" as available in the product today.
 
 ---
 
