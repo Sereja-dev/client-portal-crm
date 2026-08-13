@@ -211,7 +211,7 @@ Access is controlled entirely by one env var, **`PLATFORM_ADMIN_EMAILS`** (`src/
 3. Redeploy — this is a build/runtime env var, not something the app can pick up without a new deployment.
 4. Visit `/platform-admin` while signed in with that email.
 
-Unset (the default) means nobody has access — any request to `/platform-admin/*` from a non-matching (or unauthenticated) user redirects to `/dashboard`, never revealing that the route exists. This grants access across every organization on the deployment, so keep the list to people who should actually operate the platform — never a tenant's own `Role`/`Membership`.
+Unset (the default) means nobody has access — an unauthenticated request to `/platform-admin/*` redirects to `/login` (the normal sign-in redirect every protected route uses), and a signed-in but non-matching email redirects silently to `/dashboard`, never revealing that the route exists. This grants access across every organization on the deployment, so keep the list to people who should actually operate the platform — never a tenant's own `Role`/`Membership`.
 
 ## Database setup (Prisma)
 

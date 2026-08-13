@@ -59,10 +59,11 @@ To get yourself access on a fresh deployment:
    deployment, not automatically.
 4. Visit `/platform-admin` while signed in with that email.
 
-Unset (the default) means nobody has access — every request to
-`/platform-admin/*` from a non-matching or unauthenticated user
-redirects silently to `/dashboard`, never revealing that the route
-exists. This grants read access across **every** organization on the
+Unset (the default) means nobody has access — an unauthenticated
+request to `/platform-admin/*` redirects to `/login` (the same sign-in
+redirect every protected route uses), and a signed-in but non-matching
+email redirects silently to `/dashboard`, never revealing that the
+route exists. This grants read access across **every** organization on the
 deployment, so keep the list limited to people who actually operate the
 platform. No real personal email belongs in this file or any other
 committed file — only ever set as a real deployment's own env var.
