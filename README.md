@@ -2,20 +2,31 @@
 
 A multi-tenant CRM SaaS for freelancers and small agencies — every account is an **Organization** with its own team (staff members with roles), its own Clients/Projects/Tasks/Invoices, its own billing subscription, and an optional **Client Portal** its clients can log into directly. Built with Next.js App Router, Prisma, and Supabase.
 
-> Portfolio project turned into a sale-ready SaaS template: real multi-tenancy, real Paddle billing (buyer supplies their own account/credentials — see [Billing](#billing)), a Client Portal, attachments, comments, notifications, onboarding, analytics, search, and a Platform Admin console — all built on Server Components and Server Actions with no client-side data-fetching library.
+> A complete, tested multi-tenant SaaS foundation: real multi-tenancy, real Paddle billing (buyer supplies their own account/credentials — see [Billing](#billing)), a Client Portal, attachments, comments, notifications, onboarding, analytics, search, and a Platform Admin console — all built on Server Components and Server Actions with no client-side data-fetching library.
 
 ## Live demo
 
 **[client-portal-crm.vercel.app](https://client-portal-crm.vercel.app)**
 
-Demo credentials:
+Staff demo credentials (Owner):
 
 | | |
 |---|---|
 | Email | `demo@clientportal.dev` |
 | Password | `DemoPassword123!` |
 
-This account is seeded via `prisma/seed.ts` (see [Database setup](#database-setup-prisma)) and comes preloaded with a sample organization, clients, projects, tasks, and invoices.
+A second staff account (`demo2@clientportal.dev`, same password) is a plain **Member** of the same organization — sign in as either to see the same shared workspace, with the Team page showing both.
+
+Client Portal demo credentials (a real, separate portal-only identity, invited into one of the demo clients):
+
+| | |
+|---|---|
+| Email | `portal-demo@clientportal.dev` |
+| Password | `DemoPassword123!` |
+
+All three accounts are seeded via `npm run db:seed` (`prisma/seed.ts`, see [Database setup](#database-setup-prisma)) into one already-connected demo organization — clients, projects, tasks, invoices, a couple of threaded comments (including an @-mention), and a couple of notifications, so every staff account lands directly on a populated dashboard, no extra setup step required. Attachments are deliberately not seeded: an Attachment row is a pointer to a real Supabase Storage object, and the seed script performs no Storage upload, so a fake row would just 404 — upload a real file through the app itself to see that flow.
+
+These demo credentials are intentionally public — the seeded organization uses only fictional data (see [prisma/seed.ts](prisma/seed.ts)), but the account has full read/write access, so treat data in it as disposable and re-seedable, not as a stable fixture between sessions.
 
 ## Screenshots
 
@@ -223,7 +234,7 @@ The full data model lives in `prisma/schema.prisma` — Organizations/Membership
    npx prisma migrate deploy
    ```
 
-2. **(Optional) Seed demo data.** Requires `SUPABASE_SERVICE_ROLE_KEY` to be set — the seed script (`prisma/seed.ts`) creates a real Supabase Auth account via the Admin API, then fills it with a sample organization and realistic clients, projects, tasks, and invoices:
+2. **(Optional) Seed demo data.** Requires `SUPABASE_SERVICE_ROLE_KEY` to be set — the seed script (`prisma/seed.ts`) creates three real Supabase Auth accounts (two staff, one Client Portal contact — see [Live demo](#live-demo) above for credentials), a real Organization with both staff accounts as Members of it, and fills it with realistic clients, projects, tasks, invoices, comments, and notifications — already connected, so the very first login lands on a populated dashboard rather than an empty workspace:
 
    ```bash
    npm run db:seed

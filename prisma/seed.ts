@@ -2,6 +2,8 @@ import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient } from "../src/generated/prisma/client";
+import { ensureDemoOrganization, ensureMembership } from "./seed-organization";
+import { seedCollaborationDemo } from "./seed-collaboration";
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
@@ -14,11 +16,21 @@ const DEMO_USERS = [
   { email: "demo2@clientportal.dev", name: "Priya Nair" },
 ] as const;
 
+/** The one demo Organization every seeded staff Membership/CRM row belongs to — see main()'s own comment on why this is created explicitly rather than left for first-login auto-provisioning. */
+const DEMO_ORG_NAME = "Meridian Studio";
+const DEMO_ORG_SLUG = "demo-meridian-studio";
+
+/** Sale-Ready Phase E, S1.1. A real Client Portal login for the demo — see seedPortalDemo() below. */
+const DEMO_PORTAL_EMAIL = "portal-demo@clientportal.dev";
+const DEMO_PORTAL_NAME = "Alex Chen";
+
 /**
  * Creates (or finds) a real Supabase auth user via the Admin API, so the
  * seeded login actually works end-to-end — not just Prisma-side rows.
  * Requires SUPABASE_SERVICE_ROLE_KEY, which bypasses RLS; never expose this
- * key client-side.
+ * key client-side. Used for staff (User) and Client Portal (PortalUser)
+ * identities alike — Supabase Auth doesn't distinguish between them; only
+ * which Prisma table ends up with a matching row does.
  */
 async function getOrCreateAuthUser(
   email: string,
@@ -78,11 +90,11 @@ function daysFromNow(days: number): Date {
   return date;
 }
 
-async function seedPrimaryUserData(userId: string) {
-  const existing = await prisma.client.count({ where: { userId } });
+async function seedPrimaryUserData(organizationId: string, userId: string) {
+  const existing = await prisma.client.count({ where: { userId, organizationId } });
   if (existing > 0) {
-    console.log("  Primary user already has data — skipping CRM seed.");
-    return;
+    console.log("  Primary demo business data already seeded — skipping.");
+    return {};
   }
 
   const [northwind, bluepeak, rivermark, solaris, anchor, vantage] =
@@ -96,6 +108,7 @@ async function seedPrimaryUserData(userId: string) {
           status: "ACTIVE",
           notes: "Long-term retainer client. Prefers async updates via email.",
           userId,
+          organizationId,
         },
       }),
       prisma.client.create({
@@ -106,6 +119,7 @@ async function seedPrimaryUserData(userId: string) {
           phone: "+1 (555) 018-4432",
           status: "ACTIVE",
           userId,
+          organizationId,
         },
       }),
       prisma.client.create({
@@ -116,6 +130,7 @@ async function seedPrimaryUserData(userId: string) {
           status: "LEAD",
           notes: "Referred by Bluepeak. Scoping call scheduled.",
           userId,
+          organizationId,
         },
       }),
       prisma.client.create({
@@ -126,6 +141,7 @@ async function seedPrimaryUserData(userId: string) {
           phone: "+1 (555) 022-7789",
           status: "ACTIVE",
           userId,
+          organizationId,
         },
       }),
       prisma.client.create({
@@ -136,6 +152,7 @@ async function seedPrimaryUserData(userId: string) {
           status: "INACTIVE",
           notes: "Project wrapped up last quarter. Open to future work.",
           userId,
+          organizationId,
         },
       }),
       prisma.client.create({
@@ -144,6 +161,7 @@ async function seedPrimaryUserData(userId: string) {
           company: "Vantage Point Media",
           status: "ARCHIVED",
           userId,
+          organizationId,
         },
       }),
     ]);
@@ -168,6 +186,7 @@ async function seedPrimaryUserData(userId: string) {
         budget: "18000.00",
         clientId: northwind.id,
         ownerId: userId,
+        organizationId,
       },
     }),
     prisma.project.create({
@@ -179,6 +198,7 @@ async function seedPrimaryUserData(userId: string) {
         budget: "6500.00",
         clientId: northwind.id,
         ownerId: userId,
+        organizationId,
       },
     }),
     prisma.project.create({
@@ -190,6 +210,7 @@ async function seedPrimaryUserData(userId: string) {
         budget: "24000.00",
         clientId: bluepeak.id,
         ownerId: userId,
+        organizationId,
       },
     }),
     prisma.project.create({
@@ -200,6 +221,7 @@ async function seedPrimaryUserData(userId: string) {
         startDate: daysFromNow(10),
         clientId: rivermark.id,
         ownerId: userId,
+        organizationId,
       },
     }),
     prisma.project.create({
@@ -211,6 +233,7 @@ async function seedPrimaryUserData(userId: string) {
         budget: "42000.00",
         clientId: solaris.id,
         ownerId: userId,
+        organizationId,
       },
     }),
     prisma.project.create({
@@ -220,6 +243,7 @@ async function seedPrimaryUserData(userId: string) {
         startDate: daysFromNow(-20),
         clientId: solaris.id,
         ownerId: userId,
+        organizationId,
       },
     }),
     prisma.project.create({
@@ -231,6 +255,7 @@ async function seedPrimaryUserData(userId: string) {
         budget: "15000.00",
         clientId: anchor.id,
         ownerId: userId,
+        organizationId,
       },
     }),
     prisma.project.create({
@@ -240,52 +265,58 @@ async function seedPrimaryUserData(userId: string) {
         startDate: daysFromNow(-70),
         clientId: vantage.id,
         ownerId: userId,
+        organizationId,
       },
     }),
   ]);
 
   await prisma.task.createMany({
     data: [
-      { title: "Wireframe homepage", status: "DONE", priority: "HIGH", dueDate: daysFromNow(-25), completedAt: daysFromNow(-24), projectId: websiteRedesign.id },
-      { title: "Design system components", status: "DONE", priority: "MEDIUM", dueDate: daysFromNow(-15), completedAt: daysFromNow(-16), projectId: websiteRedesign.id },
-      { title: "Build blog template", status: "IN_PROGRESS", priority: "HIGH", dueDate: daysFromNow(3), projectId: websiteRedesign.id },
-      { title: "SEO audit", status: "TODO", priority: "LOW", dueDate: daysFromNow(12), projectId: websiteRedesign.id },
-      { title: "Client review call", status: "TODO", priority: "MEDIUM", dueDate: daysFromNow(-2), projectId: websiteRedesign.id },
-      { title: "Finalize logo variations", status: "DONE", priority: "MEDIUM", completedAt: daysFromNow(-50), projectId: brandGuidelines.id },
-      { title: "API authentication setup", status: "DONE", priority: "URGENT", completedAt: daysFromNow(-10), projectId: crmIntegration.id },
-      { title: "Webhook error handling", status: "IN_PROGRESS", priority: "HIGH", dueDate: daysFromNow(5), projectId: crmIntegration.id },
-      { title: "Write integration tests", status: "TODO", priority: "MEDIUM", dueDate: daysFromNow(9), projectId: crmIntegration.id },
-      { title: "Fix sync race condition", status: "IN_REVIEW", priority: "URGENT", dueDate: daysFromNow(-1), projectId: crmIntegration.id },
-      { title: "Vendor comparison doc", status: "TODO", priority: "LOW", dueDate: daysFromNow(20), projectId: ecommerceLaunch.id },
-      { title: "Define product catalog schema", status: "TODO", priority: "MEDIUM", dueDate: daysFromNow(14), projectId: ecommerceLaunch.id },
-      { title: "Onboarding flow prototype", status: "IN_PROGRESS", priority: "HIGH", dueDate: daysFromNow(4), projectId: mobileAppMvp.id },
-      { title: "Push notification service", status: "TODO", priority: "MEDIUM", dueDate: daysFromNow(18), projectId: mobileAppMvp.id },
-      { title: "App store submission checklist", status: "TODO", priority: "LOW", dueDate: daysFromNow(25), projectId: mobileAppMvp.id },
-      { title: "Fix crash on iOS 18", status: "IN_REVIEW", priority: "URGENT", dueDate: daysFromNow(-3), projectId: mobileAppMvp.id },
-      { title: "Refresh hero section copy", status: "TODO", priority: "LOW", dueDate: daysFromNow(30), projectId: marketingRefresh.id },
-      { title: "Handoff documentation", status: "DONE", priority: "MEDIUM", completedAt: daysFromNow(-101), projectId: clientPortal.id },
+      { title: "Wireframe homepage", status: "DONE", priority: "HIGH", dueDate: daysFromNow(-25), completedAt: daysFromNow(-24), projectId: websiteRedesign.id, organizationId },
+      { title: "Design system components", status: "DONE", priority: "MEDIUM", dueDate: daysFromNow(-15), completedAt: daysFromNow(-16), projectId: websiteRedesign.id, organizationId },
+      { title: "Build blog template", status: "IN_PROGRESS", priority: "HIGH", dueDate: daysFromNow(3), projectId: websiteRedesign.id, organizationId },
+      { title: "SEO audit", status: "TODO", priority: "LOW", dueDate: daysFromNow(12), projectId: websiteRedesign.id, organizationId },
+      { title: "Client review call", status: "TODO", priority: "MEDIUM", dueDate: daysFromNow(-2), projectId: websiteRedesign.id, organizationId },
+      { title: "Finalize logo variations", status: "DONE", priority: "MEDIUM", completedAt: daysFromNow(-50), projectId: brandGuidelines.id, organizationId },
+      { title: "API authentication setup", status: "DONE", priority: "URGENT", completedAt: daysFromNow(-10), projectId: crmIntegration.id, organizationId },
+      { title: "Webhook error handling", status: "IN_PROGRESS", priority: "HIGH", dueDate: daysFromNow(5), projectId: crmIntegration.id, organizationId },
+      { title: "Write integration tests", status: "TODO", priority: "MEDIUM", dueDate: daysFromNow(9), projectId: crmIntegration.id, organizationId },
+      { title: "Fix sync race condition", status: "IN_REVIEW", priority: "URGENT", dueDate: daysFromNow(-1), projectId: crmIntegration.id, organizationId },
+      { title: "Vendor comparison doc", status: "TODO", priority: "LOW", dueDate: daysFromNow(20), projectId: ecommerceLaunch.id, organizationId },
+      { title: "Define product catalog schema", status: "TODO", priority: "MEDIUM", dueDate: daysFromNow(14), projectId: ecommerceLaunch.id, organizationId },
+      { title: "Onboarding flow prototype", status: "IN_PROGRESS", priority: "HIGH", dueDate: daysFromNow(4), projectId: mobileAppMvp.id, organizationId },
+      { title: "Push notification service", status: "TODO", priority: "MEDIUM", dueDate: daysFromNow(18), projectId: mobileAppMvp.id, organizationId },
+      { title: "App store submission checklist", status: "TODO", priority: "LOW", dueDate: daysFromNow(25), projectId: mobileAppMvp.id, organizationId },
+      { title: "Fix crash on iOS 18", status: "IN_REVIEW", priority: "URGENT", dueDate: daysFromNow(-3), projectId: mobileAppMvp.id, organizationId },
+      { title: "Refresh hero section copy", status: "TODO", priority: "LOW", dueDate: daysFromNow(30), projectId: marketingRefresh.id, organizationId },
+      { title: "Handoff documentation", status: "DONE", priority: "MEDIUM", completedAt: daysFromNow(-101), projectId: clientPortal.id, organizationId },
     ],
   });
 
-  await prisma.invoice.createMany({
-    data: [
-      { invoiceNumber: "INV-1001", amount: "6500.00", status: "PAID", issueDate: daysFromNow(-95), dueDate: daysFromNow(-80), paidAt: daysFromNow(-82), projectId: brandGuidelines.id, clientId: northwind.id },
-      { invoiceNumber: "INV-1002", amount: "9000.00", status: "SENT", issueDate: daysFromNow(-5), dueDate: daysFromNow(25), projectId: websiteRedesign.id, clientId: northwind.id },
-      { invoiceNumber: "INV-1003", amount: "9000.00", status: "DRAFT", issueDate: daysFromNow(0), notes: "Second milestone — pending scope sign-off.", projectId: websiteRedesign.id, clientId: northwind.id },
-      { invoiceNumber: "INV-1004", amount: "12000.00", status: "OVERDUE", issueDate: daysFromNow(-40), dueDate: daysFromNow(-10), projectId: crmIntegration.id, clientId: bluepeak.id },
-      { invoiceNumber: "INV-1005", amount: "12000.00", status: "SENT", issueDate: daysFromNow(-3), dueDate: daysFromNow(27), projectId: crmIntegration.id, clientId: bluepeak.id },
-      { invoiceNumber: "INV-1006", amount: "14000.00", status: "PAID", issueDate: daysFromNow(-58), dueDate: daysFromNow(-44), paidAt: daysFromNow(-46), projectId: mobileAppMvp.id, clientId: solaris.id },
-      { invoiceNumber: "INV-1007", amount: "14000.00", status: "SENT", issueDate: daysFromNow(-2), dueDate: daysFromNow(28), projectId: mobileAppMvp.id, clientId: solaris.id },
-      { invoiceNumber: "INV-1008", amount: "15000.00", status: "PAID", issueDate: daysFromNow(-105), dueDate: daysFromNow(-90), paidAt: daysFromNow(-92), projectId: clientPortal.id, clientId: anchor.id },
-      { invoiceNumber: "INV-1009", amount: "3200.00", status: "CANCELLED", issueDate: daysFromNow(-65), dueDate: daysFromNow(-35), notes: "Campaign cancelled by client before launch.", projectId: q1Campaign.id, clientId: vantage.id },
-    ],
+  // INV-1006 (index 5 — the sixth entry below) is the one already-PAID
+  // invoice seedCollaborationDemo() below builds a matching
+  // INVOICE_STATUS_CHANGED notification for.
+  const [, , , , , invoiceMobile1] = await Promise.all([
+    prisma.invoice.create({ data: { invoiceNumber: "INV-1001", amount: "6500.00", status: "PAID", issueDate: daysFromNow(-95), dueDate: daysFromNow(-80), paidAt: daysFromNow(-82), projectId: brandGuidelines.id, clientId: northwind.id, organizationId } }),
+    prisma.invoice.create({ data: { invoiceNumber: "INV-1002", amount: "9000.00", status: "SENT", issueDate: daysFromNow(-5), dueDate: daysFromNow(25), projectId: websiteRedesign.id, clientId: northwind.id, organizationId } }),
+    prisma.invoice.create({ data: { invoiceNumber: "INV-1003", amount: "9000.00", status: "DRAFT", issueDate: daysFromNow(0), notes: "Second milestone — pending scope sign-off.", projectId: websiteRedesign.id, clientId: northwind.id, organizationId } }),
+    prisma.invoice.create({ data: { invoiceNumber: "INV-1004", amount: "12000.00", status: "OVERDUE", issueDate: daysFromNow(-40), dueDate: daysFromNow(-10), projectId: crmIntegration.id, clientId: bluepeak.id, organizationId } }),
+    prisma.invoice.create({ data: { invoiceNumber: "INV-1005", amount: "12000.00", status: "SENT", issueDate: daysFromNow(-3), dueDate: daysFromNow(27), projectId: crmIntegration.id, clientId: bluepeak.id, organizationId } }),
+    prisma.invoice.create({ data: { invoiceNumber: "INV-1006", amount: "14000.00", status: "PAID", issueDate: daysFromNow(-58), dueDate: daysFromNow(-44), paidAt: daysFromNow(-46), projectId: mobileAppMvp.id, clientId: solaris.id, organizationId } }),
+    prisma.invoice.create({ data: { invoiceNumber: "INV-1007", amount: "14000.00", status: "SENT", issueDate: daysFromNow(-2), dueDate: daysFromNow(28), projectId: mobileAppMvp.id, clientId: solaris.id, organizationId } }),
+    prisma.invoice.create({ data: { invoiceNumber: "INV-1008", amount: "15000.00", status: "PAID", issueDate: daysFromNow(-105), dueDate: daysFromNow(-90), paidAt: daysFromNow(-92), projectId: clientPortal.id, clientId: anchor.id, organizationId } }),
+  ]);
+  await prisma.invoice.create({
+    data: { invoiceNumber: "INV-1009", amount: "3200.00", status: "CANCELLED", issueDate: daysFromNow(-65), dueDate: daysFromNow(-35), notes: "Campaign cancelled by client before launch.", projectId: q1Campaign.id, clientId: vantage.id, organizationId },
   });
+
+  return { northwindClientId: northwind.id, websiteRedesignProjectId: websiteRedesign.id, invoiceMobile1Id: invoiceMobile1.id };
 }
 
-async function seedSecondaryUserData(userId: string) {
-  const existing = await prisma.client.count({ where: { userId } });
+async function seedSecondaryUserData(organizationId: string, userId: string) {
+  const existing = await prisma.client.count({ where: { userId, organizationId } });
   if (existing > 0) {
-    console.log("  Secondary user already has data — skipping CRM seed.");
+    console.log("  Secondary demo business data already seeded — skipping.");
     return;
   }
 
@@ -297,6 +328,7 @@ async function seedSecondaryUserData(userId: string) {
         email: "nina@harborcafe.example",
         status: "ACTIVE",
         userId,
+        organizationId,
       },
     }),
     prisma.client.create({
@@ -305,6 +337,7 @@ async function seedSecondaryUserData(userId: string) {
         company: "Greenleaf Landscaping",
         status: "LEAD",
         userId,
+        organizationId,
       },
     }),
   ]);
@@ -317,6 +350,7 @@ async function seedSecondaryUserData(userId: string) {
         startDate: daysFromNow(-10),
         clientId: harborCafe.id,
         ownerId: userId,
+        organizationId,
       },
     }),
     prisma.project.create({
@@ -325,23 +359,49 @@ async function seedSecondaryUserData(userId: string) {
         status: "PLANNING",
         clientId: greenleaf.id,
         ownerId: userId,
+        organizationId,
       },
     }),
   ]);
 
   await prisma.task.createMany({
     data: [
-      { title: "Configure receipt printer", status: "DONE", priority: "MEDIUM", completedAt: daysFromNow(-4), projectId: posSystem.id },
-      { title: "Staff training session", status: "TODO", priority: "HIGH", dueDate: daysFromNow(6), projectId: posSystem.id },
-      { title: "Draft sitemap", status: "TODO", priority: "LOW", dueDate: daysFromNow(15), projectId: siteRefresh.id },
+      { title: "Configure receipt printer", status: "DONE", priority: "MEDIUM", completedAt: daysFromNow(-4), projectId: posSystem.id, organizationId },
+      { title: "Staff training session", status: "TODO", priority: "HIGH", dueDate: daysFromNow(6), projectId: posSystem.id, organizationId },
+      { title: "Draft sitemap", status: "TODO", priority: "LOW", dueDate: daysFromNow(15), projectId: siteRefresh.id, organizationId },
     ],
   });
 
   await prisma.invoice.createMany({
     data: [
-      { invoiceNumber: "INV-2001", amount: "1800.00", status: "SENT", issueDate: daysFromNow(-4), dueDate: daysFromNow(26), projectId: posSystem.id, clientId: harborCafe.id },
-      { invoiceNumber: "INV-2002", amount: "900.00", status: "DRAFT", issueDate: daysFromNow(0), projectId: siteRefresh.id, clientId: greenleaf.id },
+      { invoiceNumber: "INV-2001", amount: "1800.00", status: "SENT", issueDate: daysFromNow(-4), dueDate: daysFromNow(26), projectId: posSystem.id, clientId: harborCafe.id, organizationId },
+      { invoiceNumber: "INV-2002", amount: "900.00", status: "DRAFT", issueDate: daysFromNow(0), projectId: siteRefresh.id, clientId: greenleaf.id, organizationId },
     ],
+  });
+}
+
+/**
+ * Sale-Ready Phase E, S1.1 (P1). A real Client Portal login, connected to
+ * Northwind Design Studio (Alex Chen) — the org's own longest-standing,
+ * most active client (a retainer, with both an in-progress project and a
+ * completed one, and invoices in three different states), so the portal
+ * view has something real to show. Follows the exact relationship
+ * production expects: a real Supabase Auth user (same as any staff
+ * account), a PortalUser row keyed to that same id, pointed at a real
+ * Client — no shortcut, no separate demo-only code path.
+ */
+async function seedPortalDemo(clientId: string): Promise<void> {
+  const existing = await prisma.portalUser.findFirst({ where: { clientId }, select: { id: true } });
+  if (existing) {
+    console.log("  Portal demo user already seeded — skipping.");
+    return;
+  }
+
+  const portalAuth = await getOrCreateAuthUser(DEMO_PORTAL_EMAIL, DEMO_PORTAL_NAME);
+  await prisma.portalUser.upsert({
+    where: { id: portalAuth.id },
+    update: {},
+    create: { id: portalAuth.id, clientId, email: portalAuth.email, name: DEMO_PORTAL_NAME },
   });
 }
 
@@ -366,11 +426,53 @@ async function main() {
     }),
   ]);
 
-  console.log(`Primary demo user:   ${primaryUser.email}`);
-  console.log(`Secondary demo user: ${secondaryUser.email}\n`);
+  console.log(`Primary demo user (OWNER):   ${primaryUser.email}`);
+  console.log(`Secondary demo user (MEMBER): ${secondaryUser.email}\n`);
 
-  await seedPrimaryUserData(primaryUser.id);
-  await seedSecondaryUserData(secondaryUser.id);
+  // Explicit, eager Organization/Membership/Subscription provisioning —
+  // see ensureDemoOrganization's own doc comment for why this replaces
+  // relying on first-login's lazy auto-provisioning (Sale-Ready Phase E,
+  // S1.1, P0).
+  const organizationId = await ensureDemoOrganization(prisma, primaryUser.id, {
+    name: DEMO_ORG_NAME,
+    slug: DEMO_ORG_SLUG,
+  });
+  await ensureMembership(prisma, organizationId, secondaryUser.id, "MEMBER");
+  console.log(`Demo organization: ${DEMO_ORG_NAME} (${organizationId})\n`);
+
+  const primaryIds = await seedPrimaryUserData(organizationId, primaryUser.id);
+  await seedSecondaryUserData(organizationId, secondaryUser.id);
+
+  if (primaryIds.northwindClientId) {
+    await seedPortalDemo(primaryIds.northwindClientId);
+    console.log(`Portal demo user: ${DEMO_PORTAL_EMAIL} (Client Portal access for Northwind Design Studio)\n`);
+  } else {
+    // Primary business data was already seeded on a prior run — resolve
+    // the same client deterministically instead of skipping the portal
+    // step outright, so a partial/interrupted prior run still ends up
+    // fully seeded on re-run.
+    const northwind = await prisma.client.findFirst({
+      where: { organizationId, company: "Northwind Design Studio" },
+      select: { id: true },
+    });
+    if (northwind) {
+      await seedPortalDemo(northwind.id);
+      console.log(`Portal demo user: ${DEMO_PORTAL_EMAIL} (Client Portal access for Northwind Design Studio)\n`);
+    }
+  }
+
+  if (primaryIds.websiteRedesignProjectId && primaryIds.invoiceMobile1Id) {
+    await seedCollaborationDemo(prisma, {
+      organizationId,
+      ownerId: primaryUser.id,
+      ownerName: primaryUser.name,
+      memberId: secondaryUser.id,
+      memberName: secondaryUser.name,
+      projectId: primaryIds.websiteRedesignProjectId,
+      invoiceId: primaryIds.invoiceMobile1Id,
+      invoiceNumber: "INV-1006",
+    });
+  }
 
   console.log("\nSeed complete. Log in with either demo account above and the password shown at the top.");
 }

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { parseSearchParam, type RawSearchParams } from "@/lib/list-params";
 import { sanitizeRedirectPath } from "@/lib/safe-redirect";
+import { AuthCard } from "@/components/auth/auth-card";
 import { SignupForm } from "./signup-form";
 
 export default async function SignupPage({
@@ -22,13 +23,11 @@ export default async function SignupPage({
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-8 shadow-sm">
-        <h1 className="mb-6 text-2xl font-semibold tracking-tight text-gray-900">
-          Create an account
-        </h1>
-        <SignupForm redirectTo={redirectTo} />
-      </div>
-    </main>
+    <AuthCard>
+      <h1 className="mb-6 text-2xl font-semibold tracking-tight text-gray-900">
+        Create an account
+      </h1>
+      <SignupForm redirectTo={redirectTo} />
+    </AuthCard>
   );
 }
