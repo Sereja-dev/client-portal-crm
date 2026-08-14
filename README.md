@@ -32,12 +32,20 @@ These demo credentials are intentionally public — the seeded organization uses
 
 | | |
 |---|---|
-| **Dashboard** — live metrics and recent activity | **Clients** — search, filter, sort, pagination |
+| **Dashboard** — live metrics, revenue trends, and status breakdowns | **Clients** — search, filter, sort, pagination |
 | ![Dashboard](docs/images/dashboard.png) | ![Clients](docs/images/clients.png) |
 | **Projects** | **Tasks** |
 | ![Projects](docs/images/projects.png) | ![Tasks](docs/images/tasks.png) |
-| **Invoices** | **Login** |
-| ![Invoices](docs/images/invoices.png) | ![Login](docs/images/login.png) |
+| **Invoices** | **Client Portal** — a client's own view of their invoices |
+| ![Invoices](docs/images/invoices.png) | ![Client Portal — Invoices](docs/images/client-portal-invoices.png) |
+| **Client detail** — Client Portal access management | **Project collaboration** — threaded comments with @-mentions |
+| ![Client detail](docs/images/client-detail.png) | ![Project comments](docs/images/project-comments.png) |
+| **Analytics** — KPIs and trend charts derived entirely from the org's own data | **Team** — roles and membership |
+| ![Analytics](docs/images/analytics.png) | ![Team](docs/images/team.png) |
+| **Billing settings** — plan, usage, and Paddle plans (buyer-configurable; intentionally unconfigured in this demo) | **Onboarding** — first-login "Getting started" checklist |
+| ![Billing settings](docs/images/billing-settings.png) | ![Onboarding](docs/images/onboarding.png) |
+
+Also: [branded login](docs/images/login.png) · [Client Portal — Projects](docs/images/client-portal-projects.png)
 
 ## Features
 
