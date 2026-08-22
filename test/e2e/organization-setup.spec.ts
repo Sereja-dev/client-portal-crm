@@ -179,6 +179,37 @@ test.describe("Company Profile", () => {
       "base64",
     );
 
+    /**
+     * Product UI/UX PR 1 — the shared FileInput component's app-authored
+     * presentation on the Company Logo surface, proven against a real
+     * Chromium instance. Distinct from the pre-existing "No logo" preview-
+     * placeholder text (the small thumbnail box) — "No file chosen" is the
+     * new FileInput's own empty-state label, a separate element.
+     */
+    test("the logo file picker shows app-authored trigger/empty-state text and updates on selection, never native browser chrome", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+      await page.goto("/settings/company");
+
+      const fileInput = page.getByLabel("Choose logo");
+      await expect(fileInput).toBeAttached();
+      await expect(page.getByText("No file chosen")).toBeVisible();
+
+      await fileInput.setInputFiles({
+        name: "e2e-logo.png",
+        mimeType: "image/png",
+        buffer: LOGO_PNG_BYTES,
+      });
+      await expect(page.getByText("e2e-logo.png", { exact: true })).toBeVisible();
+      await expect(page.getByText("No file chosen")).toHaveCount(0);
+
+      await fileInput.focus();
+      await expect(fileInput).toBeFocused();
+    });
+
     test("OWNER sees a live preview immediately, then the real persisted logo after upload and reload", async ({
       page,
       context,
@@ -195,7 +226,7 @@ test.describe("Company Profile", () => {
       await expect(page.getByText("No logo")).toBeVisible();
       await expect(page.getByRole("button", { name: "Upload logo" })).toBeVisible();
 
-      await page.locator('input[type="file"]').setInputFiles({
+      await page.getByLabel("Choose logo").setInputFiles({
         name: "e2e-logo.png",
         mimeType: "image/png",
         buffer: LOGO_PNG_BYTES,
@@ -240,7 +271,7 @@ test.describe("Company Profile", () => {
       });
 
       await page.goto("/settings/company");
-      await page.locator('input[type="file"]').setInputFiles({
+      await page.getByLabel("Choose logo").setInputFiles({
         name: "icon.svg",
         mimeType: "image/svg+xml",
         buffer: Buffer.from("<svg xmlns='http://www.w3.org/2000/svg'></svg>"),

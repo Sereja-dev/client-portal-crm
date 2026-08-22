@@ -57,14 +57,43 @@ test.beforeEach(async ({ context, baseURL }) => {
   await injectTestSession(context, { id: fixtures.owner.id, email: fixtures.owner.email }, baseURL!);
 });
 
+/**
+ * Product UI/UX PR 1 — the shared FileInput component's app-authored
+ * presentation, proven against a real Chromium instance (never dependent
+ * on the host OS/browser locale, unlike the native chrome it replaces).
+ */
+test("the attachment file picker shows app-authored trigger/empty-state text and updates on selection, never native browser chrome", async ({
+  page,
+}) => {
+  await page.goto(`/clients/${fixtures.clientA.id}/edit`);
+
+  // A real <label htmlFor> now gives the native input a genuine accessible
+  // name — getByLabel only resolves if that association is real.
+  const fileInput = page.getByLabel("Choose file");
+  await expect(fileInput).toBeAttached();
+  await expect(page.getByText("No file chosen")).toBeVisible();
+
+  await fileInput.setInputFiles({
+    name: FILE_NAME,
+    mimeType: "text/plain",
+    buffer: Buffer.from(FILE_CONTENTS),
+  });
+  await expect(page.getByText(FILE_NAME, { exact: true })).toBeVisible();
+  await expect(page.getByText("No file chosen")).toHaveCount(0);
+
+  // Keyboard-operable: a real Tab reaches the (visually hidden but
+  // present) native input, not just a mouse click on the styled label.
+  await fileInput.focus();
+  await expect(fileInput).toBeFocused();
+});
+
 test("uploading, downloading, and deleting an attachment works end to end through the real UI", async ({ page }) => {
   await page.goto(`/clients/${fixtures.clientA.id}/edit`);
   await expect(page.getByText("No attachments yet")).toBeVisible();
 
-  // Upload via a real <input type="file"> — native file inputs expose no
-  // accessible label of their own, so this targets the element directly
-  // rather than via getByLabel/getByRole.
-  await page.locator('input[type="file"]').setInputFiles({
+  // Upload via the real <input type="file">, now reachable through its own
+  // real accessible label (see the dedicated FileInput test above).
+  await page.getByLabel("Choose file").setInputFiles({
     name: FILE_NAME,
     mimeType: "text/plain",
     buffer: Buffer.from(FILE_CONTENTS),

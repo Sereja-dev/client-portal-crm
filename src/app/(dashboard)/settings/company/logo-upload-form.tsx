@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useState, type ChangeEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { FileInput } from "@/components/ui/file-input";
 import { uploadCompanyLogoAction } from "./actions";
 import type { LogoUploadState } from "@/types";
 
@@ -90,15 +91,15 @@ function LogoUploadFormInner({ currentLogoUrl }: { currentLogoUrl: string | null
         </div>
 
         <form action={formAction} className="min-w-[220px] flex-1 space-y-2">
-          <input
-            type="file"
+          <FileInput
+            id="logo-file-input"
             name="file"
             required
             disabled={pending}
             accept={ACCEPTED_TYPES}
             onChange={handleFileChange}
             aria-invalid={!!state.error}
-            className="block w-full text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-gray-700 hover:file:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60"
+            triggerLabel="Choose logo"
           />
           {state.error && (
             <p role="alert" className="text-sm text-red-600">

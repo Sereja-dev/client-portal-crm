@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
+import { FileInput } from "@/components/ui/file-input";
 import type { AttachmentUploadState } from "@/types";
 
 const initialState: AttachmentUploadState = { error: null };
@@ -36,13 +37,13 @@ export function AttachmentUploadForm({
   return (
     <form ref={formRef} action={formAction} className="flex flex-wrap items-start gap-3">
       <div className="min-w-[220px] flex-1">
-        <input
-          type="file"
+        <FileInput
+          id="attachment-file-input"
           name="file"
           required
           disabled={disabled || pending}
           accept={ACCEPTED_EXTENSIONS}
-          className="block w-full text-sm text-gray-700 file:mr-3 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-gray-700 hover:file:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-60"
+          triggerLabel="Choose file"
         />
         {state.error && (
           <p role="alert" className="mt-1 text-sm text-red-600">
