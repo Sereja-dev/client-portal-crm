@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <mask id="node-cut">
+    <rect x="4" y="4" width="24" height="24" rx="5" fill="#ffffff"/>
+    <rect x="20.5" y="1.5" width="11" height="11" rx="2.5" fill="#000000"/>
+  </mask>
+  <rect x="4" y="4" width="24" height="24" rx="5" fill="#2E2A6B" mask="url(#node-cut)"/>
+</svg>
