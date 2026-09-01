@@ -172,10 +172,10 @@ test.describe("Design System Batch 7 — Shared uploads + simple Settings", () =
 
     const checkbox = page.locator('input[type="checkbox"]').first();
     await expect(checkbox).toBeVisible();
-    // Dark's --accent is rgb(114, 107, 203) — never the old literal black.
+    // Dark's --accent is rgb(108, 101, 201) — never the old literal black.
     await expect
       .poll(() => checkbox.evaluate((el) => getComputedStyle(el).accentColor))
-      .toBe("rgb(114, 107, 203)");
+      .toBe("rgb(108, 101, 201)");
 
     expect(errors).toEqual([]);
   });

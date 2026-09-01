@@ -101,11 +101,11 @@ test.describe("Design System Batch 8 — Settings Billing", () => {
     // specifically, the only element of that tag with this text.
     const currentBadge = page.locator("span").filter({ hasText: "Current plan" });
     await expect(currentBadge).toBeVisible();
-    // Dark's --accent is rgb(114, 107, 203) — never the old literal
+    // Dark's --accent is rgb(108, 101, 201) — never the old literal
     // bg-gray-900/border-gray-900.
     await expect
       .poll(() => currentBadge.evaluate((el) => getComputedStyle(el).backgroundColor))
-      .toBe("rgb(114, 107, 203)");
+      .toBe("rgb(108, 101, 201)");
 
     const plansSection = page.locator('section[aria-labelledby="billing-plans-heading"]');
     const allCards = plansSection.locator("div.rounded-lg");
@@ -115,11 +115,11 @@ test.describe("Design System Batch 8 — Settings Billing", () => {
     const currentCard = allCards.filter({ hasText: "Current plan" }).first();
     await expect
       .poll(() => currentCard.evaluate((el) => getComputedStyle(el).borderColor))
-      .toBe("rgb(114, 107, 203)");
+      .toBe("rgb(108, 101, 201)");
 
     const otherCard = allCards.filter({ hasNotText: "Current plan" }).first();
     const otherBorder = await otherCard.evaluate((el) => getComputedStyle(el).borderColor);
-    expect(otherBorder).not.toBe("rgb(114, 107, 203)");
+    expect(otherBorder).not.toBe("rgb(108, 101, 201)");
   });
 
   test("Dark: usage bar fill reflects status — NORMAL is accent, EXCEEDED is danger", async ({ page }) => {
@@ -141,8 +141,8 @@ test.describe("Design System Batch 8 — Settings Billing", () => {
     const clientsFill = clientsRow.locator('[role="progressbar"] > div');
     await expect
       .poll(() => clientsFill.evaluate((el) => getComputedStyle(el).backgroundColor))
-      // Dark's --accent (rgb(114, 107, 203)) for NORMAL usage.
-      .toBe("rgb(114, 107, 203)");
+      // Dark's --accent (rgb(108, 101, 201)) for NORMAL usage.
+      .toBe("rgb(108, 101, 201)");
 
     // Push Clients past the STARTER limit to reach EXCEEDED.
     const extraClients = Array.from({ length: 10 }, (_, i) => ({
