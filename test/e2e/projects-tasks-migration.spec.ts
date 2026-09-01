@@ -144,10 +144,14 @@ test.describe("Design System Batch 3 — Projects + Tasks", () => {
     await page.goto("/projects");
     await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("dark");
     const primaryLink = page.getByRole("link", { name: "Add project" });
-    // Dark's --accent is #726BCB = rgb(114, 107, 203). Polled (not a single
-    // evaluate) since the button's own transition-colors briefly reports an
-    // in-flight interpolated value right after the theme attribute flips.
-    await expect.poll(() => primaryLink.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(114, 107, 203)");
+    // Dark's --accent is #6C65C9 = rgb(108, 101, 201) — darkened from the
+    // original #726BCB during the shared Dark accent contrast correction
+    // (PLATFORM_ADMIN_DARK_ACCENT_CONTRAST_CORRECTION in globals.css) to
+    // restore white-on-fill contrast above WCAG AA's 4.5:1. Polled (not a
+    // single evaluate) since the button's own transition-colors briefly
+    // reports an in-flight interpolated value right after the theme
+    // attribute flips.
+    await expect.poll(() => primaryLink.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(108, 101, 201)");
 
     await page.goto(`/projects/${fixtures.project.id}/edit`);
     await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("dark");

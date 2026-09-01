@@ -179,15 +179,41 @@
   --foreground: #ECEDEE;
 
   /* Same hue family as Light (~245°), lightened and slightly
-     desaturated so it reads as text/fill against a near-black surface
+     desaturated so it reads as a fill against a near-black surface
      without crossing into neon violet — never the Light hex reused
      verbatim (that deep indigo is nearly illegible as text on black).
-     Checked: white-on-fill ≈4.5:1, this color as text on the page
-     ≈4.2:1 — a deliberate middle value, since Light's token model uses
-     one shade for both a solid button fill and an active-nav text
-     color, and no third token exists to serve them separately. */
-  --accent: #726BCB;
-  --accent-hover: #7871D2;
+     Every live Dark consumer of --accent/--accent-hover is a solid
+     fill with white text on top (Button's primary variant, Sidebar's
+     active-nav state, the PRIMARY_LINK_CLASSES pattern several pages
+     use) — never --accent used as a readable text color on its own;
+     the two aria-hidden decorative "selected" glyphs that use
+     text-accent (organization-switcher.tsx, appearance-selector.tsx)
+     are non-text UI indicators (WCAG 1.4.11's 3:1 bar, not 1.4.3's
+     4.5:1 text bar) and stay comfortably clear of it at every value
+     considered here.
+
+     PLATFORM_ADMIN_DARK_ACCENT_CONTRAST_CORRECTION: the original value
+     here (#726BCB / rgb(114,107,203)) measured white-on-fill at
+     4.4863:1 — found genuinely below WCAG AA's 4.5:1 for normal/action
+     text during Platform Admin Batch 2's own strict audit (PR #169),
+     not merely a rounding artifact. --accent-hover (#7871D2) was worse
+     still, at 4.1247:1 — Dark's hover direction is lighter than its
+     own base (the opposite of Light's darker-on-hover), which pushes
+     it even closer to white. Both values below are the smallest
+     same-hue/same-saturation (244° / 48%) HSL-lightness reduction that
+     restores a safe margin above 4.5:1, verified against the exact
+     WCAG relative-luminance formula:
+       --accent:       #726BCB -> #6C65C9  (white-on-fill 4.8359:1)
+       --accent-hover: #7871D2 -> #7069CA  (white-on-fill 4.6028:1,
+                                             still the lighter-on-hover
+                                             direction, by a smaller
+                                             margin than before)
+     --accent-active (#5F58B5, already 5.9160:1, currently unconsumed)
+     and --accent-subtle (a 16%-opacity wash, not itself text-bearing)
+     are unaffected — see this PR's own audit for the full consumer
+     sweep. */
+  --accent: #6C65C9;
+  --accent-hover: #7069CA;
   --accent-active: #5F58B5;
   --accent-subtle: rgba(114, 107, 203, 0.16);
   --accent-foreground: #ffffff;
