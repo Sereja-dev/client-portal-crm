@@ -1,5 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { RouteLoadingAnnouncement } from "@/components/ui/page-loading";
+import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 
 /** Mirrors settings/billing/loading.tsx's own multi-card shape — matches this page's real layout: header, then five stacked section cards. */
 export default function OrganizationDetailLoading() {
@@ -13,7 +14,7 @@ export default function OrganizationDetailLoading() {
       </div>
 
       {Array.from({ length: 5 }, (_, i) => (
-        <div key={i} className="rounded-lg border border-gray-200 bg-white p-6">
+        <div key={i} className={`p-6 ${CARD_SURFACE_CLASSES}`}>
           <Skeleton className="h-5 w-40" />
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             {Array.from({ length: 4 }, (_, j) => (
