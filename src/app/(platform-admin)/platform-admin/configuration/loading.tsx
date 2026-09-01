@@ -1,5 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { RouteLoadingAnnouncement } from "@/components/ui/page-loading";
+import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 
 /** Mirrors the Organization Details loading skeleton — one card per DetailSection. Branding + Email + Billing + Domain + Legal + Deployment + Environment as of D6, the final Phase D section — this page's shape is now stable. */
 export default function PlatformAdminConfigurationLoading() {
@@ -12,7 +13,7 @@ export default function PlatformAdminConfigurationLoading() {
       </div>
 
       {Array.from({ length: 7 }, (_, sectionIndex) => (
-        <div key={sectionIndex} className="rounded-lg border border-gray-200 bg-white p-6">
+        <div key={sectionIndex} className={`p-6 ${CARD_SURFACE_CLASSES}`}>
           <Skeleton className="h-5 w-40" />
           <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
             {Array.from({ length: 6 }, (_, i) => (

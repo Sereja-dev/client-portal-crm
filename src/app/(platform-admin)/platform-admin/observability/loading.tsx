@@ -1,5 +1,6 @@
 import { Skeleton } from "@/components/ui/skeleton";
 import { RouteLoadingAnnouncement } from "@/components/ui/page-loading";
+import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 
 /**
  * Platform Admin loading-state completeness (primary tier). Mirrors the
@@ -26,10 +27,10 @@ export default function PlatformAdminObservabilityLoading() {
       </div>
 
       {Array.from({ length: 4 }, (_, sectionIndex) => (
-        <div key={sectionIndex} className="rounded-lg border border-gray-200 bg-white p-6">
+        <div key={sectionIndex} className={`p-6 ${CARD_SURFACE_CLASSES}`}>
           <Skeleton className="h-5 w-56" />
           <Skeleton className="mb-4 mt-2 h-4 w-full max-w-md" />
-          <div className="overflow-hidden rounded-md border border-gray-200">
+          <div className="border-border-default overflow-hidden rounded-md border">
             {Array.from({ length: 3 }, (_, rowIndex) => (
               <div key={rowIndex} className="flex items-center justify-between gap-3 px-4 py-2.5">
                 <Skeleton className="h-4 w-40" />

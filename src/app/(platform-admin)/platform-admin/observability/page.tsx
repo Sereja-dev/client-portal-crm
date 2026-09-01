@@ -37,12 +37,12 @@ export default async function PlatformAdminObservabilityPage() {
     <div className="space-y-8">
       <div>
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Observability</h1>
-          <span className="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
+          <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Observability</h1>
+          <span className="bg-surface-muted text-text-secondary inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium">
             Read-only
           </span>
         </div>
-        <p className="mt-1 text-sm text-gray-600">
+        <p className="text-text-secondary mt-1 text-sm">
           A read-only, aggregate-only view of durable billing webhook, invoice email, and PDF archive-reconciliation
           failures already recorded in the database — nothing on this page can retry, resend, resolve, or otherwise
           change any record. Generated at page load; no filter or wider window is available. Most figures below
@@ -78,7 +78,7 @@ export default async function PlatformAdminObservabilityPage() {
         <SectionIntro>
           Only the latest email attempt per invoice counts here — an invoice whose most recent attempt succeeded is
           never shown, even if an earlier attempt failed.{" "}
-          <strong className="font-semibold text-gray-900">
+          <strong className="text-text-primary font-semibold">
             An &ldquo;Unknown&rdquo; outcome means delivery is genuinely ambiguous — never resend blindly; use the
             invoice&rsquo;s own acknowledged-retry flow instead.
           </strong>
@@ -107,7 +107,7 @@ export default async function PlatformAdminObservabilityPage() {
           what is left over: an archive object that has exhausted automatic cleanup retries, or one whose internal
           claim state is inconsistent (a data-integrity anomaly). Unlike every section above, these are not windowed
           to 7 days — they reflect the current backlog.{" "}
-          <strong className="font-semibold text-gray-900">
+          <strong className="text-text-primary font-semibold">
             This does not cover PDF rendering, oversized-PDF, or snapshot/logo failures — those remain visible only
             in Vercel&rsquo;s own bounded diagnostic log events (see the runbook). A zero count here is not proof the
             invoice/PDF subsystem overall is healthy.
@@ -127,10 +127,10 @@ export default async function PlatformAdminObservabilityPage() {
         </div>
       </DetailSection>
 
-      <p className="text-xs text-gray-500">
+      <p className="text-text-muted text-xs">
         For the exact SQL behind these figures, a fallback manual check, and known limitations (short Vercel log
         retention, no automated alerting), see{" "}
-        <code className="rounded bg-gray-100 px-1 py-0.5">docs/production-observability-runbook.md</code> in this
+        <code className="bg-surface-muted text-text-secondary rounded px-1 py-0.5">docs/production-observability-runbook.md</code> in this
         repository.
       </p>
     </div>
@@ -138,7 +138,7 @@ export default async function PlatformAdminObservabilityPage() {
 }
 
 function SectionIntro({ children }: { children: React.ReactNode }) {
-  return <p className="mb-4 text-sm text-gray-600">{children}</p>;
+  return <p className="text-text-secondary mb-4 text-sm">{children}</p>;
 }
 
 function FailureBucketList({
@@ -151,14 +151,14 @@ function FailureBucketList({
   emptyMessage: string;
 }) {
   if (buckets.length === 0) {
-    return <p className="text-sm text-gray-500">{emptyMessage}</p>;
+    return <p className="text-text-secondary text-sm">{emptyMessage}</p>;
   }
   return (
-    <ul className="divide-y divide-gray-100 rounded-md border border-gray-200">
+    <ul className="divide-border-default border-border-default divide-y rounded-md border">
       {buckets.map((bucket) => (
         <li key={bucket.failureCode ?? "null"} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
-          <span className="text-gray-900">{getLabel(bucket)}</span>
-          <span className="font-medium tabular-nums text-gray-900">{bucket.count}</span>
+          <span className="text-text-primary">{getLabel(bucket)}</span>
+          <span className="text-text-primary font-medium tabular-nums">{bucket.count}</span>
         </li>
       ))}
     </ul>
@@ -173,20 +173,20 @@ function InvoiceEmailFailureList({
   emptyMessage: string;
 }) {
   if (buckets.length === 0) {
-    return <p className="text-sm text-gray-500">{emptyMessage}</p>;
+    return <p className="text-text-secondary text-sm">{emptyMessage}</p>;
   }
   return (
-    <ul className="divide-y divide-gray-100 rounded-md border border-gray-200">
+    <ul className="divide-border-default border-border-default divide-y rounded-md border">
       {buckets.map((bucket) => (
         <li
           key={`${bucket.status}|${bucket.failureReason ?? "null"}`}
           className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm"
         >
-          <span className="text-gray-900">
+          <span className="text-text-primary">
             {formatStatusLabel(bucket.status)}
-            <span className="text-gray-500"> — {formatCategoryLabel(bucket.failureReason)}</span>
+            <span className="text-text-muted"> — {formatCategoryLabel(bucket.failureReason)}</span>
           </span>
-          <span className="font-medium tabular-nums text-gray-900">{bucket.count}</span>
+          <span className="text-text-primary font-medium tabular-nums">{bucket.count}</span>
         </li>
       ))}
     </ul>
@@ -195,11 +195,11 @@ function InvoiceEmailFailureList({
 
 function SingleCount({ count, label, emptyMessage }: { count: number; label: string; emptyMessage: string }) {
   if (count === 0) {
-    return <p className="text-sm text-gray-500">{emptyMessage}</p>;
+    return <p className="text-text-secondary text-sm">{emptyMessage}</p>;
   }
   return (
-    <p className="text-2xl font-semibold tabular-nums text-gray-900">
-      {count} <span className="text-sm font-normal text-gray-600">{count === 1 ? label : `${label}s`}</span>
+    <p className="text-text-primary text-2xl font-semibold tabular-nums">
+      {count} <span className="text-text-secondary text-sm font-normal">{count === 1 ? label : `${label}s`}</span>
     </p>
   );
 }

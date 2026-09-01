@@ -9,6 +9,7 @@ import {
 import { getPlatformBillingConfig } from "@/lib/billing/platform-billing-config";
 import { requirePlatformAdmin } from "@/lib/platform-admin/authorization";
 import { DetailSection, Field } from "@/components/platform-admin/detail-section";
+import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 
 export const metadata: Metadata = {
   title: "Configuration — Platform Admin",
@@ -75,8 +76,8 @@ export default async function PlatformAdminConfigurationPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Configuration</h1>
-        <p className="mt-1 text-sm text-gray-600">
+        <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Configuration</h1>
+        <p className="text-text-secondary mt-1 text-sm">
           Platform-wide settings for the operator of this Service — separate from any organization&rsquo;s own
           settings.
         </p>
@@ -96,7 +97,7 @@ export default async function PlatformAdminConfigurationPage() {
                 <img
                   src={logoPreviewUrl}
                   alt={`${branding.name} logo`}
-                  className="h-16 w-16 rounded-md border border-gray-200 object-contain"
+                  className="border-border-default h-16 w-16 rounded-md border object-contain"
                 />
               ) : (
                 "Not set"
@@ -114,7 +115,7 @@ export default async function PlatformAdminConfigurationPage() {
           <Field label="Reply-to email" value={email.replyToEmail ?? "Not set"} />
         </dl>
 
-        <h3 className="mt-6 text-xs font-semibold uppercase tracking-wide text-gray-500">Status</h3>
+        <h3 className="text-text-muted mt-6 text-xs font-semibold tracking-wide uppercase">Status</h3>
         <dl className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Email provider" value={email.providerName} />
           <Field label="Provider status" value={email.providerConfigured ? "Configured" : "Not configured"} />
@@ -168,7 +169,7 @@ export default async function PlatformAdminConfigurationPage() {
                   href={deployment.commitUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="rounded font-medium text-black underline hover:no-underline focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
+                  className={ACTION_LINK_CLASSES}
                 >
                   {deployment.commitShaShort}
                 </a>
@@ -181,7 +182,7 @@ export default async function PlatformAdminConfigurationPage() {
       </DetailSection>
 
       <DetailSection id="environment" title="Environment Information">
-        <p className="mb-4 text-sm text-gray-600">
+        <p className="text-text-secondary mb-4 text-sm">
           A rollup, not a new source of truth — every row below reflects the same reader each section above already
           calls, never a second, independent read of the underlying configuration.
         </p>
