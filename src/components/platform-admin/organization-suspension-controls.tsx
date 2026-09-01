@@ -4,6 +4,7 @@ import { useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ui/confirm-dialog";
+import { formControlClasses } from "@/components/ui/form-control-classes";
 import { useToast } from "@/components/toast/toast-provider";
 import { suspendOrganizationAction, reactivateOrganizationAction } from "@/app/(platform-admin)/platform-admin/organizations/[id]/actions";
 import { SUSPENSION_REASON_CODES, type SuspensionReasonCode } from "@/lib/platform-admin/organization-suspension-reasons";
@@ -70,8 +71,8 @@ export function OrganizationSuspensionControls({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <p className="text-xs font-medium tracking-wide text-gray-500 uppercase">Operator status</p>
-        <p className="mt-1 text-sm font-medium text-gray-900">
+        <p className="text-text-muted text-xs font-medium tracking-wide uppercase">Operator status</p>
+        <p className="text-text-primary mt-1 text-sm font-medium">
           {suspendedAt ? `Suspended since ${formatSuspendedSince(suspendedAt)}` : "Active"}
         </p>
       </div>
@@ -88,7 +89,7 @@ export function OrganizationSuspensionControls({
 function OrganizationIdentitySummary({ organizationName, organizationSlug }: { organizationName: string; organizationSlug: string }) {
   return (
     <>
-      <span className="wrap-anywhere font-medium text-gray-900">{organizationName}</span> (
+      <span className="text-text-primary wrap-anywhere font-medium">{organizationName}</span> (
       <span className="wrap-anywhere font-mono">{organizationSlug}</span>)
     </>
   );
@@ -162,12 +163,12 @@ function SuspendControl({
           setConfirmText("");
           setReasonCode("");
         }}
-        className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-6 shadow-xl backdrop:bg-black/40"
+        className="border-border-default bg-surface w-full max-w-sm rounded-lg border p-6 shadow-xl backdrop:bg-black/40"
       >
-        <h2 id={titleId} className="text-base font-semibold text-gray-900">
+        <h2 id={titleId} className="text-text-primary text-base font-semibold">
           Suspend organization
         </h2>
-        <p id={descriptionId} className="mt-2 text-sm text-gray-600">
+        <p id={descriptionId} className="text-text-secondary mt-2 text-sm">
           Suspending blocks staff and client access immediately. No data is deleted, and you can reactivate at any time.
         </p>
         {/*
@@ -178,18 +179,18 @@ function SuspendControl({
           when the dialog opens, without an extra tab stop or a second
           reference block.
         */}
-        <p id={identitySummaryId} className="mt-2 text-sm text-gray-600">
+        <p id={identitySummaryId} className="text-text-secondary mt-2 text-sm">
           You are about to suspend <OrganizationIdentitySummary organizationName={organizationName} organizationSlug={organizationSlug} />.
         </p>
 
-        <label htmlFor={reasonSelectId} className="mt-4 block text-sm font-medium text-gray-700">
+        <label htmlFor={reasonSelectId} className="text-text-secondary mt-4 block text-sm font-medium">
           Reason
         </label>
         <select
           id={reasonSelectId}
           value={reasonCode}
           onChange={(event) => setReasonCode(event.target.value as SuspensionReasonCode | "")}
-          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
+          className={formControlClasses(false)}
         >
           <option value="" disabled>
             Select a reason
@@ -211,8 +212,8 @@ function SuspendControl({
           this safe at narrow widths even for a longer slug, matching
           this codebase's own established wrap-protection convention.
         */}
-        <label htmlFor={confirmInputId} className="mt-4 block wrap-anywhere text-sm font-medium text-gray-700">
-          Type <code className="wrap-anywhere rounded bg-gray-100 px-1 py-0.5 font-mono text-gray-900">{confirmationPhrase}</code> to confirm.
+        <label htmlFor={confirmInputId} className="text-text-secondary mt-4 block wrap-anywhere text-sm font-medium">
+          Type <code className="bg-surface-muted text-text-primary wrap-anywhere rounded px-1 py-0.5 font-mono">{confirmationPhrase}</code> to confirm.
         </label>
         <input
           id={confirmInputId}
@@ -225,10 +226,10 @@ function SuspendControl({
           spellCheck={false}
           aria-describedby={phraseMismatches ? mismatchId : undefined}
           aria-invalid={phraseMismatches ? true : undefined}
-          className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
+          className={formControlClasses(phraseMismatches)}
         />
         {phraseMismatches ? (
-          <p id={mismatchId} className="mt-1 text-sm text-red-600">
+          <p id={mismatchId} className="text-danger mt-1 text-sm">
             Doesn&apos;t match.
           </p>
         ) : null}
