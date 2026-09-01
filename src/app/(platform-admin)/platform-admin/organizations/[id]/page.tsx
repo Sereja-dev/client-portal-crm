@@ -6,6 +6,8 @@ import { formatAuditActionLabel, formatAuditReasonLabel } from "@/lib/platform-a
 import { formatFileSize } from "@/lib/format";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
+import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { DetailSection, Field } from "@/components/platform-admin/detail-section";
 import { OrganizationSuspensionControls } from "@/components/platform-admin/organization-suspension-controls";
 
@@ -60,10 +62,7 @@ export default async function PlatformAdminOrganizationDetailPage({
   return (
     <div className="space-y-8">
       <div>
-        <Link
-          href="/platform-admin/organizations"
-          className="rounded text-sm text-gray-500 hover:text-gray-900 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
-        >
+        <Link href="/platform-admin/organizations" className={ACTION_LINK_CLASSES}>
           ← Organizations
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
@@ -84,13 +83,13 @@ export default async function PlatformAdminOrganizationDetailPage({
             the Suspend confirmation dialog rendered the exact same
             unprotected string with the same risk.
           */}
-          <h1 className="min-w-0 wrap-anywhere text-2xl font-semibold tracking-tight text-gray-900">{organization.name}</h1>
+          <h1 className="text-text-primary min-w-0 wrap-anywhere text-2xl font-semibold tracking-tight">{organization.name}</h1>
           <StatusBadge status={detail.lifecycleStatus} />
         </div>
-        <p className="mt-1 text-sm text-gray-500">{organization.slug}</p>
+        <p className="text-text-muted mt-1 text-sm">{organization.slug}</p>
       </div>
 
-      <div className="rounded-lg border border-gray-200 bg-white p-6">
+      <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
         <OrganizationSuspensionControls
           organizationId={organization.id}
           organizationName={organization.name}
@@ -112,7 +111,7 @@ export default async function PlatformAdminOrganizationDetailPage({
                   href={businessIdentity.website}
                   target="_blank"
                   rel="noreferrer noopener"
-                  className="rounded text-black hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
+                  className={ACTION_LINK_CLASSES}
                 >
                   {businessIdentity.website}
                 </a>
@@ -132,7 +131,7 @@ export default async function PlatformAdminOrganizationDetailPage({
                 <span className="inline-flex items-center gap-2">
                   <span
                     aria-hidden="true"
-                    className="inline-block h-4 w-4 rounded-full border border-gray-300"
+                    className="border-border-strong inline-block h-4 w-4 rounded-full border"
                     style={{ backgroundColor: businessIdentity.brandColor }}
                   />
                   {businessIdentity.brandColor}
@@ -150,7 +149,7 @@ export default async function PlatformAdminOrganizationDetailPage({
                 <img
                   src={businessIdentity.logoUrl}
                   alt={`${organization.name} logo`}
-                  className="mt-1 h-16 w-16 rounded-md border border-gray-200 object-contain"
+                  className="border-border-default mt-1 h-16 w-16 rounded-md border object-contain"
                 />
               ) : (
                 "No logo uploaded"
@@ -169,7 +168,7 @@ export default async function PlatformAdminOrganizationDetailPage({
           <Field label="Current plan" value={detail.planDisplayName} />
         </dl>
 
-        <h3 className="mt-6 text-sm font-semibold text-gray-900">Limits &amp; usage</h3>
+        <h3 className="text-text-primary mt-6 text-sm font-semibold">Limits &amp; usage</h3>
         <dl className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Staff seats" value={`${entitlements.currentMembers} / ${formatLimit(entitlements.maxMembers)}`} />
           <Field label="Clients" value={`${entitlements.currentClients} / ${formatLimit(entitlements.maxClients)}`} />
@@ -198,19 +197,19 @@ export default async function PlatformAdminOrganizationDetailPage({
         active one — suspension is orthogonal to onboarding history.
       */}
       <DetailSection id="onboarding" title="Onboarding">
-        <p className="text-sm text-gray-600">
+        <p className="text-text-secondary text-sm">
           {detail.onboarding.requiredCompleted} of {detail.onboarding.requiredTotal} required steps complete
-          <span className="text-gray-400">
+          <span className="text-text-muted">
             {" "}
             · {detail.onboarding.completedCount} of {detail.onboarding.totalCount} steps overall ({detail.onboarding.percent}%)
           </span>
         </p>
-        <ul className="mt-4 divide-y divide-gray-100">
+        <ul className="divide-border-default mt-4 divide-y">
           {detail.onboarding.steps.map((step) => (
             <li key={step.key} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-              <span className="wrap-anywhere text-sm text-gray-900">
+              <span className="text-text-primary wrap-anywhere text-sm">
                 {step.label}
-                {step.required ? <span className="ml-1.5 text-xs text-gray-400">(required)</span> : null}
+                {step.required ? <span className="text-text-muted ml-1.5 text-xs">(required)</span> : null}
               </span>
               <StatusBadge status={step.status} />
             </li>
@@ -243,7 +242,7 @@ export default async function PlatformAdminOrganizationDetailPage({
               detail.owner ? (
                 <>
                   <div>{detail.owner.name}</div>
-                  <div className="text-xs text-gray-500">{detail.owner.email}</div>
+                  <div className="text-text-muted text-xs">{detail.owner.email}</div>
                 </>
               ) : (
                 "No owner"
@@ -259,12 +258,12 @@ export default async function PlatformAdminOrganizationDetailPage({
         {detail.staff.length === 0 ? (
           <EmptyState title="No staff members" description="Staff members for this organization will appear here once invited." />
         ) : (
-          <ul className="divide-y divide-gray-100">
+          <ul className="divide-border-default divide-y">
             {detail.staff.map((member) => (
               <li key={member.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
                 <div>
-                  <p className="text-sm font-medium text-gray-900">{member.name}</p>
-                  <p className="text-xs text-gray-500">{member.email}</p>
+                  <p className="text-text-primary text-sm font-medium">{member.name}</p>
+                  <p className="text-text-muted text-xs">{member.email}</p>
                 </div>
                 <StatusBadge status={member.role} />
               </li>
@@ -286,20 +285,20 @@ export default async function PlatformAdminOrganizationDetailPage({
           <EmptyState title="No clients yet" description="Clients added to this organization will appear here." />
         ) : (
           <>
-            <ul className="divide-y divide-gray-100">
+            <ul className="divide-border-default divide-y">
               {detail.clients.preview.map((client) => (
                 <li key={client.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                  <p className="text-sm text-gray-900">{client.name}</p>
+                  <p className="text-text-primary text-sm">{client.name}</p>
                   <div className="flex shrink-0 items-center gap-3">
                     <StatusBadge status={client.status} />
-                    <time dateTime={client.createdAt.toISOString()} className="text-xs text-gray-500">
+                    <time dateTime={client.createdAt.toISOString()} className="text-text-muted text-xs">
                       {formatDate(client.createdAt)}
                     </time>
                   </div>
                 </li>
               ))}
             </ul>
-            <p className="mt-3 text-xs text-gray-500">
+            <p className="text-text-muted mt-3 text-xs">
               Showing {detail.clients.preview.length} of {detail.clients.total}
             </p>
           </>
@@ -311,20 +310,20 @@ export default async function PlatformAdminOrganizationDetailPage({
           <EmptyState title="No projects yet" description="Projects added to this organization will appear here." />
         ) : (
           <>
-            <ul className="divide-y divide-gray-100">
+            <ul className="divide-border-default divide-y">
               {detail.projects.preview.map((project) => (
                 <li key={project.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
-                  <p className="text-sm text-gray-900">{project.name}</p>
+                  <p className="text-text-primary text-sm">{project.name}</p>
                   <div className="flex shrink-0 items-center gap-3">
                     <StatusBadge status={project.status} />
-                    <time dateTime={project.createdAt.toISOString()} className="text-xs text-gray-500">
+                    <time dateTime={project.createdAt.toISOString()} className="text-text-muted text-xs">
                       {formatDate(project.createdAt)}
                     </time>
                   </div>
                 </li>
               ))}
             </ul>
-            <p className="mt-3 text-xs text-gray-500">
+            <p className="text-text-muted mt-3 text-xs">
               Showing {detail.projects.preview.length} of {detail.projects.total}
             </p>
           </>
@@ -335,14 +334,14 @@ export default async function PlatformAdminOrganizationDetailPage({
         {detail.recentActivity.length === 0 ? (
           <EmptyState title="No activity yet" description="Activity for this organization will appear here as it happens." />
         ) : (
-          <ul className="divide-y divide-gray-100">
+          <ul className="divide-border-default divide-y">
             {detail.recentActivity.map((item) => (
               <li key={item.id} className="py-3 first:pt-0 last:pb-0">
                 <div className="flex items-start justify-between gap-3">
-                  <p className="text-sm text-gray-900">
+                  <p className="text-text-primary text-sm">
                     <span className="font-medium">{item.display.actorLabel}</span> {item.display.actionLabel}
                   </p>
-                  <time dateTime={item.display.timestamp.toISOString()} className="shrink-0 text-xs text-gray-500">
+                  <time dateTime={item.display.timestamp.toISOString()} className="text-text-muted shrink-0 text-xs">
                     {formatDate(item.display.timestamp)}
                   </time>
                 </div>
@@ -375,7 +374,7 @@ export default async function PlatformAdminOrganizationDetailPage({
             description="Suspend and reactivate actions taken by Platform Admin will appear here."
           />
         ) : (
-          <ul className="divide-y divide-gray-100">
+          <ul className="divide-border-default divide-y">
             {detail.recentAdminActions.map((event, index) => {
               const reasonLabel = formatAuditReasonLabel(event.reasonCode);
               return (
@@ -384,15 +383,15 @@ export default async function PlatformAdminOrganizationDetailPage({
                 // non-reorderable, server-rendered list makes this safe.
                 <li key={index} className="py-3 first:pt-0 last:pb-0">
                   <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
-                    <p className="wrap-anywhere text-sm text-gray-900">
+                    <p className="text-text-primary wrap-anywhere text-sm">
                       <span className="font-medium">{formatAuditActionLabel(event.action)}</span>
-                      {reasonLabel ? <span className="text-gray-500"> — {reasonLabel}</span> : null}
+                      {reasonLabel ? <span className="text-text-muted"> — {reasonLabel}</span> : null}
                     </p>
-                    <time dateTime={event.createdAt.toISOString()} className="shrink-0 text-xs text-gray-500">
+                    <time dateTime={event.createdAt.toISOString()} className="text-text-muted shrink-0 text-xs">
                       {formatDateTime(event.createdAt)}
                     </time>
                   </div>
-                  <p className="wrap-anywhere text-xs text-gray-500">by {event.actorEmail}</p>
+                  <p className="text-text-muted wrap-anywhere text-xs">by {event.actorEmail}</p>
                 </li>
               );
             })}

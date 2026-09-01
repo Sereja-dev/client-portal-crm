@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 
 /**
  * One consistent wrapper for every read-only section across Platform
@@ -23,8 +24,8 @@ import type { ReactNode } from "react";
 export function DetailSection({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   const headingId = `${id}-heading`;
   return (
-    <section aria-labelledby={headingId} className="rounded-lg border border-gray-200 bg-white p-6">
-      <h2 id={headingId} className="text-lg font-semibold tracking-tight text-gray-900">
+    <section aria-labelledby={headingId} className={`p-6 ${CARD_SURFACE_CLASSES}`}>
+      <h2 id={headingId} className="text-text-primary text-lg font-semibold tracking-tight">
         {title}
       </h2>
       <div className="mt-4">{children}</div>
@@ -54,8 +55,8 @@ export function DetailSection({ id, title, children }: { id: string; title: stri
 export function Field({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
-      <dt className="text-xs font-medium text-gray-500">{label}</dt>
-      <dd className="mt-0.5 wrap-anywhere text-sm text-gray-900">{value}</dd>
+      <dt className="text-text-secondary text-xs font-medium">{label}</dt>
+      <dd className="text-text-primary mt-0.5 wrap-anywhere text-sm">{value}</dd>
     </div>
   );
 }
