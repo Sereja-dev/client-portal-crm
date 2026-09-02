@@ -26,17 +26,21 @@ const REGISTRY_FILE = `${TOOLS_DIR}/registry.ts`;
 const PRIVACY_POLICY_FILE = `${AI_DIR}/privacy-policy.ts`;
 const LOGGING_POLICY_FILE = `${AI_DIR}/logging-policy.ts`;
 
-const APPROVED_BATCH_1B1_TOOL_NAMES = ["getOrganizationSummary", "searchClients", "getClientDetail", "searchProjects", "searchTasks"];
+const APPROVED_TOOL_NAMES = ["getOrganizationSummary", "searchClients", "getClientDetail", "searchProjects", "searchTasks", "searchInvoices"];
 
-// The four new tool-implementation files added in Batch 1B.1 — every new
-// rule below that scans "provider-facing output" scans exactly these,
-// plus tools/types.ts and registry.ts where relevant.
+// The five real tool-implementation files added across Batch 1B.1 (four)
+// and Batch 1B.2 (invoices.ts) — every rule below that scans
+// "provider-facing output" scans exactly these, plus tools/types.ts and
+// registry.ts where relevant.
 const NEW_TOOL_IMPLEMENTATION_FILES = [
   `${TOOLS_DIR}/organization-summary.ts`,
   `${TOOLS_DIR}/clients.ts`,
   `${TOOLS_DIR}/projects.ts`,
   `${TOOLS_DIR}/tasks.ts`,
+  `${TOOLS_DIR}/invoices.ts`,
 ];
+
+const INVOICES_FILE = `${TOOLS_DIR}/invoices.ts`;
 
 function readIfExists(path) {
   return existsSync(path) ? readFileSync(path, "utf8") : "";
@@ -137,11 +141,11 @@ ok = report(
   "",
 ) && ok;
 
-// 9. The tool registry registers EXACTLY the five approved Batch 1B.1
-// tool names — no more, no fewer, no substitutions. A future batch that
-// adds real tools must update this specific assertion deliberately (not
-// widen it silently) — it exists to keep every PR honestly scoped, not
-// to block the feature from ever growing.
+// 9. The tool registry registers EXACTLY the six approved tool names — no
+// more, no fewer, no substitutions. A future batch that adds real tools
+// must update this specific assertion deliberately (not widen it
+// silently) — it exists to keep every PR honestly scoped, not to block
+// the feature from ever growing.
 const registryContent = stripComments(readIfExists(REGISTRY_FILE));
 const registerCallBlocks = registryContent.match(/registerAiTool\(\{[\s\S]*?\}\);/g) || [];
 const registeredNames = registerCallBlocks
@@ -149,8 +153,8 @@ const registeredNames = registerCallBlocks
   .filter(Boolean)
   .map((m) => m[1]);
 ok = report(
-  "src/lib/ai/tools/registry.ts registers exactly the five approved Batch 1B.1 tools, no more/fewer",
-  JSON.stringify([...registeredNames].sort()) === JSON.stringify([...APPROVED_BATCH_1B1_TOOL_NAMES].sort()),
+  "src/lib/ai/tools/registry.ts registers exactly the six approved tools, no more/fewer",
+  JSON.stringify([...registeredNames].sort()) === JSON.stringify([...APPROVED_TOOL_NAMES].sort()),
   `registered: ${registeredNames.join(", ")}`,
 ) && ok;
 
@@ -192,12 +196,25 @@ const FORBIDDEN_FIELD_NAMES = [
   "storagePath",
 ];
 const forbiddenFieldPattern = `\\b(${FORBIDDEN_FIELD_NAMES.join("|")})\\b`;
-const forbiddenFieldHits = grep(forbiddenFieldPattern, AI_DIR)
-  .split("\n")
-  .filter(Boolean)
-  .filter((line) => !line.startsWith(`${PRIVACY_POLICY_FILE}:`));
+const forbiddenFieldRegex = new RegExp(forbiddenFieldPattern);
+// Comment-stripped per candidate file (not a raw grep) — invoices.ts's
+// own doc comment legitimately discusses pdfStoragePath/paymentInstructions
+// in prose explaining why they're excluded, the same false-positive class
+// rule 10b (the domain-field select-scan) already guards against. Grep is
+// still used as the cheap first pass to find candidate files; each
+// candidate is then re-tested against its own comment-stripped content
+// before being counted as a genuine hit.
+const forbiddenFieldCandidateFiles = [
+  ...new Set(
+    grep(forbiddenFieldPattern, AI_DIR)
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => line.split(":")[0]),
+  ),
+].filter((file) => file !== PRIVACY_POLICY_FILE);
+const forbiddenFieldHits = forbiddenFieldCandidateFiles.filter((file) => forbiddenFieldRegex.test(stripComments(readIfExists(file))));
 ok = report(
-  "no forbidden secret-bearing field name referenced under src/lib/ai outside privacy-policy.ts's own denylist",
+  "no forbidden secret-bearing field name referenced under src/lib/ai outside privacy-policy.ts's own denylist (comment-stripped)",
   forbiddenFieldHits.length === 0,
   forbiddenFieldHits.join("\n"),
 ) && ok;
@@ -244,6 +261,28 @@ const BATCH_1B1_FORBIDDEN_SELECT_FIELDS = [
   "budget",
   "ownerId",
   "assignee",
+  // Batch 1B.2 — Invoice's own hard-invariant forbidden fields (none of
+  // these are legitimately selected by any of the other tool files
+  // either, so this stays one shared list rather than a per-file one).
+  "internalNotes",
+  "issuerSnapshot",
+  "recipientSnapshot",
+  "pdfStoragePath",
+  "pdfGeneratedAt",
+  "documentVersion",
+  "lineItems",
+  "emailAttempts",
+  "pdfArchiveObjects",
+  "subtotal",
+  "discountType",
+  "discountValue",
+  "discountAmount",
+  "taxRatePercent",
+  "taxLabel",
+  "taxAmount",
+  "issueDate",
+  "paidAt",
+  "finalizedAt",
 ];
 const forbiddenSelectFieldPattern = new RegExp(`\\b(${BATCH_1B1_FORBIDDEN_SELECT_FIELDS.join("|")})\\s*:`);
 const domainFieldHits = NEW_TOOL_IMPLEMENTATION_FILES.filter(existsSync).flatMap((file) => {
@@ -252,9 +291,41 @@ const domainFieldHits = NEW_TOOL_IMPLEMENTATION_FILES.filter(existsSync).flatMap
   return selectBlocks.some((block) => forbiddenSelectFieldPattern.test(block)) ? [file] : [];
 });
 ok = report(
-  "no Client.notes / Project.description / Task.description / assignee / billing-legal field appears inside a Prisma select projection in any Batch 1B.1 tool file",
+  "no forbidden domain field (Client.notes/email/phone/billing-legal, Project.description/budget, Task.description/assignee, Invoice.internalNotes/issuerSnapshot/recipientSnapshot/lineItems/emailAttempts/pdfArchiveObjects/pdfStoragePath/tax-discount-internals/issueDate/paidAt/finalizedAt) appears inside a Prisma select projection in any AI tool file",
   domainFieldHits.length === 0,
   domainFieldHits.join("\n"),
+) && ok;
+
+// 10c. Batch 1B.2 invoice-specific: unlike every other tool's own search
+// result (which legitimately selects `id: true` to become its own
+// `ref`), invoices.ts has no detail tool and no ref at all — its own
+// `id`/`organizationId`/`clientId`/`projectId` must never appear inside
+// any of its own select blocks, not even the nested project/client ones.
+const invoicesSelectBlocks = existsSync(INVOICES_FILE) ? extractBalancedBlocks(stripComments(readIfExists(INVOICES_FILE)), "select:\\s*\\{") : [];
+const forbiddenInvoiceIdPattern = /\b(id|organizationId|clientId|projectId)\s*:/;
+const invoiceIdInSelect = invoicesSelectBlocks.some((block) => forbiddenInvoiceIdPattern.test(block));
+ok = report(
+  "invoices.ts never selects id/organizationId/clientId/projectId — no ref exists for this tool, by design",
+  !invoiceIdInSelect,
+  "",
+) && ok;
+
+// 10d. No mutation-capable Prisma operation anywhere under src/lib/ai —
+// defense in depth alongside the name-based mutation guard: even a
+// perfectly-named read-only tool must never call a Prisma write method.
+const mutationMethodPattern = "\\.(create|update|delete|upsert|createMany|updateMany|deleteMany)\\(";
+const mutationMethodUsage = grep(mutationMethodPattern, AI_DIR);
+ok = report("no mutation-capable Prisma method (create/update/delete/upsert/*Many) anywhere under src/lib/ai", mutationMethodUsage === "", mutationMethodUsage) && ok;
+
+// 10e. invoices.ts never imports invoice lifecycle/send/archive/PDF/email/
+// storage/billing code — it is a pure read, and must have no path to any
+// of that code even transitively through its own imports.
+const forbiddenInvoiceImportPattern = 'from\\s*"@/lib/invoices/(pdf|email)|from\\s*"@/lib/billing|from\\s*".*invoices/actions"|from\\s*".*invoices/\\[id\\]/edit';
+const forbiddenInvoiceImports = existsSync(INVOICES_FILE) ? grep(forbiddenInvoiceImportPattern, INVOICES_FILE) : "";
+ok = report(
+  "invoices.ts never imports invoice email/PDF/storage/billing/actions code",
+  forbiddenInvoiceImports === "",
+  forbiddenInvoiceImports,
 ) && ok;
 
 // 11. organizationId is never part of a tool's model-facing public input —
