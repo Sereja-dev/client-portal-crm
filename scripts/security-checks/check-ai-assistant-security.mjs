@@ -73,11 +73,24 @@ ok =
 // context — never re-implemented (re-parsing PLATFORM_ADMIN_EMAILS a
 // second time here would be a second, unaudited place that allowlist
 // could drift).
+//
+// Hardening finding B (found during the Batch 1A merge audit, closed
+// here): both sub-checks below now run against comment-stripped source,
+// not the raw file content. request-context.ts's own header doc comment
+// legitimately discusses "isPlatformAdmin(authUser.email)" in prose
+// (explaining why the check exists and where it runs) — proven, via a
+// direct reproduction during that audit, that a real regression which
+// deleted the actual enforcement call while leaving that comment behind
+// would still have passed this rule. stripComments() (this file's own
+// established helper, already used by every other call-site rule below)
+// removes exactly that prose before either regex ever runs, matching the
+// same discipline the rest of this file already applies everywhere else.
+const requestContextStripped = stripComments(requestContextContent);
 const importsIsPlatformAdmin = /import\s*\{[^}]*\bisPlatformAdmin\b[^}]*\}\s*from\s*"@\/lib\/platform-admin\/authorization"/.test(
-  requestContextContent,
+  requestContextStripped,
 );
-const callsIsPlatformAdmin = /isPlatformAdmin\(/.test(requestContextContent);
-ok = report("getAiAssistantRequestContext imports and calls the canonical isPlatformAdmin()", importsIsPlatformAdmin && callsIsPlatformAdmin, "") && ok;
+const callsIsPlatformAdmin = /isPlatformAdmin\(/.test(requestContextStripped);
+ok = report("getAiAssistantRequestContext imports and calls the canonical isPlatformAdmin() (comment-stripped)", importsIsPlatformAdmin && callsIsPlatformAdmin, "") && ok;
 
 // 3. No Client Portal import anywhere under src/lib/ai.
 const portalImport = grep('from "@/lib/current-portal-user"', AI_DIR);
