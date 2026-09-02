@@ -4,18 +4,47 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // registry's own module-level Map never leaks a registration from one
 // test into another — the registry has no exported reset function by
 // design (a real deployment never needs one; only tests do).
+//
+// AI Assistant Batch 1B.1: the registry module itself now registers
+// exactly five real, read-only domain tools at import time (see
+// registry.ts's own top-level registerAiTool() calls) — Batch 1A's own
+// "starts empty" assertion is updated here to match, and every test
+// below that used to assume a zero-tool baseline now asserts relative to
+// that fixed baseline instead of an absolute count of 1.
+const APPROVED_BATCH_1B1_TOOL_NAMES = [
+  "getOrganizationSummary",
+  "searchClients",
+  "getClientDetail",
+  "searchProjects",
+  "searchTasks",
+] as const;
+
 describe("AI tool registry", () => {
   afterEach(() => {
     vi.resetModules();
   });
 
-  it("starts empty — Batch 1A registers zero tools", async () => {
+  it("registers exactly the five approved Batch 1B.1 tools by default — no more, no fewer", async () => {
     const { getRegisteredAiTools } = await import("@/lib/ai/tools/registry");
-    expect(getRegisteredAiTools()).toEqual([]);
+    const names = getRegisteredAiTools()
+      .map((t) => t.name)
+      .sort();
+    expect(names).toEqual([...APPROVED_BATCH_1B1_TOOL_NAMES].sort());
   });
 
-  it("registers a read-only tool successfully and makes it retrievable by name", async () => {
+  it("each approved tool is retrievable by name and has a non-empty description/inputSchema", async () => {
+    const { getAiToolByName } = await import("@/lib/ai/tools/registry");
+    for (const name of APPROVED_BATCH_1B1_TOOL_NAMES) {
+      const tool = getAiToolByName(name);
+      expect(tool, `expected ${name} to be registered`).toBeDefined();
+      expect(tool!.description.length).toBeGreaterThan(0);
+      expect(typeof tool!.inputSchema).toBe("object");
+    }
+  });
+
+  it("registers an additional read-only tool successfully and makes it retrievable by name", async () => {
     const { registerAiTool, getRegisteredAiTools, getAiToolByName } = await import("@/lib/ai/tools/registry");
+    const baseline = getRegisteredAiTools().length;
     const tool = {
       name: "exampleReadOnlyTool",
       description: "an example",
@@ -27,7 +56,7 @@ describe("AI tool registry", () => {
       },
     };
     registerAiTool(tool);
-    expect(getRegisteredAiTools()).toHaveLength(1);
+    expect(getRegisteredAiTools()).toHaveLength(baseline + 1);
     expect(getAiToolByName("exampleReadOnlyTool")).toBe(tool);
   });
 
@@ -47,6 +76,13 @@ describe("AI tool registry", () => {
     const tool = { name: "dupTool", description: "d", inputSchema: {}, execute: async () => ({}) };
     registerAiTool(tool);
     expect(() => registerAiTool(tool)).toThrow(/already registered/i);
+  });
+
+  it("rejects re-registering an already-approved Batch 1B.1 tool name", async () => {
+    const { registerAiTool } = await import("@/lib/ai/tools/registry");
+    expect(() =>
+      registerAiTool({ name: "searchClients", description: "d", inputSchema: {}, execute: async () => ({}) }),
+    ).toThrow(/already registered/i);
   });
 
   it("getRegisteredAiTools() returns a frozen array the caller cannot mutate", async () => {
