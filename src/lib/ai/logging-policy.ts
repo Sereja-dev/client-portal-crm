@@ -62,9 +62,42 @@ export function generateAiRequestCorrelationId(): string {
 }
 
 /**
+ * Hardening finding A (found during the Batch 1A merge audit, closed
+ * here): the top-level key check above only validated `metadata`'s own
+ * OWN keys — a caller that bypasses the type system (e.g. an untyped
+ * `as AiLogMetadata` cast, or a value assembled from a variable rather
+ * than an object literal, which TypeScript's own excess-property check
+ * never covers) could smuggle an extra field inside the one nested
+ * object this shape allows, `usage`, and it would sail through
+ * unexamined — `usage` was passed through as an opaque blob, never
+ * itself validated. Exact-shape validation, not JSON-stringify-and-scan:
+ * `usage`, when present, must have exactly the three AiUsage keys
+ * (promptTokens/completionTokens/totalTokens), each a finite,
+ * non-negative number — nothing more, nothing looser.
+ */
+const ALLOWED_USAGE_KEYS = new Set<keyof AiUsage>(["promptTokens", "completionTokens", "totalTokens"]);
+
+function isValidUsage(value: unknown): value is AiUsage {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  const keys = Object.keys(record);
+  // Exactly the three allowed keys — no fewer (AiUsage's own type has
+  // none of them optional), no more (that's the actual bypass this
+  // closes).
+  if (keys.length !== ALLOWED_USAGE_KEYS.size || !keys.every((key) => ALLOWED_USAGE_KEYS.has(key as keyof AiUsage))) {
+    return false;
+  }
+  return Object.values(record).every((count) => typeof count === "number" && Number.isFinite(count) && count >= 0);
+}
+
+/**
  * The one function anything under src/lib/ai/** is allowed to log
  * through. Runtime-rejects any key outside AiLogMetadata's own allowed
- * set — a defensive check against a caller that bypasses the type system,
+ * set, AND (see isValidUsage's own doc comment above) any unexpected key
+ * or invalid value hidden inside the one nested field this shape allows
+ * — a defensive check against a caller that bypasses the type system,
  * not a claim that the type system alone is insufficient in normal use.
  */
 export function logAiAssistantEvent(metadata: AiLogMetadata): void {
@@ -74,6 +107,11 @@ export function logAiAssistantEvent(metadata: AiLogMetadata): void {
         `logAiAssistantEvent: unexpected field "${key}" — only metadata (${[...ALLOWED_KEYS].join(", ")}) may ever be logged for the AI Assistant. Prompts, responses, tool arguments/results, and customer content must never reach this function.`,
       );
     }
+  }
+  if (metadata.usage !== undefined && !isValidUsage(metadata.usage)) {
+    throw new Error(
+      `logAiAssistantEvent: "usage" must contain exactly promptTokens/completionTokens/totalTokens as finite, non-negative numbers — no other field, and no other value shape, may ever be logged.`,
+    );
   }
   console.log("[ai-assistant]", JSON.stringify(metadata));
 }
