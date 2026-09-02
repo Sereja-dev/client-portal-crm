@@ -200,3 +200,15 @@ export const BILLING_PORTAL_LIMIT: RateLimitConfig = { scope: "billing-portal", 
 // this. Bucketed by the route's own fixed name, not by caller (a webhook
 // sender has no stable per-caller identity this app could key on anyway).
 export const BILLING_WEBHOOK_LIMIT: RateLimitConfig = { scope: "billing-webhook", limit: 120, windowMs: HOUR_MS };
+
+// AI Assistant orchestration + Route Handler batch — per authenticated
+// staff user id, same shape as every other per-user limiter above.
+// Deliberately tighter than SEARCH_LIMIT (a lightweight typeahead): this
+// endpoint will eventually cost real provider tokens/dollars per call
+// once a real vendor adapter exists, and each request can run a bounded
+// but real chain of provider/tool calls (see orchestration-limits.ts),
+// so a single request is materially more expensive than one search
+// keystroke. 20/hour is generous enough for genuine exploratory use in
+// one sitting, and in the same band as INVITE_MEMBER_LIMIT/
+// LOGO_UPLOAD_LIMIT/BILLING_CHECKOUT_LIMIT above.
+export const AI_ASSISTANT_LIMIT: RateLimitConfig = { scope: "ai-assistant", limit: 20, windowMs: HOUR_MS };
