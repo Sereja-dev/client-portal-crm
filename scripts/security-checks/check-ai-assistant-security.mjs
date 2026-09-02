@@ -1,11 +1,19 @@
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { grep, report } from "./lib.mjs";
 
-// AI Assistant Batch 1A — this feature's own trust boundary, the same
-// discipline check-search-security.mjs already established for Global
-// Search: a narrow, explicit, closed set of checks over this batch's own
-// files, never a broad grep that would also reject a legitimate doc
-// comment mentioning a forbidden word in prose.
+// AI Assistant Batch 1A + 1B.1 — this feature's own trust boundary, the
+// same discipline check-search-security.mjs already established for
+// Global Search: a narrow, explicit, closed set of checks over this
+// batch's own files, never a broad grep that would also reject a
+// legitimate doc comment mentioning a forbidden word in prose.
+//
+// NOTE on scope: this update deliberately does NOT touch rule 2 (the
+// Platform Admin exclusion check) — its known comment-sensitivity
+// weakness (found during the Batch 1A merge audit) is tracked separately
+// as required hardening before request-context.ts's own auth logic is
+// next modified, not something this PR's tool-registration work
+// requires touching. See the Batch 1B.1 task's own explicit instruction
+// not to broaden scope onto that rule.
 
 let ok = true;
 
@@ -17,6 +25,18 @@ const TOOLS_TYPES_FILE = `${TOOLS_DIR}/types.ts`;
 const REGISTRY_FILE = `${TOOLS_DIR}/registry.ts`;
 const PRIVACY_POLICY_FILE = `${AI_DIR}/privacy-policy.ts`;
 const LOGGING_POLICY_FILE = `${AI_DIR}/logging-policy.ts`;
+
+const APPROVED_BATCH_1B1_TOOL_NAMES = ["getOrganizationSummary", "searchClients", "getClientDetail", "searchProjects", "searchTasks"];
+
+// The four new tool-implementation files added in Batch 1B.1 — every new
+// rule below that scans "provider-facing output" scans exactly these,
+// plus tools/types.ts and registry.ts where relevant.
+const NEW_TOOL_IMPLEMENTATION_FILES = [
+  `${TOOLS_DIR}/organization-summary.ts`,
+  `${TOOLS_DIR}/clients.ts`,
+  `${TOOLS_DIR}/projects.ts`,
+  `${TOOLS_DIR}/tasks.ts`,
+];
 
 function readIfExists(path) {
   return existsSync(path) ? readFileSync(path, "utf8") : "";
@@ -94,23 +114,45 @@ const vendorSdkPattern = 'from "(openai|@openai/|@anthropic-ai/|@google/generati
 const vendorSdkImports = grep(vendorSdkPattern, AI_DIR);
 ok = report("no vendor AI SDK import anywhere under src/lib/ai (Batch 1A ships no real provider adapter)", vendorSdkImports === "", vendorSdkImports) && ok;
 
-// 8. No Prisma import anywhere under src/lib/ai/tools — this batch adds
-// zero business-data tools, and none may reach Prisma at all yet.
-const prismaImportsInTools = existsSync(TOOLS_DIR)
-  ? grep('from "@/lib/prisma"', TOOLS_DIR) + grep('from "@/generated/prisma', TOOLS_DIR)
-  : "";
-ok = report("no Prisma import anywhere under src/lib/ai/tools", prismaImportsInTools === "", prismaImportsInTools) && ok;
+// 8. Batch 1A had zero business-data tools, so this rule was originally
+// "no Prisma import in tools/ at all." Batch 1B.1 genuinely needs narrow,
+// org-scoped Prisma reads in clients.ts/projects.ts/tasks.ts (the
+// approved architecture's own Option C) — a blanket "no Prisma" rule is
+// now factually wrong, not merely outdated, so it is replaced here (a
+// deliberate, explained rule change, not silently dropped) with the
+// check that actually matters once real Prisma access exists: no raw/
+// unrestricted query capability anywhere under src/lib/ai, matching this
+// app's own existing check-no-raw-queries.mjs convention exactly.
+const rawQueryPattern = "\\$(queryRaw|executeRaw|queryRawUnsafe|executeRawUnsafe)";
+const rawQueryUsage = grep(rawQueryPattern, AI_DIR);
+ok = report("no raw/unrestricted Prisma query capability ($queryRaw*/$executeRaw*) anywhere under src/lib/ai", rawQueryUsage === "", rawQueryUsage) && ok;
 
-// 9. The tool registry currently registers zero tools — Batch 1A adds the
-// registration mechanism only, never a business tool. A future batch that
+// organization-summary.ts specifically must stay a pure adapter over the
+// existing Dashboard reader — it should never import Prisma directly
+// (its own doc comment says exactly this: Option A, full reuse).
+const orgSummaryContent = readIfExists(`${TOOLS_DIR}/organization-summary.ts`);
+ok = report(
+  "organization-summary.ts never imports Prisma directly (reuses getDashboardAnalytics instead)",
+  !/from\s*"@\/lib\/prisma"/.test(orgSummaryContent) && !/from\s*"@\/generated\/prisma/.test(orgSummaryContent),
+  "",
+) && ok;
+
+// 9. The tool registry registers EXACTLY the five approved Batch 1B.1
+// tool names — no more, no fewer, no substitutions. A future batch that
 // adds real tools must update this specific assertion deliberately (not
-// widen it silently) — it exists to keep this PR honestly scoped, not to
-// block the feature from ever growing.
-const registryContent = readIfExists(REGISTRY_FILE);
-// Excludes the function's own declaration line ("function registerAiTool(")
-// — only a genuine call site (e.g. "registerAiTool(someTool)") counts.
-const registerCalls = (stripComments(registryContent).match(/(?<!function )registerAiTool\(/g) || []).length;
-ok = report("src/lib/ai/tools/registry.ts registers zero tools in this batch", registerCalls === 0, `${registerCalls} registerAiTool(...) call(s) found`) && ok;
+// widen it silently) — it exists to keep every PR honestly scoped, not
+// to block the feature from ever growing.
+const registryContent = stripComments(readIfExists(REGISTRY_FILE));
+const registerCallBlocks = registryContent.match(/registerAiTool\(\{[\s\S]*?\}\);/g) || [];
+const registeredNames = registerCallBlocks
+  .map((block) => block.match(/name:\s*"([^"]+)"/))
+  .filter(Boolean)
+  .map((m) => m[1]);
+ok = report(
+  "src/lib/ai/tools/registry.ts registers exactly the five approved Batch 1B.1 tools, no more/fewer",
+  JSON.stringify([...registeredNames].sort()) === JSON.stringify([...APPROVED_BATCH_1B1_TOOL_NAMES].sort()),
+  `registered: ${registeredNames.join(", ")}`,
+) && ok;
 
 // No mutation-like word fragment appears as a tool/file name anywhere
 // under src/lib/ai/tools (defense in depth alongside mutation-guard.ts's
@@ -131,8 +173,24 @@ ok = report("no mutation-like word fragment in any src/lib/ai/tools file name", 
 // 10. No forbidden secret-bearing field name appears anywhere under
 // src/lib/ai, except inside privacy-policy.ts's own denylist (where
 // naming them is the whole point) or a test file that verifies that
-// denylist.
-const FORBIDDEN_FIELD_NAMES = ["bankName", "accountHolder", "accountNumber", "swiftBic", "providerCustomerId", "providerSubscriptionId", "pdfStoragePath"];
+// denylist. Extended in Batch 1B.1 with paymentInstructions/storagePath
+// (present in privacy-policy.ts's own denylist since Batch 1A but never
+// added to this specific grep list — a genuine, previously-noted
+// incompleteness, closed here as new tool files make it newly relevant)
+// and with the Batch 1B.1 domain's own C/B-deferred field names
+// (Client email/phone/notes/billing-legal identity, Project description/
+// budget/ownerId, Task description/assignee).
+const FORBIDDEN_FIELD_NAMES = [
+  "bankName",
+  "accountHolder",
+  "accountNumber",
+  "swiftBic",
+  "paymentInstructions",
+  "providerCustomerId",
+  "providerSubscriptionId",
+  "pdfStoragePath",
+  "storagePath",
+];
 const forbiddenFieldPattern = `\\b(${FORBIDDEN_FIELD_NAMES.join("|")})\\b`;
 const forbiddenFieldHits = grep(forbiddenFieldPattern, AI_DIR)
   .split("\n")
@@ -142,6 +200,61 @@ ok = report(
   "no forbidden secret-bearing field name referenced under src/lib/ai outside privacy-policy.ts's own denylist",
   forbiddenFieldHits.length === 0,
   forbiddenFieldHits.join("\n"),
+) && ok;
+
+// 10b. Batch 1B.1: none of Client.notes / Project.description /
+// Task.description / assignee(Email) / Client email-phone-billing-legal
+// identity / Project budget-ownerId ever appear inside a Prisma `select`
+// projection in any of the four new tool-implementation files.
+//
+// Scoped specifically to `select: { ... }` blocks (via a depth-balanced
+// brace scan, not a flat regex) rather than the whole file — these files
+// legitimately use the word "description" many times over as ordinary
+// JSON-Schema tool-parameter metadata (e.g. `query: { type: "string",
+// description: "..." }`) and as their own exported `*_DESCRIPTION`
+// constants; a blanket file-wide word check would false-positive on
+// every one of those. The Prisma `select` block is the one place that
+// actually determines what leaves the database, so that is what this
+// rule inspects.
+function extractBalancedBlocks(content, openPattern) {
+  const blocks = [];
+  const re = new RegExp(openPattern, "g");
+  let match;
+  while ((match = re.exec(content))) {
+    let depth = 1;
+    let i = match.index + match[0].length;
+    while (i < content.length && depth > 0) {
+      if (content[i] === "{") depth += 1;
+      else if (content[i] === "}") depth -= 1;
+      i += 1;
+    }
+    blocks.push(content.slice(match.index, i));
+  }
+  return blocks;
+}
+
+const BATCH_1B1_FORBIDDEN_SELECT_FIELDS = [
+  "notes",
+  "email",
+  "phone",
+  "billingLegalName",
+  "taxId",
+  "streetAddress",
+  "description",
+  "budget",
+  "ownerId",
+  "assignee",
+];
+const forbiddenSelectFieldPattern = new RegExp(`\\b(${BATCH_1B1_FORBIDDEN_SELECT_FIELDS.join("|")})\\s*:`);
+const domainFieldHits = NEW_TOOL_IMPLEMENTATION_FILES.filter(existsSync).flatMap((file) => {
+  const stripped = stripComments(readIfExists(file));
+  const selectBlocks = extractBalancedBlocks(stripped, "select:\\s*\\{");
+  return selectBlocks.some((block) => forbiddenSelectFieldPattern.test(block)) ? [file] : [];
+});
+ok = report(
+  "no Client.notes / Project.description / Task.description / assignee / billing-legal field appears inside a Prisma select projection in any Batch 1B.1 tool file",
+  domainFieldHits.length === 0,
+  domainFieldHits.join("\n"),
 ) && ok;
 
 // 11. organizationId is never part of a tool's model-facing public input —
@@ -158,6 +271,73 @@ ok = report(
   "tools/types.ts mentions organizationId only as execute()'s explicit first parameter, never inside a tool's public input",
   organizationIdMentions > 0 && organizationIdMentions === executeParamMentions,
   `organizationId mentions: ${organizationIdMentions}, execute() param mentions: ${executeParamMentions}`,
+) && ok;
+
+// 11b. Batch 1B.1: organizationId legitimately appears in each tool file
+// both as execute()'s own literal first parameter AND inside the real
+// Prisma `where` clause it scopes (that second use is the actual
+// tenant-scoping enforcement rule 11e checks for) — so unlike
+// tools/types.ts (a pure type-declaration file with no query logic at
+// all, where any non-parameter mention would be suspicious), the
+// meaningful check here is narrower: organizationId must never appear as
+// a declared property key inside any *_INPUT_SCHEMA constant (the
+// model-facing surface) in any of these files.
+const inputSchemaOrgIdFiles = NEW_TOOL_IMPLEMENTATION_FILES.filter(existsSync).flatMap((file) => {
+  const content = readIfExists(file);
+  const schemaBlocks = content.match(/_INPUT_SCHEMA\s*=\s*\{[\s\S]*?\}\s*as const;/g) || [];
+  return schemaBlocks.some((block) => /organizationId/.test(block)) ? [file] : [];
+});
+ok = report(
+  "organizationId never appears as a declared property inside any Batch 1B.1 *_INPUT_SCHEMA (the model-facing surface)",
+  inputSchemaOrgIdFiles.length === 0,
+  inputSchemaOrgIdFiles.join("\n"),
+) && ok;
+
+const userIdMentionFiles = NEW_TOOL_IMPLEMENTATION_FILES.filter(existsSync).filter((file) => /\buserId\b/.test(stripComments(readIfExists(file))));
+ok = report("no Batch 1B.1 tool file ever mentions userId", userIdMentionFiles.length === 0, userIdMentionFiles.join("\n")) && ok;
+
+// 11c. Every tool's own exported *_INPUT_SCHEMA constant sets
+// additionalProperties: false — the JSON-Schema-level closed-input
+// contract every tool's own runtime validator also enforces.
+const inputSchemaFiles = NEW_TOOL_IMPLEMENTATION_FILES.filter(existsSync);
+const missingAdditionalPropertiesFalse = inputSchemaFiles.filter((file) => {
+  const content = readIfExists(file);
+  const schemaBlocks = content.match(/_INPUT_SCHEMA\s*=\s*\{[\s\S]*?\}\s*as const;/g) || [];
+  return schemaBlocks.some((block) => !/additionalProperties:\s*false/.test(block));
+});
+ok = report(
+  "every Batch 1B.1 *_INPUT_SCHEMA declares additionalProperties: false",
+  missingAdditionalPropertiesFalse.length === 0,
+  missingAdditionalPropertiesFalse.join("\n"),
+) && ok;
+
+// 11d. Result limits are fixed constants, never model-controlled — no
+// tool file's own `take:` clause ever references the validated-input
+// variable.
+const modelControlledTakeFiles = NEW_TOOL_IMPLEMENTATION_FILES.filter(existsSync).filter((file) =>
+  /take:\s*(validated|input|rawInput)\b/.test(stripComments(readIfExists(file))),
+);
+ok = report(
+  "no Batch 1B.1 tool's `take:` clause is ever derived from validated/raw input (all fixed constants)",
+  modelControlledTakeFiles.length === 0,
+  modelControlledTakeFiles.join("\n"),
+) && ok;
+
+// 11e. Best-effort tenant-scoping heuristic: every direct Prisma
+// findMany/findFirst call in a Batch 1B.1 tool file visibly includes
+// organizationId within its own where clause — a narrow, per-call-site
+// proximity check (not a full parser), backed by the real integration
+// tests (test/integration/ai/tools/**) as the authoritative proof.
+const unscopedQueryFiles = NEW_TOOL_IMPLEMENTATION_FILES.filter(existsSync).filter((file) => {
+  const stripped = stripComments(readIfExists(file));
+  if (!/@\/lib\/prisma/.test(stripped)) return false; // no direct Prisma use in this file
+  const calls = stripped.match(/\.(findMany|findFirst)\(\{[\s\S]{0,400}/g) || [];
+  return calls.some((call) => !/organizationId/.test(call));
+});
+ok = report(
+  "every direct Prisma findMany/findFirst call in a Batch 1B.1 tool file visibly scopes by organizationId",
+  unscopedQueryFiles.length === 0,
+  unscopedQueryFiles.join("\n"),
 ) && ok;
 
 // 12. No console logging anywhere under src/lib/ai except inside

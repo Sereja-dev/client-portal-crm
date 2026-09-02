@@ -1,17 +1,29 @@
 import type { AiToolDefinition } from "./types";
 import { assertNotMutationLikeToolName } from "./mutation-guard";
+import {
+  executeGetOrganizationSummary,
+  GET_ORGANIZATION_SUMMARY_INPUT_SCHEMA,
+  GET_ORGANIZATION_SUMMARY_DESCRIPTION,
+} from "./organization-summary";
+import {
+  executeSearchClients,
+  SEARCH_CLIENTS_INPUT_SCHEMA,
+  SEARCH_CLIENTS_DESCRIPTION,
+  executeGetClientDetail,
+  GET_CLIENT_DETAIL_INPUT_SCHEMA,
+  GET_CLIENT_DETAIL_DESCRIPTION,
+} from "./clients";
+import { executeSearchProjects, SEARCH_PROJECTS_INPUT_SCHEMA, SEARCH_PROJECTS_DESCRIPTION } from "./projects";
+import { executeSearchTasks, SEARCH_TASKS_INPUT_SCHEMA, SEARCH_TASKS_DESCRIPTION } from "./tasks";
 
 /**
- * AI Assistant Batch 1A — the closed tool registry. Deliberately empty in
- * this batch: no Client/Project/Task/Invoice/Activity/Analytics/Dashboard
- * reader exists yet (see this batch's own explicit scope gate and
- * scripts/security-checks/check-ai-assistant-security.mjs's "no Prisma
- * import in AI tools" rule, which this file itself satisfies — it imports
- * nothing from @/generated/prisma or @/lib/prisma). A future, separate
- * batch calls registerAiTool() once per reviewed, narrow business-data
- * tool; nothing here is a placeholder/dummy tool invented to populate
- * this list early — an empty registry is the correct, honest state for a
- * PR that adds zero business-data access.
+ * AI Assistant Batch 1A + 1B.1 — the closed tool registry. Batch 1A left
+ * this empty by design (no business-data reader existed yet); Batch 1B.1
+ * adds exactly the five reviewed, narrow, read-only domain tools below —
+ * no sixth tool, no invoice/Activity/Analytics/Team tool (all explicitly
+ * deferred, see the approved Batch 1B plan's own batch-boundary
+ * decision), and nothing here is a placeholder — every registered tool
+ * is a real, tested, read-only reader.
  *
  * "Closed allowlist" here means: the only way a tool becomes callable is
  * a module-level registerAiTool() call in this file (or a file this file
@@ -46,6 +58,36 @@ export function getAiToolByName(name: string): AiToolDefinition | undefined {
   return registeredTools.get(name);
 }
 
-// Batch 1A registers zero tools. Nothing below this line yet — a future
-// batch adds e.g. `registerAiTool(searchClientsTool)` here, one call per
-// reviewed business-data tool.
+// Batch 1B.1 — exactly five read-only domain tools, low-sensitivity only
+// (no invoices, no free-text business content beyond a bounded record
+// name/title — see each tool module's own doc comment).
+registerAiTool({
+  name: "getOrganizationSummary",
+  description: GET_ORGANIZATION_SUMMARY_DESCRIPTION,
+  inputSchema: GET_ORGANIZATION_SUMMARY_INPUT_SCHEMA,
+  execute: executeGetOrganizationSummary,
+});
+registerAiTool({
+  name: "searchClients",
+  description: SEARCH_CLIENTS_DESCRIPTION,
+  inputSchema: SEARCH_CLIENTS_INPUT_SCHEMA,
+  execute: executeSearchClients,
+});
+registerAiTool({
+  name: "getClientDetail",
+  description: GET_CLIENT_DETAIL_DESCRIPTION,
+  inputSchema: GET_CLIENT_DETAIL_INPUT_SCHEMA,
+  execute: executeGetClientDetail,
+});
+registerAiTool({
+  name: "searchProjects",
+  description: SEARCH_PROJECTS_DESCRIPTION,
+  inputSchema: SEARCH_PROJECTS_INPUT_SCHEMA,
+  execute: executeSearchProjects,
+});
+registerAiTool({
+  name: "searchTasks",
+  description: SEARCH_TASKS_DESCRIPTION,
+  inputSchema: SEARCH_TASKS_INPUT_SCHEMA,
+  execute: executeSearchTasks,
+});
