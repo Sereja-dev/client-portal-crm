@@ -2,6 +2,7 @@ import { signOut, switchOrganizationAction } from "@/app/(dashboard)/actions";
 import { OrganizationSwitcher } from "@/components/layout/organization-switcher";
 import { NotificationBell, type NotificationBellItem } from "@/components/notifications/notification-bell";
 import { GlobalSearch } from "@/components/search/global-search";
+import { AiAssistantTrigger } from "@/components/ai/ai-assistant-trigger";
 import type { OrganizationSwitcherItem } from "@/lib/current-user";
 
 export function Header({
@@ -9,11 +10,14 @@ export function Header({
   organizations,
   unreadNotificationCount,
   recentNotifications,
+  aiAssistantAvailable,
 }: {
   email: string;
   organizations: OrganizationSwitcherItem[];
   unreadNotificationCount: number;
   recentNotifications: NotificationBellItem[];
+  /** Server-resolved once in (dashboard)/layout.tsx via isAiAssistantAvailable() — see ai-assistant-trigger.tsx's own doc comment for why this is the ONLY AI-related signal this component (or its child) ever receives. */
+  aiAssistantAvailable: boolean;
 }) {
   const activeOrganizationId = organizations.find((org) => org.isActive)?.organizationId;
 
@@ -38,6 +42,7 @@ export function Header({
           in (dashboard)/layout.tsx) already carries the active org's id.
         */}
         <GlobalSearch key={activeOrganizationId} />
+        <AiAssistantTrigger available={aiAssistantAvailable} />
         <NotificationBell
           initialUnreadCount={unreadNotificationCount}
           initialNotifications={recentNotifications}
