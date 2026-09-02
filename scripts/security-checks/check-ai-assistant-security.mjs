@@ -628,9 +628,20 @@ ok = report(
 ) && ok;
 
 // 25. The approved AI route always sets Cache-Control: private, no-store.
+//
+// Hardening (found during the orchestration + Route Handler PR's own
+// merge audit, closed here): this rule originally matched against
+// routeContent (raw, unstripped) — a comment reading "This route always
+// sets private, no-store on every response" could satisfy the regex
+// even if the real NO_STORE_HEADERS constant were emptied out, the same
+// comment-only false-positive class Finding B (request-context.ts's own
+// isPlatformAdmin() check) already closed elsewhere in this file.
+// routeStripped (comment-stripped once, above) is what every other
+// route.ts-scoped rule in this file already uses — this one now matches
+// that same discipline instead of being the one exception.
 ok = report(
   "the approved AI route sets Cache-Control: private, no-store",
-  /private,\s*no-store/.test(routeContent),
+  /private,\s*no-store/.test(routeStripped),
   "",
 ) && ok;
 
@@ -700,7 +711,17 @@ ok = report(
 
 // 30. Rate limit: the new AI_ASSISTANT_LIMIT scope exists and is applied
 // in the route before orchestration.
-const rateLimitLimitsContent = readIfExists("src/lib/rate-limit/limits.ts");
+//
+// Hardening (found during the orchestration + Route Handler PR's own
+// merge audit, closed here): this rule originally matched against the
+// raw, unstripped file content — a comment retaining the exact
+// declaration text (e.g. the real line commented out and replaced with
+// a broken one) could satisfy the regex even though the real
+// AI_ASSISTANT_LIMIT no longer has the expected shape at all. Same
+// comment-only false-positive class as rule 25 above; same fix —
+// stripComments() first, matching every other declaration-shaped rule
+// in this file (e.g. rule 21's own limit-constant check).
+const rateLimitLimitsContent = stripComments(readIfExists("src/lib/rate-limit/limits.ts"));
 ok = report(
   'src/lib/rate-limit/limits.ts declares AI_ASSISTANT_LIMIT with scope "ai-assistant"',
   /export const AI_ASSISTANT_LIMIT[\s\S]{0,120}scope:\s*"ai-assistant"/.test(rateLimitLimitsContent),
