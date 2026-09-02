@@ -43,6 +43,16 @@ const PROVIDERS_DIR = `${AI_DIR}/providers`;
 const PROVIDER_FACTORY_FILE = `${PROVIDERS_DIR}/provider-factory.ts`;
 const UNCONFIGURED_PROVIDER_FILE = `${PROVIDERS_DIR}/unconfigured-provider.ts`;
 
+// Staff AI Assistant drawer/UI batch.
+const COMPONENTS_AI_DIR = "src/components/ai";
+const TRIGGER_FILE = `${COMPONENTS_AI_DIR}/ai-assistant-trigger.tsx`;
+const PANEL_FILE = `${COMPONENTS_AI_DIR}/ai-assistant-panel.tsx`;
+const AI_CLIENT_FILE = `${AI_DIR}/client.ts`;
+const HEADER_FILE = "src/components/layout/header.tsx";
+const DASHBOARD_LAYOUT_FILE = "src/app/(dashboard)/layout.tsx";
+const PORTAL_DIR = "src/app/portal";
+const PLATFORM_ADMIN_DIR = "src/app/(platform-admin)";
+
 const APPROVED_TOOL_NAMES = ["getOrganizationSummary", "searchClients", "getClientDetail", "searchProjects", "searchTasks", "searchInvoices"];
 
 // The five real tool-implementation files added across Batch 1B.1 (four)
@@ -457,9 +467,20 @@ ok = report(
   consoleCalls.join("\n"),
 ) && ok;
 
-// 13. No AI UI exists yet — this batch adds orchestration/API only,
-// never a component.
-ok = report("no src/components/ai directory exists yet", !existsSync("src/components/ai"), "") && ok;
+// 13. src/components/ai/ contains EXACTLY the two approved UI files —
+// no more, no fewer, no substitutions. This rule's own prior wording
+// ("no src/components/ai directory exists yet") is now factually wrong
+// now that the staff AI Assistant drawer/UI batch deliberately adds one
+// — a deliberate, explained rule change, the same discipline rule 8's
+// own earlier Prisma-import-rule inversion and rule 14's own later
+// route-directory update already established, not a silent drop.
+const APPROVED_COMPONENTS_AI_FILES = ["ai-assistant-panel.tsx", "ai-assistant-trigger.tsx"];
+const actualComponentsAiFiles = existsSync("src/components/ai") ? readdirSync("src/components/ai").sort() : [];
+ok = report(
+  "src/components/ai/ contains exactly the two approved UI files, no more/fewer/substitutions",
+  JSON.stringify(actualComponentsAiFiles) === JSON.stringify([...APPROVED_COMPONENTS_AI_FILES].sort()),
+  `found: ${actualComponentsAiFiles.join(", ")}`,
+) && ok;
 
 // 14. Exactly one route.ts exists anywhere under src/app/api/ai, at
 // exactly the one approved path. Recursive walk (not a flat grep) since
@@ -730,6 +751,187 @@ ok = report(
 ok = report(
   "the approved AI route calls checkRateLimit(AI_ASSISTANT_LIMIT, ...)",
   /checkRateLimit\s*\(\s*AI_ASSISTANT_LIMIT/.test(routeStripped),
+  "",
+) && ok;
+
+// --- Staff AI Assistant drawer/UI batch ---
+//
+// A new trust boundary this file has never had to check before: the
+// first real, mounted UI surface for this feature. Every rule below
+// follows the exact same "comment-stripped where matching a real
+// import/declaration/call, never a raw grep alone" discipline the rest
+// of this file already established (including the two rules 25/30
+// themselves hardened into that discipline, closing the one prior
+// regression this file's own history has already had) — deliberately
+// written this way from the start, not discovered as a gap later.
+
+// 31. The trigger component (the one thing that actually mounts the
+// feature) is imported by exactly one file — header.tsx — never Portal,
+// never Platform Admin, never a second, independent mount point.
+const triggerImporters = grep('from\\s*"@/components/ai/ai-assistant-trigger"', "src/")
+  .split("\n")
+  .filter(Boolean)
+  .map((line) => line.split(":")[0]);
+const uniqueTriggerImporters = [...new Set(triggerImporters)];
+ok = report(
+  "AiAssistantTrigger is imported by exactly one file (header.tsx) — the staff shell's own single mount point",
+  uniqueTriggerImporters.length === 1 && uniqueTriggerImporters[0] === HEADER_FILE,
+  uniqueTriggerImporters.join("\n"),
+) && ok;
+
+// 32/33. No AI UI import anywhere under Portal or Platform Admin —
+// mirrors this file's own existing "no Client Portal import" / "no
+// Platform Admin import" rules (rules 3/4, and rule 23's own route-level
+// extension of them), now extended to the product surfaces those
+// identities actually render.
+const aiUiImportPattern = 'from\\s*"@/components/ai/|from\\s*"@/lib/ai/client"';
+const aiUiImportsInPortal = existsSync(PORTAL_DIR) ? grep(aiUiImportPattern, PORTAL_DIR) : "";
+const aiUiImportsInPlatformAdmin = existsSync(PLATFORM_ADMIN_DIR) ? grep(aiUiImportPattern, PLATFORM_ADMIN_DIR) : "";
+ok = report("no AI Assistant UI import anywhere under src/app/portal", aiUiImportsInPortal === "", aiUiImportsInPortal) && ok;
+ok = report("no AI Assistant UI import anywhere under src/app/(platform-admin)", aiUiImportsInPlatformAdmin === "", aiUiImportsInPlatformAdmin) && ok;
+
+// 34. The client AI components (trigger + panel) never import anything
+// server-only from src/lib/ai/ except client.ts's own wire contract —
+// the same "no provider/orchestration/tools/request-context leakage"
+// boundary rule 27 already enforces for provider-factory.ts's own
+// TEST_MODE gate, now enforced for the UI layer that consumes it.
+const triggerStripped = stripComments(readIfExists(TRIGGER_FILE));
+const panelStripped = stripComments(readIfExists(PANEL_FILE));
+function aiLibImportSpecifiers(strippedContent) {
+  const matches = strippedContent.match(/from\s*"([^"]*@\/lib\/ai[^"]*)"/g) || [];
+  return matches.map((m) => m.match(/"([^"]+)"/)[1]);
+}
+const uiAiLibImports = [...aiLibImportSpecifiers(triggerStripped), ...aiLibImportSpecifiers(panelStripped)];
+const disallowedUiAiLibImports = uiAiLibImports.filter((specifier) => specifier !== "@/lib/ai/client");
+ok = report(
+  "ai-assistant-trigger.tsx/ai-assistant-panel.tsx import nothing from src/lib/ai/ except client.ts's own wire contract",
+  disallowedUiAiLibImports.length === 0,
+  disallowedUiAiLibImports.join("\n"),
+) && ok;
+
+// 35. No MockAiProvider reference anywhere under src/components/ — the
+// UI must never know the mock provider exists as a concept (see
+// client.ts's own doc comment).
+const mockProviderInComponents = existsSync(COMPONENTS_AI_DIR) ? grep("MockAiProvider", COMPONENTS_AI_DIR) : "";
+ok = report("no MockAiProvider reference anywhere under src/components/ai", mockProviderInComponents === "", mockProviderInComponents) && ok;
+
+// 36. client.ts's own request body construction never includes
+// organizationId/userId/history/provider/mockScenario — the same closed
+// request-schema.ts contract (rule 18) mirrored at the one client call
+// site that actually constructs the HTTP body.
+const aiClientStripped = stripComments(readIfExists(AI_CLIENT_FILE));
+const bodyConstructionMatch = aiClientStripped.match(/body:\s*JSON\.stringify\([^)]*\)/);
+const FORBIDDEN_CLIENT_BODY_KEYS = ["organizationId", "userId", "history", "provider", "mockScenario"];
+const forbiddenClientBodyHits = bodyConstructionMatch
+  ? FORBIDDEN_CLIENT_BODY_KEYS.filter((key) => bodyConstructionMatch[0].includes(key))
+  : ["(no body: JSON.stringify(...) construction found at all)"];
+ok = report(
+  "client.ts's own request body never includes organizationId/userId/history/provider/mockScenario",
+  bodyConstructionMatch !== null && forbiddenClientBodyHits.length === 0,
+  forbiddenClientBodyHits.join(", "),
+) && ok;
+
+// 37. The endpoint is the one fixed literal string, never a
+// template/dynamic path.
+ok = report(
+  'client.ts posts to the exact fixed literal "/api/ai/assistant" (never a template/dynamic endpoint)',
+  /const AI_ASSISTANT_ENDPOINT = "\/api\/ai\/assistant";/.test(aiClientStripped),
+  "",
+) && ok;
+
+// 38. No browser storage anywhere in the new UI files — question/answer
+// live only in component memory (see this batch's own "no persistence"
+// requirement).
+const storagePattern = "\\blocalStorage\\b|\\bsessionStorage\\b|\\bindexedDB\\b";
+const storageInComponents = existsSync(COMPONENTS_AI_DIR) ? grep(storagePattern, COMPONENTS_AI_DIR) : "";
+const storageInClient = grep(storagePattern, AI_CLIENT_FILE);
+ok = report("no localStorage/sessionStorage/indexedDB anywhere under src/components/ai or client.ts", storageInComponents === "" && storageInClient === "", [storageInComponents, storageInClient].filter(Boolean).join("\n")) && ok;
+
+// 39. No dangerouslySetInnerHTML anywhere in the new UI files — the
+// answer is always plain JSX text interpolation (see this batch's own
+// "no markdown/HTML rendering" requirement).
+const dangerousHtmlInComponents = existsSync(COMPONENTS_AI_DIR) ? grep("dangerouslySetInnerHTML", COMPONENTS_AI_DIR) : "";
+ok = report("no dangerouslySetInnerHTML anywhere under src/components/ai", dangerousHtmlInComponents === "", dangerousHtmlInComponents) && ok;
+
+// 40. No Server Action / business mutation import anywhere in the new UI
+// files — AI output is read/draft text only, never a Send/Apply/Save
+// action (see this batch's own "no action semantics" requirement).
+const actionsImportInComponents = existsSync(COMPONENTS_AI_DIR) ? grep('from ".*actions"', COMPONENTS_AI_DIR, "-E") : "";
+const useServerInComponents = existsSync(COMPONENTS_AI_DIR) ? grep('"use server"', COMPONENTS_AI_DIR) : "";
+ok = report("no actions.ts import anywhere under src/components/ai", actionsImportInComponents === "", actionsImportInComponents) && ok;
+ok = report('no "use server" directive anywhere under src/components/ai', useServerInComponents === "", useServerInComponents) && ok;
+
+// 41. No console logging of prompt/answer content anywhere in the new UI
+// files — mirrors rule 12's own "metadata-only, never content" logging
+// discipline, extended to the client layer (which should log nothing at
+// all, not even metadata).
+const consoleInComponents = existsSync(COMPONENTS_AI_DIR) ? grep("console\\.(log|error|warn|info|debug)\\(", COMPONENTS_AI_DIR) : "";
+const consoleInClient = grep("console\\.(log|error|warn|info|debug)\\(", AI_CLIENT_FILE);
+ok = report("no console logging anywhere under src/components/ai or client.ts", consoleInComponents === "" && consoleInClient === "", [consoleInComponents, consoleInClient].filter(Boolean).join("\n")) && ok;
+
+// 42. No streaming primitive anywhere in the new UI files — the backend
+// is non-streaming by design (provider.ts's own AiProvider.stream is
+// unimplemented); the UI must never fake it either.
+const streamingPattern = "\\bEventSource\\b|\\bWebSocket\\b|ReadableStream";
+const streamingInComponents = existsSync(COMPONENTS_AI_DIR) ? grep(streamingPattern, COMPONENTS_AI_DIR) : "";
+const streamingInClient = grep(streamingPattern, AI_CLIENT_FILE);
+ok = report("no EventSource/WebSocket/ReadableStream anywhere under src/components/ai or client.ts", streamingInComponents === "" && streamingInClient === "", [streamingInComponents, streamingInClient].filter(Boolean).join("\n")) && ok;
+
+// 43. No client-controlled mock/provider selector anywhere in the new UI
+// files — availability is a server-resolved boolean only (see this
+// batch's own "no client-controlled feature flag" requirement).
+//
+// Comment-stripped (not a raw grep): client.ts's own doc comment
+// legitimately discusses "no mockScenario" in prose, explaining exactly
+// why this rule exists — the same false-positive class rules 25/30 were
+// hardened against, avoided here from the start rather than discovered
+// as a regression later.
+const mockSelectorPattern = /mockScenario|providerSelector/;
+const mockSelectorHits = [
+  ["ai-assistant-trigger.tsx", triggerStripped],
+  ["ai-assistant-panel.tsx", panelStripped],
+  ["client.ts", aiClientStripped],
+].filter(([, content]) => mockSelectorPattern.test(content));
+ok = report(
+  "no mockScenario/provider-selector field anywhere under src/components/ai or client.ts (comment-stripped)",
+  mockSelectorHits.length === 0,
+  mockSelectorHits.map(([name]) => name).join(", "),
+) && ok;
+
+// 44. The composer mirrors the server's own MAX_USER_MESSAGE_CHARS as a
+// UI convenience only (never authoritative — request-schema.ts remains
+// the real enforcement, unchanged by this batch).
+ok = report(
+  "the composer declares maxLength={2000}, mirroring MAX_USER_MESSAGE_CHARS as a UI convenience only",
+  /maxLength=\{MAX_MESSAGE_CHARS\}/.test(panelStripped) && /const MAX_MESSAGE_CHARS = 2000;/.test(panelStripped),
+  "",
+) && ok;
+
+// 45. No real provider/vendor SDK import, and no env var read, anywhere
+// in the new UI files — this batch ships no real provider, by design.
+const vendorSdkInComponents = existsSync(COMPONENTS_AI_DIR) ? grep(vendorSdkPattern, COMPONENTS_AI_DIR) : "";
+const vendorSdkInClient = grep(vendorSdkPattern, AI_CLIENT_FILE);
+ok = report("no vendor AI SDK import anywhere under src/components/ai or client.ts", vendorSdkInComponents === "" && vendorSdkInClient === "", [vendorSdkInComponents, vendorSdkInClient].filter(Boolean).join("\n")) && ok;
+ok = report("no process.env reference anywhere under src/components/ai or client.ts", !/process\.env/.test(triggerStripped) && !/process\.env/.test(panelStripped) && !/process\.env/.test(aiClientStripped), "") && ok;
+
+// 46. The staff availability boundary itself: (dashboard)/layout.tsx
+// genuinely calls the real isAiAssistantAvailable() and passes only a
+// plain boolean to Header — never TEST_MODE, provider identity, or any
+// other config/env detail (see provider-factory.ts's own doc comment on
+// why this boolean is deliberately the only thing it ever returns).
+const dashboardLayoutStripped = stripComments(readIfExists(DASHBOARD_LAYOUT_FILE));
+const headerStripped = stripComments(readIfExists(HEADER_FILE));
+const importsIsAiAssistantAvailable = /import\s*\{[^}]*\bisAiAssistantAvailable\b[^}]*\}\s*from\s*"@\/lib\/ai\/providers\/provider-factory"/.test(dashboardLayoutStripped);
+const callsIsAiAssistantAvailable = /isAiAssistantAvailable\(\)/.test(dashboardLayoutStripped);
+const passesBooleanToHeader = /aiAssistantAvailable=\{aiAssistantAvailable\}/.test(dashboardLayoutStripped);
+ok = report(
+  "(dashboard)/layout.tsx imports and calls the real isAiAssistantAvailable(), passing only the boolean to Header (comment-stripped)",
+  importsIsAiAssistantAvailable && callsIsAiAssistantAvailable && passesBooleanToHeader,
+  "",
+) && ok;
+ok = report(
+  "header.tsx never itself calls isAiAssistantAvailable() or imports provider-factory.ts (receives the boolean as a prop only, comment-stripped)",
+  !/isAiAssistantAvailable\(\)/.test(headerStripped) && !/from\s*"[^"]*provider-factory"/.test(headerStripped),
   "",
 ) && ok;
 

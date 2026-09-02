@@ -9,6 +9,7 @@ import type { NotificationBellItem } from "@/components/notifications/notificati
 import { Sidebar } from "@/components/layout/sidebar";
 import { Header } from "@/components/layout/header";
 import { TEST_MODE } from "@/lib/test-mode";
+import { isAiAssistantAvailable } from "@/lib/ai/providers/provider-factory";
 import { ThemePreferenceReconciler } from "@/components/theme/theme-preference-reconciler";
 import { dbThemeModeToRuntimeMode } from "@/lib/theme/db-mode";
 
@@ -89,6 +90,15 @@ export default async function DashboardLayout({
     }),
   }));
 
+  // AI Assistant staff drawer/UI batch. A synchronous, side-effect-free
+  // boolean read (see provider-factory.ts's own doc comment) — the exact
+  // same source of truth the Route Handler itself gates on, so the UI's
+  // notion of "available" can never drift from the API's. Only this
+  // boolean crosses the server/client boundary below (via Header ->
+  // AiAssistantTrigger) — never TEST_MODE, provider identity, or any
+  // other config/env detail.
+  const aiAssistantAvailable = isAiAssistantAvailable();
+
   return (
     // Design System page migration Batch 2 — bg-gray-50 replaced with
     // bg-surface-recessed: globals.css's own token comment names "page
@@ -129,6 +139,7 @@ export default async function DashboardLayout({
           organizations={organizations}
           unreadNotificationCount={unreadNotificationCount}
           recentNotifications={recentNotifications}
+          aiAssistantAvailable={aiAssistantAvailable}
         />
         {/*
           Design/polish: staff-app main content max-width. main itself

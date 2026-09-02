@@ -105,6 +105,42 @@ export function SearchIcon({ className = "h-4 w-4" }: IconProps) {
   );
 }
 
+/** AI Assistant staff drawer/UI batch — the Header trigger's own icon, deliberately distinct from SearchIcon (a sparkle, not a magnifying glass) so the two utility triggers are never visually confusable. */
+export function SparkleIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M12 3v4M12 17v4M3 12h4M17 12h4M6.5 6.5l2 2M15.5 15.5l2 2M17.5 6.5l-2 2M8.5 15.5l-2 2" />
+    </svg>
+  );
+}
+
+/** AI Assistant staff drawer/UI batch — the panel's own explicit close control (needed for the mobile full-screen case, which has no backdrop to click). */
+export function CloseIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  );
+}
+
 export function SpinnerIcon({ className = "h-4 w-4" }: IconProps) {
   return (
     <svg
