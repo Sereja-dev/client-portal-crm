@@ -5,18 +5,19 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 // test into another — the registry has no exported reset function by
 // design (a real deployment never needs one; only tests do).
 //
-// AI Assistant Batch 1B.1: the registry module itself now registers
-// exactly five real, read-only domain tools at import time (see
+// AI Assistant Batch 1B.1 + 1B.2: the registry module itself now
+// registers exactly six real, read-only domain tools at import time (see
 // registry.ts's own top-level registerAiTool() calls) — Batch 1A's own
 // "starts empty" assertion is updated here to match, and every test
 // below that used to assume a zero-tool baseline now asserts relative to
 // that fixed baseline instead of an absolute count of 1.
-const APPROVED_BATCH_1B1_TOOL_NAMES = [
+const APPROVED_TOOL_NAMES = [
   "getOrganizationSummary",
   "searchClients",
   "getClientDetail",
   "searchProjects",
   "searchTasks",
+  "searchInvoices",
 ] as const;
 
 describe("AI tool registry", () => {
@@ -24,17 +25,17 @@ describe("AI tool registry", () => {
     vi.resetModules();
   });
 
-  it("registers exactly the five approved Batch 1B.1 tools by default — no more, no fewer", async () => {
+  it("registers exactly the six approved tools by default — no more, no fewer", async () => {
     const { getRegisteredAiTools } = await import("@/lib/ai/tools/registry");
     const names = getRegisteredAiTools()
       .map((t) => t.name)
       .sort();
-    expect(names).toEqual([...APPROVED_BATCH_1B1_TOOL_NAMES].sort());
+    expect(names).toEqual([...APPROVED_TOOL_NAMES].sort());
   });
 
   it("each approved tool is retrievable by name and has a non-empty description/inputSchema", async () => {
     const { getAiToolByName } = await import("@/lib/ai/tools/registry");
-    for (const name of APPROVED_BATCH_1B1_TOOL_NAMES) {
+    for (const name of APPROVED_TOOL_NAMES) {
       const tool = getAiToolByName(name);
       expect(tool, `expected ${name} to be registered`).toBeDefined();
       expect(tool!.description.length).toBeGreaterThan(0);

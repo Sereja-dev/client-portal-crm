@@ -5,6 +5,7 @@ import { executeGetOrganizationSummary } from "@/lib/ai/tools/organization-summa
 import { executeSearchClients, executeGetClientDetail } from "@/lib/ai/tools/clients";
 import { executeSearchProjects } from "@/lib/ai/tools/projects";
 import { executeSearchTasks } from "@/lib/ai/tools/tasks";
+import { executeSearchInvoices } from "@/lib/ai/tools/invoices";
 import { registerAiTool } from "@/lib/ai/tools/registry";
 
 /**
@@ -30,6 +31,7 @@ describe("AI Batch 1B.1 — adversarial input suite", () => {
     { name: "searchClients", execute: executeSearchClients },
     { name: "searchProjects", execute: executeSearchProjects },
     { name: "searchTasks", execute: executeSearchTasks },
+    { name: "searchInvoices", execute: executeSearchInvoices },
     { name: "getOrganizationSummary", execute: executeGetOrganizationSummary },
     { name: "getClientDetail", execute: executeGetClientDetail },
   ];
@@ -62,6 +64,21 @@ describe("AI Batch 1B.1 — adversarial input suite", () => {
     const result = await execute(fixtures.orgA.id, { select: { email: true, notes: true } });
     expect(result.ok).toBe(false);
     expect(result.error).toBe("invalid_input");
+  });
+
+  it("searchInvoices: model tries ref -> invalid_input (no detail tool exists, so no ref field exists at all)", async () => {
+    const result = await executeSearchInvoices(fixtures.orgA.id, { ref: fixtures.invoice.id });
+    expect(result).toEqual({ ok: false, error: "invalid_input" });
+  });
+
+  it("searchInvoices: model tries id (a raw invoice UUID) -> invalid_input, never used to look up a single invoice", async () => {
+    const result = await executeSearchInvoices(fixtures.orgA.id, { id: fixtures.invoice.id });
+    expect(result).toEqual({ ok: false, error: "invalid_input" });
+  });
+
+  it("searchInvoices: model tries include -> invalid_input", async () => {
+    const result = await executeSearchInvoices(fixtures.orgA.id, { include: { emailAttempts: true } });
+    expect(result).toEqual({ ok: false, error: "invalid_input" });
   });
 
   it("getClientDetail: a foreign organization's real, valid, raw UUID never returns data — indistinguishable from not_found", async () => {
@@ -112,6 +129,43 @@ describe("AI Batch 1B.1 — adversarial input suite", () => {
         expect("description" in item).toBe(false);
         expect("assignee" in item).toBe(false);
         expect("assigneeEmail" in item).toBe(false);
+      }
+    });
+
+    it("no output schema/type for searchInvoices ever declares notes/internalNotes/issuerSnapshot/recipientSnapshot/lineItems/pdfStoragePath/payment-provider fields, or a raw id/ref", async () => {
+      const result = await executeSearchInvoices(fixtures.orgA.id, {});
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      for (const item of result.results) {
+        for (const forbidden of [
+          "notes",
+          "internalNotes",
+          "issuerSnapshot",
+          "recipientSnapshot",
+          "lineItems",
+          "pdfStoragePath",
+          "pdfGeneratedAt",
+          "documentVersion",
+          "subtotal",
+          "discountType",
+          "discountValue",
+          "discountAmount",
+          "taxRatePercent",
+          "taxLabel",
+          "taxAmount",
+          "issueDate",
+          "paidAt",
+          "finalizedAt",
+          "id",
+          "ref",
+          "organizationId",
+          "clientId",
+          "projectId",
+          "providerCustomerId",
+          "providerSubscriptionId",
+        ]) {
+          expect(forbidden in item).toBe(false);
+        }
       }
     });
   });

@@ -15,15 +15,18 @@ import {
 } from "./clients";
 import { executeSearchProjects, SEARCH_PROJECTS_INPUT_SCHEMA, SEARCH_PROJECTS_DESCRIPTION } from "./projects";
 import { executeSearchTasks, SEARCH_TASKS_INPUT_SCHEMA, SEARCH_TASKS_DESCRIPTION } from "./tasks";
+import { executeSearchInvoices, SEARCH_INVOICES_INPUT_SCHEMA, SEARCH_INVOICES_DESCRIPTION } from "./invoices";
 
 /**
- * AI Assistant Batch 1A + 1B.1 — the closed tool registry. Batch 1A left
- * this empty by design (no business-data reader existed yet); Batch 1B.1
- * adds exactly the five reviewed, narrow, read-only domain tools below —
- * no sixth tool, no invoice/Activity/Analytics/Team tool (all explicitly
- * deferred, see the approved Batch 1B plan's own batch-boundary
- * decision), and nothing here is a placeholder — every registered tool
- * is a real, tested, read-only reader.
+ * AI Assistant Batch 1A + 1B.1 + 1B.2 — the closed tool registry. Batch
+ * 1A left this empty by design (no business-data reader existed yet);
+ * Batch 1B.1 added five low-sensitivity, read-only domain tools; Batch
+ * 1B.2 adds exactly one more — searchInvoices, the highest-sensitivity
+ * read domain in this tool layer, with no detail tool and no ref/id at
+ * all (see invoices.ts's own doc comment). No seventh tool, no Activity/
+ * Analytics/Team tool (all explicitly deferred), and nothing here is a
+ * placeholder — every registered tool is a real, tested, read-only
+ * reader.
  *
  * "Closed allowlist" here means: the only way a tool becomes callable is
  * a module-level registerAiTool() call in this file (or a file this file
@@ -90,4 +93,13 @@ registerAiTool({
   description: SEARCH_TASKS_DESCRIPTION,
   inputSchema: SEARCH_TASKS_INPUT_SCHEMA,
   execute: executeSearchTasks,
+});
+
+// Batch 1B.2 — the highest-sensitivity domain, one tool only, no detail
+// tool, no ref/id (see invoices.ts's own doc comment).
+registerAiTool({
+  name: "searchInvoices",
+  description: SEARCH_INVOICES_DESCRIPTION,
+  inputSchema: SEARCH_INVOICES_INPUT_SCHEMA,
+  execute: executeSearchInvoices,
 });

@@ -8,3 +8,4 @@
 export const SEARCH_CLIENTS_LIMIT = 10;
 export const SEARCH_PROJECTS_LIMIT = 10;
 export const SEARCH_TASKS_LIMIT = 15;
+export const SEARCH_INVOICES_LIMIT = 10;
