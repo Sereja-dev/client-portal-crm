@@ -9,11 +9,17 @@ import { grep, report } from "./lib.mjs";
 //
 // NOTE on scope: this update deliberately does NOT touch rule 2 (the
 // Platform Admin exclusion check) — its known comment-sensitivity
-// weakness (found during the Batch 1A merge audit) is tracked separately
-// as required hardening before request-context.ts's own auth logic is
-// next modified, not something this PR's tool-registration work
-// requires touching. See the Batch 1B.1 task's own explicit instruction
-// not to broaden scope onto that rule.
+// weakness (found during the Batch 1A merge audit) was closed by a
+// dedicated, separate hardening PR (see this rule's own comment-stripped
+// implementation below) before this file's own next real touch, which is
+// this one: the AI Assistant orchestration + Route Handler batch, adding
+// checks 14-30 below for the new /api/ai/assistant route and the new
+// src/lib/ai/{orchestrate,system-prompt,orchestration-limits,
+// request-schema,providers/{provider-factory,unconfigured-provider}}.ts
+// files. Rule 13's own prior wording ("no src/app/api/ai directory
+// exists yet") is updated here too — a deliberate, explained rule
+// change, the same discipline rule 8's own earlier Prisma-import-rule
+// inversion already established — not a silent drop.
 
 let ok = true;
 
@@ -25,6 +31,17 @@ const TOOLS_TYPES_FILE = `${TOOLS_DIR}/types.ts`;
 const REGISTRY_FILE = `${TOOLS_DIR}/registry.ts`;
 const PRIVACY_POLICY_FILE = `${AI_DIR}/privacy-policy.ts`;
 const LOGGING_POLICY_FILE = `${AI_DIR}/logging-policy.ts`;
+
+// Orchestration + Route Handler batch.
+const API_AI_DIR = "src/app/api/ai";
+const APPROVED_ROUTE_FILE = `${API_AI_DIR}/assistant/route.ts`;
+const ORCHESTRATE_FILE = `${AI_DIR}/orchestrate.ts`;
+const REQUEST_SCHEMA_FILE = `${AI_DIR}/request-schema.ts`;
+const ORCHESTRATION_LIMITS_FILE = `${AI_DIR}/orchestration-limits.ts`;
+const SYSTEM_PROMPT_FILE = `${AI_DIR}/system-prompt.ts`;
+const PROVIDERS_DIR = `${AI_DIR}/providers`;
+const PROVIDER_FACTORY_FILE = `${PROVIDERS_DIR}/provider-factory.ts`;
+const UNCONFIGURED_PROVIDER_FILE = `${PROVIDERS_DIR}/unconfigured-provider.ts`;
 
 const APPROVED_TOOL_NAMES = ["getOrganizationSummary", "searchClients", "getClientDetail", "searchProjects", "searchTasks", "searchInvoices"];
 
@@ -440,8 +457,259 @@ ok = report(
   consoleCalls.join("\n"),
 ) && ok;
 
-// 13. No AI route or UI exists yet — Batch 1A is foundation-only.
-ok = report("no src/app/api/ai directory exists yet", !existsSync("src/app/api/ai"), "") && ok;
+// 13. No AI UI exists yet — this batch adds orchestration/API only,
+// never a component.
 ok = report("no src/components/ai directory exists yet", !existsSync("src/components/ai"), "") && ok;
+
+// 14. Exactly one route.ts exists anywhere under src/app/api/ai, at
+// exactly the one approved path. Recursive walk (not a flat grep) since
+// Next.js's own App Router file convention allows route.ts at any depth.
+function findRouteFiles(dir) {
+  if (!existsSync(dir)) return [];
+  const found = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) found.push(...findRouteFiles(full));
+    else if (entry.name === "route.ts") found.push(full);
+  }
+  return found;
+}
+const routeFilesUnderApiAi = findRouteFiles(API_AI_DIR);
+ok = report(
+  "exactly one route.ts exists under src/app/api/ai, at exactly the approved /api/ai/assistant path",
+  routeFilesUnderApiAi.length === 1 && routeFilesUnderApiAi[0] === APPROVED_ROUTE_FILE,
+  routeFilesUnderApiAi.join("\n"),
+) && ok;
+
+const routeContent = readIfExists(APPROVED_ROUTE_FILE);
+const routeStripped = stripComments(routeContent);
+
+// 15. POST only — no GET/PUT/PATCH/DELETE/HEAD/OPTIONS export anywhere in
+// the route.
+const exportsPost = /export\s+async\s+function\s+POST\s*\(/.test(routeStripped);
+const exportsOtherVerbs = /export\s+(async\s+)?function\s+(GET|PUT|PATCH|DELETE|HEAD|OPTIONS)\s*\(/.test(routeStripped);
+ok = report(
+  "the approved AI route exports POST only (no GET/PUT/PATCH/DELETE/HEAD/OPTIONS)",
+  exportsPost && !exportsOtherVerbs,
+  "",
+) && ok;
+
+// 16. The route calls the canonical auth boundary.
+ok = report(
+  "the approved AI route calls getAiAssistantRequestContext()",
+  /getAiAssistantRequestContext\s*\(/.test(routeStripped),
+  "",
+) && ok;
+
+// 17. organizationId reaching orchestration always comes from the auth
+// context, never from the parsed request body — the request body's own
+// variable names (validated/rawBody/body) must never be combined with
+// ".organizationId" anywhere in the route.
+const routeBodyOrgIdPattern = /(validated|rawBody|body)\.organizationId/;
+ok = report(
+  "the approved AI route's organizationId always comes from context.organizationId, never the request body",
+  !routeBodyOrgIdPattern.test(routeStripped),
+  "",
+) && ok;
+
+// 18. request-schema.ts's own allowed key set is exactly ["message"], and
+// it never even mentions organizationId/userId/history/provider/
+// mockScenario anywhere in its own source (comment-stripped) — a
+// stronger guarantee than "not in the allowed-keys array," since it also
+// catches a forbidden key sneaking in through a differently-named
+// constant.
+const requestSchemaContent = stripComments(readIfExists(REQUEST_SCHEMA_FILE));
+const FORBIDDEN_REQUEST_SCHEMA_KEYS = ["organizationId", "userId", "history", "provider", "mockScenario"];
+const forbiddenSchemaKeyHits = FORBIDDEN_REQUEST_SCHEMA_KEYS.filter((key) => new RegExp(`\\b${key}\\b`).test(requestSchemaContent));
+ok = report(
+  "request-schema.ts never mentions organizationId/userId/history/provider/mockScenario anywhere in its own source",
+  forbiddenSchemaKeyHits.length === 0,
+  forbiddenSchemaKeyHits.join(", "),
+) && ok;
+const allowedKeysMatch = requestSchemaContent.match(/ALLOWED_KEYS\s*=\s*\[([^\]]*)\]/);
+ok = report(
+  'request-schema.ts\'s own ALLOWED_KEYS is exactly ["message"]',
+  !!allowedKeysMatch && allowedKeysMatch[1].replace(/\s/g, "") === '"message"',
+  allowedKeysMatch ? allowedKeysMatch[1] : "not found",
+) && ok;
+
+// 19. Tool dispatch uses only the closed registry's own getAiToolByName()
+// — never a bespoke lookup.
+const orchestrateContent = stripComments(readIfExists(ORCHESTRATE_FILE));
+ok = report(
+  "orchestrate.ts dispatches tools only via the closed registry's getAiToolByName()",
+  /getAiToolByName\s*\(/.test(orchestrateContent),
+  "",
+) && ok;
+
+// 20. No dynamic import()/eval()/new Function() anywhere in the new
+// orchestration/route files — tool dispatch and every other code path
+// here must be fully static.
+const dynamicExecPattern = "\\b(eval|new Function)\\(|\\bimport\\(";
+const dynamicExecHits = [grep(dynamicExecPattern, AI_DIR), grep(dynamicExecPattern, API_AI_DIR)].filter(Boolean).join("\n");
+ok = report(
+  "no eval/new Function/dynamic import() anywhere under src/lib/ai or src/app/api/ai",
+  dynamicExecHits === "",
+  dynamicExecHits,
+) && ok;
+
+// 21. orchestration-limits.ts declares every required fixed numeric
+// ceiling constant, and never reads process.env — nothing here is
+// client/model-controlled.
+const orchestrationLimitsContent = stripComments(readIfExists(ORCHESTRATION_LIMITS_FILE));
+const REQUIRED_LIMIT_CONSTANTS = [
+  "MAX_USER_MESSAGE_CHARS",
+  "MAX_OUTPUT_TOKENS",
+  "MAX_TOOL_CALLS_PER_TURN",
+  "MAX_PROVIDER_CALLS_PER_TURN",
+  "PROVIDER_CALL_TIMEOUT_MS",
+  "ORCHESTRATION_DEADLINE_MS",
+  "MAX_TOOL_RESULT_SERIALIZED_CHARS",
+];
+const missingLimitConstants = REQUIRED_LIMIT_CONSTANTS.filter(
+  (name) => !new RegExp(`export const ${name}\\s*=\\s*[\\d_]`).test(orchestrationLimitsContent),
+);
+ok = report(
+  "orchestration-limits.ts declares every required fixed numeric ceiling constant",
+  missingLimitConstants.length === 0,
+  missingLimitConstants.join(", "),
+) && ok;
+ok = report("orchestration-limits.ts never reads process.env", !/process\.env/.test(orchestrationLimitsContent), "") && ok;
+
+// 22. orchestrate.ts's own loop-limit comparisons are fixed constants,
+// never derived from request/model-controlled input.
+const modelControlledLoopPattern = /(toolCallCount|providerCallCount)\s*[<>]=?\s*(validated|input|rawInput|call\.args|response\.)/;
+ok = report(
+  "orchestrate.ts's own tool/provider-call ceiling comparisons are never derived from request/model input",
+  !modelControlledLoopPattern.test(orchestrateContent),
+  "",
+) && ok;
+
+// 23. The same import-boundary/mutation/vendor-SDK/logging concerns every
+// existing src/lib/ai-scoped rule above already enforces, re-applied to
+// the one new file this batch adds OUTSIDE src/lib/ai (route.ts) — none
+// of the AI_DIR-scoped greps above ever see it.
+const vendorSdkInRoute = grep(vendorSdkPattern, API_AI_DIR);
+ok = report("no vendor AI SDK import in the AI route", vendorSdkInRoute === "", vendorSdkInRoute) && ok;
+
+const mutationMethodInRoute = grep(mutationMethodPattern, API_AI_DIR);
+ok = report("no mutation-capable Prisma method anywhere under src/app/api/ai", mutationMethodInRoute === "", mutationMethodInRoute) && ok;
+
+const useServerInRoute = grep('"use server"', API_AI_DIR);
+const actionsImportInRoute = grep('from ".*actions"', API_AI_DIR, "-E");
+ok = report('no "use server" directive in the AI route', useServerInRoute === "", useServerInRoute) && ok;
+ok = report("no actions.ts import in the AI route", actionsImportInRoute === "", actionsImportInRoute) && ok;
+
+const portalImportInRoute = grep('from "@/lib/current-portal-user"', API_AI_DIR);
+ok = report("no Client Portal import in the AI route", portalImportInRoute === "", portalImportInRoute) && ok;
+
+const platformAdminImportInRoute = grep('from "@/lib/platform-admin/', API_AI_DIR);
+ok = report("no Platform Admin import anywhere under src/app/api/ai", platformAdminImportInRoute === "", platformAdminImportInRoute) && ok;
+
+const consoleInRoute = grep("console\\.(log|error|warn|info|debug)\\(", API_AI_DIR);
+ok = report("no console logging in the AI route", consoleInRoute === "", consoleInRoute) && ok;
+
+const rawQueryInRoute = grep(rawQueryPattern, API_AI_DIR);
+ok = report("no raw Prisma query capability in the AI route", rawQueryInRoute === "", rawQueryInRoute) && ok;
+
+// 24. The one allowed logAiAssistantEvent() call site (inside
+// orchestrate.ts) never references the user's message, the final answer,
+// tool args, tool results, or the raw messages array — defense in depth
+// alongside logging-policy.ts's own hardened runtime validator (which
+// already throws on any unexpected key/shape at runtime; this is the
+// static-source-level backstop).
+const logCallBlocks = extractBalancedBlocks(orchestrateContent, "logAiAssistantEvent\\(\\{");
+const forbiddenLogContentPattern = /\buserMessage\b|\banswer\b|\btoolArgs\b|\btoolResult\b|\bmessages\b/;
+const hasForbiddenLogContent = logCallBlocks.some((block) => forbiddenLogContentPattern.test(block));
+ok = report(
+  "orchestrate.ts's own logAiAssistantEvent() call never references userMessage/answer/toolArgs/toolResult/messages",
+  logCallBlocks.length > 0 && !hasForbiddenLogContent,
+  "",
+) && ok;
+
+// 25. The approved AI route always sets Cache-Control: private, no-store.
+ok = report(
+  "the approved AI route sets Cache-Control: private, no-store",
+  /private,\s*no-store/.test(routeContent),
+  "",
+) && ok;
+
+// 26. No provider-vendor env var/config is read anywhere in the new
+// orchestration/route/provider-factory files — there is no real provider
+// branch in this batch at all.
+const providerFactoryContent = stripComments(readIfExists(PROVIDER_FACTORY_FILE));
+const unconfiguredProviderContent = stripComments(readIfExists(UNCONFIGURED_PROVIDER_FILE));
+ok = report("orchestrate.ts never reads process.env", !/process\.env/.test(orchestrateContent), "") && ok;
+ok = report("the approved AI route never reads process.env directly", !/process\.env/.test(routeStripped), "") && ok;
+ok = report(
+  "provider-factory.ts never reads process.env directly (uses the shared TEST_MODE constant only)",
+  !/process\.env/.test(providerFactoryContent),
+  "",
+) && ok;
+ok = report(
+  "unconfigured-provider.ts makes no network call and reads no env var",
+  !/fetch\(|http\.request|https\.request|process\.env/.test(unconfiguredProviderContent),
+  "",
+) && ok;
+
+// 27. Production fail-closed, CRITICAL: provider-factory.ts only ever
+// returns MockAiProvider when the shared TEST_MODE constant is true — no
+// other condition, and no real-provider branch exists in this batch.
+const importsTestMode = /import\s*\{[^}]*\bTEST_MODE\b[^}]*\}\s*from\s*"@\/lib\/test-mode"/.test(providerFactoryContent);
+const gatesMockOnTestMode = /if\s*\(\s*TEST_MODE\s*\)[\s\S]{0,120}MockAiProvider/.test(providerFactoryContent);
+ok = report(
+  "provider-factory.ts only ever returns MockAiProvider when the shared TEST_MODE constant is true",
+  importsTestMode && gatesMockOnTestMode,
+  "",
+) && ok;
+
+// 28. The route itself checks provider availability before doing
+// anything else — isAiAssistantAvailable() is actually CALLED (not
+// merely imported — an import-only match would find the import
+// statement itself, which is always near the top of the file regardless
+// of call order) before getAiAssistantRequestContext() is actually
+// called.
+const availabilityCallIndex = routeStripped.indexOf("isAiAssistantAvailable()");
+const authCallIndex = routeStripped.indexOf("getAiAssistantRequestContext()");
+ok = report(
+  "the approved AI route checks provider availability (isAiAssistantAvailable) before calling auth",
+  availabilityCallIndex !== -1 && authCallIndex !== -1 && availabilityCallIndex < authCallIndex,
+  "",
+) && ok;
+
+// 29. No schema persistence: none of the new orchestration/route files
+// import Prisma directly — nothing here writes or reads a conversation
+// row (no such model exists, and none may be added in this batch).
+const NEW_FILES_NO_PRISMA = [
+  ORCHESTRATE_FILE,
+  REQUEST_SCHEMA_FILE,
+  ORCHESTRATION_LIMITS_FILE,
+  SYSTEM_PROMPT_FILE,
+  PROVIDER_FACTORY_FILE,
+  UNCONFIGURED_PROVIDER_FILE,
+  APPROVED_ROUTE_FILE,
+];
+const prismaImportHits = NEW_FILES_NO_PRISMA.filter(existsSync).filter((file) =>
+  /from\s*"@\/lib\/prisma"|from\s*"@\/generated\/prisma/.test(stripComments(readIfExists(file))),
+);
+ok = report(
+  "none of the new orchestration/route files import Prisma directly (no conversation persistence in this batch)",
+  prismaImportHits.length === 0,
+  prismaImportHits.join("\n"),
+) && ok;
+
+// 30. Rate limit: the new AI_ASSISTANT_LIMIT scope exists and is applied
+// in the route before orchestration.
+const rateLimitLimitsContent = readIfExists("src/lib/rate-limit/limits.ts");
+ok = report(
+  'src/lib/rate-limit/limits.ts declares AI_ASSISTANT_LIMIT with scope "ai-assistant"',
+  /export const AI_ASSISTANT_LIMIT[\s\S]{0,120}scope:\s*"ai-assistant"/.test(rateLimitLimitsContent),
+  "",
+) && ok;
+ok = report(
+  "the approved AI route calls checkRateLimit(AI_ASSISTANT_LIMIT, ...)",
+  /checkRateLimit\s*\(\s*AI_ASSISTANT_LIMIT/.test(routeStripped),
+  "",
+) && ok;
 
 process.exit(ok ? 0 : 1);
