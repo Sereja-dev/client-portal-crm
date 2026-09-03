@@ -1,0 +1,156 @@
+{
+  "$schemaNote": "Aqenra AI provider benchmark — tool-contract snapshot. Extracted from src/lib/ai/tools/registry.ts's own getRegisteredAiTools(). Contains ONLY name/description/inputSchema per tool — no execute implementation, no database metadata, no organizationId, no fixture data, no secrets. Regenerate with: npx tsx scripts/ai-provider-eval/extract-fixtures.ts (from the repo root). sourceFingerprint is the hard official-run freshness gate (content-addressed, not commit-addressed — see snapshot-freshness.ts); extractedFromGitSha below is informational reproducibility metadata only, never the gate.",
+  "extractedFromGitSha": "1becc75e03484ef9affa0d0e52ccfdfd77086389",
+  "fingerprintAlgorithm": "sha256-v1",
+  "sourceFingerprint": "cc74d26f4f3b8b9936883c4bc112ffb0c2197914deba260f9aaf5d0d87a7c439",
+  "tools": [
+    {
+      "description": "Returns structured detail for one client, given a ref from searchClients: name, company, status, created date, and project/invoice counts.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "description": "An opaque record reference returned by searchClients.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ref"
+        ],
+        "type": "object"
+      },
+      "name": "getClientDetail"
+    },
+    {
+      "description": "Returns a summary of the current organization's business state: client/project/task/invoice counts and status breakdowns, recent invoices, and upcoming/overdue tasks. Takes no arguments.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "Takes no arguments.",
+        "properties": {},
+        "type": "object"
+      },
+      "name": "getOrganizationSummary"
+    },
+    {
+      "description": "Searches the current organization's clients by name/company and optional status. Returns up to 10 matches, most recently created first.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "description": "Optional text to match against client name/company.",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "status": {
+            "description": "Optional client status filter.",
+            "enum": [
+              "LEAD",
+              "ACTIVE",
+              "INACTIVE",
+              "ARCHIVED"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "searchClients"
+    },
+    {
+      "description": "Searches the current organization's invoices by invoice number/project/client name and optional status. Returns up to 10 matches, soonest due date first (invoices with no due date last). Never includes notes, internal notes, line items, or any payment/provider details.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "description": "Optional text to match against invoice number, project name, or client name.",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "status": {
+            "description": "Optional invoice status filter.",
+            "enum": [
+              "DRAFT",
+              "SENT",
+              "PAID",
+              "OVERDUE",
+              "CANCELLED"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "searchInvoices"
+    },
+    {
+      "description": "Searches the current organization's projects by name/client name, optional status, and optional client reference. Returns up to 10 matches, most recently created first.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "clientRef": {
+            "description": "Optional client reference (from searchClients) to filter by.",
+            "type": "string"
+          },
+          "query": {
+            "description": "Optional text to match against project or client name.",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "status": {
+            "description": "Optional project status filter.",
+            "enum": [
+              "PLANNING",
+              "IN_PROGRESS",
+              "ON_HOLD",
+              "COMPLETED",
+              "CANCELLED"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "searchProjects"
+    },
+    {
+      "description": "Searches the current organization's tasks by title/project name, optional status, priority, and due-before date. Returns up to 15 matches, soonest due date first (tasks with no due date last).",
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "dueBefore": {
+            "description": "Optional ISO date; only tasks due on or before this date are returned.",
+            "format": "date-time",
+            "type": "string"
+          },
+          "priority": {
+            "description": "Optional task priority filter.",
+            "enum": [
+              "LOW",
+              "MEDIUM",
+              "HIGH",
+              "URGENT"
+            ],
+            "type": "string"
+          },
+          "query": {
+            "description": "Optional text to match against task title or project name.",
+            "maxLength": 100,
+            "type": "string"
+          },
+          "status": {
+            "description": "Optional task status filter.",
+            "enum": [
+              "TODO",
+              "IN_PROGRESS",
+              "IN_REVIEW",
+              "DONE"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "name": "searchTasks"
+    }
+  ]
+}

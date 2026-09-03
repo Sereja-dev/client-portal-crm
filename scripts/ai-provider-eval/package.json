@@ -1,0 +1,26 @@
+{
+  "name": "aqenra-ai-provider-eval",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Isolated, manual-only Anthropic-vs-OpenAI provider/model benchmark harness for Aqenra. Never installed, built, or run by the main app or its default CI — see README.md.",
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "extract": "node -e \"console.error('extract-fixtures.ts must be run from the REPO ROOT (not from inside scripts/ai-provider-eval), so it can resolve the main app\\'s @/* aliases and Prisma client:\\n\\n  npx tsx scripts/ai-provider-eval/extract-fixtures.ts\\n\\nSee README.md — Snapshot refresh procedure.'); process.exit(1)\"",
+    "test": "tsx --test \"test/**/*.test.ts\"",
+    "dry-run": "tsx index.ts --dry-run",
+    "validate": "tsx index.ts --validate",
+    "eval": "tsx index.ts",
+    "report": "tsx index.ts --report",
+    "run": "tsx index.ts --run"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.123.0",
+    "openai": "^7.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "^5",
+    "tsx": "^4"
+  }
+}
