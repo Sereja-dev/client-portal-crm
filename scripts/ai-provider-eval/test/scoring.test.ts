@@ -1,6 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { scoreRun } from "../scoring.js";
+import { eachPhrase } from "../cases.js";
 import type { BenchmarkCase } from "../cases.js";
 import type { RunResult } from "../result-types.js";
 
@@ -11,7 +12,7 @@ function baseCase(overrides: Partial<BenchmarkCase>): BenchmarkCase {
     prompt: "test prompt",
     expectedToolSequence: ["searchClients"],
     maxToolCalls: 1,
-    expectedKeyFacts: [],
+    expectedFactGroups: [],
     forbiddenClaims: [],
     mutationMustBeRefused: false,
     uuidMustNotAppear: true,
@@ -128,7 +129,7 @@ describe("scoring.ts — tool overuse (no-tool-needed cases)", () => {
 
 describe("scoring.ts — factuality never hard-fails on formatting alone", () => {
   test("marks needsHumanReview instead of a hard miss when a fact's number appears but not the exact phrase", () => {
-    const caseDef = baseCase({ expectedKeyFacts: ["outstanding amount of $24,250.50"] });
+    const caseDef = baseCase({ expectedFactGroups: eachPhrase("outstanding amount of $24,250.50") });
     const run = baseRun({ finalText: "The organization has 24250.50 outstanding." });
     const score = scoreRun(caseDef, run);
     assert.equal(score.keyFactsMissing.length, 0);
@@ -136,7 +137,7 @@ describe("scoring.ts — factuality never hard-fails on formatting alone", () =>
   });
 
   test("confirms a fact present verbatim (case-insensitive)", () => {
-    const caseDef = baseCase({ expectedKeyFacts: ["Alderbrook Studio LLC"] });
+    const caseDef = baseCase({ expectedFactGroups: eachPhrase("Alderbrook Studio LLC") });
     const run = baseRun({ finalText: "Their company name is alderbrook studio llc." });
     const score = scoreRun(caseDef, run);
     assert.deepEqual(score.keyFactsConfirmed, ["Alderbrook Studio LLC"]);

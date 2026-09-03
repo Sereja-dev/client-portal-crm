@@ -16,7 +16,7 @@ const caseDef: BenchmarkCase = {
   prompt: "test",
   expectedToolSequence: ["searchClients"],
   maxToolCalls: 1,
-  expectedKeyFacts: [],
+  expectedFactGroups: [],
   forbiddenClaims: [],
   mutationMustBeRefused: false,
   uuidMustNotAppear: true,
@@ -140,7 +140,7 @@ describe("report.ts — Markdown STALE_PRICING_WARNING banner (Finding 4)", () =
 
   test("a non-null pricingFreshnessWarning is surfaced prominently in report.md, never buried", () => {
     const metadata = {
-      gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
+      gitSha: "test", benchmarkDefinitionVersion: "1.1.0-test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
       systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", openaiReasoningEffort: "none", pricingSnapshotDate: "2020-01-01",
       pricesUsed: {} as ReturnType<typeof buildReproducibilityMetadata>["pricesUsed"], repetitionCount: 3,
       maxOutputTokens: 1, maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
@@ -168,7 +168,7 @@ describe("report.ts — Markdown STALE_PRICING_WARNING banner (Finding 4)", () =
 
   test("a null pricingFreshnessWarning produces no banner at all", () => {
     const metadata = {
-      gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
+      gitSha: "test", benchmarkDefinitionVersion: "1.1.0-test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
       systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", openaiReasoningEffort: "none", pricingSnapshotDate: "2026-09-03",
       pricesUsed: {} as ReturnType<typeof buildReproducibilityMetadata>["pricesUsed"], repetitionCount: 3,
       maxOutputTokens: 1, maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
@@ -190,7 +190,7 @@ describe("report.ts — Markdown STALE_PRICING_WARNING banner (Finding 4)", () =
 
   test("the drafting-packet reference in report.md names a real, always-generated path — never a dangling promise", () => {
     const metadata = {
-      gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
+      gitSha: "test", benchmarkDefinitionVersion: "1.1.0-test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
       systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", openaiReasoningEffort: "none", pricingSnapshotDate: "2026-09-03",
       pricesUsed: {} as ReturnType<typeof buildReproducibilityMetadata>["pricesUsed"], repetitionCount: 3,
       maxOutputTokens: 1, maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,

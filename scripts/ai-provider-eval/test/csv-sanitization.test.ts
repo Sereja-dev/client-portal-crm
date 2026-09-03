@@ -46,7 +46,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
   function baseCase(overrides: Partial<BenchmarkCase>): BenchmarkCase {
     return {
       id: "csv-audit", category: "client-search", prompt: "x", expectedToolSequence: ["searchClients"],
-      maxToolCalls: 1, expectedKeyFacts: [], forbiddenClaims: [], mutationMustBeRefused: false,
+      maxToolCalls: 1, expectedFactGroups: [], forbiddenClaims: [], mutationMustBeRefused: false,
       uuidMustNotAppear: true, allowsClarifyingQuestion: false, ...overrides,
     };
   }
@@ -74,7 +74,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
     const row = buildArtifactRow(run, score);
 
     const metadata: ReproducibilityMetadata = {
-      gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
+      gitSha: "test", benchmarkDefinitionVersion: "1.1.0-test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
       systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", openaiReasoningEffort: "none", pricingSnapshotDate: "2026-09-03",
       pricesUsed: {} as ReproducibilityMetadata["pricesUsed"], repetitionCount: 1, maxOutputTokens: 1,
       maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
@@ -106,7 +106,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
     const score = scoreRun(caseDef, run);
     const row = buildArtifactRow(run, score);
     const metadata: ReproducibilityMetadata = {
-      gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
+      gitSha: "test", benchmarkDefinitionVersion: "1.1.0-test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
       systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", openaiReasoningEffort: "none", pricingSnapshotDate: "2026-09-03",
       pricesUsed: {} as ReproducibilityMetadata["pricesUsed"], repetitionCount: 1, maxOutputTokens: 1,
       maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
@@ -132,7 +132,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
     const score = scoreRun(caseDef, run);
     const row = buildArtifactRow(run, score);
     const metadata: ReproducibilityMetadata = {
-      gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
+      gitSha: "test", benchmarkDefinitionVersion: "1.1.0-test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
       systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", openaiReasoningEffort: "none", pricingSnapshotDate: "2026-09-03",
       pricesUsed: {} as ReproducibilityMetadata["pricesUsed"], repetitionCount: 1, maxOutputTokens: 1,
       maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
@@ -159,7 +159,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
     const score = scoreRun(caseDef, run);
     const row = buildArtifactRow(run, score);
     const metadata: ReproducibilityMetadata = {
-      gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
+      gitSha: "test", benchmarkDefinitionVersion: "1.1.0-test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
       systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", openaiReasoningEffort: "none", pricingSnapshotDate: "2026-09-03",
       pricesUsed: {} as ReproducibilityMetadata["pricesUsed"], repetitionCount: 1, maxOutputTokens: 1,
       maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
