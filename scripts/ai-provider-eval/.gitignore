@@ -1,0 +1,21 @@
+# Isolated eval package — nested ignore so its own artifacts can never be
+# committed, without touching the root .gitignore (which only anchors
+# `/node_modules` at the repo root, not nested ones — see this package's
+# own README for why this file exists as a separate, narrowly-scoped
+# mechanism rather than a broader root-level change).
+
+# Dependencies (own lockfile is committed; the installed tree is not).
+node_modules/
+
+# Local secrets — this package is never allowed to read a committed .env
+# file (see README's own "Secret handling" section); this entry exists as
+# defense-in-depth only, since no code path here ever writes one.
+.env
+.env.*
+
+# Live benchmark outputs, human-scoring packets, and raw vendor
+# diagnostics — synthetic-fixture-derived but still local-only by design
+# (see README's own "Report artifacts" section). Fixtures and case
+# definitions themselves are NOT covered by this pattern — they live
+# under fixtures/ and cases.ts, both committed intentionally.
+/results/
