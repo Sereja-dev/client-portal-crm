@@ -1,9 +1,12 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { buildArtifactRow } from "../report.js";
+import { readFileSync, rmSync } from "node:fs";
+import { join } from "node:path";
+import { buildArtifactRow, buildReproducibilityMetadata, writeReport, RESULTS_DIR } from "../report.js";
 import { scoreRun } from "../scoring.js";
 import type { BenchmarkCase } from "../cases.js";
 import type { RunResult } from "../result-types.js";
+import type { ProviderAggregate } from "../decision.js";
 
 const caseDef: BenchmarkCase = {
   id: "test-case",
@@ -68,6 +71,98 @@ describe("report.ts — artifact row shape (§29)", () => {
       "needsHumanReview",
     ]) {
       assert.ok(field in row, `missing field: ${field}`);
+    }
+  });
+});
+
+describe("report.ts — buildReproducibilityMetadata includes a live pricing-freshness read", () => {
+  test("pricingFreshnessWarning is present as a field (null today, since the committed pricing snapshot is current)", () => {
+    const metadata = buildReproducibilityMetadata({ repetitionCount: 3, officialRun: true });
+    assert.ok("pricingFreshnessWarning" in metadata);
+    // Not asserting null vs non-null here — asserting the field exists
+    // and is wired to the real getPricingFreshnessWarning() (see
+    // test/pricing-freshness.test.ts for that function's own behavior
+    // in isolation); this test's job is only to prove report.ts
+    // actually calls it, not to re-test its threshold logic.
+  });
+});
+
+describe("report.ts — Markdown STALE_PRICING_WARNING banner (Finding 4)", () => {
+  function perfectAgg(provider: "anthropic" | "openai"): ProviderAggregate {
+    return {
+      provider, totalRuns: 1, validArgumentPct: 100, factualCorrectnessPct: 100, mutationCompliancePct: 100,
+      uuidNoLeakPct: 100, unknownToolExecutionCount: 0, injectionViolationCount: 0, protocolViolationCount: 0,
+      medianLatencyMs: 1, p90LatencyMs: 1, totalCostUsd: 0, toolCorrectnessScore: 100,
+    };
+  }
+
+  test("a non-null pricingFreshnessWarning is surfaced prominently in report.md, never buried", () => {
+    const metadata = {
+      gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
+      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", pricingSnapshotDate: "2020-01-01",
+      pricesUsed: {} as ReturnType<typeof buildReproducibilityMetadata>["pricesUsed"], repetitionCount: 3,
+      maxOutputTokens: 1, maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
+      samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)" as const,
+      anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true,
+      pricingFreshnessWarning: "Pricing/model metadata is 9999 days old and must be manually reverified.",
+    };
+    const written = writeReport({
+      rows: [], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
+      outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
+    });
+    try {
+      const md = readFileSync(written.markdownPath, "utf8");
+      assert.match(md, /STALE_PRICING_WARNING/);
+      assert.match(md, /9999 days old/);
+      // Prominent means near the top, not only inside the buried JSON reproducibility dump at the bottom.
+      const bannerIndex = md.indexOf("STALE_PRICING_WARNING");
+      const jsonDumpIndex = md.indexOf("```json");
+      assert.ok(bannerIndex < jsonDumpIndex, "banner must appear before the buried JSON metadata dump");
+    } finally {
+      rmSync(join(RESULTS_DIR), { recursive: true, force: true });
+    }
+  });
+
+  test("a null pricingFreshnessWarning produces no banner at all", () => {
+    const metadata = {
+      gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
+      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", pricingSnapshotDate: "2026-09-03",
+      pricesUsed: {} as ReturnType<typeof buildReproducibilityMetadata>["pricesUsed"], repetitionCount: 3,
+      maxOutputTokens: 1, maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
+      samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)" as const,
+      anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
+    };
+    const written = writeReport({
+      rows: [], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
+      outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
+    });
+    try {
+      const md = readFileSync(written.markdownPath, "utf8");
+      assert.equal(md.includes("STALE_PRICING_WARNING"), false);
+    } finally {
+      rmSync(join(RESULTS_DIR), { recursive: true, force: true });
+    }
+  });
+
+  test("the drafting-packet reference in report.md names a real, always-generated path — never a dangling promise", () => {
+    const metadata = {
+      gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
+      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", pricingSnapshotDate: "2026-09-03",
+      pricesUsed: {} as ReturnType<typeof buildReproducibilityMetadata>["pricesUsed"], repetitionCount: 3,
+      maxOutputTokens: 1, maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
+      samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)" as const,
+      anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
+    };
+    const written = writeReport({
+      rows: [], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
+      outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
+    });
+    try {
+      const md = readFileSync(written.markdownPath, "utf8");
+      assert.match(md, /results\/drafting-blind-packet\.json/);
+      assert.match(md, /generated automatically/);
+    } finally {
+      rmSync(join(RESULTS_DIR), { recursive: true, force: true });
     }
   });
 });

@@ -37,12 +37,20 @@
  * See test/source-isolation.test.ts for the mechanical proof of the
  * runtime-file half of this boundary, and this file's own doc comment
  * above for why it, alone, is the documented exception.
+ *
+ * Writes a `sourceFingerprint` into the snapshot — a content hash over
+ * the fixed set of source files that determine the extracted contracts
+ * (see snapshot-freshness.ts). This is the value an official `--run`
+ * checks before doing anything else; it is NOT a git commit SHA (see
+ * snapshot-freshness.ts's own header comment for why a commit-SHA gate
+ * is unsatisfiable once this file is committed).
  */
 
 import { writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { getRegisteredAiTools } from "../../src/lib/ai/tools/registry";
+import { computeSourceFingerprint } from "./snapshot-freshness.js";
 
 const OUTPUT_PATH = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "tool-contracts.snapshot.json");
 
@@ -95,10 +103,33 @@ function main(): void {
     process.exit(1);
   }
 
+  // The hard official-run freshness gate (see snapshot-freshness.ts's own
+  // header comment for why this is a CONTENT fingerprint, not a git
+  // commit SHA — a commit-SHA gate is unsatisfiable the instant this
+  // refreshed snapshot is itself committed, since a commit cannot record
+  // its own future hash). Computed here by reading the exact same fixed
+  // source-file set snapshot-freshness.ts's own checkSnapshotFreshness()
+  // re-reads at benchmark-run time — never imported/executed, so this is
+  // safe to compute in a normal (non-extractor) context too, but is
+  // written here for convenience since the extractor already has to run
+  // from the repo root anyway.
+  const fingerprintResult = computeSourceFingerprint();
+  if (!fingerprintResult.ok) {
+    console.error(`extract-fixtures.ts: could not compute the source fingerprint — missing file: ${fingerprintResult.missingPath}`);
+    process.exit(1);
+  }
+
+  // Top-level keys deliberately declared in alphabetical order (matching
+  // sortKeysDeep()'s own discipline applied to the `tools` array below)
+  // — see test/snapshot.test.ts's own "byte-matches sorted keys" test,
+  // which proves the committed file is itself deterministically sorted
+  // end to end, not just within each tool contract.
   const snapshot = {
     $schemaNote:
-      "Aqenra AI provider benchmark — tool-contract snapshot. Extracted from src/lib/ai/tools/registry.ts's own getRegisteredAiTools(). Contains ONLY name/description/inputSchema per tool — no execute implementation, no database metadata, no organizationId, no fixture data, no secrets. Regenerate with: npx tsx scripts/ai-provider-eval/extract-fixtures.ts (from the repo root).",
+      "Aqenra AI provider benchmark — tool-contract snapshot. Extracted from src/lib/ai/tools/registry.ts's own getRegisteredAiTools(). Contains ONLY name/description/inputSchema per tool — no execute implementation, no database metadata, no organizationId, no fixture data, no secrets. Regenerate with: npx tsx scripts/ai-provider-eval/extract-fixtures.ts (from the repo root). sourceFingerprint is the hard official-run freshness gate (content-addressed, not commit-addressed — see snapshot-freshness.ts); extractedFromGitSha below is informational reproducibility metadata only, never the gate.",
     extractedFromGitSha: process.env.AQENRA_EVAL_EXTRACT_GIT_SHA ?? "unrecorded — pass AQENRA_EVAL_EXTRACT_GIT_SHA=$(git rev-parse HEAD) to record it",
+    fingerprintAlgorithm: fingerprintResult.algorithm,
+    sourceFingerprint: fingerprintResult.fingerprint,
     tools: sortKeysDeep(contracts),
   };
 

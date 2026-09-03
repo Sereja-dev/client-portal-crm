@@ -18,12 +18,12 @@ import type { CaseScore } from "./scoring.js";
 import type { RunResult } from "./result-types.js";
 import type { ProviderAggregate, SelectionOutcome } from "./decision.js";
 import { redactPotentialSecrets } from "./secrets.js";
-import { PRICING, PRICING_SNAPSHOT_DATE } from "./pricing.js";
+import { PRICING, PRICING_SNAPSHOT_DATE, getPricingFreshnessWarning } from "./pricing.js";
 import { getAiAssistantSystemPrompt } from "../../src/lib/ai/system-prompt.js";
 import { MAX_OUTPUT_TOKENS, MAX_PROVIDER_CALLS_PER_TURN, MAX_TOOL_CALLS_PER_TURN } from "../../src/lib/ai/orchestration-limits.js";
 
 const PACKAGE_DIR = dirname(fileURLToPath(import.meta.url));
-const RESULTS_DIR = join(PACKAGE_DIR, "results");
+export const RESULTS_DIR = join(PACKAGE_DIR, "results");
 
 function sha256(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
@@ -64,6 +64,8 @@ export type ReproducibilityMetadata = {
   anthropicSdkVersion: string;
   openaiSdkVersion: string;
   officialRun: boolean;
+  /** Non-null only when PRICING_SNAPSHOT_DATE is older than pricing.ts's own PRICING_FRESHNESS_WARNING_THRESHOLD_DAYS — a WARNING only, never a refusal (see pricing.ts's own doc comment on why). Surfaced prominently in the Markdown report, never left buried in diagnostics-only output. */
+  pricingFreshnessWarning: string | null;
 };
 
 export function buildReproducibilityMetadata(input: { repetitionCount: number; officialRun: boolean }): ReproducibilityMetadata {
@@ -87,6 +89,7 @@ export function buildReproducibilityMetadata(input: { repetitionCount: number; o
     anthropicSdkVersion: readSdkVersion("@anthropic-ai/sdk"),
     openaiSdkVersion: readSdkVersion("openai"),
     officialRun: input.officialRun,
+    pricingFreshnessWarning: getPricingFreshnessWarning(),
   };
 }
 
@@ -136,8 +139,32 @@ export function buildArtifactRow(run: RunResult, score: CaseScore): ArtifactRow 
   };
 }
 
+/**
+ * Neutralizes the classic CSV/spreadsheet formula-injection vector: a
+ * cell whose content (after any leading whitespace) starts with
+ * `=`, `+`, `-`, or `@` is interpreted as a formula by Excel/Sheets/
+ * Numbers, not literal text. Applied unconditionally to every CSV cell
+ * (see csvEscape() below) — not just toolSequence — since the only
+ * cells that can ever actually start with one of these characters are
+ * ones ultimately influenced by a model's own free-form choice (a tool
+ * name it invents), and a leading apostrophe is a no-op for any cell
+ * that doesn't start with one of them (caseId, provider, model, and the
+ * closed-enum errorClass are all trusted/constrained strings that never
+ * do). Deliberately checks the TRIMMED value's first character (leading
+ * whitespace before a formula marker is still dangerous in real
+ * spreadsheet software) but prefixes the ORIGINAL, untrimmed string, so
+ * no content is silently dropped.
+ */
+export function sanitizeCsvCellForSpreadsheet(value: string): string {
+  const trimmed = value.replace(/^\s+/, "");
+  if (trimmed.length > 0 && /^[=+\-@]/.test(trimmed)) {
+    return `'${value}`;
+  }
+  return value;
+}
+
 function csvEscape(value: unknown): string {
-  const str = redactPotentialSecrets(String(value));
+  const str = sanitizeCsvCellForSpreadsheet(redactPotentialSecrets(String(value)));
   if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
   return str;
 }
@@ -199,8 +226,9 @@ function toMarkdown(input: {
 }): string {
   const { metadata, anthropic, openai, outcome, anthropicGateFailures, openaiGateFailures } = input;
   const officialBanner = metadata.officialRun ? "" : "\n> **NON_OFFICIAL_RUN** — repetition count or another parameter was overridden from the default; this report does not represent the official 3-repetition comparison. See README.md's own \"Three repetitions\" section.\n";
+  const pricingBanner = metadata.pricingFreshnessWarning ? `\n> **STALE_PRICING_WARNING** — ${metadata.pricingFreshnessWarning}\n` : "";
   return `# Aqenra AI Provider Benchmark Report
-${officialBanner}
+${officialBanner}${pricingBanner}
 Generated: ${metadata.benchmarkTimestamp}
 Git SHA: \`${metadata.gitSha}\`
 Pricing snapshot date: ${metadata.pricingSnapshotDate} — REVERIFY before trusting these cost figures on any later date.
@@ -243,7 +271,7 @@ Pricing snapshot date: ${metadata.pricingSnapshotDate} — REVERIFY before trust
 ${JSON.stringify(metadata, null, 2)}
 \`\`\`
 
-Drafting cases (human-scored, blind) are reported separately — see results/drafting-blind-packet.json and its own mapping key.
+Drafting cases (human-scored, blind) are written to \`results/drafting-blind-packet.json\` (vendor/model-free) alongside this report, generated automatically for every completed run. The real provider/model mapping lives separately in \`results/drafting-blind-mapping.json\` (gitignored, never linked from the scorer-visible packet).
 `;
 }
 

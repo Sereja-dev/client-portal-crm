@@ -98,6 +98,37 @@ variable a developer's shell happens to have set for something else). No
 Supabase URL, no Vercel URL, no Aqenra route, and no environment
 variable can override this — see `test/network-allowlist.test.ts`.
 
+## Official-run freshness gate
+
+**`--run` refuses to make any provider call — before checking for API
+keys, before any dynamic provider import, before any client
+construction — unless the committed tool-contract snapshot is fresh.**
+Freshness is checked by `snapshot-freshness.ts` and enforced by
+`index.ts`'s own `enforceSnapshotFreshnessOrExit()`, which runs first in
+`runLiveBenchmark()`. See `test/freshness-ordering.test.ts` for an
+end-to-end proof (a real subprocess spawn against a deliberately
+corrupted snapshot) that a stale snapshot is refused before the
+key-presence check is ever reached, and `test/snapshot-freshness.test.ts`
+for adversarial proof of the fingerprint's own sensitivity.
+
+**Freshness is a SOURCE CONTENT fingerprint, not a git commit SHA.** An
+earlier design compared the snapshot's own recorded git commit SHA
+against the current `git rev-parse HEAD`. That has a real circularity
+problem: committing the refreshed snapshot advances HEAD to a *new* SHA
+that the file being committed can never have recorded in advance (a
+commit cannot contain its own future hash) — so a commit-SHA gate fails
+immediately after every legitimate refresh-and-commit cycle, not only
+after real drift. `snapshot-freshness.ts` instead hashes the exact bytes
+of the fixed, small set of source files that determine what gets
+extracted (see `FRESHNESS_SOURCE_FILES` in that file — the registry, the
+five tool-implementation files, and the four `*_STATUSES`/`*_PRIORITIES`
+enum-source validation files). This fingerprint is content-addressed:
+it's unaffected by which commit HEAD happens to be on, so it stays valid
+across any number of unrelated commits — including the very commit that
+checks the refreshed snapshot in — and changes the instant a tracked
+file's bytes do. `extractedFromGitSha` is still recorded in the snapshot
+as informational reproducibility metadata, but it is **never** the gate.
+
 ## Snapshot refresh procedure
 
 The six tools' `name`/`description`/`inputSchema` live in
@@ -111,18 +142,46 @@ inside this directory, so it can resolve the main app's own `@/*` path
 alias and `node_modules`:
 
 ```bash
-# from the repo root:
-npx tsx scripts/ai-provider-eval/extract-fixtures.ts
+# A. from the repo root, obtain current HEAD (optional — only feeds the
+#    informational extractedFromGitSha metadata field, not the gate):
+git rev-parse HEAD
+
+# B. run the extractor from the repo root — it computes and writes the
+#    real sourceFingerprint automatically, every time, with no manual
+#    SHA bookkeeping required:
+AQENRA_EVAL_EXTRACT_GIT_SHA=$(git rev-parse HEAD) \
+  npx tsx scripts/ai-provider-eval/extract-fixtures.ts
+
+# C. verify the resulting diff — expect changes only if a tool's
+#    schema/description, or one of the enum-source files, actually
+#    changed:
+git diff scripts/ai-provider-eval/fixtures/tool-contracts.snapshot.json
+
+# D. validate freshness offline before trusting it:
+cd scripts/ai-provider-eval && npm run validate
+
+# then commit the refreshed snapshot if step C showed a real change (or
+# only the informational extractedFromGitSha/generatedAt-style fields
+# advancing is fine to commit too) — committing does NOT make the
+# snapshot stale again, because sourceFingerprint depends only on the
+# tracked source files' own bytes, never on git history or the snapshot
+# file's own content.
 ```
 
-Re-run this whenever a real tool's schema/description changes in the
-app. The script fails loudly if the registered tool set ever stops being
-exactly the approved six. Its own type-checking lives in a dedicated,
-root-context config (also run from the repo root):
+Re-run this whenever a real tool's schema/description, or one of
+`src/lib/validation/{client,project,task,invoice}.ts`'s own
+`*_STATUSES`/`*_PRIORITIES` arrays, changes in the app. The script fails
+loudly if the registered tool set ever stops being exactly the approved
+six. Its own type-checking lives in a dedicated, root-context config
+(also run from the repo root):
 
 ```bash
 npx tsc -p scripts/ai-provider-eval/tsconfig.extract.json --noEmit
 ```
+
+Only *after* the snapshot is refreshed and freshness passes locally
+(`npm run validate`, or simply attempting `--run` and confirming it gets
+past the freshness check) should you proceed to an actual live `--run`.
 
 ## Model IDs and pricing must be reverified before every run
 
@@ -137,6 +196,20 @@ live run's own cost figures, and update `pricing.ts` (with a new
 `PRICING_SNAPSHOT_DATE`) if anything changed. A stale price is not a
 crash — it's a silently wrong cost estimate, which is why every report
 artifact prints the snapshot date prominently rather than assuming it.
+
+**Automatic staleness warning, not a refusal.** `pricing.ts`'s own
+`getPricingFreshnessWarning()` compares `PRICING_SNAPSHOT_DATE` against
+the current date; once it's more than `PRICING_FRESHNESS_WARNING_THRESHOLD_DAYS`
+(30, documented in `pricing.ts`) old, every generated `report.md` shows a
+prominent `STALE_PRICING_WARNING` banner near the top of the file, and
+`results.json`'s own reproducibility metadata carries the same warning
+string. This is deliberately a **warning only** — the official run still
+refuses for exactly one reason (the tool-contract snapshot freshness gate
+above); a stale price produces a misleading cost *estimate*, not an
+unsafe run, so it doesn't get elevated to the same hard gate, and the
+frozen four-value `SelectionOutcome` enum (`decision.ts`) is unaffected
+by pricing staleness — there is no fifth `REQUIRES_PRICE_REVERIFY`
+outcome.
 
 ## Scoring rules frozen before live run
 
@@ -211,18 +284,62 @@ the real comparison.
 
 ## Report artifacts
 
-`npm run run` writes `results/results.json`, `results/results.csv`, and
-`results/report.md` — all gitignored (`.gitignore`'s own `/results/`
-entry; the committed `fixtures/` and `cases.ts` are unaffected). No API
-key, raw SDK request/response header, or real customer content is ever
-written there. Reproducibility metadata (git SHA, case/snapshot/system-prompt
-hashes, both model IDs, the pricing snapshot date and prices actually
-used, repetition count, ceilings, SDK versions) is recorded in every
-run's own JSON output — see `report.ts`'s own `buildReproducibilityMetadata()`.
+`npm run run` writes `results/results.json`, `results/results.csv`,
+`results/report.md`, `results/drafting-blind-packet.json`, and
+`results/drafting-blind-mapping.json` — all gitignored (`.gitignore`'s
+own `/results/` entry; the committed `fixtures/` and `cases.ts` are
+unaffected). No API key, raw SDK request/response header, or real
+customer content is ever written there. Reproducibility metadata (git
+SHA, case/snapshot/system-prompt hashes, both model IDs, the pricing
+snapshot date/prices/staleness warning actually used, repetition count,
+ceilings, SDK versions) is recorded in every run's own JSON output — see
+`report.ts`'s own `buildReproducibilityMetadata()`.
 
-Drafting cases are additionally scored by a **blind** human packet
-(vendor labels stripped, A/B order randomized with a recorded seed) —
-objective tool/policy/factuality metrics stay fully machine-scored.
+**CSV formula-injection safety.** `report.ts`'s own
+`sanitizeCsvCellForSpreadsheet()` prefixes any CSV cell whose (trimmed)
+content starts with `=`, `+`, `-`, or `@` with a leading apostrophe
+before the normal comma/quote/newline escaping runs — the classic
+spreadsheet formula-injection vector, applied to every cell (not just
+`toolSequence`) so a model-influenced value (a hallucinated or
+adversarially-provoked tool name) can never execute as a formula when
+`results.csv` is opened in Excel/Sheets/Numbers. JSON and Markdown
+output are untouched by this — only the CSV writer applies it. See
+`test/csv-sanitization.test.ts`.
+
+### Blind drafting packet
+
+Generated automatically after **every** completed official run (not only
+when the automated comparison actually lands on
+`TIE_ADDITIONAL_EVIDENCE_REQUIRED`), so the artifact always exists —
+`drafting-packet.ts`'s own `buildDraftingBlindArtifacts()` +
+`writeDraftingBlindArtifacts()`, called from `index.ts` right after
+`writeReport()`. It may simply go unused if the automated 5-dimension
+comparison already decided the outcome.
+
+- **`results/drafting-blind-packet.json`** — what the human scorer sees.
+  Covers **all three repetitions** for each of the 3 drafting cases (not
+  one cherry-picked sample), so a scorer sees the model's own run-to-run
+  variance. Contains only `blindId`/`caseId`/`category`/`repetition`/
+  `slot`/`prompt`/`finalText` — no provider, no model, no token/cost/
+  latency, no `errorClass`. A/B slot assignment is randomized per
+  (caseId, repetition) pair using a fixed, recorded seed
+  (`DRAFTING_BLIND_SEED` in `drafting-packet.ts`) — the same run data and
+  seed always reproduce the same packet byte-for-byte, and input order
+  never affects the result.
+- **`results/drafting-blind-mapping.json`** — the real `blindId` →
+  provider/model reversal. Local-only, gitignored, never referenced from
+  the scorer-visible packet. Keep it closed until scores are entered.
+
+**Known, accepted limitation:** this redacts every *structured* identity
+field. It cannot scrub semantic self-identification from a model's own
+free-text answer (e.g. if a response happened to say "As Claude, I...")
+— the drafting prompts in `cases.ts` give a model no reason to do this,
+but this is a content-level limitation inherent to any blind comparison
+of real model output, not something fixable mechanically.
+
+Objective tool/policy/factuality metrics stay fully machine-scored
+(`scoring.ts`); only drafting quality is ever human-scored, and only as
+the lexicographic tie-break of last resort.
 
 ## Directory layout
 
@@ -232,21 +349,23 @@ scripts/ai-provider-eval/
   tsconfig.extract.json    — root-context config for extract-fixtures.ts only
   .gitignore               — node_modules/, .env*, /results/
   extract-fixtures.ts      — the ONE file allowed to import the real registry
+  snapshot-freshness.ts    — content-fingerprint freshness gate (no commit-SHA circularity)
   fixtures/
     organization.ts        — the one synthetic organization
-    tool-contracts.snapshot.json — extracted tool name/description/inputSchema
+    tool-contracts.snapshot.json — extracted tool name/description/inputSchema + sourceFingerprint
   tool-runtime.ts           — fixture-backed executors for the exact six tools
   cases.ts                  — 36 golden cases, 12 categories × 3
   result-types.ts           — benchmark-local result/trace types
   loop.ts                   — benchmark-only minimal orchestration loop
   scoring.ts                 — deterministic per-run metrics
   decision.ts                — quality gate + lexicographic + tie rule (frozen)
-  pricing.ts                  — static pricing snapshot (reverify before each run)
+  pricing.ts                  — static pricing snapshot + staleness warning (reverify before each run)
+  drafting-packet.ts          — blind human drafting-packet + mapping generation
   secrets.ts / network-allowlist.ts — secret + host safety
   providers/
     anthropic.ts / openai.ts  — benchmark-only vendor adapters (never live by default)
     stub.ts                    — offline stub used by --dry-run/--validate
-  report.ts / index.ts         — report generation / CLI entry point
+  report.ts / index.ts         — report generation (incl. CSV formula-injection safety) / CLI entry point
   test/                          — Node built-in test runner suite
 ```
 

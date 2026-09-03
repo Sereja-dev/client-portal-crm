@@ -45,3 +45,33 @@ export function estimateAnthropicCostUsd(promptTokens: number, completionTokens:
 export function estimateOpenAiCostUsd(promptTokens: number, completionTokens: number): number {
   return (promptTokens / 1_000_000) * PRICING.openai.inputPerMillionUsd + (completionTokens / 1_000_000) * PRICING.openai.outputPerMillionUsd;
 }
+
+/**
+ * A pricing/model snapshot older than this is a WARNING, never a
+ * refusal — the official benchmark refuses to run for exactly one
+ * reason (a stale tool-contract snapshot; see snapshot-freshness.ts),
+ * and pricing staleness is deliberately not elevated to that same hard
+ * gate: stale prices produce a misleading cost *estimate*, not an unsafe
+ * or invalid run (the quality-gate/tie-rule/selection outcome itself
+ * does not depend on absolute cost accuracy in the way it depends on,
+ * say, mutation compliance). 30 days is a reasonable, documented
+ * default for "vendor pricing pages may plausibly have moved" — no
+ * existing repo convention dictated a different number.
+ */
+export const PRICING_FRESHNESS_WARNING_THRESHOLD_DAYS = 30;
+
+/**
+ * Returns a loud, human-readable warning string if PRICING_SNAPSHOT_DATE
+ * is older than the threshold, or `null` if it's still fresh. Never
+ * throws, never refuses — see this constant's own doc comment above for
+ * why staleness here is surfaced, not enforced.
+ */
+export function getPricingFreshnessWarning(now: Date = new Date()): string | null {
+  const snapshotDate = new Date(`${PRICING_SNAPSHOT_DATE}T00:00:00.000Z`);
+  const ageMs = now.getTime() - snapshotDate.getTime();
+  const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+  if (ageDays <= PRICING_FRESHNESS_WARNING_THRESHOLD_DAYS) {
+    return null;
+  }
+  return `Pricing/model metadata is ${ageDays} days old (snapshot date ${PRICING_SNAPSHOT_DATE}, threshold ${PRICING_FRESHNESS_WARNING_THRESHOLD_DAYS} days) and must be manually reverified against current first-party vendor docs before treating this run as an official provider-selection benchmark.`;
+}

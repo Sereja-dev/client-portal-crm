@@ -14,6 +14,9 @@
  * mechanical proof.
  */
 
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { BENCHMARK_CASES, assertExactlyThirtySixBalancedCases } from "./cases.js";
 import { runBenchmarkTurn } from "./loop.js";
 import { completeWithStub } from "./providers/stub.js";
@@ -21,9 +24,13 @@ import { scoreRun } from "./scoring.js";
 import { aggregate, decideOutcome } from "./decision.js";
 import { estimateAnthropicCostUsd, estimateOpenAiCostUsd } from "./pricing.js";
 import { hasAnthropicEvalApiKey, hasOpenAiEvalApiKey } from "./secrets.js";
-import { buildArtifactRow, buildReproducibilityMetadata, writeReport, type ArtifactRow } from "./report.js";
+import { buildArtifactRow, buildReproducibilityMetadata, writeReport, RESULTS_DIR, type ArtifactRow } from "./report.js";
+import { checkSnapshotFreshness, describeFreshnessFailure } from "./snapshot-freshness.js";
+import { buildDraftingBlindArtifacts, writeDraftingBlindArtifacts } from "./drafting-packet.js";
 import type { BenchmarkProviderId, RunResult } from "./result-types.js";
 import type { CaseScore } from "./scoring.js";
+
+const SNAPSHOT_PATH = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "tool-contracts.snapshot.json");
 
 const DEFAULT_REPETITIONS = 3;
 
@@ -69,7 +76,41 @@ async function runOfflinePipeline(): Promise<void> {
   console.log(`Offline pipeline exercised all ${rows.length} cases through the real fixture tool executors and scoring logic — zero network calls made.`);
 }
 
+/**
+ * CRITICAL ordering: this is the FIRST thing runLiveBenchmark() checks —
+ * before the repetitions warning, before any secret-presence check,
+ * before any dynamic provider import, before any client construction,
+ * before any network. A stale snapshot must never even reach the point
+ * of asking whether keys are present (see snapshot-freshness.ts's own
+ * header comment and test/snapshot-freshness.test.ts's own no-live
+ * ordering proof).
+ */
+function enforceSnapshotFreshnessOrExit(): boolean {
+  let raw: string;
+  try {
+    raw = readFileSync(SNAPSHOT_PATH, "utf8");
+  } catch {
+    console.error(`Could not read the tool-contract snapshot at ${SNAPSHOT_PATH}. Refresh it from the repository root: npx tsx scripts/ai-provider-eval/extract-fixtures.ts`);
+    process.exitCode = 1;
+    return false;
+  }
+
+  const snapshot: unknown = JSON.parse(raw);
+  const result = checkSnapshotFreshness(snapshot as { sourceFingerprint?: unknown; fingerprintAlgorithm?: unknown });
+  if (!result.fresh) {
+    console.error("SNAPSHOT_STALE — refusing to run the live benchmark.");
+    console.error(describeFreshnessFailure(result));
+    process.exitCode = 1;
+    return false;
+  }
+  return true;
+}
+
 async function runLiveBenchmark(repetitions: number): Promise<void> {
+  if (!enforceSnapshotFreshnessOrExit()) {
+    return;
+  }
+
   if (repetitions !== DEFAULT_REPETITIONS) {
     console.warn(`NON_OFFICIAL_RUN — repetitions=${repetitions} overrides the default of ${DEFAULT_REPETITIONS}. This report will be marked non-official.`);
   }
@@ -80,7 +121,8 @@ async function runLiveBenchmark(repetitions: number): Promise<void> {
   }
 
   // Dynamic import, deliberately INSIDE this function (only reached from
-  // the --run branch) — see this file's own header comment for why.
+  // the --run branch, and only after the freshness+secret checks above)
+  // — see this file's own header comment for why.
   const { completeWithAnthropic } = await import("./providers/anthropic.js");
   const { completeWithOpenAi } = await import("./providers/openai.js");
   const { ANTHROPIC_MODEL_ID, OPENAI_MODEL_ID } = await import("./pricing.js");
@@ -91,6 +133,12 @@ async function runLiveBenchmark(repetitions: number): Promise<void> {
   ];
 
   const rows: ArtifactRow[] = [];
+  // Raw RunResults are kept separately from the sanitized ArtifactRow
+  // list — ArtifactRow deliberately never carries the model's own raw
+  // finalText (see report.ts's own ArtifactRow shape), but the blind
+  // drafting packet (drafting-packet.ts) needs exactly that text, so it
+  // consumes this raw array instead of rows.
+  const allRuns: RunResult[] = [];
   const scoresByProvider: Record<BenchmarkProviderId, CaseScore[]> = { anthropic: [], openai: [] };
   const latenciesByProvider: Record<BenchmarkProviderId, number[]> = { anthropic: [], openai: [] };
   const costsByProvider: Record<BenchmarkProviderId, number[]> = { anthropic: [], openai: [] };
@@ -111,6 +159,7 @@ async function runLiveBenchmark(repetitions: number): Promise<void> {
         };
         const score = scoreRun(caseDef, run);
         rows.push(buildArtifactRow(run, score));
+        allRuns.push(run);
         scoresByProvider[provider.id].push(score);
         latenciesByProvider[provider.id].push(run.totalLatencyMs);
         costsByProvider[provider.id].push(run.estimatedCostUsd);
@@ -135,8 +184,19 @@ async function runLiveBenchmark(repetitions: number): Promise<void> {
     openaiGateFailures: decision.openaiGate.failures,
   });
 
+  // Generated after EVERY completed official run (not only when the
+  // automated comparison actually lands on TIE_ADDITIONAL_EVIDENCE_REQUIRED)
+  // — see drafting-packet.ts's own header comment for why: this
+  // guarantees the artifact README.md/report.ts already promise always
+  // exists, with no special late path that only runs sometimes. It may
+  // simply go unused if the automated comparison already decided the
+  // outcome.
+  const draftingArtifacts = buildDraftingBlindArtifacts(allRuns, BENCHMARK_CASES);
+  const draftingWritten = writeDraftingBlindArtifacts(RESULTS_DIR, draftingArtifacts);
+
   console.log(`Outcome: ${decision.outcome}`);
   console.log(`Report written to ${written.markdownPath}`);
+  console.log(`Blind drafting packet written to ${draftingWritten.packetPath} (mapping: ${draftingWritten.mappingPath})`);
 }
 
 async function main(): Promise<void> {
