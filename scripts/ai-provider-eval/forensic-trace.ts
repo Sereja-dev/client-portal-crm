@@ -38,7 +38,7 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import type { BenchmarkCase, BenchmarkCaseCategory } from "./cases.js";
 import type { CaseScore } from "./scoring.js";
-import type { BenchmarkProviderId, NormalizedProviderTurn, RunResult, TraceProviderCallEvent, TraceSink, TraceToolResultEvent } from "./result-types.js";
+import type { BenchmarkProviderId, NormalizedProviderTurn, RunResult, TraceCaptureFailure, TraceProviderCallEvent, TraceSink, TraceToolResultEvent } from "./result-types.js";
 import { redactPotentialSecrets } from "./secrets.js";
 import { MAX_PROVIDER_CALLS_PER_TURN, MAX_TOOL_RESULT_SERIALIZED_CHARS } from "../../src/lib/ai/orchestration-limits.js";
 
@@ -136,12 +136,26 @@ export function deepRedact(value: unknown): unknown {
  * Factory used once per benchmark run (index.ts's own sweep loop): pass
  * `.sink` into runBenchmarkTurn({..., traceSink: sink}); after the run
  * completes, call `.getTurns()` to retrieve the ordered turn list for
- * that run. Purely accumulates already-normalized events — never
- * influences loop.ts's own control flow (see TraceSink's own doc
- * comment in result-types.ts).
+ * that run, and `.getCaptureFailure()` to check whether event collection
+ * failed at any point. Purely accumulates already-normalized events —
+ * never influences loop.ts's own control flow (see TraceSink's own doc
+ * comment in result-types.ts). Even if a bug in this collector's own
+ * describeTurn()/deepRedact() throws, loop.ts's safeEmitTraceEvent()
+ * instrumentation boundary guarantees the throw never escapes past
+ * runBenchmarkTurn() — see test/loop-trace-sink-failure-isolation.test.ts.
+ *
+ * First-failure-wins, then goes quiet: once onCaptureFailure has
+ * recorded a failure for this run, onProviderCall/onToolResult become
+ * no-ops (never accumulate further, possibly-inconsistent, partial
+ * data), and a later, different failure never overwrites the first one
+ * recorded. index.ts treats a non-null getCaptureFailure() exactly like
+ * a buildForensicTraceRow() failure — the whole run's trace is dropped,
+ * never partially written and mislabeled "captured" (see this file's
+ * own header comment and index.ts's own sweep-loop wiring).
  */
-export function createRunTraceCollector(): { sink: TraceSink; getTurns: () => ForensicTraceTurn[] } {
+export function createRunTraceCollector(): { sink: TraceSink; getTurns: () => ForensicTraceTurn[]; getCaptureFailure: () => TraceCaptureFailure | null } {
   const turns: ForensicTraceTurn[] = [];
+  let captureFailure: TraceCaptureFailure | null = null;
 
   function describeTurn(event: TraceProviderCallEvent): ForensicTraceTurn {
     const turn: NormalizedProviderTurn = event.turn;
@@ -162,9 +176,11 @@ export function createRunTraceCollector(): { sink: TraceSink; getTurns: () => Fo
 
   const sink: TraceSink = {
     onProviderCall(event) {
+      if (captureFailure) return; // already failed — stop collecting further events for this run
       turns.push(describeTurn(event));
     },
     onToolResult(event: TraceToolResultEvent) {
+      if (captureFailure) return; // already failed — stop collecting further events for this run
       // Tool execution always immediately follows the provider call that
       // requested it, within this same run — attach to the most recently
       // recorded turn (which onProviderCall already pushed for this exact
@@ -174,9 +190,13 @@ export function createRunTraceCollector(): { sink: TraceSink; getTurns: () => Fo
         last.toolResult = { ok: Boolean((event.result as { ok?: unknown } | null)?.ok), errorKind: (event.result as { error?: string } | null)?.error ?? null, result: deepRedact(event.result) };
       }
     },
+    onCaptureFailure(failure) {
+      // First-failure-wins: never overwrite an already-recorded failure with a later one.
+      if (!captureFailure) captureFailure = failure;
+    },
   };
 
-  return { sink, getTurns: () => turns };
+  return { sink, getTurns: () => turns, getCaptureFailure: () => captureFailure };
 }
 
 // --- row building (bounded, fail-closed) ------------------------------
