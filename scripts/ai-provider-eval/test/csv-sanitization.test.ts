@@ -74,7 +74,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
 
     const metadata: ReproducibilityMetadata = {
       gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
-      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", pricingSnapshotDate: "2026-09-03",
+      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", openaiReasoningEffort: "none", pricingSnapshotDate: "2026-09-03",
       pricesUsed: {} as ReproducibilityMetadata["pricesUsed"], repetitionCount: 1, maxOutputTokens: 1,
       maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)",
@@ -105,7 +105,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
     const row = buildArtifactRow(run, score);
     const metadata: ReproducibilityMetadata = {
       gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
-      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", pricingSnapshotDate: "2026-09-03",
+      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", openaiReasoningEffort: "none", pricingSnapshotDate: "2026-09-03",
       pricesUsed: {} as ReproducibilityMetadata["pricesUsed"], repetitionCount: 1, maxOutputTokens: 1,
       maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)",
@@ -130,7 +130,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
     const row = buildArtifactRow(run, score);
     const metadata: ReproducibilityMetadata = {
       gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
-      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", pricingSnapshotDate: "2026-09-03",
+      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", openaiReasoningEffort: "none", pricingSnapshotDate: "2026-09-03",
       pricesUsed: {} as ReproducibilityMetadata["pricesUsed"], repetitionCount: 1, maxOutputTokens: 1,
       maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)",
@@ -156,7 +156,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
     const row = buildArtifactRow(run, score);
     const metadata: ReproducibilityMetadata = {
       gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
-      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", pricingSnapshotDate: "2026-09-03",
+      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", openaiReasoningEffort: "none", pricingSnapshotDate: "2026-09-03",
       pricesUsed: {} as ReproducibilityMetadata["pricesUsed"], repetitionCount: 1, maxOutputTokens: 1,
       maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)",
