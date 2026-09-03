@@ -860,16 +860,41 @@ only way to enable this, checked explicitly on every invocation. See
 everywhere except a completed `--run`" suite.
 
 **Failure policy.** A trace failure (an oversized field, a validation
-error, a write error) **never invalidates the run's own official
-result** — `results.json`/`results.csv`/`report.md`/the drafting-blind
-packet are written exactly as they would be regardless. It is also never
-silent: `results.json`'s own reproducibility metadata records
-`forensicTraceEnabled: boolean` and `forensicTraceStatus:
-"captured" | "requested_but_failed" | "not_requested"`, and `report.md`
-surfaces the same status in prose. Trace build/validate/write happens
-**before** that metadata is finalized (`index.ts`'s own sweep function),
-so the status is always known and always recorded — never a separate,
-easy-to-miss log line only.
+error, a write error, or a trace-sink callback throwing during event
+collection — see "Sink failure isolation" immediately below) **never
+invalidates the run's own official result** — `results.json`/
+`results.csv`/`report.md`/the drafting-blind packet are written exactly
+as they would be regardless. It is also never silent: `results.json`'s
+own reproducibility metadata records `forensicTraceEnabled: boolean` and
+`forensicTraceStatus: "captured" | "requested_but_failed" |
+"not_requested"`, and `report.md` surfaces the same status in prose.
+Trace build/validate/write happens **before** that metadata is
+finalized (`index.ts`'s own sweep function), so the status is always
+known and always recorded — never a separate, easy-to-miss log line
+only.
+
+**Sink failure isolation.** `runBenchmarkTurn(..., traceSink?)` invokes
+trace-sink callbacks through loop.ts's own `safeEmitTraceEvent()` — the
+one generic instrumentation boundary every `TraceSink` call passes
+through, regardless of which sink implementation is plugged in. A
+throwing `onProviderCall`/`onToolResult` is caught there and can
+**never** abort the benchmark turn, change the provider/tool call
+sequence, change what's sent to or received from the provider, change
+`finalText`/`CaseScore`/usage/cost, or introduce a protocol violation or
+provider-error classification — the real benchmark result is completely
+unaffected, sink failure or not (see
+`test/loop-trace-sink-failure-isolation.test.ts`'s own observational-
+equivalence proof, extended to a deliberately throwing sink). The
+sanitized, length-bounded failure reason (redacted the same way as every
+other trace string — never a raw error object, stack, or secret) is
+reported to the sink's own optional `onCaptureFailure` hook — itself
+also safely guarded — so `createRunTraceCollector()` can record it and
+go quiet (no further event collection is attempted for that run) rather
+than accumulating a partial, inconsistent trace. index.ts treats a
+recorded capture failure exactly like any other trace-build failure: the
+whole run's trace is dropped, `forensicTraceStatus` becomes
+`"requested_but_failed"`, and no `forensic-trace.json` is ever written
+for it — never a partial file mislabeled "captured".
 
 **Fail-closed bounding, never silent truncation.** Every bounded field
 (tool-call arguments, final answer text, the whole serialized file) that

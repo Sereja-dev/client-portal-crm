@@ -209,7 +209,20 @@ async function runLiveBenchmark(repetitions: number, withForensicTrace: boolean)
         latenciesByProvider[provider.id].push(run.totalLatencyMs);
         costsByProvider[provider.id].push(run.estimatedCostUsd);
         if (collector) {
-          traceRowResults.push(buildForensicTraceRow({ caseDef, run, score, turns: collector.getTurns() }));
+          // A recorded sink-event-collection failure (loop.ts's own
+          // safeEmitTraceEvent() instrumentation boundary caught a
+          // throwing traceSink callback — see forensic-trace.ts's own
+          // createRunTraceCollector() doc comment) is treated as just one
+          // more RowBuildResult failure, feeding the exact same
+          // requested_but_failed status semantics as a bounds/validation
+          // failure below — never partially collected and later called
+          // "captured".
+          const captureFailure = collector.getCaptureFailure();
+          traceRowResults.push(
+            captureFailure
+              ? { ok: false, reason: `${caseDef.id}#rep${repetition} (${provider.id}): forensic trace capture failed during event collection — ${captureFailure.message}` }
+              : buildForensicTraceRow({ caseDef, run, score, turns: collector.getTurns() }),
+          );
         }
       }
     }

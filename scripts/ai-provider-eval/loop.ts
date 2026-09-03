@@ -52,6 +52,7 @@ import {
 } from "../../src/lib/ai/orchestration-limits.js";
 import { BENCHMARK_TOOLS, getBenchmarkToolByName } from "./tool-runtime.js";
 import type { BenchmarkProviderId, NormalizedProviderTurn, ProviderCallTrace, RunResult, ToolCallTrace, TraceSink } from "./result-types.js";
+import { redactPotentialSecrets } from "./secrets.js";
 
 /** Fixed, arbitrary — the fixture tool executors ignore it entirely (see tool-runtime.ts, which operates on one single hardcoded synthetic organization), but every AiToolDefinition.execute() still requires a first argument, matching production's own signature exactly. */
 const BENCHMARK_ORGANIZATION_ID = "benchmark-fixture-org";
@@ -93,6 +94,48 @@ function toolResultJson(toolName: string, executed: boolean, resultOk: boolean, 
     return JSON.stringify({ toolName, result: { ok: false, error: "unavailable" } });
   }
   return serialized;
+}
+
+/** Concise, sanitized reason an operator can see in console output — never the raw thrown value. */
+const TRACE_CAPTURE_FAILURE_MESSAGE_MAX_CHARS = 200;
+
+function sanitizeCaptureFailureMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  const redacted = redactPotentialSecrets(raw);
+  return redacted.length > TRACE_CAPTURE_FAILURE_MESSAGE_MAX_CHARS ? `${redacted.slice(0, TRACE_CAPTURE_FAILURE_MESSAGE_MAX_CHARS)}…` : redacted;
+}
+
+/**
+ * The ONE place runBenchmarkTurn() ever calls into an operator-supplied
+ * TraceSink — the generic instrumentation boundary this fix hardens (see
+ * result-types.ts's own TraceSink.onCaptureFailure doc comment, and
+ * test/loop-trace-sink-failure-isolation.test.ts for the regression this
+ * fixes). Guarantees, for ANY sink implementation — not just the one
+ * forensic-trace.ts's own createRunTraceCollector() ships — that a
+ * throwing onProviderCall/onToolResult can NEVER abort or alter this
+ * function's own control flow: forensic trace capture is supplementary
+ * observability, never a benchmark dependency. On a throw, the exception
+ * is caught HERE (never left to individual call sites, never relying on
+ * a sink author remembering to guard their own callback), a
+ * sanitized/bounded failure message is built (redacted via secrets.ts's
+ * own redactPotentialSecrets(), never a raw error object, never a stack,
+ * never a secret), and the sink's own — ALSO safely-guarded —
+ * onCaptureFailure hook is notified. The failure is therefore recorded,
+ * never silently discarded, while runBenchmarkTurn() itself proceeds
+ * exactly as if the sink had never been supplied.
+ */
+function safeEmitTraceEvent(sink: TraceSink | undefined, emit: (sink: TraceSink) => void): void {
+  if (!sink) return;
+  try {
+    emit(sink);
+  } catch (err) {
+    const message = sanitizeCaptureFailureMessage(err);
+    try {
+      sink.onCaptureFailure?.({ message });
+    } catch {
+      // The failure-reporting hook is equally untrusted — never let it escape either.
+    }
+  }
 }
 
 export async function runBenchmarkTurn(input: RunBenchmarkTurnInput): Promise<RunResult> {
@@ -149,13 +192,13 @@ export async function runBenchmarkTurn(input: RunBenchmarkTurnInput): Promise<Ru
 
     if (turn.kind === "error") {
       providerCalls.push({ index: callIndex, latencyMs: callLatencyMs, usage: null, outcome: { kind: "error", error: turn.error } });
-      traceSink?.onProviderCall?.({ callIndex, latencyMs: callLatencyMs, usage: null, turn });
+      safeEmitTraceEvent(traceSink, (s) => s.onProviderCall?.({ callIndex, latencyMs: callLatencyMs, usage: null, turn }));
       return finish(null, false, turn.error.kind);
     }
 
     if (turn.kind === "protocol_violation") {
       providerCalls.push({ index: callIndex, latencyMs: callLatencyMs, usage: null, outcome: { kind: "error", error: { kind: "protocol_violation", message: turn.message } } });
-      traceSink?.onProviderCall?.({ callIndex, latencyMs: callLatencyMs, usage: null, turn });
+      safeEmitTraceEvent(traceSink, (s) => s.onProviderCall?.({ callIndex, latencyMs: callLatencyMs, usage: null, turn }));
       return finish(null, true, "protocol_violation");
     }
 
@@ -169,14 +212,14 @@ export async function runBenchmarkTurn(input: RunBenchmarkTurnInput): Promise<Ru
 
     if (response.kind === "text") {
       providerCalls.push({ index: callIndex, latencyMs: callLatencyMs, usage: response.usage, outcome: { kind: "text" } });
-      traceSink?.onProviderCall?.({ callIndex, latencyMs: callLatencyMs, usage: response.usage, turn });
+      safeEmitTraceEvent(traceSink, (s) => s.onProviderCall?.({ callIndex, latencyMs: callLatencyMs, usage: response.usage, turn }));
       return finish(response.text, false, null);
     }
 
     // kind === "toolCall"
     const call: AiToolCall = response.call;
     providerCalls.push({ index: callIndex, latencyMs: callLatencyMs, usage: response.usage, outcome: { kind: "toolCall", toolName: call.toolName, args: call.args } });
-    traceSink?.onProviderCall?.({ callIndex, latencyMs: callLatencyMs, usage: response.usage, turn });
+    safeEmitTraceEvent(traceSink, (s) => s.onProviderCall?.({ callIndex, latencyMs: callLatencyMs, usage: response.usage, turn }));
 
     toolCallCount += 1;
     if (toolCallCount > MAX_TOOL_CALLS_PER_TURN) {
@@ -189,7 +232,7 @@ export async function runBenchmarkTurn(input: RunBenchmarkTurnInput): Promise<Ru
     if (!tool) {
       const unregisteredResult = { ok: false, error: "invalid_input" };
       toolCalls.push({ toolName: call.toolName, args: call.args, isRegisteredTool: false, resultOk: false, resultErrorKind: "invalid_input" });
-      traceSink?.onToolResult?.({ toolName: call.toolName, args: call.args, result: unregisteredResult });
+      safeEmitTraceEvent(traceSink, (s) => s.onToolResult?.({ toolName: call.toolName, args: call.args, result: unregisteredResult }));
       messages.push({ role: "tool", content: JSON.stringify({ toolName: call.toolName, result: unregisteredResult }) });
       continue;
     }
@@ -209,7 +252,7 @@ export async function runBenchmarkTurn(input: RunBenchmarkTurnInput): Promise<Ru
     // "the trace must show what the provider actually received" (see forensic-trace.ts).
     const providerVisibleResultJson = toolResultJson(call.toolName, true, resultOk, resultErrorKind, toolResult);
     const providerVisibleResult: unknown = (JSON.parse(providerVisibleResultJson) as { toolName: string; result: unknown }).result;
-    traceSink?.onToolResult?.({ toolName: call.toolName, args: call.args, result: providerVisibleResult });
+    safeEmitTraceEvent(traceSink, (s) => s.onToolResult?.({ toolName: call.toolName, args: call.args, result: providerVisibleResult }));
 
     messages.push({ role: "tool", content: providerVisibleResultJson });
   }

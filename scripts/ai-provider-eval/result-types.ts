@@ -84,7 +84,34 @@ export type TraceToolResultEvent = {
   result: unknown;
 };
 
+/**
+ * Sanitized description of why forensic-trace EVENT COLLECTION failed for
+ * one run — built exclusively by loop.ts's own safeEmitTraceEvent()
+ * instrumentation boundary (see TraceSink.onCaptureFailure's own doc
+ * comment below), never constructed by a TraceSink implementation
+ * itself. `message` has already been redacted (secrets.ts's own
+ * redactPotentialSecrets()) and length-bounded before this object is
+ * ever built — never a raw Error object, never a stack trace, never a
+ * raw SDK/vendor error, never a secret. See
+ * test/loop-trace-sink-failure-isolation.test.ts.
+ */
+export type TraceCaptureFailure = { message: string };
+
 export type TraceSink = {
   onProviderCall?: (event: TraceProviderCallEvent) => void;
   onToolResult?: (event: TraceToolResultEvent) => void;
+  /**
+   * Called by loop.ts's own safeEmitTraceEvent() instrumentation
+   * boundary — NEVER by a sink author directly — exactly once, the
+   * first time onProviderCall/onToolResult throws for a given run. A
+   * broken/throwing onProviderCall or onToolResult can therefore never
+   * abort or alter runBenchmarkTurn()'s own control flow: the throw is
+   * caught at that one instrumentation boundary regardless of which
+   * TraceSink implementation is plugged in, and this is the sink's one
+   * and only way to learn its own event collection failed. This
+   * callback is itself ALSO invoked inside the same safe wrapper — a
+   * throwing onCaptureFailure implementation is equally powerless to
+   * escape. Optional; a sink that doesn't care can omit it entirely.
+   */
+  onCaptureFailure?: (failure: TraceCaptureFailure) => void;
 };
