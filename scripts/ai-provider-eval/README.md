@@ -57,6 +57,7 @@ reached).
 | `npm run typecheck` | No | `tsc --noEmit` against this package's own isolated `tsconfig.json` |
 | `npm test` | No | Node's built-in test runner (`node --test`) over `test/**/*.test.ts` |
 | `npm run run` (or `tsx index.ts --run`) | **Yes — live** | The real 216-run benchmark (36 cases × 2 providers × 3 repetitions). Requires both API keys (below) and an empty/absent `results/` (see "Artifact lifecycle"). |
+| `--with-forensic-trace` (any command above) | Same as without it, **except** paired with `--run` | Inert everywhere else — prints a warning and changes nothing. Only `--run --with-forensic-trace` does anything: writes the optional `results/forensic-trace.json` after a successful sweep. See "Forensic trace observability" below. |
 
 ## Secret handling
 
@@ -701,13 +702,14 @@ spurious failure, not a real regression.
    after the snapshot-freshness gate and before anything else
    (repetitions warning, secret-presence check, provider import,
    network), and refuses to start — printing `STALE_RESULTS_DIR`,
-   exiting non-zero — if `results.json`, `results.csv`, or `report.md`
-   already exists in `RESULTS_DIR`. It never deletes anything itself:
-   archive first (below), then rerun. See
+   exiting non-zero — if `results.json`, `results.csv`, `report.md`, or
+   `forensic-trace.json` already exists in `RESULTS_DIR`. It never
+   deletes anything itself: archive first (below), then rerun. See
    `test/results-dir-preflight.test.ts` for the ordering proof.
 2. If `results/` has prior artifacts you want to keep, archive the
-   **whole directory** — including `drafting-blind-packet.json` and
-   `drafting-blind-mapping.json` — somewhere outside
+   **whole directory** — including `drafting-blind-packet.json`,
+   `drafting-blind-mapping.json`, and `forensic-trace.json` if a prior
+   run captured one — somewhere outside
    `scripts/ai-provider-eval/results/` before starting the new run,
    e.g.:
 
@@ -716,7 +718,14 @@ spurious failure, not a real regression.
    mkdir -p "$ARCHIVE_DIR"
    cp -R scripts/ai-provider-eval/results/. "$ARCHIVE_DIR/"
    shasum -a 256 scripts/ai-provider-eval/results/results.json > "$ARCHIVE_DIR/results.json.sha256"
+   if [ -f scripts/ai-provider-eval/results/forensic-trace.json ]; then
+     shasum -a 256 scripts/ai-provider-eval/results/forensic-trace.json > "$ARCHIVE_DIR/forensic-trace.json.sha256"
+   fi
    git rev-parse HEAD > "$ARCHIVE_DIR/git-sha.txt"
+   # cp -R above already preserves file permissions where the destination
+   # filesystem supports it (in particular forensic-trace.json's 0600) —
+   # verify with `ls -la "$ARCHIVE_DIR"` if that matters for your archive
+   # medium.
    rm -rf scripts/ai-provider-eval/results   # only after the copy above succeeded
    ```
 
@@ -727,14 +736,23 @@ spurious failure, not a real regression.
 **Immediately after an official run completes — success or failure:**
 1. Compute and record the SHA-256 of `results/results.json` (as above)
    before doing anything else — a tamper-evident fingerprint for later
-   reference in a PR or runbook entry.
+   reference in a PR or runbook entry. If the run was started with
+   `--with-forensic-trace`, also hash `results/forensic-trace.json` the
+   same way (its presence and hash mean nothing on their own — always
+   read `results.json`'s own `forensicTraceEnabled`/`forensicTraceStatus`
+   metadata fields first, since a `requested_but_failed` status means no
+   trace file exists to hash at all).
 2. Archive the full `results/` directory outside
    `scripts/ai-provider-eval/results/`, alongside the git SHA the run
-   was made at. `results.json`'s own reproducibility metadata already
-   carries the rest (model IDs, `openaiReasoningEffort`, pricing
+   was made at, preserving permissions where the archive medium supports
+   it (`forensic-trace.json` is written `0600` — see "Forensic trace
+   observability" above). `results.json`'s own reproducibility metadata
+   already carries the rest (model IDs, `openaiReasoningEffort`, pricing
    snapshot date/prices used, repetition count, case/snapshot/
-   system-prompt hashes, SDK versions) — no separate bookkeeping needed
-   for those fields.
+   system-prompt hashes, SDK versions, `forensicTraceEnabled`/
+   `forensicTraceStatus`) — no separate bookkeeping needed for those
+   fields. Write any archive-metadata file (git SHA, hashes) **last**,
+   after every artifact it describes has already been copied.
 3. **Do this before running `npm test` again.** Tests no longer touch
    `RESULTS_DIR` at all (see "Test output isolation" above), so this
    step isn't about test safety — it's about not losing an official
@@ -758,8 +776,11 @@ customer content is ever written there. Reproducibility metadata (the
 OpenAI `reasoning_effort` value used (`openaiReasoningEffort` — see
 "OpenAI reasoning effort" above), the pricing snapshot date/prices/
 staleness warning actually used, repetition count, ceilings, SDK
-versions) is recorded in every run's own JSON output — see `report.ts`'s
-own `buildReproducibilityMetadata()`.
+versions, and `forensicTraceEnabled`/`forensicTraceStatus` — see
+"Forensic trace observability" below) is recorded in every run's own
+JSON output — see `report.ts`'s own `buildReproducibilityMetadata()`.
+If `--with-forensic-trace` was passed, `results/forensic-trace.json` is
+written too — a separate, optional, supplementary artifact; see below.
 
 **CSV formula-injection safety.** `report.ts`'s own
 `sanitizeCsvCellForSpreadsheet()` prefixes any CSV cell whose (trimmed)
@@ -807,6 +828,159 @@ Objective tool/policy/factuality metrics stay fully machine-scored
 (`scoring.ts`); only drafting quality is ever human-scored, and only as
 the lexicographic tie-break of last resort.
 
+## Forensic trace observability
+
+**Optional, off by default, supplementary evidence only** — `results.json`
+(this file's own "Report artifacts" section) remains the stable,
+always-generated, authoritative aggregate whether or not this feature is
+ever used. Enabling it never changes `SelectionOutcome`, scorer
+aggregates, cost, or the provider request sequence — see
+`test/loop-trace-sink.test.ts`'s own observational-equivalence proof and
+`test/forensic-trace-writer.test.ts`.
+
+**What it's for:** when a live run's aggregate numbers raise a question
+("why did this specific case fail?"), the forensic trace is the
+per-turn evidence trail that lets you answer it without re-running the
+benchmark — exactly what each provider call returned, which tool was
+called with what arguments, what synthetic tool result the model
+actually saw, and the scorer's own decision for that row.
+
+**Enabling it — `--with-forensic-trace`:**
+
+| Command | Effect |
+|---|---|
+| `--with-forensic-trace` alone (no `--run`) | Inert. Prints a warning ("Forensic trace capture only applies to --run; ignored in this mode.") and otherwise behaves exactly like the mode it's paired with — no file, no network. |
+| `--dry-run --with-forensic-trace` | Inert, same as above. |
+| `--validate --with-forensic-trace` | Inert, same as above. |
+| `--run --with-forensic-trace` | The only combination that does anything: writes `results/forensic-trace.json` after a successful sweep. |
+
+There is no environment-variable or config-file toggle — the flag is the
+only way to enable this, checked explicitly on every invocation. See
+`test/no-live-by-default.test.ts`'s "`--with-forensic-trace` is inert
+everywhere except a completed `--run`" suite.
+
+**Failure policy.** A trace failure (an oversized field, a validation
+error, a write error) **never invalidates the run's own official
+result** — `results.json`/`results.csv`/`report.md`/the drafting-blind
+packet are written exactly as they would be regardless. It is also never
+silent: `results.json`'s own reproducibility metadata records
+`forensicTraceEnabled: boolean` and `forensicTraceStatus:
+"captured" | "requested_but_failed" | "not_requested"`, and `report.md`
+surfaces the same status in prose. Trace build/validate/write happens
+**before** that metadata is finalized (`index.ts`'s own sweep function),
+so the status is always known and always recorded — never a separate,
+easy-to-miss log line only.
+
+**Fail-closed bounding, never silent truncation.** Every bounded field
+(tool-call arguments, final answer text, the whole serialized file) that
+would exceed its ceiling **fails trace generation explicitly** for that
+run rather than silently dropping or truncating evidence — see
+`forensic-trace.ts`'s own `FORENSIC_TRACE_TOOL_ARGS_MAX_CHARS` (2,000),
+`FORENSIC_TRACE_FINAL_TEXT_MAX_CHARS` (20,000), and
+`FORENSIC_TRACE_SIZE_LIMIT_BYTES` (50MB, measured in UTF-8 bytes via
+`Buffer.byteLength`, not JS string length). Tool *results* are not
+separately bounded here — the loop's own pre-existing
+`MAX_TOOL_RESULT_SERIALIZED_CHARS` guard (`orchestration-limits.ts`)
+already ensures the trace only ever receives the exact, already-bounded
+representation the provider itself was shown; a generous sanity ceiling
+catches only a genuine invariant break, never normal operation.
+
+**Redaction.** Every string that reaches the trace — the prompt, response
+text, tool-argument string values, tool-result string values, and error
+messages — is passed through `secrets.ts`'s own `redactPotentialSecrets()`
+(via `forensic-trace.ts`'s recursive `deepRedact()` for nested
+structures) *before* it is placed into the structure that gets
+serialized, never written raw and redacted afterward. Synthetic
+UUID-shaped references (needed for UUID-propagation forensic debugging)
+are deliberately **not** redacted — they're synthetic fixture data, not
+secrets; the benchmark's own UUID-leak *scoring* is unaffected either
+way. See `test/forensic-trace-live-key-defense.test.ts` for the
+dedicated proof that a live key value never survives into a written
+trace, using fake/dummy values only.
+
+**Drafting blindness — technical separation, not just documentation.**
+For `category: "drafting"` rows, the main trace **omits the identified
+final answer entirely**: `finalText: null`,
+`finalTextOmittedForBlindness: true`, and every turn's own
+`responseText` is stripped too (provider/model identity may remain,
+since no text is present to identify by). `validateForensicTraceRoot()`
+independently re-verifies this as defense-in-depth. The existing
+`drafting-blind-packet.json`/`drafting-blind-mapping.json` mechanism
+(above) is completely untouched and remains the authoritative path for
+scoring drafting quality — this trace exists alongside it, never in
+place of it. v1 deliberately does **not** add a second,
+identity-attached drafting trace file; that can be revisited later
+without needing to touch this trace's own schema.
+
+**Schema.** `forensic-trace.json`'s root:
+
+```
+{
+  forensicTraceSchemaVersion: "1",
+  benchmarkDefinitionVersion: string,   // e.g. "1.1.0" — see "Benchmark definition version"
+  gitSha: string,
+  generatedAt: string,                  // ISO 8601
+  anthropicModelId: string,
+  openaiModelId: string,
+  repetitionCount: number,
+  rowCount: number,
+  complete: boolean,                    // false if built from an incomplete sweep
+  rows: ForensicTraceRow[]
+}
+```
+
+Each row (one per case × provider × repetition, in that canonical sweep
+order) carries `caseId`/`category`/`repetition`/`provider`/`modelId`/
+`userPrompt`, an ordered `turns[]` (each with `providerCallIndex`,
+`latencyMs`, `usage`, `responseKind`, and — depending on kind — the
+redacted response text, the tool call name/args, the exact
+provider-visible tool result, or a normalized `errorClass`/redacted
+`errorMessage`), the final `finalText` (or the blindness omission
+above), a `scorerDecision` populated **only** from scoring.ts's
+already-computed `CaseScore` — never rescored independently — and the
+row's own latency/usage/cost totals. Full field-level types live in
+`forensic-trace.ts` itself.
+
+**`FORENSIC_TRACE_SCHEMA_VERSION` is independent of
+`benchmarkDefinitionVersion`.** It tracks this trace *file's own
+structure* — bump it only when a row/turn/root shape changes, never
+because a benchmark case/scoring semantic changed (and vice versa: a
+benchmark-semantics version bump never implies this needs to move
+either). Currently `"1"`.
+
+**Never in `results.csv`/`report.md`.** Only the
+`forensicTraceEnabled`/`forensicTraceStatus` flags ever appear in those
+two artifacts — never a raw `finalText`, tool argument, or tool result.
+`results.json` itself, via `ArtifactRow` (`report.ts`), was already
+structurally free of raw payloads before this feature existed. See
+`test/forensic-trace-csv-report-safety.test.ts`.
+
+**No hidden reasoning, ever.** Structurally impossible to leak here:
+`AiResponse` (`provider.ts`) is only ever `{kind:"text",...}` or
+`{kind:"toolCall",...}` — there is no chain-of-thought, hidden-reasoning,
+or internal-SDK field this module could read even if it tried. OpenAI's
+`reasoning_effort: "none"` and Anthropic's absent extended-thinking
+parameter are both untouched by this feature; the provider adapters
+(`providers/anthropic.ts`, `providers/openai.ts`, `openai-compat.ts`)
+are byte-for-byte unmodified.
+
+**Atomic, permission-scoped write.** `writeForensicTrace()` fully
+redacts, validates, serializes, and size-checks the trace *before* any
+file write; it then writes to a hidden temp file
+(`results/.forensic-trace.json.tmp`, mode `0600`) and atomically renames
+it to `results/forensic-trace.json`. On any failure it removes only that
+one owned temp file — it never touches `results.json`, `report.md`, the
+drafting-blind artifacts, or anything else already in `results/`. See
+`test/forensic-trace-writer.test.ts`'s atomicity/permissions/cleanup
+suite.
+
+**Stale-results preflight.** `enforceResultsDirEmptyOrExit()` (see
+"Artifact lifecycle" below) treats a pre-existing `forensic-trace.json`
+exactly like a pre-existing `results.json` — it refuses to start a new
+`--run`, before any secret-presence check or network call, rather than
+silently mixing or overwriting a prior trace. Archive first, same as
+every other artifact.
+
 ## Directory layout
 
 ```
@@ -823,6 +997,7 @@ scripts/ai-provider-eval/
   cases.ts                  — 36 golden cases, 12 categories × 3
   result-types.ts           — benchmark-local result/trace types
   loop.ts                   — benchmark-only minimal orchestration loop
+  forensic-trace.ts         — optional forensic-trace schema/redaction/writer (see "Forensic trace observability")
   scoring.ts                 — deterministic per-run metrics
   decision.ts                — quality gate + lexicographic + tie rule (frozen)
   pricing.ts                  — static pricing snapshot + staleness warning (reverify before each run)

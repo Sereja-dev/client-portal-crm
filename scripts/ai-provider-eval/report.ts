@@ -31,7 +31,8 @@ function sha256(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
-function safeGitSha(): string {
+/** Exported so index.ts's forensic-trace root (built before buildReproducibilityMetadata() runs, see forensic-trace.ts's own write-ordering doc comment) can record the identical gitSha value without a second, redundant `git rev-parse` subprocess call. */
+export function safeGitSha(): string {
   try {
     return execFileSync("git", ["rev-parse", "HEAD"], { cwd: PACKAGE_DIR, encoding: "utf8" }).trim();
   } catch {
@@ -91,9 +92,36 @@ export type ReproducibilityMetadata = {
   officialRun: boolean;
   /** Non-null only when PRICING_SNAPSHOT_DATE is older than pricing.ts's own PRICING_FRESHNESS_WARNING_THRESHOLD_DAYS — a WARNING only, never a refusal (see pricing.ts's own doc comment on why). Surfaced prominently in the Markdown report, never left buried in diagnostics-only output. */
   pricingFreshnessWarning: string | null;
+  /**
+   * Whether `--with-forensic-trace` was passed for this run (see
+   * forensic-trace.ts / index.ts). `false` for every run that never
+   * requested it — including every run recorded before this field
+   * existed, and every offline/dry-run/validate invocation, which never
+   * reach a live sweep at all. Purely observational: never affects
+   * SelectionOutcome, scorer aggregates, cost, or provider request
+   * sequence — see README.md's own "Forensic trace observability"
+   * section.
+   */
+  forensicTraceEnabled: boolean;
+  /**
+   * "not_requested" unless `--with-forensic-trace` was passed. When it
+   * was passed: "captured" once results/forensic-trace.json was
+   * successfully validated and written, or "requested_but_failed" if
+   * trace generation/validation/write failed for any reason — a failure
+   * here NEVER invalidates this run's own official aggregate result
+   * (results.json/report.md are written exactly as they would be
+   * regardless), but must never be silently unrecorded either, since the
+   * operator explicitly asked for this evidence.
+   */
+  forensicTraceStatus: "captured" | "requested_but_failed" | "not_requested";
 };
 
-export function buildReproducibilityMetadata(input: { repetitionCount: number; officialRun: boolean }): ReproducibilityMetadata {
+export function buildReproducibilityMetadata(input: {
+  repetitionCount: number;
+  officialRun: boolean;
+  forensicTraceEnabled?: boolean;
+  forensicTraceStatus?: ReproducibilityMetadata["forensicTraceStatus"];
+}): ReproducibilityMetadata {
   const casesSource = readFileSync(join(PACKAGE_DIR, "cases.ts"), "utf8");
   const snapshotSource = readFileSync(join(PACKAGE_DIR, "fixtures", "tool-contracts.snapshot.json"), "utf8");
   return {
@@ -117,6 +145,8 @@ export function buildReproducibilityMetadata(input: { repetitionCount: number; o
     openaiSdkVersion: readSdkVersion("openai"),
     officialRun: input.officialRun,
     pricingFreshnessWarning: getPricingFreshnessWarning(),
+    forensicTraceEnabled: input.forensicTraceEnabled ?? false,
+    forensicTraceStatus: input.forensicTraceStatus ?? "not_requested",
   };
 }
 
@@ -260,6 +290,7 @@ Generated: ${metadata.benchmarkTimestamp}
 Benchmark definition version: \`${metadata.benchmarkDefinitionVersion}\` — see README.md's own "Benchmark definition version" section before comparing this report against any run recorded under a different version.
 Git SHA: \`${metadata.gitSha}\`
 Pricing snapshot date: ${metadata.pricingSnapshotDate} — REVERIFY before trusting these cost figures on any later date.
+Forensic trace: ${metadata.forensicTraceEnabled ? `requested — status \`${metadata.forensicTraceStatus}\`` : "not requested for this run"} — see README.md's own "Forensic trace observability" section. Supplementary evidence only; this status never affects the outcome/aggregates above.
 
 ## Models
 - Anthropic: \`${metadata.anthropicModelId}\` (no reasoning/thinking parameter sent — standard mode)

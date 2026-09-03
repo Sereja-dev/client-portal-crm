@@ -1,9 +1,10 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { RESULTS_DIR } from "../report.js";
 
 const PACKAGE_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -74,5 +75,62 @@ describe("no-live-by-default — empirical proof: running the CLI with no flags 
         env: { ...process.env, AQENRA_EVAL_ANTHROPIC_API_KEY: "", AQENRA_EVAL_OPENAI_API_KEY: "" },
       });
     });
+  });
+});
+
+describe("no-live-by-default — --with-forensic-trace is inert everywhere except a completed --run (PR 2, task §40)", () => {
+  // console.warn() (the inert-mode warning) goes to stderr — execFileSync's
+  // return value on a SUCCESSFUL (non-throwing) run only ever carries
+  // stdout, so these three tests shell out via `bash -c "... 2>&1"` to
+  // merge stderr into the captured output. The throwing case below doesn't
+  // need this: a thrown error already exposes both err.stdout and
+  // err.stderr separately.
+  test("--with-forensic-trace alone (no mode flag) makes zero network calls and writes no file — dry-run banner still prints, plus the inert-mode warning", () => {
+    const output = execFileSync("bash", ["-c", "npx tsx index.ts --with-forensic-trace 2>&1"], {
+      cwd: PACKAGE_DIR,
+      encoding: "utf8",
+      env: { ...process.env, AQENRA_EVAL_ANTHROPIC_API_KEY: "", AQENRA_EVAL_OPENAI_API_KEY: "" },
+    });
+    assert.match(output, /Forensic trace capture only applies to --run; ignored in this mode\./);
+    assert.match(output, /Dry run complete — no network call was made/);
+    assert.equal(existsSync(join(RESULTS_DIR, "forensic-trace.json")), false);
+  });
+
+  test("--dry-run --with-forensic-trace makes zero network calls and writes no file", () => {
+    const output = execFileSync("bash", ["-c", "npx tsx index.ts --dry-run --with-forensic-trace 2>&1"], {
+      cwd: PACKAGE_DIR,
+      encoding: "utf8",
+      env: { ...process.env, AQENRA_EVAL_ANTHROPIC_API_KEY: "", AQENRA_EVAL_OPENAI_API_KEY: "" },
+    });
+    assert.match(output, /Forensic trace capture only applies to --run; ignored in this mode\./);
+    assert.match(output, /Dry run complete — no network call was made/);
+    assert.equal(existsSync(join(RESULTS_DIR, "forensic-trace.json")), false);
+  });
+
+  test("--validate --with-forensic-trace makes zero network calls, runs no full pipeline, and writes no file", () => {
+    const output = execFileSync("bash", ["-c", "npx tsx index.ts --validate --with-forensic-trace 2>&1"], { cwd: PACKAGE_DIR, encoding: "utf8" });
+    assert.match(output, /Forensic trace capture only applies to --run; ignored in this mode\./);
+    assert.match(output, /Validation-only mode complete — no network call was made/);
+    assert.equal(existsSync(join(RESULTS_DIR, "forensic-trace.json")), false);
+  });
+
+  test("--run --with-forensic-trace with no keys set still fails BEFORE any provider is constructed, and no trace file is written", () => {
+    let output = "";
+    let threw = false;
+    try {
+      output = execFileSync("npx", ["tsx", "index.ts", "--run", "--with-forensic-trace"], {
+        cwd: PACKAGE_DIR,
+        encoding: "utf8",
+        env: { ...process.env, AQENRA_EVAL_ANTHROPIC_API_KEY: "", AQENRA_EVAL_OPENAI_API_KEY: "" },
+      });
+    } catch (err) {
+      threw = true;
+      output = String((err as { stdout?: string }).stdout ?? "") + String((err as { stderr?: string }).stderr ?? "");
+    }
+    assert.equal(threw, true, "expected a non-zero exit (missing keys)");
+    assert.match(output, /Missing AQENRA_EVAL_ANTHROPIC_API_KEY/);
+    // The --run branch never prints the "ignored in this mode" warning, since --with-forensic-trace DOES apply to --run.
+    assert.equal(output.includes("Forensic trace capture only applies to --run; ignored in this mode."), false);
+    assert.equal(existsSync(join(RESULTS_DIR, "forensic-trace.json")), false);
   });
 });

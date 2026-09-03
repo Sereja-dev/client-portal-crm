@@ -147,6 +147,7 @@ describe("report.ts — Markdown STALE_PRICING_WARNING banner (Finding 4)", () =
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)" as const,
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true,
       pricingFreshnessWarning: "Pricing/model metadata is 9999 days old and must be manually reverified.",
+      forensicTraceEnabled: false, forensicTraceStatus: "not_requested" as const,
     };
     const tempDir1 = mkdtempSync(join(tmpdir(), "aqenra-report-test-"));
     try {
@@ -174,6 +175,7 @@ describe("report.ts — Markdown STALE_PRICING_WARNING banner (Finding 4)", () =
       maxOutputTokens: 1, maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)" as const,
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
+      forensicTraceEnabled: false, forensicTraceStatus: "not_requested" as const,
     };
     const tempDir2 = mkdtempSync(join(tmpdir(), "aqenra-report-test-"));
     try {
@@ -196,6 +198,7 @@ describe("report.ts — Markdown STALE_PRICING_WARNING banner (Finding 4)", () =
       maxOutputTokens: 1, maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)" as const,
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
+      forensicTraceEnabled: false, forensicTraceStatus: "not_requested" as const,
     };
     const tempDir3 = mkdtempSync(join(tmpdir(), "aqenra-report-test-"));
     try {

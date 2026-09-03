@@ -57,3 +57,34 @@ export type NormalizedProviderTurn =
   | { kind: "ok"; response: AiResponse }
   | { kind: "protocol_violation"; message: string; rawToolCalls: AiToolCall[] }
   | { kind: "error"; error: BenchmarkError };
+
+/**
+ * Observation-only forensic-trace hook (see forensic-trace.ts). Optional,
+ * synchronous, void-returning — loop.ts invokes these at the exact points
+ * where normalized data already exists and is about to be discarded,
+ * purely as a side-channel notification. Nothing here can influence
+ * loop.ts's own control flow: the sink's return value is never read, and
+ * every existing call site that omits `traceSink` behaves byte-identically
+ * to before this type existed (see test/loop-trace-sink.test.ts's own
+ * observational-equivalence proof). Only ever built from data loop.ts
+ * already computes for its own RunResult — never a raw SDK object (see
+ * NormalizedProviderTurn's own doc comment: providers/*.ts already
+ * normalize every vendor response before loop.ts sees it).
+ */
+export type TraceProviderCallEvent = {
+  callIndex: number;
+  latencyMs: number;
+  usage: AiUsage | null;
+  turn: NormalizedProviderTurn;
+};
+
+export type TraceToolResultEvent = {
+  toolName: string;
+  args: unknown;
+  result: unknown;
+};
+
+export type TraceSink = {
+  onProviderCall?: (event: TraceProviderCallEvent) => void;
+  onToolResult?: (event: TraceToolResultEvent) => void;
+};
