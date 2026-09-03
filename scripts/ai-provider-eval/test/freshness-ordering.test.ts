@@ -14,6 +14,14 @@ import { fileURLToPath } from "node:url";
  * snapshot — an end-to-end proof, not just a unit test of
  * checkSnapshotFreshness() in isolation (see snapshot-freshness.test.ts
  * for that).
+ *
+ * This file spawns a subprocess that mutates shared external state (the
+ * real, committed snapshot file, restored in a finally block) and reads
+ * the real RESULTS_DIR pre-flight state — see
+ * test/results-dir-preflight.test.ts, which does the same for
+ * RESULTS_DIR. Both must run with other test files serialized, never
+ * interleaved — see package.json's `test` script's
+ * `--test-concurrency=1`.
  */
 
 const PACKAGE_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");

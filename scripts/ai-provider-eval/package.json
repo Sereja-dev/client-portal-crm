@@ -7,7 +7,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "extract": "node -e \"console.error('extract-fixtures.ts must be run from the REPO ROOT (not from inside scripts/ai-provider-eval), so it can resolve the main app\\'s @/* aliases and Prisma client:\\n\\n  npx tsx scripts/ai-provider-eval/extract-fixtures.ts\\n\\nSee README.md — Snapshot refresh procedure.'); process.exit(1)\"",
-    "test": "tsx --test \"test/**/*.test.ts\"",
+    "test": "tsx --test --test-concurrency=1 \"test/**/*.test.ts\"",
     "dry-run": "tsx index.ts --dry-run",
     "validate": "tsx index.ts --validate",
     "eval": "tsx index.ts",

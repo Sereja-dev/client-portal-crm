@@ -1,12 +1,13 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { sanitizeCsvCellForSpreadsheet, buildArtifactRow, RESULTS_DIR, writeReport, type ReproducibilityMetadata } from "../report.js";
+import { sanitizeCsvCellForSpreadsheet, buildArtifactRow, writeReport, type ReproducibilityMetadata } from "../report.js";
 import { scoreRun } from "../scoring.js";
 import type { BenchmarkCase } from "../cases.js";
 import type { RunResult } from "../result-types.js";
 import type { ProviderAggregate } from "../decision.js";
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync, rmSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 describe("report.ts — sanitizeCsvCellForSpreadsheet (Finding 3)", () => {
   test("prefixes a leading = with an apostrophe", () => {
@@ -81,11 +82,12 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
     };
 
-    const written = writeReport({
-      rows: [row], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
-      outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
-    });
+    const tempDir = mkdtempSync(join(tmpdir(), "aqenra-csv-test-"));
     try {
+      const written = writeReport({
+        rows: [row], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
+        outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
+      }, tempDir);
       const csv = readFileSync(written.csvPath, "utf8");
       const lines = csv.trim().split("\n");
       assert.equal(lines.length, 2, "header + exactly one data row");
@@ -94,7 +96,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
       // Never a bare, unescaped leading '=' reaching a spreadsheet cell.
       assert.equal(/(?<!')=cmd/.test(csv), false);
     } finally {
-      rmSync(join(RESULTS_DIR), { recursive: true, force: true });
+      rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -111,15 +113,16 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)",
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
     };
-    const written = writeReport({
-      rows: [row], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
-      outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
-    });
+    const tempDir = mkdtempSync(join(tmpdir(), "aqenra-csv-test-"));
     try {
+      const written = writeReport({
+        rows: [row], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
+        outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
+      }, tempDir);
       const csv = readFileSync(written.csvPath, "utf8");
       assert.match(csv, /"has, comma ""and quote""\nand newline"/);
     } finally {
-      rmSync(join(RESULTS_DIR), { recursive: true, force: true });
+      rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -136,16 +139,17 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)",
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
     };
-    const written = writeReport({
-      rows: [row], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
-      outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
-    });
+    const tempDir = mkdtempSync(join(tmpdir(), "aqenra-csv-test-"));
     try {
+      const written = writeReport({
+        rows: [row], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
+        outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
+      }, tempDir);
       const json = readFileSync(written.jsonPath, "utf8");
       assert.match(json, /"=SUM\(1,1\)"/); // JSON keeps the raw string, unprefixed — JSON is not spreadsheet-interpreted
       assert.equal(json.includes("'=SUM(1,1)"), false);
     } finally {
-      rmSync(join(RESULTS_DIR), { recursive: true, force: true });
+      rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -162,15 +166,16 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)",
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
     };
-    const written = writeReport({
-      rows: [row], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
-      outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
-    });
+    const tempDir = mkdtempSync(join(tmpdir(), "aqenra-csv-test-"));
     try {
+      const written = writeReport({
+        rows: [row], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
+        outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
+      }, tempDir);
       const csv = readFileSync(written.csvPath, "utf8");
       assert.match(csv, /café_日本語_emoji_🎉/);
     } finally {
-      rmSync(join(RESULTS_DIR), { recursive: true, force: true });
+      rmSync(tempDir, { recursive: true, force: true });
     }
   });
 });
