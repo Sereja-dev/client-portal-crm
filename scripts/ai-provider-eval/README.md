@@ -85,6 +85,17 @@ export AQENRA_EVAL_OPENAI_API_KEY="..."      # never commit this
   `redactPotentialSecrets()` is applied to every string written to
   `results/`, as defense-in-depth on top of every call site's own
   discipline of never logging the raw value).
+- **Operator note (2026-09-03 incident).** The key exposure that
+  followed the first live run did **not** come from this harness — no
+  code path here emits a key value, and `secrets.ts` /
+  `hasOpenAiEvalApiKey()` use `Boolean(process.env.…)` presence checks
+  that can never expand the value. It came from a **manual diagnostic
+  command an operator ran in their own shell, outside this package**, to
+  probe the `gpt-5.6-luna` 400. When diagnosing a live failure by hand,
+  never echo `$AQENRA_EVAL_*` (or pass it somewhere that will);
+  presence-check with `[ -n "${AQENRA_EVAL_OPENAI_API_KEY:+set}" ]`, and
+  prefer re-running this harness (which redacts) over ad-hoc `curl`.
+  Both benchmark keys from that run are being revoked.
 
 ## Allowed network hosts
 
@@ -241,6 +252,61 @@ fighting that model to stay stateless or giving OpenAI an asymmetric
 conversation-state mechanism Anthropic's own adapter has no equivalent
 for.
 
+This choice was re-confirmed after the 2026-09-03 live-run failure:
+`gpt-5.6-luna` rejects `tools` on Chat Completions unless
+`reasoning_effort: "none"` is set. Adding that one parameter (see "OpenAI
+reasoning effort" below) closes the failure with no endpoint migration
+and no change to this adapter's response normalization, so it is
+preferred over moving to the Responses API.
+
+## OpenAI reasoning effort
+
+**Every OpenAI Chat Completions request this harness makes sends
+`reasoning_effort: "none"` (see `openai-compat.ts`'s
+`OPENAI_REASONING_EFFORT`).** This is a **frozen** benchmark parameter,
+on the same footing as `cases.ts` / `scoring.ts` / `decision.ts` — it
+must not be altered between official runs, and no live run happens
+automatically (see "No live network by default" above).
+
+**Why it is required (compatibility).** `gpt-5.6-luna` is a reasoning
+model. On `/v1/chat/completions` it returns an HTTP 400
+`invalid_request_error` for *any* request that carries `tools` unless
+`reasoning_effort` is explicitly `"none"` — vendor message: *"Function
+tools with reasoning_effort are not supported for gpt-5.6-luna in
+/v1/chat/completions. To use function tools, use /v1/responses or set
+reasoning_effort to 'none'."* The first live official run (2026-09-03)
+hit this on **108/108** OpenAI requests and produced zero valid
+completions (`results/OPERATIONAL-FAILURE-NOTE.md`). The current
+`openai` SDK (`openai@7.9.0`) already types `"none"` as a valid
+`reasoning_effort` value
+(`resources/chat/completions/completions.d.ts` →
+`ChatCompletionReasoningEffort` → `resources/shared.d.ts`
+`ReasoningEffort`), so no SDK upgrade is involved, and the adapter
+re-asserts that at compile time.
+
+**Why it is *not* an unfair advantage (fairness).** `reasoning_effort:
+"none"` fully disables the model's private reasoning pass. The Anthropic
+adapter (`providers/anthropic.ts`) sends **no** extended-thinking
+parameter, so `claude-haiku-4-5` already runs in its standard,
+non-extended mode. `"none"` is therefore the *symmetric* setting — both
+arms run without a multi-step private reasoning budget. Any other value
+would (a) give OpenAI a reasoning pass the paired Haiku run never gets,
+and (b) make the recorded economical-tier pricing wrong, since reasoning
+tokens bill as output. Disabling reasoning here restores the originally
+intended "economical model vs. Haiku 4.5, both in standard mode"
+comparison rather than changing it; migrating to the Responses API was
+considered and rejected (it would force an asymmetric server-retained
+conversation-state mechanism Anthropic's adapter has no equivalent for,
+and rewrite this adapter's entire normalization/usage/error mapping —
+see `providers/openai.ts`'s own header comment).
+
+**Disclosure.** `reasoning_effort` is *not* a sampling parameter — the
+temperature/top_p/top_k omission below is unaffected. Every report
+records the value used, both in the human-readable `## Models` section of
+`report.md` and in `results.json`'s reproducibility metadata
+(`openaiReasoningEffort`); it is never hidden. Anthropic request
+metadata is unchanged.
+
 ## Single-call enforcement
 
 Both adapters constrain every request to at most one tool call per
@@ -271,7 +337,9 @@ Anthropic's own docs note that setting a non-default value on
 Claude 4.7-and-later models returns a 400 error, and forcing an
 asymmetric setting on only one vendor would itself be an unfairness.
 Every report records `sampling: "vendor-default"` as an explicit,
-disclosed limitation.
+disclosed limitation. (OpenAI's `reasoning_effort: "none"` is a separate,
+non-sampling compatibility parameter — see "OpenAI reasoning effort"
+above — and is disclosed in its own reproducibility field.)
 
 ## Three repetitions
 
@@ -290,10 +358,12 @@ the real comparison.
 own `/results/` entry; the committed `fixtures/` and `cases.ts` are
 unaffected). No API key, raw SDK request/response header, or real
 customer content is ever written there. Reproducibility metadata (git
-SHA, case/snapshot/system-prompt hashes, both model IDs, the pricing
-snapshot date/prices/staleness warning actually used, repetition count,
-ceilings, SDK versions) is recorded in every run's own JSON output — see
-`report.ts`'s own `buildReproducibilityMetadata()`.
+SHA, case/snapshot/system-prompt hashes, both model IDs, the OpenAI
+`reasoning_effort` value used (`openaiReasoningEffort` — see "OpenAI
+reasoning effort" above), the pricing snapshot date/prices/staleness
+warning actually used, repetition count, ceilings, SDK versions) is
+recorded in every run's own JSON output — see `report.ts`'s own
+`buildReproducibilityMetadata()`.
 
 **CSV formula-injection safety.** `report.ts`'s own
 `sanitizeCsvCellForSpreadsheet()` prefixes any CSV cell whose (trimmed)
@@ -360,6 +430,7 @@ scripts/ai-provider-eval/
   scoring.ts                 — deterministic per-run metrics
   decision.ts                — quality gate + lexicographic + tie rule (frozen)
   pricing.ts                  — static pricing snapshot + staleness warning (reverify before each run)
+  openai-compat.ts            — SDK-free frozen OPENAI_REASONING_EFFORT ("none") constant (see "OpenAI reasoning effort")
   drafting-packet.ts          — blind human drafting-packet + mapping generation
   secrets.ts / network-allowlist.ts — secret + host safety
   providers/

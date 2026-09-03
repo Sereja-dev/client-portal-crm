@@ -26,6 +26,31 @@
  * JSON-string-encoded tool-call/result convention, with no additional
  * translation machinery beyond what providers/anthropic.ts already needs
  * for its own native shape.
+ *
+ * gpt-5.6-luna COMPATIBILITY — `reasoning_effort: "none"` (see
+ * OPENAI_REASONING_EFFORT below): gpt-5.6-luna is a reasoning model that
+ * REJECTS `tools` on /v1/chat/completions with an HTTP 400
+ * invalid_request_error unless `reasoning_effort` is explicitly `"none"`
+ * (vendor message: "Function tools with reasoning_effort are not
+ * supported for gpt-5.6-luna in /v1/chat/completions. To use function
+ * tools, use /v1/responses or set reasoning_effort to 'none'."). The
+ * first live run (2026-09-03, results/OPERATIONAL-FAILURE-NOTE.md) hit
+ * this on 108/108 OpenAI requests because this adapter previously sent
+ * `tools` while letting the model fall back to its default reasoning
+ * effort. Sending `reasoning_effort: "none"` closes that condition
+ * without migrating endpoints (the SDK type
+ * `OpenAI.Chat.ChatCompletionReasoningEffort` admits `"none"` — see the
+ * `satisfies` check below — so no `openai` SDK bump is needed), keeps
+ * this whole adapter's normalization/continuation/usage/error mapping
+ * byte-identical, and is ALSO the fairness-correct setting: the
+ * Anthropic adapter sends no extended-thinking parameter, so
+ * claude-haiku-4-5 runs in its standard non-extended mode — `"none"`
+ * keeps both arms symmetric (any other value would hand OpenAI a private
+ * multi-step reasoning budget Haiku's paired run never gets). It is a
+ * frozen benchmark parameter, recorded in every report's reproducibility
+ * metadata (report.ts's `openaiReasoningEffort`) — never hidden, never
+ * altered between official runs. See README's own "OpenAI reasoning
+ * effort" section.
  */
 
 import OpenAI, {
@@ -43,9 +68,25 @@ import type { AiMessage, AiRequest, AiResponse, AiToolCall } from "../../../src/
 import { assertAllowedProviderHost } from "../network-allowlist.js";
 import { getOpenAiEvalApiKey } from "../secrets.js";
 import { OPENAI_MODEL_ID } from "../pricing.js";
+import { OPENAI_REASONING_EFFORT } from "../openai-compat.js";
 import type { BenchmarkError, NormalizedProviderTurn } from "../result-types.js";
 
 const OPENAI_BASE_URL = "https://api.openai.com/v1";
+
+/**
+ * Compile-time proof that the frozen compatibility value (defined
+ * SDK-free in openai-compat.ts) is a value the installed `openai` SDK
+ * actually admits for `reasoning_effort`. If a future SDK ever drops
+ * `"none"` from its `ChatCompletionReasoningEffort` union, this line
+ * fails `tsc` loudly instead of the adapter silently sending an
+ * unsupported value. `openai@7.9.0`:
+ *   node_modules/openai/resources/chat/completions/completions.d.ts:1666
+ *     `type ChatCompletionReasoningEffort = Shared.ReasoningEffort | null`
+ *   node_modules/openai/resources/shared.d.ts:193
+ *     `type ReasoningEffort = 'none' | 'minimal' | 'low' | ... | null`
+ */
+const _reasoningEffortIsSdkValid: OpenAI.Chat.ChatCompletionReasoningEffort = OPENAI_REASONING_EFFORT;
+void _reasoningEffortIsSdkValid;
 
 function buildClient(): OpenAI {
   // Same reasoning as providers/anthropic.ts's own buildClient(): the SDK
@@ -165,6 +206,15 @@ export async function completeWithOpenAi(request: AiRequest, options: { signal?:
         max_completion_tokens: request.maxOutputTokens,
         messages: mapMessagesToOpenAi(request.systemPrompt, request.messages),
         tools,
+        // Required for gpt-5.6-luna to accept `tools` on Chat Completions
+        // at all — a hard compatibility requirement, and the
+        // fairness-correct symmetric setting vs the Anthropic arm (which
+        // runs claude-haiku-4-5 with no extended-thinking parameter). See
+        // this file's own header comment and README's own "OpenAI
+        // reasoning effort" section. NOT a sampling parameter — the
+        // temperature/top_p/top_k omission (README's "Sampling" section)
+        // is unaffected and still applies.
+        reasoning_effort: OPENAI_REASONING_EFFORT,
         // At most one tool call per response — see README's own
         // "Single-call enforcement" section. Sampling params
         // deliberately omitted for both vendors — see README's own

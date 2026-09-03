@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { buildArtifactRow, buildReproducibilityMetadata, writeReport, RESULTS_DIR } from "../report.js";
+import { OPENAI_REASONING_EFFORT } from "../openai-compat.js";
 import { scoreRun } from "../scoring.js";
 import type { BenchmarkCase } from "../cases.js";
 import type { RunResult } from "../result-types.js";
@@ -87,6 +88,41 @@ describe("report.ts — buildReproducibilityMetadata includes a live pricing-fre
   });
 });
 
+describe("report.ts — OpenAI reasoning_effort compatibility parameter is captured, never hidden", () => {
+  test("buildReproducibilityMetadata records openaiReasoningEffort = 'none', sourced from openai-compat.ts", () => {
+    const metadata = buildReproducibilityMetadata({ repetitionCount: 3, officialRun: true });
+    assert.equal(metadata.openaiReasoningEffort, OPENAI_REASONING_EFFORT);
+    assert.equal(metadata.openaiReasoningEffort, "none");
+  });
+
+  test("there is no Anthropic-side reasoning/thinking metadata field — the Anthropic request is unchanged", () => {
+    const metadata = buildReproducibilityMetadata({ repetitionCount: 3, officialRun: true }) as Record<string, unknown>;
+    for (const key of Object.keys(metadata)) {
+      assert.equal(/anthropic.*(reasoning|thinking)/i.test(key), false, `unexpected Anthropic reasoning/thinking key: ${key}`);
+    }
+  });
+
+  test("report.md states the OpenAI reasoning_effort value explicitly in the human-readable Models section (not only the buried JSON dump)", () => {
+    const metadata = buildReproducibilityMetadata({ repetitionCount: 3, officialRun: true });
+    const written = writeReport({
+      rows: [], metadata,
+      anthropic: { provider: "anthropic", totalRuns: 1, validArgumentPct: 100, factualCorrectnessPct: 100, mutationCompliancePct: 100, uuidNoLeakPct: 100, unknownToolExecutionCount: 0, injectionViolationCount: 0, protocolViolationCount: 0, medianLatencyMs: 1, p90LatencyMs: 1, totalCostUsd: 0, toolCorrectnessScore: 100 },
+      openai: { provider: "openai", totalRuns: 1, validArgumentPct: 100, factualCorrectnessPct: 100, mutationCompliancePct: 100, uuidNoLeakPct: 100, unknownToolExecutionCount: 0, injectionViolationCount: 0, protocolViolationCount: 0, medianLatencyMs: 1, p90LatencyMs: 1, totalCostUsd: 0, toolCorrectnessScore: 100 },
+      outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
+    });
+    try {
+      const md = readFileSync(written.markdownPath, "utf8");
+      const modelsSectionIndex = md.indexOf("## Models");
+      const jsonDumpIndex = md.indexOf("```json");
+      assert.ok(modelsSectionIndex >= 0 && modelsSectionIndex < jsonDumpIndex);
+      const modelsSection = md.slice(modelsSectionIndex, jsonDumpIndex);
+      assert.match(modelsSection, /reasoning_effort: "none"/);
+    } finally {
+      rmSync(join(RESULTS_DIR), { recursive: true, force: true });
+    }
+  });
+});
+
 describe("report.ts — Markdown STALE_PRICING_WARNING banner (Finding 4)", () => {
   function perfectAgg(provider: "anthropic" | "openai"): ProviderAggregate {
     return {
@@ -99,7 +135,7 @@ describe("report.ts — Markdown STALE_PRICING_WARNING banner (Finding 4)", () =
   test("a non-null pricingFreshnessWarning is surfaced prominently in report.md, never buried", () => {
     const metadata = {
       gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
-      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", pricingSnapshotDate: "2020-01-01",
+      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", openaiReasoningEffort: "none", pricingSnapshotDate: "2020-01-01",
       pricesUsed: {} as ReturnType<typeof buildReproducibilityMetadata>["pricesUsed"], repetitionCount: 3,
       maxOutputTokens: 1, maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)" as const,
@@ -126,7 +162,7 @@ describe("report.ts — Markdown STALE_PRICING_WARNING banner (Finding 4)", () =
   test("a null pricingFreshnessWarning produces no banner at all", () => {
     const metadata = {
       gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
-      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", pricingSnapshotDate: "2026-09-03",
+      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", openaiReasoningEffort: "none", pricingSnapshotDate: "2026-09-03",
       pricesUsed: {} as ReturnType<typeof buildReproducibilityMetadata>["pricesUsed"], repetitionCount: 3,
       maxOutputTokens: 1, maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)" as const,
@@ -147,7 +183,7 @@ describe("report.ts — Markdown STALE_PRICING_WARNING banner (Finding 4)", () =
   test("the drafting-packet reference in report.md names a real, always-generated path — never a dangling promise", () => {
     const metadata = {
       gitSha: "test", benchmarkTimestamp: "t", caseFileHash: "h", toolContractSnapshotHash: "h",
-      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", pricingSnapshotDate: "2026-09-03",
+      systemPromptHash: "h", anthropicModelId: "m", openaiModelId: "m", openaiReasoningEffort: "none", pricingSnapshotDate: "2026-09-03",
       pricesUsed: {} as ReturnType<typeof buildReproducibilityMetadata>["pricesUsed"], repetitionCount: 3,
       maxOutputTokens: 1, maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)" as const,

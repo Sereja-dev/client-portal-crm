@@ -19,6 +19,7 @@ import type { RunResult } from "./result-types.js";
 import type { ProviderAggregate, SelectionOutcome } from "./decision.js";
 import { redactPotentialSecrets } from "./secrets.js";
 import { PRICING, PRICING_SNAPSHOT_DATE, getPricingFreshnessWarning } from "./pricing.js";
+import { OPENAI_REASONING_EFFORT } from "./openai-compat.js";
 import { getAiAssistantSystemPrompt } from "../../src/lib/ai/system-prompt.js";
 import { MAX_OUTPUT_TOKENS, MAX_PROVIDER_CALLS_PER_TURN, MAX_TOOL_CALLS_PER_TURN } from "../../src/lib/ai/orchestration-limits.js";
 
@@ -54,6 +55,17 @@ export type ReproducibilityMetadata = {
   systemPromptHash: string;
   anthropicModelId: string;
   openaiModelId: string;
+  /**
+   * The exact `reasoning_effort` value sent on every OpenAI Chat
+   * Completions request in this run — a FROZEN, provider-specific
+   * compatibility parameter (gpt-5.6-luna rejects `tools` on
+   * /v1/chat/completions otherwise; see openai-compat.ts and README's
+   * own "OpenAI reasoning effort" section). Recorded explicitly so an
+   * official run's request shape is never implicit. There is no
+   * Anthropic equivalent field — the Anthropic adapter's request is
+   * unchanged and sends no reasoning/thinking parameter.
+   */
+  openaiReasoningEffort: string;
   pricingSnapshotDate: string;
   pricesUsed: typeof PRICING;
   repetitionCount: number;
@@ -79,6 +91,7 @@ export function buildReproducibilityMetadata(input: { repetitionCount: number; o
     systemPromptHash: sha256(getAiAssistantSystemPrompt()),
     anthropicModelId: PRICING.anthropic.modelId,
     openaiModelId: PRICING.openai.modelId,
+    openaiReasoningEffort: OPENAI_REASONING_EFFORT,
     pricingSnapshotDate: PRICING_SNAPSHOT_DATE,
     pricesUsed: PRICING,
     repetitionCount: input.repetitionCount,
@@ -234,8 +247,8 @@ Git SHA: \`${metadata.gitSha}\`
 Pricing snapshot date: ${metadata.pricingSnapshotDate} — REVERIFY before trusting these cost figures on any later date.
 
 ## Models
-- Anthropic: \`${metadata.anthropicModelId}\`
-- OpenAI: \`${metadata.openaiModelId}\`
+- Anthropic: \`${metadata.anthropicModelId}\` (no reasoning/thinking parameter sent — standard mode)
+- OpenAI: \`${metadata.openaiModelId}\` with \`reasoning_effort: "${metadata.openaiReasoningEffort}"\` — a frozen Chat Completions compatibility requirement for this model when \`tools\` are present, and the fairness-symmetric setting vs the Anthropic arm (see README's own "OpenAI reasoning effort" section).
 
 ## Outcome
 
