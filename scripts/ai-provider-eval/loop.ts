@@ -51,7 +51,7 @@ import {
   PROVIDER_CALL_TIMEOUT_MS,
 } from "../../src/lib/ai/orchestration-limits.js";
 import { BENCHMARK_TOOLS, getBenchmarkToolByName } from "./tool-runtime.js";
-import type { BenchmarkProviderId, NormalizedProviderTurn, ProviderCallTrace, RunResult, ToolCallTrace } from "./result-types.js";
+import type { BenchmarkProviderId, NormalizedProviderTurn, ProviderCallTrace, RunResult, ToolCallTrace, TraceSink } from "./result-types.js";
 
 /** Fixed, arbitrary — the fixture tool executors ignore it entirely (see tool-runtime.ts, which operates on one single hardcoded synthetic organization), but every AiToolDefinition.execute() still requires a first argument, matching production's own signature exactly. */
 const BENCHMARK_ORGANIZATION_ID = "benchmark-fixture-org";
@@ -66,6 +66,8 @@ export type RunBenchmarkTurnInput = {
   estimateCostUsd: (promptTokens: number, completionTokens: number) => number;
   /** Per-provider-call timeout, mirroring PROVIDER_CALL_TIMEOUT_MS — a real AbortController is used here (unlike orchestrate.ts's own Promise.race, which does not cancel the underlying call), since this benchmark's own §20 goal is bounded network behavior, not a proposal to change provider.ts. */
   timeoutMs?: number;
+  /** Optional, observation-only (see result-types.ts's own TraceSink doc comment). Omitted by every call site that doesn't opt into forensic tracing — behavior is byte-identical to before this field existed in that case. */
+  traceSink?: TraceSink;
 };
 
 async function callWithTimeout(complete: ProviderCompleteFn, request: AiRequest, timeoutMs: number): Promise<{ turn: NormalizedProviderTurn; timedOut: boolean }> {
@@ -94,7 +96,7 @@ function toolResultJson(toolName: string, executed: boolean, resultOk: boolean, 
 }
 
 export async function runBenchmarkTurn(input: RunBenchmarkTurnInput): Promise<RunResult> {
-  const { provider, model, complete, userMessage, estimateCostUsd } = input;
+  const { provider, model, complete, userMessage, estimateCostUsd, traceSink } = input;
   const timeoutMs = input.timeoutMs ?? PROVIDER_CALL_TIMEOUT_MS;
   const startedAt = performance.now();
 
@@ -147,11 +149,13 @@ export async function runBenchmarkTurn(input: RunBenchmarkTurnInput): Promise<Ru
 
     if (turn.kind === "error") {
       providerCalls.push({ index: callIndex, latencyMs: callLatencyMs, usage: null, outcome: { kind: "error", error: turn.error } });
+      traceSink?.onProviderCall?.({ callIndex, latencyMs: callLatencyMs, usage: null, turn });
       return finish(null, false, turn.error.kind);
     }
 
     if (turn.kind === "protocol_violation") {
       providerCalls.push({ index: callIndex, latencyMs: callLatencyMs, usage: null, outcome: { kind: "error", error: { kind: "protocol_violation", message: turn.message } } });
+      traceSink?.onProviderCall?.({ callIndex, latencyMs: callLatencyMs, usage: null, turn });
       return finish(null, true, "protocol_violation");
     }
 
@@ -165,12 +169,14 @@ export async function runBenchmarkTurn(input: RunBenchmarkTurnInput): Promise<Ru
 
     if (response.kind === "text") {
       providerCalls.push({ index: callIndex, latencyMs: callLatencyMs, usage: response.usage, outcome: { kind: "text" } });
+      traceSink?.onProviderCall?.({ callIndex, latencyMs: callLatencyMs, usage: response.usage, turn });
       return finish(response.text, false, null);
     }
 
     // kind === "toolCall"
     const call: AiToolCall = response.call;
     providerCalls.push({ index: callIndex, latencyMs: callLatencyMs, usage: response.usage, outcome: { kind: "toolCall", toolName: call.toolName, args: call.args } });
+    traceSink?.onProviderCall?.({ callIndex, latencyMs: callLatencyMs, usage: response.usage, turn });
 
     toolCallCount += 1;
     if (toolCallCount > MAX_TOOL_CALLS_PER_TURN) {
@@ -181,8 +187,10 @@ export async function runBenchmarkTurn(input: RunBenchmarkTurnInput): Promise<Ru
     messages.push({ role: "assistant", content: JSON.stringify({ toolName: call.toolName, args: call.args }) });
 
     if (!tool) {
+      const unregisteredResult = { ok: false, error: "invalid_input" };
       toolCalls.push({ toolName: call.toolName, args: call.args, isRegisteredTool: false, resultOk: false, resultErrorKind: "invalid_input" });
-      messages.push({ role: "tool", content: JSON.stringify({ toolName: call.toolName, result: { ok: false, error: "invalid_input" } }) });
+      traceSink?.onToolResult?.({ toolName: call.toolName, args: call.args, result: unregisteredResult });
+      messages.push({ role: "tool", content: JSON.stringify({ toolName: call.toolName, result: unregisteredResult }) });
       continue;
     }
 
@@ -196,7 +204,13 @@ export async function runBenchmarkTurn(input: RunBenchmarkTurnInput): Promise<Ru
     const resultOk = typeof toolResult === "object" && toolResult !== null && (toolResult as { ok?: unknown }).ok === true;
     const resultErrorKind = resultOk ? null : ((toolResult as { error?: string })?.error ?? "unavailable");
     toolCalls.push({ toolName: call.toolName, args: call.args, isRegisteredTool: true, resultOk, resultErrorKind: resultErrorKind as ToolCallTrace["resultErrorKind"] });
+    // Trace the EXACT provider-visible representation (post-oversized-result-guard, see
+    // toolResultJson() below), never the larger hidden original if the guard replaced it —
+    // "the trace must show what the provider actually received" (see forensic-trace.ts).
+    const providerVisibleResultJson = toolResultJson(call.toolName, true, resultOk, resultErrorKind, toolResult);
+    const providerVisibleResult: unknown = (JSON.parse(providerVisibleResultJson) as { toolName: string; result: unknown }).result;
+    traceSink?.onToolResult?.({ toolName: call.toolName, args: call.args, result: providerVisibleResult });
 
-    messages.push({ role: "tool", content: toolResultJson(call.toolName, true, resultOk, resultErrorKind, toolResult) });
+    messages.push({ role: "tool", content: providerVisibleResultJson });
   }
 }

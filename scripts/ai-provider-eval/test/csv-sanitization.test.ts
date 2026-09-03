@@ -80,6 +80,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
       maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)",
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
+      forensicTraceEnabled: false, forensicTraceStatus: "not_requested",
     };
 
     const tempDir = mkdtempSync(join(tmpdir(), "aqenra-csv-test-"));
@@ -112,6 +113,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
       maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)",
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
+      forensicTraceEnabled: false, forensicTraceStatus: "not_requested",
     };
     const tempDir = mkdtempSync(join(tmpdir(), "aqenra-csv-test-"));
     try {
@@ -138,6 +140,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
       maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)",
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
+      forensicTraceEnabled: false, forensicTraceStatus: "not_requested",
     };
     const tempDir = mkdtempSync(join(tmpdir(), "aqenra-csv-test-"));
     try {
@@ -165,6 +168,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
       maxToolCallsPerTurn: 1, maxProviderCallsPerTurn: 1,
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)",
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
+      forensicTraceEnabled: false, forensicTraceStatus: "not_requested",
     };
     const tempDir = mkdtempSync(join(tmpdir(), "aqenra-csv-test-"));
     try {

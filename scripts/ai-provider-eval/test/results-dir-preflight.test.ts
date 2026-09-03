@@ -73,11 +73,46 @@ describe("index.ts --run — stale RESULTS_DIR pre-flight (real subprocess, no n
     }
   });
 
+  test("refuses with STALE_RESULTS_DIR when only a stale forensic-trace.json exists (PR 2, task §34) — never auto-deletes it", () => {
+    mkdirSync(RESULTS_DIR, { recursive: true });
+    const sentinelTracePath = join(RESULTS_DIR, "forensic-trace.json");
+    const preexisting = existsSync(sentinelTracePath);
+    const sentinelContent = preexisting ? null : '{"sentinel":"results-dir-preflight-trace-test"}';
+    if (!preexisting) {
+      writeFileSync(sentinelTracePath, sentinelContent as string, "utf8");
+    }
+
+    try {
+      let output = "";
+      let threw = false;
+      try {
+        output = execFileSync("npx", ["tsx", "index.ts", "--run"], {
+          cwd: PACKAGE_DIR,
+          encoding: "utf8",
+          env: { ...process.env, AQENRA_EVAL_ANTHROPIC_API_KEY: "", AQENRA_EVAL_OPENAI_API_KEY: "" },
+        });
+      } catch (err) {
+        threw = true;
+        output = String((err as { stdout?: string }).stdout ?? "") + String((err as { stderr?: string }).stderr ?? "");
+      }
+
+      assert.equal(threw, true, "expected a non-zero exit (stale forensic-trace.json)");
+      assert.match(output, /STALE_RESULTS_DIR/);
+      assert.match(output, /forensic-trace\.json/);
+      assert.equal(output.includes("Missing AQENRA_EVAL_ANTHROPIC_API_KEY"), false, "must never reach the key-presence check after a stale-results refusal");
+      assert.equal(existsSync(sentinelTracePath), true, "the guard is read-only — it must not delete the stale trace file itself");
+    } finally {
+      if (!preexisting) {
+        rmSync(sentinelTracePath, { force: true });
+      }
+    }
+  });
+
   test("proceeds past the stale-results guard (reaches the key-presence check) when RESULTS_DIR has no prior artifact files", () => {
     // This test only asserts ordering/reachability, not a live run: it
     // still supplies no keys, so execution is guaranteed to stop at the
     // key-presence check before any provider import or network call.
-    for (const name of ["results.json", "results.csv", "report.md"]) {
+    for (const name of ["results.json", "results.csv", "report.md", "forensic-trace.json"]) {
       assert.equal(existsSync(join(RESULTS_DIR, name)), false, `precondition: ${name} must not exist for this test`);
     }
 

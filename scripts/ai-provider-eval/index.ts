@@ -24,11 +24,13 @@ import { scoreRun } from "./scoring.js";
 import { aggregate, decideOutcome } from "./decision.js";
 import { estimateAnthropicCostUsd, estimateOpenAiCostUsd } from "./pricing.js";
 import { hasAnthropicEvalApiKey, hasOpenAiEvalApiKey } from "./secrets.js";
-import { buildArtifactRow, buildReproducibilityMetadata, writeReport, RESULTS_DIR, type ArtifactRow } from "./report.js";
+import { buildArtifactRow, buildReproducibilityMetadata, writeReport, safeGitSha, RESULTS_DIR, type ArtifactRow } from "./report.js";
 import { checkSnapshotFreshness, describeFreshnessFailure } from "./snapshot-freshness.js";
 import { buildDraftingBlindArtifacts, writeDraftingBlindArtifacts } from "./drafting-packet.js";
 import type { BenchmarkProviderId, RunResult } from "./result-types.js";
 import type { CaseScore } from "./scoring.js";
+import { BENCHMARK_DEFINITION_VERSION } from "./benchmark-version.js";
+import { createRunTraceCollector, buildForensicTraceRow, writeForensicTrace, type ForensicTraceRow, type RowBuildResult, FORENSIC_TRACE_SCHEMA_VERSION } from "./forensic-trace.js";
 
 const SNAPSHOT_PATH = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "tool-contracts.snapshot.json");
 
@@ -36,18 +38,23 @@ const DEFAULT_REPETITIONS = 3;
 
 type Mode = "dry-run" | "validate" | "run" | "report";
 
-function parseArgs(argv: string[]): { mode: Mode; repetitions: number } {
+function parseArgs(argv: string[]): { mode: Mode; repetitions: number; withForensicTrace: boolean } {
   const hasFlag = (flag: string) => argv.includes(flag);
   const repetitionsArg = argv.find((a) => a.startsWith("--repetitions="));
   const repetitions = repetitionsArg ? Number(repetitionsArg.split("=")[1]) : DEFAULT_REPETITIONS;
+  // Parsed unconditionally, for every mode — main() decides what to do
+  // with it (only "run" mode ever acts on it; every other mode prints an
+  // inert warning and otherwise ignores it, never a hidden env/config
+  // toggle — see README.md's own "Forensic trace observability" section).
+  const withForensicTrace = hasFlag("--with-forensic-trace");
 
-  if (hasFlag("--run")) return { mode: "run", repetitions };
-  if (hasFlag("--validate")) return { mode: "validate", repetitions: DEFAULT_REPETITIONS };
-  if (hasFlag("--report")) return { mode: "report", repetitions: DEFAULT_REPETITIONS };
+  if (hasFlag("--run")) return { mode: "run", repetitions, withForensicTrace };
+  if (hasFlag("--validate")) return { mode: "validate", repetitions: DEFAULT_REPETITIONS, withForensicTrace };
+  if (hasFlag("--report")) return { mode: "report", repetitions: DEFAULT_REPETITIONS, withForensicTrace };
   // No recognized flag, including plain `--dry-run` or no args at all —
   // dry-run is the one and only default (see this file's own header
   // comment).
-  return { mode: "dry-run", repetitions: DEFAULT_REPETITIONS };
+  return { mode: "dry-run", repetitions: DEFAULT_REPETITIONS, withForensicTrace };
 }
 
 function runStructuralValidation(): void {
@@ -120,7 +127,7 @@ function enforceSnapshotFreshnessOrExit(): boolean {
  * required archive-before-rerun operator procedure.
  */
 function enforceResultsDirEmptyOrExit(): boolean {
-  const staleFiles = ["results.json", "results.csv", "report.md"].filter((name) => existsSync(join(RESULTS_DIR, name)));
+  const staleFiles = ["results.json", "results.csv", "report.md", "forensic-trace.json"].filter((name) => existsSync(join(RESULTS_DIR, name)));
   if (staleFiles.length > 0) {
     console.error(`STALE_RESULTS_DIR — refusing to run: ${RESULTS_DIR} already contains ${staleFiles.join(", ")} from a prior run.`);
     console.error("Archive the existing results/ directory before starting a new official run — see README.md's own \"Artifact lifecycle\" section. Nothing was deleted or modified.");
@@ -130,7 +137,7 @@ function enforceResultsDirEmptyOrExit(): boolean {
   return true;
 }
 
-async function runLiveBenchmark(repetitions: number): Promise<void> {
+async function runLiveBenchmark(repetitions: number, withForensicTrace: boolean): Promise<void> {
   if (!enforceSnapshotFreshnessOrExit()) {
     return;
   }
@@ -169,10 +176,20 @@ async function runLiveBenchmark(repetitions: number): Promise<void> {
   const scoresByProvider: Record<BenchmarkProviderId, CaseScore[]> = { anthropic: [], openai: [] };
   const latenciesByProvider: Record<BenchmarkProviderId, number[]> = { anthropic: [], openai: [] };
   const costsByProvider: Record<BenchmarkProviderId, number[]> = { anthropic: [], openai: [] };
+  // Only populated when --with-forensic-trace was passed. Purely
+  // observational (see forensic-trace.ts's own header comment and
+  // result-types.ts's TraceSink doc comment) — createRunTraceCollector()
+  // is never consulted for any decision in the sweep loop below; it only
+  // accumulates already-normalized events that runBenchmarkTurn() fires
+  // regardless, so a run with tracing on and one with it off produce the
+  // identical RunResult/CaseScore either way (see
+  // test/forensic-trace-observational-equivalence.test.ts).
+  const traceRowResults: RowBuildResult[] = [];
 
   for (const caseDef of BENCHMARK_CASES) {
     for (const provider of providers) {
       for (let repetition = 1; repetition <= repetitions; repetition += 1) {
+        const collector = withForensicTrace ? createRunTraceCollector() : null;
         const run: RunResult = {
           ...(await runBenchmarkTurn({
             provider: provider.id,
@@ -180,6 +197,7 @@ async function runLiveBenchmark(repetitions: number): Promise<void> {
             complete: provider.complete,
             userMessage: caseDef.prompt,
             estimateCostUsd: provider.estimateCostUsd,
+            traceSink: collector?.sink,
           })),
           caseId: caseDef.id,
           repetition,
@@ -190,6 +208,9 @@ async function runLiveBenchmark(repetitions: number): Promise<void> {
         scoresByProvider[provider.id].push(score);
         latenciesByProvider[provider.id].push(run.totalLatencyMs);
         costsByProvider[provider.id].push(run.estimatedCostUsd);
+        if (collector) {
+          traceRowResults.push(buildForensicTraceRow({ caseDef, run, score, turns: collector.getTurns() }));
+        }
       }
     }
   }
@@ -200,7 +221,55 @@ async function runLiveBenchmark(repetitions: number): Promise<void> {
   const openaiAgg = aggregate("openai", scoresByProvider.openai, latenciesByProvider.openai, costsByProvider.openai, caseIndex);
   const decision = decideOutcome(anthropicAgg, openaiAgg);
 
-  const metadata = buildReproducibilityMetadata({ repetitionCount: repetitions, officialRun: repetitions === DEFAULT_REPETITIONS });
+  // Forensic-trace status must be known BEFORE buildReproducibilityMetadata()
+  // is called below, since it's recorded as a field on that same metadata
+  // object (see report.ts's own ReproducibilityMetadata) — so trace
+  // build/validate/write happens here, strictly before regular
+  // report/results generation, never after (see forensic-trace.ts's own
+  // header comment on why no circular dependency exists: this file never
+  // embeds results.json's own hash, only the reverse ordering constraint).
+  // A trace failure NEVER blocks or invalidates the official aggregate
+  // artifacts below — only forensicTraceStatus reflects it, loudly.
+  let forensicTraceStatus: "captured" | "requested_but_failed" | "not_requested" = "not_requested";
+  if (withForensicTrace) {
+    const failedRow = traceRowResults.find((r): r is { ok: false; reason: string } => !r.ok);
+    if (failedRow) {
+      console.error(`FORENSIC_TRACE_FAILED — ${failedRow.reason}`);
+      forensicTraceStatus = "requested_but_failed";
+    } else {
+      const traceRows: ForensicTraceRow[] = traceRowResults.map((r) => (r as { ok: true; row: ForensicTraceRow }).row);
+      const traceWrite = writeForensicTrace(
+        RESULTS_DIR,
+        {
+          forensicTraceSchemaVersion: FORENSIC_TRACE_SCHEMA_VERSION,
+          benchmarkDefinitionVersion: BENCHMARK_DEFINITION_VERSION,
+          gitSha: safeGitSha(),
+          generatedAt: new Date().toISOString(),
+          anthropicModelId: ANTHROPIC_MODEL_ID,
+          openaiModelId: OPENAI_MODEL_ID,
+          repetitionCount: repetitions,
+          rowCount: traceRows.length,
+          complete: traceRows.length === BENCHMARK_CASES.length * providers.length * repetitions,
+          rows: traceRows,
+        },
+        BENCHMARK_CASES,
+      );
+      if (traceWrite.ok) {
+        forensicTraceStatus = "captured";
+        console.log(`Forensic trace written to ${traceWrite.path} (sha256: ${traceWrite.sha256}, ${traceWrite.bytes} bytes).`);
+      } else {
+        console.error(`FORENSIC_TRACE_FAILED — ${traceWrite.reason}`);
+        forensicTraceStatus = "requested_but_failed";
+      }
+    }
+  }
+
+  const metadata = buildReproducibilityMetadata({
+    repetitionCount: repetitions,
+    officialRun: repetitions === DEFAULT_REPETITIONS,
+    forensicTraceEnabled: withForensicTrace,
+    forensicTraceStatus,
+  });
   const written = writeReport({
     rows,
     metadata,
@@ -224,10 +293,23 @@ async function runLiveBenchmark(repetitions: number): Promise<void> {
   console.log(`Outcome: ${decision.outcome}`);
   console.log(`Report written to ${written.markdownPath}`);
   console.log(`Blind drafting packet written to ${draftingWritten.packetPath} (mapping: ${draftingWritten.mappingPath})`);
+  if (withForensicTrace) {
+    console.log(`Forensic trace status: ${forensicTraceStatus}`);
+  }
 }
 
 async function main(): Promise<void> {
-  const { mode, repetitions } = parseArgs(process.argv.slice(2));
+  const { mode, repetitions, withForensicTrace } = parseArgs(process.argv.slice(2));
+
+  // --with-forensic-trace only ever does anything inside the "run"
+  // branch below. Every other mode is inert with respect to it — never
+  // a hidden network path, never a file written — but silence would be
+  // confusing for an operator who passed it by habit, so this prints a
+  // concise warning and then proceeds with that mode's normal (already
+  // no-live) behavior, unchanged.
+  if (withForensicTrace && mode !== "run") {
+    console.warn("Forensic trace capture only applies to --run; ignored in this mode.");
+  }
 
   if (mode === "dry-run") {
     runStructuralValidation();
@@ -249,7 +331,7 @@ async function main(): Promise<void> {
 
   // mode === "run"
   runStructuralValidation();
-  await runLiveBenchmark(repetitions);
+  await runLiveBenchmark(repetitions, withForensicTrace);
 }
 
 main().catch((err) => {
