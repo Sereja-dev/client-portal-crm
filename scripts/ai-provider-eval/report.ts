@@ -288,20 +288,37 @@ Drafting cases (human-scored, blind) are written to \`results/drafting-blind-pac
 `;
 }
 
-export function writeReport(input: {
-  rows: ArtifactRow[];
-  metadata: ReproducibilityMetadata;
-  anthropic: ProviderAggregate;
-  openai: ProviderAggregate;
-  outcome: SelectionOutcome;
-  anthropicGateFailures: string[];
-  openaiGateFailures: string[];
-}): { jsonPath: string; csvPath: string; markdownPath: string } {
-  mkdirSync(RESULTS_DIR, { recursive: true });
+/**
+ * `outputDir` defaults to the real, official `RESULTS_DIR` — every
+ * production call site (index.ts's own `runLiveBenchmark()`) calls
+ * `writeReport(input)` with no second argument, so official behavior is
+ * byte-for-byte unchanged by this parameter's existence. It exists
+ * SOLELY so tests can pass an isolated, per-test `mkdtempSync()`
+ * directory instead — never an environment variable, never any other
+ * form of implicit/hidden redirection, and nothing reads one to
+ * override this default (see README.md's own "Test output isolation"
+ * section for why: an env-var-driven override would itself be a route
+ * for an untrusted variable to redirect where official artifacts land,
+ * which is exactly the class of hazard this parameter is designed to
+ * foreclose, not merely relocate).
+ */
+export function writeReport(
+  input: {
+    rows: ArtifactRow[];
+    metadata: ReproducibilityMetadata;
+    anthropic: ProviderAggregate;
+    openai: ProviderAggregate;
+    outcome: SelectionOutcome;
+    anthropicGateFailures: string[];
+    openaiGateFailures: string[];
+  },
+  outputDir: string = RESULTS_DIR,
+): { jsonPath: string; csvPath: string; markdownPath: string } {
+  mkdirSync(outputDir, { recursive: true });
 
-  const jsonPath = join(RESULTS_DIR, "results.json");
-  const csvPath = join(RESULTS_DIR, "results.csv");
-  const markdownPath = join(RESULTS_DIR, "report.md");
+  const jsonPath = join(outputDir, "results.json");
+  const csvPath = join(outputDir, "results.csv");
+  const markdownPath = join(outputDir, "report.md");
 
   const jsonPayload = JSON.stringify({ metadata: input.metadata, rows: input.rows, anthropic: input.anthropic, openai: input.openai, outcome: input.outcome }, null, 2);
   writeFileSync(jsonPath, redactPotentialSecrets(jsonPayload) + "\n", "utf8");

@@ -14,7 +14,7 @@
  * mechanical proof.
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { BENCHMARK_CASES, assertExactlyThirtySixBalancedCases } from "./cases.js";
@@ -106,8 +106,35 @@ function enforceSnapshotFreshnessOrExit(): boolean {
   return true;
 }
 
+/**
+ * Fail-closed pre-flight, run immediately after the snapshot-freshness
+ * gate and before anything else (repetitions warning, secret-presence
+ * check, provider import, network): refuse to start a live run if the
+ * official RESULTS_DIR already contains artifacts from a prior run.
+ * writeReport() writes results.json/results.csv/report.md with a plain
+ * writeFileSync — an unconditional overwrite with no diff, backup, or
+ * warning — so without this check a second official run would silently
+ * mix with or destroy the first, with no trace of which is which. This
+ * check never deletes or modifies anything itself; it only refuses to
+ * proceed. See README.md's own "Artifact lifecycle" section for the
+ * required archive-before-rerun operator procedure.
+ */
+function enforceResultsDirEmptyOrExit(): boolean {
+  const staleFiles = ["results.json", "results.csv", "report.md"].filter((name) => existsSync(join(RESULTS_DIR, name)));
+  if (staleFiles.length > 0) {
+    console.error(`STALE_RESULTS_DIR — refusing to run: ${RESULTS_DIR} already contains ${staleFiles.join(", ")} from a prior run.`);
+    console.error("Archive the existing results/ directory before starting a new official run — see README.md's own \"Artifact lifecycle\" section. Nothing was deleted or modified.");
+    process.exitCode = 1;
+    return false;
+  }
+  return true;
+}
+
 async function runLiveBenchmark(repetitions: number): Promise<void> {
   if (!enforceSnapshotFreshnessOrExit()) {
+    return;
+  }
+  if (!enforceResultsDirEmptyOrExit()) {
     return;
   }
 

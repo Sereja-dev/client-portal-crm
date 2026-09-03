@@ -1,8 +1,9 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, rmSync } from "node:fs";
+import { readFileSync, rmSync, mkdtempSync } from "node:fs";
 import { join } from "node:path";
-import { buildArtifactRow, buildReproducibilityMetadata, writeReport, RESULTS_DIR } from "../report.js";
+import { tmpdir } from "node:os";
+import { buildArtifactRow, buildReproducibilityMetadata, writeReport } from "../report.js";
 import { OPENAI_REASONING_EFFORT } from "../openai-compat.js";
 import { scoreRun } from "../scoring.js";
 import type { BenchmarkCase } from "../cases.js";
@@ -104,13 +105,17 @@ describe("report.ts — OpenAI reasoning_effort compatibility parameter is captu
 
   test("report.md states the OpenAI reasoning_effort value explicitly in the human-readable Models section (not only the buried JSON dump)", () => {
     const metadata = buildReproducibilityMetadata({ repetitionCount: 3, officialRun: true });
-    const written = writeReport({
-      rows: [], metadata,
-      anthropic: { provider: "anthropic", totalRuns: 1, validArgumentPct: 100, factualCorrectnessPct: 100, mutationCompliancePct: 100, uuidNoLeakPct: 100, unknownToolExecutionCount: 0, injectionViolationCount: 0, protocolViolationCount: 0, medianLatencyMs: 1, p90LatencyMs: 1, totalCostUsd: 0, toolCorrectnessScore: 100 },
-      openai: { provider: "openai", totalRuns: 1, validArgumentPct: 100, factualCorrectnessPct: 100, mutationCompliancePct: 100, uuidNoLeakPct: 100, unknownToolExecutionCount: 0, injectionViolationCount: 0, protocolViolationCount: 0, medianLatencyMs: 1, p90LatencyMs: 1, totalCostUsd: 0, toolCorrectnessScore: 100 },
-      outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
-    });
+    // Isolated per-test scratch directory — never the real, official
+    // RESULTS_DIR. See test/results-dir-safety.test.ts for the regression
+    // proving this test suite cannot touch official benchmark artifacts.
+    const tempDir = mkdtempSync(join(tmpdir(), "aqenra-report-test-"));
     try {
+      const written = writeReport({
+        rows: [], metadata,
+        anthropic: { provider: "anthropic", totalRuns: 1, validArgumentPct: 100, factualCorrectnessPct: 100, mutationCompliancePct: 100, uuidNoLeakPct: 100, unknownToolExecutionCount: 0, injectionViolationCount: 0, protocolViolationCount: 0, medianLatencyMs: 1, p90LatencyMs: 1, totalCostUsd: 0, toolCorrectnessScore: 100 },
+        openai: { provider: "openai", totalRuns: 1, validArgumentPct: 100, factualCorrectnessPct: 100, mutationCompliancePct: 100, uuidNoLeakPct: 100, unknownToolExecutionCount: 0, injectionViolationCount: 0, protocolViolationCount: 0, medianLatencyMs: 1, p90LatencyMs: 1, totalCostUsd: 0, toolCorrectnessScore: 100 },
+        outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
+      }, tempDir);
       const md = readFileSync(written.markdownPath, "utf8");
       const modelsSectionIndex = md.indexOf("## Models");
       const jsonDumpIndex = md.indexOf("```json");
@@ -118,7 +123,8 @@ describe("report.ts — OpenAI reasoning_effort compatibility parameter is captu
       const modelsSection = md.slice(modelsSectionIndex, jsonDumpIndex);
       assert.match(modelsSection, /reasoning_effort: "none"/);
     } finally {
-      rmSync(join(RESULTS_DIR), { recursive: true, force: true });
+      // Scoped to exactly the mkdtempSync-returned path — never RESULTS_DIR.
+      rmSync(tempDir, { recursive: true, force: true });
     }
   });
 });
@@ -142,11 +148,12 @@ describe("report.ts — Markdown STALE_PRICING_WARNING banner (Finding 4)", () =
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true,
       pricingFreshnessWarning: "Pricing/model metadata is 9999 days old and must be manually reverified.",
     };
-    const written = writeReport({
-      rows: [], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
-      outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
-    });
+    const tempDir1 = mkdtempSync(join(tmpdir(), "aqenra-report-test-"));
     try {
+      const written = writeReport({
+        rows: [], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
+        outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
+      }, tempDir1);
       const md = readFileSync(written.markdownPath, "utf8");
       assert.match(md, /STALE_PRICING_WARNING/);
       assert.match(md, /9999 days old/);
@@ -155,7 +162,7 @@ describe("report.ts — Markdown STALE_PRICING_WARNING banner (Finding 4)", () =
       const jsonDumpIndex = md.indexOf("```json");
       assert.ok(bannerIndex < jsonDumpIndex, "banner must appear before the buried JSON metadata dump");
     } finally {
-      rmSync(join(RESULTS_DIR), { recursive: true, force: true });
+      rmSync(tempDir1, { recursive: true, force: true });
     }
   });
 
@@ -168,15 +175,16 @@ describe("report.ts — Markdown STALE_PRICING_WARNING banner (Finding 4)", () =
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)" as const,
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
     };
-    const written = writeReport({
-      rows: [], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
-      outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
-    });
+    const tempDir2 = mkdtempSync(join(tmpdir(), "aqenra-report-test-"));
     try {
+      const written = writeReport({
+        rows: [], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
+        outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
+      }, tempDir2);
       const md = readFileSync(written.markdownPath, "utf8");
       assert.equal(md.includes("STALE_PRICING_WARNING"), false);
     } finally {
-      rmSync(join(RESULTS_DIR), { recursive: true, force: true });
+      rmSync(tempDir2, { recursive: true, force: true });
     }
   });
 
@@ -189,16 +197,17 @@ describe("report.ts — Markdown STALE_PRICING_WARNING banner (Finding 4)", () =
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)" as const,
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
     };
-    const written = writeReport({
-      rows: [], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
-      outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
-    });
+    const tempDir3 = mkdtempSync(join(tmpdir(), "aqenra-report-test-"));
     try {
+      const written = writeReport({
+        rows: [], metadata, anthropic: perfectAgg("anthropic"), openai: perfectAgg("openai"),
+        outcome: "TIE_ADDITIONAL_EVIDENCE_REQUIRED", anthropicGateFailures: [], openaiGateFailures: [],
+      }, tempDir3);
       const md = readFileSync(written.markdownPath, "utf8");
       assert.match(md, /results\/drafting-blind-packet\.json/);
       assert.match(md, /generated automatically/);
     } finally {
-      rmSync(join(RESULTS_DIR), { recursive: true, force: true });
+      rmSync(tempDir3, { recursive: true, force: true });
     }
   });
 });

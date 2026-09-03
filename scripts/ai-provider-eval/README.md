@@ -56,7 +56,7 @@ reached).
 | `npm run validate` | **No** | Structural validation only |
 | `npm run typecheck` | No | `tsc --noEmit` against this package's own isolated `tsconfig.json` |
 | `npm test` | No | Node's built-in test runner (`node --test`) over `test/**/*.test.ts` |
-| `npm run run` (or `tsx index.ts --run`) | **Yes — live** | The real 216-run benchmark (36 cases × 2 providers × 3 repetitions). Requires both API keys (below). |
+| `npm run run` (or `tsx index.ts --run`) | **Yes — live** | The real 216-run benchmark (36 cases × 2 providers × 3 repetitions). Requires both API keys (below) and an empty/absent `results/` (see "Artifact lifecycle"). |
 
 ## Secret handling
 
@@ -96,6 +96,64 @@ export AQENRA_EVAL_OPENAI_API_KEY="..."      # never commit this
   presence-check with `[ -n "${AQENRA_EVAL_OPENAI_API_KEY:+set}" ]`, and
   prefer re-running this harness (which redacts) over ad-hoc `curl`.
   Both benchmark keys from that run are being revoked.
+
+**General operator discipline for every live run, not just the incident
+above:**
+- Never print a secret value — no `echo "$AQENRA_EVAL_..."`,
+  no `console.log`/debug output of an env var, no committing it to a
+  scratch file. Presence-only checks
+  (`[ -n "${AQENRA_EVAL_OPENAI_API_KEY:+set}" ]`, or this harness's own
+  `hasAnthropicEvalApiKey()` / `hasOpenAiEvalApiKey()`) are the only
+  form a manual check should take.
+- Avoid shell constructs that could expand a secret into a log,
+  history file, or process list — e.g. don't pass a key as a bare CLI
+  argument (visible in `ps`) or interpolate it into a command string
+  that gets shell-history-logged; `export` it as an env var and let the
+  harness read it instead.
+- `unset AQENRA_EVAL_ANTHROPIC_API_KEY AQENRA_EVAL_OPENAI_API_KEY` in
+  your parent shell once the run (and any manual diagnostics) are done
+  — don't leave a live key sitting in an interactive shell's
+  environment longer than the run needs it.
+- Disposable/benchmark-only keys should be **revoked** at the vendor
+  dashboard after the run they were created for, not reused across
+  multiple official runs.
+
+## Known data loss (2026-09-03 test-cleanup incident)
+
+**The retained 2026-09-03 failed-run raw artifacts
+(`results/results.json`, `results/results.csv`, `results/report.md`,
+and `results/OPERATIONAL-FAILURE-NOTE.md`) were accidentally destroyed
+by a test-cleanup bug, and are not recoverable.**
+
+Root cause: `test/report.test.ts` and `test/csv-sanitization.test.ts`
+used to call `writeReport({...})` with no explicit output directory —
+which wrote into the real, official `RESULTS_DIR` — and then
+unconditionally ran `rmSync(join(RESULTS_DIR), { recursive: true, force:
+true })` in a `finally` block. Every routine `npm test` — including one
+run purely to check an unrelated change — therefore deleted whatever an
+operator had placed in `results/`, official or not. This is exactly what
+happened to the 2026-09-03 artifacts: they were gitignored (never
+committed, per `.gitignore`'s own `/results/` entry), so a later `npm
+test` run wiped them with no trace and no way back.
+
+**These raw artifacts are gone and will not be reconstructed or
+fabricated.** No replacement `results.json` / `results.csv` /
+`report.md` / `OPERATIONAL-FAILURE-NOTE.md` exists or will be
+manufactured to stand in for them. The only thing that survives is the
+high-level operational conclusion already committed to tracked git
+history at the time (commit `07af23bd`, "Fix OpenAI benchmark
+adapter..."): the OpenAI arm of that run failed 108/108 requests with
+HTTP 400 `invalid_request_error`, because `gpt-5.6-luna` rejects `tools`
+on `/v1/chat/completions` without `reasoning_effort: "none"` — see
+"OpenAI reasoning effort" above for the fix that followed. That
+conclusion is real and tracked in git history; the raw per-run artifacts
+behind it are not recoverable, and this section makes no claim
+otherwise.
+
+**This package's test suite can no longer do this.** See "Test output
+isolation" below for the fix, and `test/results-dir-safety.test.ts` for
+the regression that proves it — one that fails against the old,
+hazardous test code and passes against the current code.
 
 ## Allowed network hosts
 
@@ -330,6 +388,95 @@ one that failed), and the operator reruns the pair explicitly. This
 keeps neither vendor getting an extra reasoning attempt the other didn't
 get.
 
+## Operational-failure classification policy
+
+A live run can fail for reasons that have **nothing to do with model
+quality**. This section is the authoritative policy for classifying
+those failures — read it before rerunning anything after a failed
+sweep.
+
+### A. Transport-invalid events
+
+Timeout, HTTP 429, a provider 5xx, or a connection/network failure on
+any request, for either provider.
+
+- The **entire sweep** is invalid the moment this happens — never retry
+  only the one provider/case that failed and keep the rest (see "Retry
+  fairness" above: a transport failure invalidates the case/repetition
+  pair for **both** providers, never just the one that failed).
+- **Maximum one complete fresh sweep restart.** Diagnose why the
+  transport failure happened (rate limit, network, vendor incident)
+  before restarting — restarting blind is how a second sweep ends up
+  transport-invalid too.
+- If the **second** sweep is also transport-invalid:
+  **`BENCHMARK INCONCLUSIVE — TRANSPORT / OPERATIONAL FAILURE`.** Stop.
+  Do not attempt a third sweep without first resolving the underlying
+  transport problem. (This is an operator/runbook-level classification,
+  not one of `decision.ts`'s own four `SelectionOutcome` values — see
+  "Machine outcome vs. operator classification" below.)
+
+### B. Deterministic provider request/configuration failure
+
+An HTTP 400 (or equivalent) caused by the request shape itself, an
+incompatible endpoint, an unsupported model-parameter combination, or an
+invalid benchmark-adapter request — i.e. a failure that would happen
+identically on every retry because nothing about the request changes
+between attempts. The 2026-09-03 `gpt-5.6-luna` `reasoning_effort`
+failure (see "Known data loss" and "OpenAI reasoning effort" above) is
+the canonical example: 108/108 identical requests, 108/108 identical
+400s — retrying request #109 unchanged would have produced #109's own
+identical 400.
+
+- **Stop. Diagnose and remediate the adapter/request before any
+  rerun.**
+- **Never score this as model quality.** The model never ran; there is
+  nothing about its output to score.
+- **Never keep rerunning the identical invalid request** hoping for a
+  different result — it will not produce one; only a code/config fix
+  will (as the 2026-09-03 → `07af23bd` fix did).
+- The provider comparison for that sweep is **operationally
+  inconclusive**, never scored as a loss for the failing provider.
+
+### C. Model-quality failure
+
+Wrong tool called, malformed arguments, a hallucinated fact, a missing
+required fact, a mutation-policy violation, a UUID leak, a
+prompt-injection failure, or simply weak drafting quality — i.e. the
+request was well-formed, the provider executed it, and the *output*
+itself is what's deficient.
+
+- **Score exactly as generated** (`scoring.ts` — frozen, deterministic).
+- **Never retry because the quality looks bad.** Rerunning until a
+  model happens to produce a better answer is not benchmarking that
+  model; it's benchmarking the operator's patience.
+- Frozen thresholds/cases/tie rule apply exactly as committed
+  (`decision.ts`, `cases.ts`) — a disappointing category C result is
+  never grounds to reopen category A or B, and vice versa.
+
+### Machine outcome vs. operator classification
+
+`decision.ts`'s own `SelectionOutcome` is a **closed, frozen** 4-value
+enum: `SELECT_ANTHROPIC` | `SELECT_OPENAI` |
+`NO_MODEL_PASSES_QUALITY_GATE` | `TIE_ADDITIONAL_EVIDENCE_REQUIRED`. It
+is **not** extended with a fifth value for operational failure in this
+policy — decision logic has no way to know *why* a provider aggregate
+looks the way it does, only what the aggregate numbers themselves are.
+
+**This means a machine `SelectionOutcome` can be mechanically produced
+even when one provider had zero valid inference due to a category A or B
+failure**, and that output must **not** be read as a fair
+provider-selection verdict — an aggregate built from zero (or
+near-zero) valid runs for one side is not a real comparison, whatever
+label `decideOutcome()` happens to compute for it. The
+**operator/runbook layer** — a human, applying this section, not the
+harness itself — is what classifies the sweep as
+`BENCHMARK INCONCLUSIVE — TRANSPORT / OPERATIONAL FAILURE` (category A)
+or "operationally inconclusive" (category B) on top of the raw machine
+outcome. Before trusting any `SelectionOutcome` in a report, check
+`anthropicGateFailures` / `openaiGateFailures` and each provider's
+`totalRuns` in `results.json` for signs of a category A/B failure hiding
+behind an otherwise-normal-looking enum value.
+
 ## Sampling
 
 Temperature/top_p/top_k are **intentionally omitted** for both vendors —
@@ -349,6 +496,120 @@ with no `--repetitions` override. Passing `--repetitions=N` with any
 other value is supported for local debugging only, and the generated
 report is explicitly marked **`NON_OFFICIAL_RUN`** — never presented as
 the real comparison.
+
+## Test output isolation (tests never touch official results/)
+
+`results/` (`RESULTS_DIR` in `report.ts`) is reserved for official,
+operator-run benchmark output — see "Known data loss" above for what
+happens when a test suite forgets that. `writeReport()` takes an
+**optional second parameter**, `outputDir`, defaulting to `RESULTS_DIR`:
+
+```ts
+export function writeReport(
+  input: { rows, metadata, anthropic, openai, outcome, anthropicGateFailures, openaiGateFailures },
+  outputDir: string = RESULTS_DIR,
+): { jsonPath: string; csvPath: string; markdownPath: string }
+```
+
+- **Every production call site** (`index.ts`'s own `runLiveBenchmark()`)
+  calls `writeReport(input)` with no second argument — official
+  behavior (write to `results/`) is byte-for-byte unchanged by this
+  parameter's existence.
+- **Every test call site** passes an explicit, per-test
+  `mkdtempSync(join(tmpdir(), "aqenra-...-test-"))` directory instead,
+  and cleans up only that exact returned path in a `finally` block —
+  never a fragile string-prefix check, never `RESULTS_DIR`, never an
+  arbitrary caller-supplied path. This mirrors the pattern
+  `drafting-packet.ts`'s own `writeDraftingBlindArtifacts(resultsDir,
+  artifacts)` already used.
+- **No environment variable can redirect where official artifacts
+  land.** `outputDir` is an explicit function parameter with a
+  hardcoded default, not sourced from `process.env` — an untrusted
+  environment variable overriding the output path would just relocate
+  this exact hazard, not remove it.
+
+**Regression coverage** (`test/results-dir-safety.test.ts`):
+1. A **dynamic** proof — a unique sentinel file is placed inside the
+   real `RESULTS_DIR`, `writeReport()` is called with an explicit temp
+   `outputDir`, and the sentinel is asserted byte-identical afterward
+   (then removed, in a tightly scoped `finally`, along with the temp
+   dir — nothing else in `RESULTS_DIR` is ever touched, and its
+   directory listing is asserted unchanged).
+2. A **static** proof — every `test/*.ts` file is scanned for a line
+   combining a destructive filesystem call (`rmSync` / `rm(` /
+   `unlinkSync` / `unlink(`) with a reference to `RESULTS_DIR`. This one
+   fails immediately against the old, hazardous `report.test.ts` /
+   `csv-sanitization.test.ts` (each literally contained
+   `rmSync(join(RESULTS_DIR), { recursive: true, force: true })`) and
+   passes now that every call site uses an isolated temp dir instead —
+   and it guards against the same mistake being reintroduced in any
+   *future* test file, not just these two.
+
+`npm test` was run twice in a row against an unchanged commit to confirm
+the fix is not timing-sensitive: `results/` stayed absent/empty across
+both runs, no `mkdtempSync` directory was left behind under the OS temp
+directory, and the working tree stayed clean.
+
+**Test files run serialized, not concurrently.** `npm test` passes
+`--test-concurrency=1` to the node test runner (`package.json`). Two
+test files in this suite (`test/freshness-ordering.test.ts` and
+`test/results-dir-preflight.test.ts`) spawn real CLI subprocesses that
+read/write shared external state — the committed snapshot file, and the
+real `RESULTS_DIR`'s pre-flight state, respectively — running either
+concurrently with anything else touching that same state produces a
+spurious failure, not a real regression.
+
+## Artifact lifecycle
+
+**Before an official live run:**
+1. `results/` must be **absent or empty**. `index.ts`'s own
+   `enforceResultsDirEmptyOrExit()` enforces this: it runs immediately
+   after the snapshot-freshness gate and before anything else
+   (repetitions warning, secret-presence check, provider import,
+   network), and refuses to start — printing `STALE_RESULTS_DIR`,
+   exiting non-zero — if `results.json`, `results.csv`, or `report.md`
+   already exists in `RESULTS_DIR`. It never deletes anything itself:
+   archive first (below), then rerun. See
+   `test/results-dir-preflight.test.ts` for the ordering proof.
+2. If `results/` has prior artifacts you want to keep, archive the
+   **whole directory** — including `drafting-blind-packet.json` and
+   `drafting-blind-mapping.json` — somewhere outside
+   `scripts/ai-provider-eval/results/` before starting the new run,
+   e.g.:
+
+   ```bash
+   ARCHIVE_DIR="$HOME/aqenra-eval-archive/$(date -u +%Y%m%dT%H%M%SZ)-official"
+   mkdir -p "$ARCHIVE_DIR"
+   cp -R scripts/ai-provider-eval/results/. "$ARCHIVE_DIR/"
+   shasum -a 256 scripts/ai-provider-eval/results/results.json > "$ARCHIVE_DIR/results.json.sha256"
+   git rev-parse HEAD > "$ARCHIVE_DIR/git-sha.txt"
+   rm -rf scripts/ai-provider-eval/results   # only after the copy above succeeded
+   ```
+
+   (`$HOME` above is a placeholder resolved by your own shell — nothing
+   in this repo hardcodes a personal username; any archive location
+   outside the repo works.)
+
+**Immediately after an official run completes — success or failure:**
+1. Compute and record the SHA-256 of `results/results.json` (as above)
+   before doing anything else — a tamper-evident fingerprint for later
+   reference in a PR or runbook entry.
+2. Archive the full `results/` directory outside
+   `scripts/ai-provider-eval/results/`, alongside the git SHA the run
+   was made at. `results.json`'s own reproducibility metadata already
+   carries the rest (model IDs, `openaiReasoningEffort`, pricing
+   snapshot date/prices used, repetition count, case/snapshot/
+   system-prompt hashes, SDK versions) — no separate bookkeeping needed
+   for those fields.
+3. **Do this before running `npm test` again.** Tests no longer touch
+   `RESULTS_DIR` at all (see "Test output isolation" above), so this
+   step isn't about test safety — it's about not losing an official
+   result to a later intentional `rm -rf results/`, or an operator
+   losing track of which of two mixed runs produced which numbers.
+
+Never auto-delete valuable prior output: every destructive step above is
+an explicit, operator-run command that comes strictly after its own
+copy/archive step, never something the harness does on its own.
 
 ## Report artifacts
 
@@ -444,4 +705,7 @@ scripts/ai-provider-eval/
 
 This package is intended to be **retained**, not deleted after the first
 selection — it's small, fully isolated, and directly reusable the next
-time a model upgrade needs the same 36-case comparison.
+time a model upgrade needs the same 36-case comparison. For the
+lifecycle of a single run's *output* (archive-before-rerun, SHA-256
+fingerprinting, why `npm test` is safe to run afterward), see "Artifact
+lifecycle" above — this section is only about the package itself.
