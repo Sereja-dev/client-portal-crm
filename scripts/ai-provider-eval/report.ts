@@ -20,6 +20,7 @@ import type { ProviderAggregate, SelectionOutcome } from "./decision.js";
 import { redactPotentialSecrets } from "./secrets.js";
 import { PRICING, PRICING_SNAPSHOT_DATE, getPricingFreshnessWarning } from "./pricing.js";
 import { OPENAI_REASONING_EFFORT } from "./openai-compat.js";
+import { BENCHMARK_DEFINITION_VERSION } from "./benchmark-version.js";
 import { getAiAssistantSystemPrompt } from "../../src/lib/ai/system-prompt.js";
 import { MAX_OUTPUT_TOKENS, MAX_PROVIDER_CALLS_PER_TURN, MAX_TOOL_CALLS_PER_TURN } from "../../src/lib/ai/orchestration-limits.js";
 
@@ -49,6 +50,18 @@ function readSdkVersion(pkgRelativePath: string): string {
 
 export type ReproducibilityMetadata = {
   gitSha: string;
+  /**
+   * Explicit benchmark CASE/SCORING semantics version (benchmark-version.ts)
+   * — never derived from gitSha, which changes on every unrelated commit
+   * too. Two runs are only safely comparable as one series if this value
+   * matches; a run recorded before this field existed (the 2026-09-03
+   * official run, results.json SHA-256
+   * 450349e960c551f64c993fb104a4347eab459c027984da75107bf3ecf3aced0e) is
+   * the implicit "1.0.0" predecessor and remains valid only under its
+   * own, pre-grouped-scoring semantics — see benchmark-version.ts's own
+   * history and README's own "Benchmark definition version" section.
+   */
+  benchmarkDefinitionVersion: string;
   benchmarkTimestamp: string;
   caseFileHash: string;
   toolContractSnapshotHash: string;
@@ -85,6 +98,7 @@ export function buildReproducibilityMetadata(input: { repetitionCount: number; o
   const snapshotSource = readFileSync(join(PACKAGE_DIR, "fixtures", "tool-contracts.snapshot.json"), "utf8");
   return {
     gitSha: safeGitSha(),
+    benchmarkDefinitionVersion: BENCHMARK_DEFINITION_VERSION,
     benchmarkTimestamp: new Date().toISOString(),
     caseFileHash: sha256(casesSource),
     toolContractSnapshotHash: sha256(snapshotSource),
@@ -243,6 +257,7 @@ function toMarkdown(input: {
   return `# Aqenra AI Provider Benchmark Report
 ${officialBanner}${pricingBanner}
 Generated: ${metadata.benchmarkTimestamp}
+Benchmark definition version: \`${metadata.benchmarkDefinitionVersion}\` — see README.md's own "Benchmark definition version" section before comparing this report against any run recorded under a different version.
 Git SHA: \`${metadata.gitSha}\`
 Pricing snapshot date: ${metadata.pricingSnapshotDate} — REVERIFY before trusting these cost figures on any later date.
 

@@ -15,7 +15,7 @@ export type ProviderAggregate = {
   provider: BenchmarkProviderId;
   totalRuns: number;
   validArgumentPct: number;
-  factualCorrectnessPct: number; // over deterministic cases only (expectedKeyFacts non-empty, category !== "ambiguous")
+  factualCorrectnessPct: number; // over deterministic cases only (expectedFactGroups non-empty, category !== "ambiguous")
   mutationCompliancePct: number; // over cases with mutationMustBeRefused:true
   uuidNoLeakPct: number;
   unknownToolExecutionCount: number;
@@ -45,7 +45,7 @@ function pct(numerator: number, denominator: number): number {
   return denominator === 0 ? 100 : (numerator / denominator) * 100;
 }
 
-export function aggregate(provider: BenchmarkProviderId, scores: CaseScore[], latencies: number[], costs: number[], caseIndex: Map<string, { category: string; expectedKeyFactsCount: number; mutationRequired: boolean }>): ProviderAggregate {
+export function aggregate(provider: BenchmarkProviderId, scores: CaseScore[], latencies: number[], costs: number[], caseIndex: Map<string, { category: string; expectedFactGroupsCount: number; mutationRequired: boolean }>): ProviderAggregate {
   let validArgs = 0;
   let totalArgs = 0;
   let factConfirmed = 0;
@@ -66,7 +66,7 @@ export function aggregate(provider: BenchmarkProviderId, scores: CaseScore[], la
     }
 
     const meta = caseIndex.get(score.caseId);
-    const isDeterministic = meta !== undefined && meta.category !== "ambiguous" && meta.expectedKeyFactsCount > 0 && !score.factualityNeedsHumanReview;
+    const isDeterministic = meta !== undefined && meta.category !== "ambiguous" && meta.expectedFactGroupsCount > 0 && !score.factualityNeedsHumanReview;
     if (isDeterministic) {
       factTotal += 1;
       if (score.keyFactsMissing.length === 0) factConfirmed += 1;

@@ -36,7 +36,7 @@ import {
 import { toolOk, toolError, type AiToolResult } from "../../src/lib/ai/tools/result";
 import { assertExactKeys, assertExactKeysList } from "../../src/lib/ai/tools/output-projection";
 import { SEARCH_CLIENTS_LIMIT, SEARCH_PROJECTS_LIMIT, SEARCH_TASKS_LIMIT, SEARCH_INVOICES_LIMIT } from "../../src/lib/ai/tools/limits";
-import { CLIENTS, PROJECTS, TASKS, INVOICES, ANCHOR_NOW, findProjectByRef } from "./fixtures/organization";
+import { CLIENTS, PROJECTS, TASKS, INVOICES, ANCHOR_NOW, findProjectByRef, OUTSTANDING_AMOUNT, PAID_REVENUE } from "./fixtures/organization";
 import type { AiToolDefinition } from "../../src/lib/ai/tools/types";
 
 const SNAPSHOT_PATH = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "tool-contracts.snapshot.json");
@@ -98,13 +98,14 @@ async function executeGetOrganizationSummary(_organizationId: string, rawInput: 
   // a task due exactly on ANCHOR_NOW is "due today," not overdue.
   const overdueTasks = TASKS.filter((t) => t.status !== "DONE" && t.dueDate !== null && new Date(t.dueDate) < ANCHOR_NOW);
   const taskStatusBreakdown = countBy(TASKS.map((t) => t.status));
-  // Fixture simplification, documented here rather than silently assumed:
-  // amounts are summed across currencies with no conversion — this
-  // mirrors none of production's real currency handling and exists only
-  // to give the benchmark a single deterministic number to check
-  // factuality against.
-  const outstandingAmount = INVOICES.filter((i) => i.status === "SENT" || i.status === "OVERDUE").reduce((sum, i) => sum + i.amount, 0);
-  const paidRevenue = INVOICES.filter((i) => i.status === "PAID").reduce((sum, i) => sum + i.amount, 0);
+  // outstandingAmount/paidRevenue: imported from fixtures/organization.ts
+  // (OUTSTANDING_AMOUNT/PAID_REVENUE) rather than computed here, so this
+  // tool's actual output and cases.ts's own org-summary-02 numeric
+  // expectations share exactly one source of truth and can never
+  // silently drift apart — see that constant's own doc comment for the
+  // amounts-summed-across-currencies fixture simplification.
+  const outstandingAmount = OUTSTANDING_AMOUNT;
+  const paidRevenue = PAID_REVENUE;
   const invoiceStatusBreakdown = countBy(INVOICES.map((i) => i.status));
 
   const recentInvoices = [...INVOICES]

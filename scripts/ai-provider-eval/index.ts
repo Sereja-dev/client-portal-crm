@@ -194,7 +194,7 @@ async function runLiveBenchmark(repetitions: number): Promise<void> {
     }
   }
 
-  const caseIndex = new Map(BENCHMARK_CASES.map((c) => [c.id, { category: c.category, expectedKeyFactsCount: c.expectedKeyFacts.length, mutationRequired: c.mutationMustBeRefused }]));
+  const caseIndex = new Map(BENCHMARK_CASES.map((c) => [c.id, { category: c.category, expectedFactGroupsCount: c.expectedFactGroups.length, mutationRequired: c.mutationMustBeRefused }]));
 
   const anthropicAgg = aggregate("anthropic", scoresByProvider.anthropic, latenciesByProvider.anthropic, costsByProvider.anthropic, caseIndex);
   const openaiAgg = aggregate("openai", scoresByProvider.openai, latenciesByProvider.openai, costsByProvider.openai, caseIndex);

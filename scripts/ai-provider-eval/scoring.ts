@@ -10,10 +10,19 @@
  * marked `needsHumanReview: true` rather than silently guessed — see
  * cases.ts's own "ambiguous"/"drafting" categories for where this matters
  * most.
+ *
+ * v1.1.0 (see benchmark-version.ts): factuality is scored against
+ * `BenchmarkCase.expectedFactGroups` — OR within a group, AND across
+ * groups — rather than v1.0.0's flat `expectedKeyFacts` (which behaved as
+ * a pure AND over every listed phrase, including cases where several
+ * phrases were meant as alternative synonyms of one claim). See
+ * evaluateGroup()'s own doc comment for the exact algorithm, including
+ * the preserved v1.0.0 "needsHumanReview" ambiguity fallback for phrase
+ * assertions that contain a number.
  */
 
 import type { AiToolDefinition } from "../../src/lib/ai/tools/types.js";
-import type { BenchmarkCase } from "./cases.js";
+import type { BenchmarkCase, ExpectedFactGroup, FactAssertion } from "./cases.js";
 import { BENCHMARK_TOOLS } from "./tool-runtime.js";
 import type { RunResult, ToolCallTrace } from "./result-types.js";
 
@@ -38,6 +47,16 @@ export type CaseScore = {
   argumentOutcomes: ArgumentOutcome[];
 
   // --- factuality ---
+  /**
+   * Human-readable diagnostic labels for which semantic groups passed
+   * and which didn't — NOT a re-listing of every individual phrase like
+   * v1.0.0. A passed group is described by the ONE assertion that
+   * actually matched (so an OR-group's specific winning synonym is
+   * visible); a missing group is described by ALL of its acceptable
+   * alternatives together, making clear it was a multi-option
+   * requirement, not a single missed fact. See describeAssertion()/
+   * describeGroup() below.
+   */
   keyFactsConfirmed: string[];
   keyFactsMissing: string[];
   forbiddenClaimsPresent: string[];
@@ -114,37 +133,105 @@ function scoreToolSelection(caseDef: BenchmarkCase, actualSequence: string[]) {
   return { correctFirstTool, fullSequenceMatch, unnecessaryCallCount, missingRequiredCall };
 }
 
+/** Human-readable label for one assertion — a phrase assertion is just its own literal value (byte-identical to v1.0.0's flat fact strings); a numeric assertion has no case-authored string to reuse, so it gets a deterministic generated label. */
+function describeAssertion(assertion: FactAssertion): string {
+  return assertion.kind === "phrase" ? assertion.value : `numeric ≈ ${assertion.value}`;
+}
+
+/** Human-readable label for a whole group — every acceptable alternative, joined, so a missing multi-option group is visibly distinguishable from a missing single fact. */
+function describeGroup(group: ExpectedFactGroup): string {
+  return group.map(describeAssertion).join(" / ");
+}
+
+const EMBEDDED_NUMBER_PATTERN = /-?\$?[\d,]+(\.\d+)?/;
+/** Scans free text for numeric candidates: optional leading -, optional $, digit groups with optional comma separators, optional decimal part. Deterministic, no relative/fuzzy matching. */
+const NUMERIC_CANDIDATE_PATTERN = /-?\$?[\d,]+(?:\.\d+)?/g;
+
+function extractNumericCandidates(text: string): number[] {
+  const matches = text.match(NUMERIC_CANDIDATE_PATTERN) ?? [];
+  const values: number[] = [];
+  for (const raw of matches) {
+    const normalized = raw.replace(/[$,]/g, "");
+    const value = Number(normalized);
+    if (Number.isFinite(value)) values.push(value);
+  }
+  return values;
+}
+
+function evaluatePhraseAssertion(assertion: Extract<FactAssertion, { kind: "phrase" }>, lowerText: string): boolean {
+  return lowerText.includes(assertion.value.toLowerCase());
+}
+
+/** Deterministic, absolute-tolerance-only numeric compare — see cases.ts's own FactAssertion doc comment for why relative tolerance is never used. */
+// Absorbs float64 representation noise only (e.g. 100.01 - 100 evaluating
+// to 0.010000000000005116, not exactly 0.01) — far smaller than any
+// realistic cent-level comparison, never a meaningful loosening of the
+// stated toleranceAbs itself.
+const FLOAT_NOISE_EPSILON = 1e-9;
+
+function evaluateNumericAssertion(assertion: Extract<FactAssertion, { kind: "numeric" }>, rawText: string): boolean {
+  const tolerance = assertion.toleranceAbs ?? 0.01;
+  return extractNumericCandidates(rawText).some((candidate) => Math.abs(candidate - assertion.value) <= tolerance + FLOAT_NOISE_EPSILON);
+}
+
+function evaluateAssertion(assertion: FactAssertion, lowerText: string, rawText: string): boolean {
+  return assertion.kind === "phrase" ? evaluatePhraseAssertion(assertion, lowerText) : evaluateNumericAssertion(assertion, rawText);
+}
+
+type GroupResult = { passed: boolean; ambiguous: boolean; matchedAssertion: FactAssertion | null };
+
+/**
+ * OR semantics within one group: the group passes the instant ANY of its
+ * assertions matches, and is described by that one winning assertion.
+ *
+ * If none match outright, v1.0.0's own loose numeric-embedded-in-a-phrase
+ * ambiguity signal is preserved exactly, generalized from "one fact" to
+ * "any phrase assertion in this group": if a phrase assertion's own
+ * literal value contains a number, and that same number appears anywhere
+ * in the text, the group is marked ambiguous (needs human review) rather
+ * than a confident miss — this never counts as a pass, it only excludes
+ * a genuinely unclear row from the factuality denominator (see
+ * decision.ts's own aggregate()), exactly as v1.0.0 did per-fact.
+ */
+function evaluateGroup(group: ExpectedFactGroup, lowerText: string, rawText: string): GroupResult {
+  for (const assertion of group) {
+    if (evaluateAssertion(assertion, lowerText, rawText)) {
+      return { passed: true, ambiguous: false, matchedAssertion: assertion };
+    }
+  }
+  for (const assertion of group) {
+    if (assertion.kind !== "phrase") continue;
+    const numberInPhrase = assertion.value.match(EMBEDDED_NUMBER_PATTERN)?.[0]?.replace(/[$,]/g, "");
+    if (numberInPhrase && lowerText.includes(numberInPhrase)) {
+      return { passed: false, ambiguous: true, matchedAssertion: null };
+    }
+  }
+  return { passed: false, ambiguous: false, matchedAssertion: null };
+}
+
 function scoreFactuality(caseDef: BenchmarkCase, finalText: string | null) {
-  const text = (finalText ?? "").toLowerCase();
+  const rawText = finalText ?? "";
+  const lowerText = rawText.toLowerCase();
   const keyFactsConfirmed: string[] = [];
   const keyFactsMissing: string[] = [];
   let needsHumanReview = false;
 
-  for (const fact of caseDef.expectedKeyFacts) {
-    const factLower = fact.toLowerCase();
-    if (text.includes(factLower)) {
-      keyFactsConfirmed.push(fact);
+  for (const group of caseDef.expectedFactGroups) {
+    const result = evaluateGroup(group, lowerText, rawText);
+    if (result.passed) {
+      keyFactsConfirmed.push(describeAssertion(result.matchedAssertion!));
       continue;
     }
-    // Numeric facts ("6 clients", "2 overdue tasks") get a looser check:
-    // does the same leading number appear anywhere near comparable
-    // wording? If neither the exact phrase nor the number appears, this
-    // is a genuine, confident miss — but formatting variance (commas,
-    // currency symbols) around a number that DOES appear is exactly the
-    // brittle-prose-matching trap README.md's own "Factuality" section
-    // warns against, so a bare number match alone is treated as
-    // inconclusive rather than a confirmed pass.
-    const numberInFact = fact.match(/-?\$?[\d,]+(\.\d+)?/)?.[0]?.replace(/[$,]/g, "");
-    if (numberInFact && text.includes(numberInFact)) {
+    if (result.ambiguous) {
       needsHumanReview = true;
       continue;
     }
-    keyFactsMissing.push(fact);
+    keyFactsMissing.push(describeGroup(group));
   }
 
-  const forbiddenClaimsPresent = caseDef.forbiddenClaims.filter((phrase) => text.includes(phrase.toLowerCase()));
+  const forbiddenClaimsPresent = caseDef.forbiddenClaims.filter((claim) => lowerText.includes(claim.toLowerCase()));
 
-  if (finalText === null && caseDef.expectedKeyFacts.length > 0) {
+  if (finalText === null && caseDef.expectedFactGroups.length > 0) {
     needsHumanReview = true;
   }
 
@@ -166,7 +253,8 @@ function scoreClarification(caseDef: BenchmarkCase, finalText: string | null): {
 
 function scoreDrafting(caseDef: BenchmarkCase, finalText: string | null): boolean | null {
   if (caseDef.category !== "drafting" && caseDef.category !== "no-tool-needed") return null;
-  if (!caseDef.expectedKeyFacts.includes("draft")) return null;
+  const hasDraftRequirement = caseDef.expectedFactGroups.some((group) => group.some((a) => a.kind === "phrase" && a.value === "draft"));
+  if (!hasDraftRequirement) return null;
   const text = (finalText ?? "").toLowerCase();
   return /\bdraft\b/.test(text);
 }
