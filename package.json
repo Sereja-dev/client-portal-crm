@@ -17,7 +17,8 @@
     "test:unit:coverage": "vitest run test/unit --coverage",
     "test:integration": "vitest run --config vitest.integration.config.mts",
     "test:e2e": "playwright test",
-    "security:check": "node scripts/security-checks/run-all.mjs"
+    "security:check": "node scripts/security-checks/run-all.mjs",
+    "ai:smoke:openai": "node --conditions=react-server --import tsx scripts/ai-smoke/openai-live.ts"
   },
   "dependencies": {
     "@paddle/paddle-js": "^1.6.4",
