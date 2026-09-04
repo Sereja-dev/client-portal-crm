@@ -110,14 +110,33 @@ class OrchestrationCallTimeoutError extends Error {
   }
 }
 
-/** Enforces PROVIDER_CALL_TIMEOUT_MS at the orchestration level via Promise.race — no change to AiProvider/AiRequest's own contract (no AbortSignal added in this batch). */
+/**
+ * Enforces `timeoutMs` at the orchestration level via Promise.race — this
+ * is the mechanism that GUARANTEES a turn returns on time regardless of
+ * provider cooperation, unchanged from before real cancellation existed.
+ * Layered on top of that (new): a real `AbortController` is constructed
+ * per call and its `signal` is handed to `provider.complete()`; the same
+ * timer that wins the race also calls `controller.abort()` first, so a
+ * cooperative adapter (providers/openai.ts) genuinely cancels its
+ * underlying HTTP request the moment the deadline fires, rather than the
+ * orchestrator merely giving up on a response while the real outbound
+ * request keeps running unseen. An adapter that ignores the signal (the
+ * mock, a hand-built test stub) is unaffected — Promise.race still wins
+ * the race for it exactly as before this abort mechanism existed. Never
+ * a retry: the caller of this function receives exactly one settled
+ * outcome (a response or OrchestrationCallTimeoutError) per invocation.
+ */
 async function callProviderWithTimeout(provider: AiProvider, request: AiRequest, timeoutMs: number): Promise<AiResponse> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeoutPromise = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new OrchestrationCallTimeoutError()), timeoutMs);
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new OrchestrationCallTimeoutError());
+    }, timeoutMs);
   });
   try {
-    return await Promise.race([provider.complete(request), timeoutPromise]);
+    return await Promise.race([provider.complete(request, { signal: controller.signal }), timeoutPromise]);
   } finally {
     if (timer) clearTimeout(timer);
   }
@@ -186,15 +205,20 @@ export async function runAiAssistantTurn(input: {
   const startedAt = Date.now();
   const usage: AiUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
   let lastToolName: string | undefined;
+  let providerCallCount = 0;
+  let toolCallCount = 0;
 
   function finish(result: AiOrchestrationResult, providerErrorKind?: AiProviderErrorKind): AiOrchestrationResult {
     const latencyMs = Date.now() - startedAt;
     const errorKind = result.ok ? undefined : toErrorKindForLog(result.kind, providerErrorKind);
     logAiAssistantEvent({
       timestamp: new Date().toISOString(),
-      providerModelId: "mock",
+      provider: provider.providerId ?? "unknown",
+      model: provider.modelId ?? "unknown",
       latencyMs,
       usage,
+      providerCallCount,
+      toolCallCount,
       ...(lastToolName ? { toolName: lastToolName } : {}),
       category: result.ok ? "success" : "error",
       ...(errorKind ? { errorKind } : {}),
@@ -210,11 +234,10 @@ export async function runAiAssistantTurn(input: {
   }));
 
   const messages: AiMessage[] = [{ role: "user", content: userMessage }];
-  let providerCallCount = 0;
-  let toolCallCount = 0;
 
   while (true) {
-    if (Date.now() - startedAt > ORCHESTRATION_DEADLINE_MS) {
+    const elapsedMs = Date.now() - startedAt;
+    if (elapsedMs > ORCHESTRATION_DEADLINE_MS) {
       return finish({ ok: false, kind: "timeout" });
     }
     // Defense-in-depth only — the tool-call-ceiling check below already
@@ -223,6 +246,17 @@ export async function runAiAssistantTurn(input: {
     if (providerCallCount >= MAX_PROVIDER_CALLS_PER_TURN) {
       return finish({ ok: false, kind: "limit_exceeded" });
     }
+
+    // The EFFECTIVE per-call budget is whichever is smaller: the fixed
+    // per-call ceiling, or however much of the total-turn deadline
+    // remains. Without this, a call starting late in a multi-tool-call
+    // turn could still run for a full PROVIDER_CALL_TIMEOUT_MS even
+    // though the turn's own ORCHESTRATION_DEADLINE_MS is about to (or
+    // already did) elapse — this is what makes the total-turn deadline
+    // actually CANCEL an in-flight request (via callProviderWithTimeout's
+    // own AbortController), not just get checked between calls.
+    const remainingBudgetMs = ORCHESTRATION_DEADLINE_MS - elapsedMs;
+    const effectiveCallTimeoutMs = Math.min(PROVIDER_CALL_TIMEOUT_MS, remainingBudgetMs);
 
     const request: AiRequest = {
       systemPrompt: getAiAssistantSystemPrompt(),
@@ -234,12 +268,12 @@ export async function runAiAssistantTurn(input: {
       messages: [...messages],
       tools: toolSpecs,
       maxOutputTokens: MAX_OUTPUT_TOKENS,
-      timeoutMs: PROVIDER_CALL_TIMEOUT_MS,
+      timeoutMs: effectiveCallTimeoutMs,
     };
 
     let response: AiResponse;
     try {
-      response = await callProviderWithTimeout(provider, request, PROVIDER_CALL_TIMEOUT_MS);
+      response = await callProviderWithTimeout(provider, request, effectiveCallTimeoutMs);
       providerCallCount += 1;
     } catch (err) {
       providerCallCount += 1;

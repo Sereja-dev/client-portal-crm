@@ -36,6 +36,9 @@ export class MockAiProvider implements AiProvider {
   // instance — see this class's own doc comment for why no streaming
   // implementation exists in this batch.
   readonly stream: AiProvider["stream"] = undefined;
+  /** Metadata-only identity for logging (see logging-policy.ts) — never used for behavior branching. */
+  readonly providerId = "mock";
+  readonly modelId = "mock";
 
   private readonly steps: MockAiScriptedStep[];
   private cursor = 0;
@@ -54,8 +57,9 @@ export class MockAiProvider implements AiProvider {
    * fails loudly at the exact call site that ran out, not with a
    * confusing downstream assertion failure.
    */
-  async complete(request: AiRequest): Promise<AiResponse> {
+  async complete(request: AiRequest, options?: { signal?: AbortSignal }): Promise<AiResponse> {
     void request; // Interface conformance only — the mock's response is entirely script-driven, never a function of the request content.
+    void options; // Interface conformance only — nothing here makes real, cancellable async work; orchestrate.ts's own Promise.race is what actually enforces a timeout regardless.
     if (this.cursor >= this.steps.length) {
       throw new Error("MockAiProvider: script exhausted — no more scripted steps were configured for this call.");
     }

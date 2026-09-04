@@ -250,6 +250,104 @@ describe("runAiAssistantTurn — provider timeout", () => {
     expect(result).toEqual({ ok: false, kind: "timeout" });
     vi.useRealTimers();
   });
+
+  it("never retries after a timeout — the provider is invoked exactly once", async () => {
+    vi.useFakeTimers();
+    const complete = vi.fn(() => new Promise<AiResponse>(() => {}));
+    const hangingProvider: AiProvider = { complete };
+    const resultPromise = runAiAssistantTurn({ organizationId: ORG_ID, provider: hangingProvider, userMessage: "x" });
+    await vi.advanceTimersByTimeAsync(PROVIDER_CALL_TIMEOUT_MS + 1000);
+    await resultPromise;
+    expect(complete).toHaveBeenCalledTimes(1);
+    vi.useRealTimers();
+  });
+});
+
+describe("runAiAssistantTurn — real AbortSignal propagation (per-call)", () => {
+  it("passes a real AbortSignal into provider.complete(), and it fires exactly at the per-call timeout", async () => {
+    vi.useFakeTimers();
+    let capturedSignal: AbortSignal | undefined;
+    const provider: AiProvider = {
+      complete: (_request, options) => {
+        capturedSignal = options?.signal;
+        return new Promise<AiResponse>(() => {}); // never resolves — only the signal firing is observed
+      },
+    };
+    const resultPromise = runAiAssistantTurn({ organizationId: ORG_ID, provider, userMessage: "x" });
+    await vi.advanceTimersByTimeAsync(0); // let the microtask queue reach provider.complete()
+    expect(capturedSignal).toBeInstanceOf(AbortSignal);
+    expect(capturedSignal?.aborted).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(PROVIDER_CALL_TIMEOUT_MS + 1000);
+    const result = await resultPromise;
+    expect(capturedSignal?.aborted).toBe(true);
+    expect(result).toEqual({ ok: false, kind: "timeout" });
+    vi.useRealTimers();
+  });
+
+  it("a provider that honors the signal and itself rejects on abort is still normalized safely — the raw rejection never escapes runAiAssistantTurn()", async () => {
+    // The real providers/openai.ts adapter normalizes an AbortError to
+    // AiProviderError("timeout") BEFORE it ever reaches orchestrate.ts
+    // (see that file's own normalizeOpenAiError()) — this stub
+    // deliberately does NOT do that translation, to prove orchestrate.ts
+    // itself stays safe even against an adapter that rejects with a raw,
+    // unnormalized error the instant the signal fires (whichever settles
+    // first between the provider's own rejection and orchestrate.ts's own
+    // timeout promise, the result is always one clean, normalized outcome
+    // — never a thrown/unhandled raw error).
+    const provider: AiProvider = {
+      complete: (_request, options) =>
+        new Promise<AiResponse>((_resolve, reject) => {
+          options?.signal?.addEventListener("abort", () => {
+            const err = new Error("raw internal transport detail that must never leak");
+            err.name = "AbortError";
+            reject(err);
+          });
+        }),
+    };
+    vi.useFakeTimers();
+    const resultPromise = runAiAssistantTurn({ organizationId: ORG_ID, provider, userMessage: "x" });
+    await vi.advanceTimersByTimeAsync(PROVIDER_CALL_TIMEOUT_MS + 1000);
+    const result = await resultPromise;
+    // Either classification is an acceptable, safe, normalized outcome
+    // depending on exact settle-order — never anything else, and never a
+    // thrown/unhandled raw error.
+    expect(["timeout", "provider_error"]).toContain(result.ok ? undefined : result.kind);
+    expect(result.ok).toBe(false);
+    vi.useRealTimers();
+  });
+});
+
+describe("runAiAssistantTurn — total-turn budget bounds the per-call abort (not just the fixed per-call ceiling)", () => {
+  it("a call starting late in the turn receives an effective timeout shorter than PROVIDER_CALL_TIMEOUT_MS, bounded by the remaining total-turn budget", async () => {
+    const nowSpy = vi.spyOn(Date, "now");
+    // [startedAt, iter1 elapsedMs, iter2 elapsedMs, finish() latencyMs]
+    const sequence = [0, 1000, ORCHESTRATION_DEADLINE_MS - 100, ORCHESTRATION_DEADLINE_MS];
+    let call = 0;
+    nowSpy.mockImplementation(() => sequence[Math.min(call++, sequence.length - 1)]);
+
+    let firstRequestTimeoutMs: number | undefined;
+    let secondRequestTimeoutMs: number | undefined;
+    let invocation = 0;
+    const provider: AiProvider = {
+      complete: async (request) => {
+        invocation += 1;
+        if (invocation === 1) {
+          firstRequestTimeoutMs = request.timeoutMs;
+          return { kind: "toolCall", call: { toolName: "echoTool", args: {} }, usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } };
+        }
+        secondRequestTimeoutMs = request.timeoutMs;
+        return { kind: "text", text: "done", usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 } };
+      },
+    };
+
+    await runAiAssistantTurn({ organizationId: ORG_ID, provider, userMessage: "x" });
+
+    expect(firstRequestTimeoutMs).toBe(PROVIDER_CALL_TIMEOUT_MS); // plenty of turn budget remains at call 1
+    expect(secondRequestTimeoutMs).toBe(100); // only 100ms of total-turn budget remained by call 2
+    expect(secondRequestTimeoutMs).toBeLessThan(PROVIDER_CALL_TIMEOUT_MS);
+    nowSpy.mockRestore();
+  });
 });
 
 describe("runAiAssistantTurn — total orchestration deadline", () => {
@@ -447,10 +545,13 @@ describe("runAiAssistantTurn — logging metadata", () => {
     await runAiAssistantTurn({ organizationId: ORG_ID, provider, userMessage: "hello" });
     const payload = loggedPayload();
     expect(Object.keys(payload).sort()).toEqual(
-      ["category", "correlationId", "latencyMs", "providerModelId", "timestamp", "toolName", "usage"].sort(),
+      ["category", "correlationId", "latencyMs", "model", "provider", "providerCallCount", "timestamp", "toolCallCount", "toolName", "usage"].sort(),
     );
     expect(payload.category).toBe("success");
-    expect(payload.providerModelId).toBe("mock");
+    expect(payload.provider).toBe("mock");
+    expect(payload.model).toBe("mock");
+    expect(payload.providerCallCount).toBe(2);
+    expect(payload.toolCallCount).toBe(1);
     expect(payload.toolName).toBe("echoTool");
     expect(typeof payload.correlationId).toBe("string");
     expect(typeof payload.latencyMs).toBe("number");
@@ -460,9 +561,13 @@ describe("runAiAssistantTurn — logging metadata", () => {
     const provider = new MockAiProvider([{ kind: "error", errorKind: "unavailable" }]);
     await runAiAssistantTurn({ organizationId: ORG_ID, provider, userMessage: "hello" });
     const payload = loggedPayload();
-    expect(Object.keys(payload).sort()).toEqual(["category", "correlationId", "errorKind", "latencyMs", "providerModelId", "timestamp", "usage"].sort());
+    expect(Object.keys(payload).sort()).toEqual(
+      ["category", "correlationId", "errorKind", "latencyMs", "model", "provider", "providerCallCount", "timestamp", "toolCallCount", "usage"].sort(),
+    );
     expect(payload.category).toBe("error");
     expect(payload.errorKind).toBe("unavailable");
+    expect(payload.providerCallCount).toBe(1);
+    expect(payload.toolCallCount).toBe(0);
   });
 
   it("omits toolName entirely when no tool was ever invoked", async () => {
