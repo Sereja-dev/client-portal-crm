@@ -118,3 +118,74 @@ describe("no client input influences provider choice", () => {
     ).rejects.toMatchObject({ name: "AiProviderError", kind: "unavailable" });
   });
 });
+
+describe("isAiAssistantAvailable / getAiProviderAdapter — AI_PROVIDER / AQENRA_OPENAI_API_KEY resolution", () => {
+  it("resolves unavailable/unconfigured when AI_PROVIDER is entirely unset (the same disabled-by-default state as before this batch)", async () => {
+    vi.stubEnv("TEST_MODE", "");
+    vi.stubEnv("AI_PROVIDER", "");
+    vi.stubEnv("AQENRA_OPENAI_API_KEY", "");
+    const { isAiAssistantAvailable, getAiProviderAdapter } = await importFresh();
+
+    expect(isAiAssistantAvailable()).toBe(false);
+    const provider = getAiProviderAdapter([]);
+    expect(provider.providerId).toBe("unconfigured");
+    await expect(
+      provider.complete({ systemPrompt: "s", messages: [], tools: [], maxOutputTokens: 10, timeoutMs: 1000 }),
+    ).rejects.toMatchObject({ name: "AiProviderError", kind: "unavailable" });
+  });
+
+  it("key presence ALONE never enables anything: AQENRA_OPENAI_API_KEY set with AI_PROVIDER unset still resolves unavailable", async () => {
+    vi.stubEnv("TEST_MODE", "");
+    vi.stubEnv("AI_PROVIDER", "");
+    vi.stubEnv("AQENRA_OPENAI_API_KEY", "sk-real-looking-key");
+    const { isAiAssistantAvailable } = await importFresh();
+    expect(isAiAssistantAvailable()).toBe(false);
+  });
+
+  it('resolves unavailable/unconfigured for a deterministic configuration failure: AI_PROVIDER="openai" but the key is missing', async () => {
+    vi.stubEnv("TEST_MODE", "");
+    vi.stubEnv("AI_PROVIDER", "openai");
+    vi.stubEnv("AQENRA_OPENAI_API_KEY", "");
+    const { isAiAssistantAvailable, getAiProviderAdapter } = await importFresh();
+
+    expect(isAiAssistantAvailable()).toBe(false);
+    const provider = getAiProviderAdapter([]);
+    expect(provider.providerId).toBe("unconfigured");
+  });
+
+  it('resolves the real OpenAI adapter when AI_PROVIDER="openai" and a real-looking key are both present', async () => {
+    vi.stubEnv("TEST_MODE", "");
+    vi.stubEnv("AI_PROVIDER", "openai");
+    vi.stubEnv("AQENRA_OPENAI_API_KEY", "sk-real-looking-key");
+    const { isAiAssistantAvailable, getAiProviderAdapter } = await importFresh();
+
+    expect(isAiAssistantAvailable()).toBe(true);
+    const provider = getAiProviderAdapter([]);
+    expect(provider.providerId).toBe("openai");
+    expect(provider.modelId).toBe("gpt-5.6-luna");
+  });
+
+  it("TEST_MODE takes priority over a real, fully valid OpenAI config — the mock is still what's returned", async () => {
+    vi.stubEnv("TEST_MODE", "1");
+    vi.stubEnv("AI_PROVIDER", "openai");
+    vi.stubEnv("AQENRA_OPENAI_API_KEY", "sk-real-looking-key");
+    const { isAiAssistantAvailable, getAiProviderAdapter } = await importFresh();
+
+    expect(isAiAssistantAvailable()).toBe(true);
+    const provider = getAiProviderAdapter([{ kind: "text", text: "mock answer" }]);
+    expect(provider.providerId).toBe("mock");
+  });
+
+  it("resolving the real OpenAI adapter makes no network call — constructing the SDK client is pure, synchronous setup", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(() => {
+      throw new Error("getAiProviderAdapter() must never make a network call during resolution");
+    });
+    vi.stubEnv("TEST_MODE", "");
+    vi.stubEnv("AI_PROVIDER", "openai");
+    vi.stubEnv("AQENRA_OPENAI_API_KEY", "sk-real-looking-key");
+    const { getAiProviderAdapter } = await importFresh();
+    expect(() => getAiProviderAdapter([])).not.toThrow();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+});

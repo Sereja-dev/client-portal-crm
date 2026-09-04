@@ -34,12 +34,18 @@ export type AiLogEventCategory = "success" | "error";
 
 export type AiLogMetadata = {
   timestamp: string;
-  /** An opaque provider/model identifier string (e.g. "mock", or a future vendor's model name) — never a request or response body. */
-  providerModelId?: string;
+  /** Opaque provider identifier only — e.g. "mock", "unconfigured", "openai" — never a vendor SDK object, request, or response body. See AiProvider.providerId. */
+  provider?: string;
+  /** Opaque model identifier only — e.g. "mock", "gpt-5.6-luna" — never a request or response body. See AiProvider.modelId. */
+  model?: string;
   latencyMs?: number;
   usage?: AiUsage;
   /** The tool's NAME only — see tools/registry.ts. Never the tool's input args or its result. */
   toolName?: string;
+  /** Count of provider.complete() invocations this turn made — a plain integer, never provider-call content. */
+  providerCallCount?: number;
+  /** Count of tool calls this turn dispatched — a plain integer, never tool-call content. */
+  toolCallCount?: number;
   category: AiLogEventCategory;
   errorKind?: AiProviderErrorKind;
   correlationId?: string;
@@ -47,10 +53,13 @@ export type AiLogMetadata = {
 
 const ALLOWED_KEYS = new Set<keyof AiLogMetadata>([
   "timestamp",
-  "providerModelId",
+  "provider",
+  "model",
   "latencyMs",
   "usage",
   "toolName",
+  "providerCallCount",
+  "toolCallCount",
   "category",
   "errorKind",
   "correlationId",
@@ -112,6 +121,12 @@ export function logAiAssistantEvent(metadata: AiLogMetadata): void {
     throw new Error(
       `logAiAssistantEvent: "usage" must contain exactly promptTokens/completionTokens/totalTokens as finite, non-negative numbers — no other field, and no other value shape, may ever be logged.`,
     );
+  }
+  for (const key of ["providerCallCount", "toolCallCount"] as const) {
+    const value = metadata[key];
+    if (value !== undefined && !(typeof value === "number" && Number.isFinite(value) && value >= 0 && Number.isInteger(value))) {
+      throw new Error(`logAiAssistantEvent: "${key}" must be a finite, non-negative integer.`);
+    }
   }
   console.log("[ai-assistant]", JSON.stringify(metadata));
 }

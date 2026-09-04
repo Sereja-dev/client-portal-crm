@@ -102,13 +102,41 @@ export type AiRequest = {
 };
 
 /**
+ * Real cancellation plumbing for `complete()` — a standard Web/Node
+ * `AbortSignal`, never a vendor SDK type. Orchestration (orchestrate.ts)
+ * constructs one `AbortController` per provider call, aborts it when
+ * either the per-call timeout or the remaining total-turn budget elapses
+ * (whichever is smaller), and passes `controller.signal` here. A
+ * cooperative adapter (e.g. providers/openai.ts, which forwards it
+ * straight into the vendor SDK's own request options) genuinely cancels
+ * the underlying HTTP request; an adapter that ignores it (the mock, the
+ * unconfigured fail-closed stub) is unaffected — orchestrate.ts's own
+ * Promise.race against the same deadline is what guarantees the turn
+ * still returns on time either way, so no adapter is REQUIRED to honor
+ * this for orchestration's own correctness, only for genuinely stopping
+ * outbound network work "where supported" (see this batch's own
+ * requirements).
+ */
+export type AiCompleteOptions = { signal?: AbortSignal };
+
+/**
  * The one interface every provider adapter implements, and the only
  * dependency orchestration code is allowed to take. `complete` is the
  * MVP, non-streaming call every batch through UI (Batch 3) uses; `stream`
  * is reserved for a later stage and intentionally unimplemented by the
  * mock provider (throws if ever called — see providers/mock.ts).
+ *
+ * `providerId`/`modelId` are opaque, adapter-supplied identity strings
+ * for METADATA-ONLY logging (see logging-policy.ts) — never read for any
+ * behavior branching, never a vendor SDK object, never anything beyond a
+ * plain string (e.g. "mock"/"mock", "openai"/"gpt-5.6-luna"). Optional so
+ * every existing hand-built test stub (a plain `{ complete }` object
+ * literal) remains valid without modification; orchestrate.ts falls back
+ * to "unknown" for either when an adapter omits them.
  */
 export interface AiProvider {
-  complete(request: AiRequest): Promise<AiResponse>;
+  readonly providerId?: string;
+  readonly modelId?: string;
+  complete(request: AiRequest, options?: AiCompleteOptions): Promise<AiResponse>;
   stream?(request: AiRequest): AsyncIterable<AiResponse>;
 }

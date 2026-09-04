@@ -26,9 +26,12 @@ import { AiProviderError } from "../provider";
  */
 export function createUnconfiguredAiProvider(): AiProvider {
   return {
+    providerId: "unconfigured",
+    modelId: "unconfigured",
     stream: undefined,
-    async complete(request: AiRequest): Promise<AiResponse> {
+    async complete(request: AiRequest, options?: { signal?: AbortSignal }): Promise<AiResponse> {
       void request; // Interface conformance only — this adapter never actually runs in normal operation (see this file's own header comment).
+      void options;
       throw new AiProviderError("unavailable");
     },
   };

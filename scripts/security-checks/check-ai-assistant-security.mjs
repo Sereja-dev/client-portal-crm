@@ -150,13 +150,80 @@ const actionsImports = grep('from ".*actions"', AI_DIR, "-E");
 ok = report("no \"use server\" directive anywhere under src/lib/ai", useServerDirective === "", useServerDirective) && ok;
 ok = report("no actions.ts import anywhere under src/lib/ai", actionsImports === "", actionsImports) && ok;
 
-// 6/7. No vendor AI SDK import anywhere under src/lib/ai — this batch
-// ships zero real provider adapters (only the mock), so this is
-// currently a blanket rule; a future provider batch scopes vendor
-// imports to providers/<vendor>.ts and updates this check accordingly.
+// 6/7. No vendor AI SDK import anywhere under src/lib/ai EXCEPT the one
+// approved real adapter file, providers/openai.ts — a deliberate,
+// explained rule change (the same discipline rule 8's own earlier
+// Prisma-import-rule inversion already established, not a silent drop):
+// this batch adds the first real provider adapter, so the prior blanket
+// "zero vendor SDK imports anywhere" rule is now factually wrong, not
+// merely outdated. The narrowed rule below still catches the thing that
+// actually matters — a vendor SDK import creeping into orchestrate.ts,
+// route.ts, provider-factory.ts, or any tool file, which would mean a
+// raw SDK object could reach code this app trusts to normalize vendor
+// output that never happened.
 const vendorSdkPattern = 'from "(openai|@openai/|@anthropic-ai/|@google/generative-ai|@google-cloud/vertexai|cohere-ai|@mistralai/|groq-sdk|@azure/openai)';
-const vendorSdkImports = grep(vendorSdkPattern, AI_DIR);
-ok = report("no vendor AI SDK import anywhere under src/lib/ai (Batch 1A ships no real provider adapter)", vendorSdkImports === "", vendorSdkImports) && ok;
+const OPENAI_PROVIDER_FILE = `${PROVIDERS_DIR}/openai.ts`;
+const vendorSdkImportLines = grep(vendorSdkPattern, AI_DIR)
+  .split("\n")
+  .filter(Boolean)
+  .filter((line) => line.split(":")[0] !== OPENAI_PROVIDER_FILE);
+ok = report(
+  "no vendor AI SDK import anywhere under src/lib/ai except the one approved real adapter, providers/openai.ts",
+  vendorSdkImportLines.length === 0,
+  vendorSdkImportLines.join("\n"),
+) && ok;
+
+// The approved adapter genuinely does import the openai SDK (this rule
+// would otherwise pass vacuously if that file were ever emptied out or
+// renamed without anyone noticing) — comment-stripped, matching every
+// other declaration-shaped rule in this file.
+const openaiProviderContent = stripComments(readIfExists(OPENAI_PROVIDER_FILE));
+ok = report(
+  'providers/openai.ts genuinely imports the "openai" SDK (comment-stripped)',
+  /from\s*"openai"/.test(openaiProviderContent),
+  "",
+) && ok;
+
+// No raw OpenAI SDK type/object ever appears in this adapter's own
+// exported surface — complete() must return only AiResponse (kind:"text"
+// or kind:"toolCall"), never an SDK ChatCompletion object itself, and
+// every caught error is normalized to AiProviderError before it can
+// escape. A blunt but effective proxy: the file's own return/throw
+// statements are scanned, never "completion"/"choice"/raw SDK error
+// class names appearing in a return/throw position.
+const rawSdkEscapePattern = /\b(return|throw)\s+completion\b|\breturn\s+choice\b/;
+ok = report(
+  "providers/openai.ts never returns/throws a raw SDK response object directly",
+  !rawSdkEscapePattern.test(openaiProviderContent),
+  "",
+) && ok;
+
+// providers/openai.ts never logs anything (console.*) — any operator
+// diagnostics for this adapter flow through orchestrate.ts's own single
+// metadata-only logAiAssistantEvent() call site (rule 24 below), never a
+// second, unaudited log line inside the adapter itself that could carry
+// a raw SDK error/request detail.
+const consoleInOpenAiProvider = grep("console\\.(log|error|warn|info|debug)\\(", OPENAI_PROVIDER_FILE);
+ok = report("providers/openai.ts never logs anything itself", consoleInOpenAiProvider === "", consoleInOpenAiProvider) && ok;
+
+// The adapter never reads AQENRA_OPENAI_API_KEY (or any env var) itself —
+// openai-config.ts is the one place that reads it; the key only ever
+// reaches this file as an explicit function parameter, never a second,
+// independent env read that could drift from the validated config.
+ok = report("providers/openai.ts never reads process.env directly (the key arrives only as an explicit parameter)", !/process\.env/.test(openaiProviderContent), "") && ok;
+
+// The adapter always explicitly pins its own baseURL, neutralizing the
+// SDK's own OPENAI_BASE_URL env-var fallback (see this file's own header
+// comment) — never constructs the client with an implicit/unset baseURL.
+ok = report("providers/openai.ts always explicitly pins baseURL (neutralizing the SDK's own OPENAI_BASE_URL env fallback)", /baseURL:\s*OPENAI_BASE_URL/.test(openaiProviderContent), "") && ok;
+
+// openai-config.ts (the one file that reads AI_PROVIDER/AQENRA_OPENAI_API_KEY)
+// never reads a generic OPENAI_API_KEY fallback, and exists.
+const OPENAI_CONFIG_FILE = `${PROVIDERS_DIR}/openai-config.ts`;
+const openaiConfigContent = stripComments(readIfExists(OPENAI_CONFIG_FILE));
+ok = report("openai-config.ts exists and reads AQENRA_OPENAI_API_KEY", /AQENRA_OPENAI_API_KEY/.test(openaiConfigContent), "") && ok;
+ok = report('openai-config.ts never reads a generic "OPENAI_API_KEY" fallback', !/[^_A-Z]OPENAI_API_KEY\b/.test(openaiConfigContent), "") && ok;
+ok = report("openai-config.ts never logs anything itself", grep("console\\.(log|error|warn|info|debug)\\(", OPENAI_CONFIG_FILE) === "", "") && ok;
 
 // 8. Batch 1A had zero business-data tools, so this rule was originally
 // "no Prisma import in tools/ at all." Batch 1B.1 genuinely needs narrow,
@@ -353,9 +420,24 @@ ok = report(
 // 10d. No mutation-capable Prisma operation anywhere under src/lib/ai —
 // defense in depth alongside the name-based mutation guard: even a
 // perfectly-named read-only tool must never call a Prisma write method.
+//
+// providers/openai.ts is excluded from this ONE check, deliberately and
+// explained: `client.chat.completions.create(...)` is the OpenAI SDK's
+// own vendor method name, coincidentally matching this Prisma-mutation
+// pattern (a real false positive, reproduced and confirmed here — not
+// silently worked around). Excluding it does not weaken this rule's own
+// actual guarantee for that file: providers/openai.ts is separately, and
+// more precisely, forbidden from importing Prisma at all (see
+// NEW_FILES_NO_PRISMA below) — a file that cannot import Prisma cannot
+// possibly call a real Prisma mutation method, so this substring check
+// would only ever be a strictly weaker, redundant proxy for that file.
 const mutationMethodPattern = "\\.(create|update|delete|upsert|createMany|updateMany|deleteMany)\\(";
-const mutationMethodUsage = grep(mutationMethodPattern, AI_DIR);
-ok = report("no mutation-capable Prisma method (create/update/delete/upsert/*Many) anywhere under src/lib/ai", mutationMethodUsage === "", mutationMethodUsage) && ok;
+const mutationMethodUsage = grep(mutationMethodPattern, AI_DIR)
+  .split("\n")
+  .filter(Boolean)
+  .filter((line) => line.split(":")[0] !== `${PROVIDERS_DIR}/openai.ts`)
+  .join("\n");
+ok = report("no mutation-capable Prisma method (create/update/delete/upsert/*Many) anywhere under src/lib/ai (providers/openai.ts excluded — see this rule's own comment)", mutationMethodUsage === "", mutationMethodUsage) && ok;
 
 // 10e. invoices.ts never imports invoice lifecycle/send/archive/PDF/email/
 // storage/billing code — it is a pure read, and must have no path to any
@@ -684,14 +766,34 @@ ok = report(
   "",
 ) && ok;
 
-// 27. Production fail-closed, CRITICAL: provider-factory.ts only ever
-// returns MockAiProvider when the shared TEST_MODE constant is true — no
-// other condition, and no real-provider branch exists in this batch.
+// 27. Production fail-closed, CRITICAL. Two properties, both required —
+// a deliberate, explained rule change (not a silent drop) now that this
+// batch adds a real, config-gated provider branch:
+//   a) MockAiProvider is still only ever returned when the shared
+//      TEST_MODE constant is true — unchanged from before this batch.
+//   b) The real OpenAI branch is reachable ONLY through
+//      getOpenAiProviderConfig() (openai-config.ts) — provider-factory.ts
+//      itself never reads AI_PROVIDER/AQENRA_OPENAI_API_KEY, and never
+//      constructs createOpenAiProvider with anything other than that
+//      config's own validated apiKey. Every other outcome (TEST_MODE
+//      false AND config not "configured") falls through to
+//      createUnconfiguredAiProvider() — still the fail-closed default,
+//      and still what today's Production (which sets neither env var)
+//      actually resolves to.
 const importsTestMode = /import\s*\{[^}]*\bTEST_MODE\b[^}]*\}\s*from\s*"@\/lib\/test-mode"/.test(providerFactoryContent);
 const gatesMockOnTestMode = /if\s*\(\s*TEST_MODE\s*\)[\s\S]{0,120}MockAiProvider/.test(providerFactoryContent);
 ok = report(
   "provider-factory.ts only ever returns MockAiProvider when the shared TEST_MODE constant is true",
   importsTestMode && gatesMockOnTestMode,
+  "",
+) && ok;
+
+const importsOpenAiConfig = /import\s*\{[^}]*\bgetOpenAiProviderConfig\b[^}]*\}\s*from\s*"\.\/openai-config"/.test(providerFactoryContent);
+const gatesRealProviderOnConfiguredStatus = /config\.status\s*===\s*"configured"[\s\S]{0,120}createOpenAiProvider\(\s*config\.apiKey\s*\)/.test(providerFactoryContent);
+const providerFactoryReadsEnvDirectly = /process\.env/.test(providerFactoryContent);
+ok = report(
+  "provider-factory.ts's real OpenAI branch is reachable only via getOpenAiProviderConfig()'s own validated {status:\"configured\", apiKey}, and the file itself never reads process.env directly",
+  importsOpenAiConfig && gatesRealProviderOnConfiguredStatus && !providerFactoryReadsEnvDirectly,
   "",
 ) && ok;
 
@@ -720,6 +822,8 @@ const NEW_FILES_NO_PRISMA = [
   PROVIDER_FACTORY_FILE,
   UNCONFIGURED_PROVIDER_FILE,
   APPROVED_ROUTE_FILE,
+  `${PROVIDERS_DIR}/openai.ts`,
+  `${PROVIDERS_DIR}/openai-config.ts`,
 ];
 const prismaImportHits = NEW_FILES_NO_PRISMA.filter(existsSync).filter((file) =>
   /from\s*"@\/lib\/prisma"|from\s*"@\/generated\/prisma/.test(stripComments(readIfExists(file))),
