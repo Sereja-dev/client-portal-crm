@@ -6,29 +6,57 @@ import { signup } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FormLabel } from "@/components/ui/form-field";
+import type { ValidSignupInvitation } from "@/lib/invitations/resolve-signup-invitation";
 import type { AuthActionState } from "@/types";
 
 const initialState: AuthActionState = { error: null };
 
-export function SignupForm({ redirectTo }: { redirectTo?: string }) {
+export function SignupForm({
+  redirectTo,
+  invitation,
+}: {
+  redirectTo?: string;
+  /**
+   * Invited-signup defect fix. Already server-validated by the page
+   * component — this form only ever renders/submits what it's given, it
+   * never re-derives or re-checks validity itself. When present: no
+   * "Organization name" field is rendered or required (an invited Member
+   * must never be asked to create a workspace), the email field is
+   * pre-filled and locked to the invited address (acceptance still
+   * strictly re-validates the email match afterward — this is a UX
+   * convenience, not the security boundary), and the invitation token
+   * travels forward as its own hidden field for signup() to independently
+   * re-validate.
+   */
+  invitation?: ValidSignupInvitation | null;
+}) {
   const [state, formAction, pending] = useActionState(signup, initialState);
 
   return (
     <form action={formAction} className="space-y-4">
       {redirectTo && <input type="hidden" name="redirectTo" value={redirectTo} />}
-      <div>
-        <FormLabel htmlFor="organizationName" required>
-          Organization name
-        </FormLabel>
-        <Input
-          id="organizationName"
-          name="organizationName"
-          type="text"
-          autoComplete="organization"
-          placeholder="Acme Inc."
-          required
-        />
-      </div>
+      {invitation && <input type="hidden" name="invitationToken" value={invitation.token} />}
+
+      {invitation ? (
+        <p className="text-sm text-gray-600">
+          You&apos;re joining{" "}
+          <span className="font-medium text-gray-900">{invitation.organizationName}</span>.
+        </p>
+      ) : (
+        <div>
+          <FormLabel htmlFor="organizationName" required>
+            Organization name
+          </FormLabel>
+          <Input
+            id="organizationName"
+            name="organizationName"
+            type="text"
+            autoComplete="organization"
+            placeholder="Acme Inc."
+            required
+          />
+        </div>
+      )}
 
       <div>
         <FormLabel htmlFor="email" required>
@@ -40,6 +68,8 @@ export function SignupForm({ redirectTo }: { redirectTo?: string }) {
           type="email"
           autoComplete="email"
           required
+          defaultValue={invitation?.email}
+          readOnly={Boolean(invitation)}
         />
       </div>
 

@@ -118,3 +118,24 @@ describe("/auth/confirm — integration (real Route Handler, TEST_MODE token bra
     expect(response.headers.get("location")).toBe("http://localhost/reset-password?invalid=1");
   });
 });
+
+describe("/auth/confirm — type=signup (invited-signup defect fix)", () => {
+  it("no token_hash: redirects to /signup?invalid=1", async () => {
+    const response = await confirmGet(confirmRequest({ type: "signup" }));
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe("http://localhost/signup?invalid=1");
+  });
+
+  it("TEST_MODE has no real OTP to verify against: a token_hash still redirects to /signup?invalid=1, never fabricating a session, even with a next value present", async () => {
+    const response = await confirmGet(
+      confirmRequest({ type: "signup", token_hash: "whatever", next: "/invite/some-token" }),
+    );
+    expect(response.headers.get("location")).toBe("http://localhost/signup?invalid=1");
+    expect(response.cookies.get(TEST_USER_COOKIE_NAME)).toBeUndefined();
+  });
+
+  it("an unrecognized/absent type falls through to the existing, unchanged recovery branch", async () => {
+    const response = await confirmGet(confirmRequest({ token_hash: "never-issued", audience: "staff" }));
+    expect(response.headers.get("location")).toBe("http://localhost/reset-password?invalid=1");
+  });
+});
