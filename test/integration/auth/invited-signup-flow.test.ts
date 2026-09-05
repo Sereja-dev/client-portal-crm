@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@/generated/prisma/enums";
 import { signup } from "@/app/(auth)/signup/actions";
@@ -7,16 +7,24 @@ import { acceptInvitationAction } from "@/app/invite/[token]/actions";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { testEmail } from "../../support/run-id";
 import { TEST_EMAIL_DOMAIN } from "../../support/env";
-import { setMockAuthUser, setMockSignUpConfig, resetAuthMock } from "../../support/auth-mock";
+import { setMockAuthUser, setMockVerifyOtpConfig, resetAuthMock } from "../../support/auth-mock";
 import { RedirectSignal, resetNavigationMock } from "../../support/navigation-mock";
 
-// Invited-signup defect fix. The real Production defect this suite
-// proves fixed: an invited Member signing up through /signup must never
-// end up owning a spurious personal Organization in addition to the
-// Membership they actually accept — see the Production investigation this
-// fix follows from. Each test creates its own Invitation row (never
-// reusing fixtures.invitation, which other test files may also read) so
-// no test here can affect another's assumed invitation status.
+// Invited-signup defect fix (PR #188) + signup-confirmation defect fix
+// (Invited Signup Confirmation Redirect Investigation). The real
+// Production defects this suite proves fixed:
+//   1. an invited Member signing up through /signup must never end up
+//      owning a spurious personal Organization in addition to the
+//      Membership they actually accept (PR #188).
+//   2. when Supabase's project requires email confirmation, the invited
+//      user must receive Aqenra's own branded confirmation email (never
+//      Supabase's native one) whose link, once clicked, actually returns
+//      them to /invite/<token> — never the generic /signup page.
+// Each test creates its own Invitation row (never reusing
+// fixtures.invitation, which other test files may also read) so no test
+// here can affect another's assumed invitation status. signup()'s two
+// network-bound dependencies (generateToken, sendConfirmationEmail) are
+// injected directly, never module-mocked.
 
 async function createInvitation(
   fixtures: TestFixtures,
@@ -46,7 +54,7 @@ function signupForm(fields: { email: string; password: string; invitationToken?:
   return formData;
 }
 
-describe("invited signup — invited-signup defect fix", () => {
+describe("invited signup — invited-signup + signup-confirmation defect fixes", () => {
   let fixtures: TestFixtures;
 
   beforeAll(async () => {
@@ -65,31 +73,42 @@ describe("invited signup — invited-signup defect fix", () => {
   it("does not require organizationName when a valid invitationToken is present", async () => {
     const invitation = await createInvitation(fixtures);
     const userId = randomUUID();
-    setMockSignUpConfig({ kind: "session", id: userId });
+    setMockVerifyOtpConfig({ kind: "success", user: { id: userId, email: invitation.email } });
 
     const formData = signupForm({ email: invitation.email, password: "correct-horse-battery-1", invitationToken: invitation.token });
     // organizationName intentionally omitted — must not be required.
 
-    await expect(signup({ error: null }, formData)).rejects.toBeInstanceOf(RedirectSignal);
+    await expect(
+      signup({ error: null }, formData, {
+        generateToken: vi.fn().mockResolvedValue({ ok: true, tokenHash: "h", alreadyConfirmed: true }),
+      }),
+    ).rejects.toBeInstanceOf(RedirectSignal);
 
     await prisma.user.deleteMany({ where: { id: userId } });
   });
 
-  it("creates the User row but no Organization and no OWNER Membership, and redirects to /invite/<token> — not the generic dashboard", async () => {
+  it("immediate session (confirm email disabled): creates the User row but no Organization and no OWNER Membership, and redirects to /invite/<token>", async () => {
     const invitation = await createInvitation(fixtures);
     const userId = randomUUID();
-    setMockSignUpConfig({ kind: "session", id: userId });
+    setMockVerifyOtpConfig({ kind: "success", user: { id: userId, email: invitation.email } });
 
     const formData = signupForm({ email: invitation.email, password: "correct-horse-battery-1", invitationToken: invitation.token });
+    const generateToken = vi.fn().mockResolvedValue({ ok: true, tokenHash: "h", alreadyConfirmed: true });
 
     let caught: unknown;
     try {
-      await signup({ error: null }, formData);
+      await signup({ error: null }, formData, { generateToken });
     } catch (err) {
       caught = err;
     }
     expect(caught).toBeInstanceOf(RedirectSignal);
     expect((caught as RedirectSignal).url).toMatch(new RegExp(`^/invite/${invitation.token}\\?`));
+
+    // Never carries an organizationName through for an invited signup —
+    // there is no organization for it to name.
+    expect(generateToken).toHaveBeenCalledWith(
+      expect.objectContaining({ email: invitation.email, organizationName: undefined }),
+    );
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
     expect(user?.email).toBe(invitation.email);
@@ -100,18 +119,46 @@ describe("invited signup — invited-signup defect fix", () => {
     await prisma.user.deleteMany({ where: { id: userId } });
   });
 
-  it("does not eagerly create a User when email confirmation is required (pending-confirmation)", async () => {
+  it("email confirmation required: sends Aqenra's own branded confirmation email (never Supabase's native one) with next=/invite/<token>, and creates no User/Organization/Membership yet", async () => {
     const invitation = await createInvitation(fixtures);
-    const userId = randomUUID();
-    setMockSignUpConfig({ kind: "pending-confirmation", id: userId });
-
     const formData = signupForm({ email: invitation.email, password: "correct-horse-battery-1", invitationToken: invitation.token });
-    const result = await signup({ error: null }, formData);
+
+    const sendConfirmationEmail = vi.fn().mockResolvedValue({ delivered: true });
+    const result = await signup({ error: null }, formData, {
+      generateToken: vi.fn().mockResolvedValue({ ok: true, tokenHash: "invited-pending-hash", alreadyConfirmed: false }),
+      sendConfirmationEmail,
+    });
 
     expect(result.error).toBeNull();
     expect(result.message).toMatch(/check your email/i);
 
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    expect(sendConfirmationEmail).toHaveBeenCalledTimes(1);
+    const call = sendConfirmationEmail.mock.calls[0][0];
+    expect(call.to).toBe(invitation.email);
+    expect(call.isInvited).toBe(true);
+    expect(call.confirmUrl).toContain("token_hash=invited-pending-hash");
+    expect(call.confirmUrl).toContain("type=signup");
+    expect(call.confirmUrl).toContain(`next=%2Finvite%2F${invitation.token}`);
+
+    const user = await prisma.user.findFirst({ where: { email: invitation.email } });
+    expect(user).toBeNull();
+    const memberships = user ? await prisma.membership.findMany({ where: { userId: user.id } }) : [];
+    expect(memberships).toHaveLength(0);
+  });
+
+  it("does not eagerly create a User when email confirmation is required (pending-confirmation)", async () => {
+    const invitation = await createInvitation(fixtures);
+    const formData = signupForm({ email: invitation.email, password: "correct-horse-battery-1", invitationToken: invitation.token });
+
+    const result = await signup({ error: null }, formData, {
+      generateToken: vi.fn().mockResolvedValue({ ok: true, tokenHash: "h", alreadyConfirmed: false }),
+      sendConfirmationEmail: vi.fn().mockResolvedValue({ delivered: true }),
+    });
+
+    expect(result.error).toBeNull();
+    expect(result.message).toMatch(/check your email/i);
+
+    const user = await prisma.user.findFirst({ where: { email: invitation.email } });
     expect(user).toBeNull();
   });
 
@@ -119,23 +166,24 @@ describe("invited signup — invited-signup defect fix", () => {
     const invitation = await createInvitation(fixtures, { status: "REVOKED" });
     const formData = signupForm({ email: invitation.email, password: "correct-horse-battery-1", invitationToken: invitation.token });
 
-    const result = await signup({ error: null }, formData);
+    const result = await signup({ error: null }, formData, { generateToken: vi.fn() });
     expect(result.error).toBe("This invitation is no longer available. Please refresh and try again.");
   });
 
   it("a forged/nonexistent invitationToken never falls through to a real invited signup — it returns the same specific 'no longer available' error as a genuinely-expired one, never a fabricated organization", async () => {
+    const email = testEmail("signup-forged-token", TEST_EMAIL_DOMAIN);
     const formData = new FormData();
-    formData.set("email", testEmail("signup-forged-token", TEST_EMAIL_DOMAIN));
+    formData.set("email", email);
     formData.set("password", "correct-horse-battery-1");
     formData.set("confirmPassword", "correct-horse-battery-1");
     formData.set("invitationToken", "not-a-real-token");
     // organizationName intentionally omitted — a forged token must never
     // silently degrade into treating this as a plain standalone signup.
 
-    const result = await signup({ error: null }, formData);
+    const result = await signup({ error: null }, formData, { generateToken: vi.fn() });
     expect(result.error).toBe("This invitation is no longer available. Please refresh and try again.");
 
-    const user = await prisma.user.findFirst({ where: { email: formData.get("email") as string } });
+    const user = await prisma.user.findFirst({ where: { email } });
     expect(user).toBeNull();
   });
 
@@ -146,19 +194,23 @@ describe("invited signup — invited-signup defect fix", () => {
     formData.set("confirmPassword", "correct-horse-battery-1");
     // No invitationToken, no organizationName.
 
-    const result = await signup({ error: null }, formData);
+    const result = await signup({ error: null }, formData, { generateToken: vi.fn() });
     expect(result.error).toBe("All fields are required.");
   });
 
-  it("full flow: invited signup followed by acceptInvitationAction results in exactly one Membership (the invited role, in the invited organization) and no organization ownership anywhere", async () => {
+  it("full flow: invited signup (immediate session) followed by acceptInvitationAction results in exactly one Membership (the invited role, in the invited organization) and no organization ownership anywhere", async () => {
     const invitation = await createInvitation(fixtures);
     const userId = randomUUID();
-    setMockSignUpConfig({ kind: "session", id: userId });
+    setMockVerifyOtpConfig({ kind: "success", user: { id: userId, email: invitation.email } });
 
     const formData = signupForm({ email: invitation.email, password: "correct-horse-battery-1", invitationToken: invitation.token });
-    await expect(signup({ error: null }, formData)).rejects.toBeInstanceOf(RedirectSignal);
+    await expect(
+      signup({ error: null }, formData, {
+        generateToken: vi.fn().mockResolvedValue({ ok: true, tokenHash: "h", alreadyConfirmed: true }),
+      }),
+    ).rejects.toBeInstanceOf(RedirectSignal);
 
-    // signUp's own "session" kind sets the mock auth user as a side effect
+    // verifyOtp's own mock sets the mock auth user as a side effect
     // (mirroring a real persisted session cookie) — acceptInvitationAction's
     // own getOrCreateUser() call resolves this same identity.
     await expect(acceptInvitationAction(invitation.token)).rejects.toBeInstanceOf(RedirectSignal);
@@ -175,7 +227,7 @@ describe("invited signup — invited-signup defect fix", () => {
   });
 });
 
-describe("existing-user invite flow — regression (unaffected by this fix)", () => {
+describe("existing-user invite flow — regression (unaffected by either fix)", () => {
   let fixtures: TestFixtures;
 
   beforeAll(async () => {
@@ -192,7 +244,17 @@ describe("existing-user invite flow — regression (unaffected by this fix)", ()
   });
 
   it("an existing account (already logged in) accepting a valid invitation to a second organization receives exactly the invited membership, leaving their existing OWNER membership untouched", async () => {
-    const invitation = await createInvitation(fixtures, { organizationId: fixtures.orgB.id, email: fixtures.owner.email });
+    const invitation = await prisma.invitation.create({
+      data: {
+        organizationId: fixtures.orgB.id,
+        email: fixtures.owner.email,
+        role: Role.MEMBER,
+        token: randomUUID(),
+        status: "PENDING",
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        invitedById: fixtures.owner.id,
+      },
+    });
 
     setMockAuthUser({ id: fixtures.owner.id, email: fixtures.owner.email });
 

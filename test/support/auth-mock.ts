@@ -146,11 +146,45 @@ export function consumeMockSignInConfig(): MockSignInConfig {
   return config;
 }
 
+/**
+ * Signup-confirmation defect fix (Invited Signup Confirmation Redirect
+ * Investigation). src/app/auth/confirm/route.ts's own type=signup branch
+ * calls supabase.auth.verifyOtp({type:"signup", token_hash}) — this is
+ * the mocked equivalent, one-shot like every sibling config here.
+ * "success" mirrors a real, valid token_hash: the caller is immediately
+ * authenticated, so it also sets this as the current mock auth user,
+ * exactly like signUp's own "session" kind and signInWithPassword's own
+ * "success" kind already do. "error" mirrors an invalid/expired/already-
+ * used token_hash.
+ */
+export type MockVerifyOtpConfig =
+  | { kind: "success"; user: MockAuthUser }
+  | { kind: "error"; message: string };
+
+let mockVerifyOtpConfig: MockVerifyOtpConfig | null = null;
+
+export function setMockVerifyOtpConfig(config: MockVerifyOtpConfig): void {
+  mockVerifyOtpConfig = config;
+}
+
+/** Reads and clears the configured response — throws if a test invoked verifyOtp() without configuring one first, rather than silently guessing a default. */
+export function consumeMockVerifyOtpConfig(): MockVerifyOtpConfig {
+  if (!mockVerifyOtpConfig) {
+    throw new Error(
+      "setMockVerifyOtpConfig(...) must be called before invoking a Route Handler that calls supabase.auth.verifyOtp().",
+    );
+  }
+  const config = mockVerifyOtpConfig;
+  mockVerifyOtpConfig = null;
+  return config;
+}
+
 /** Call in afterEach — clears both the identity and the cookie jar so one test's "logged in as" state never leaks into the next. */
 export function resetAuthMock(): void {
   currentUser = null;
   mockSignUpConfig = null;
   mockSignInConfig = null;
+  mockVerifyOtpConfig = null;
   cookieStore.clear();
 }
 

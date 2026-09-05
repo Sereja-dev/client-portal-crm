@@ -1,6 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { vi } from "vitest";
-import { getMockAuthUser, setMockAuthUser, consumeMockSignUpConfig, consumeMockSignInConfig, mockCookies } from "../support/auth-mock";
+import {
+  getMockAuthUser,
+  setMockAuthUser,
+  consumeMockSignUpConfig,
+  consumeMockSignInConfig,
+  consumeMockVerifyOtpConfig,
+  mockCookies,
+} from "../support/auth-mock";
 import { mockUploadAttachmentObject, mockRemoveAttachmentObject, mockCreateAttachmentSignedUrl } from "../support/storage-mock";
 import { mockUploadLogoObject, mockRemoveLogoObject } from "../support/logo-storage-mock";
 import { mockRedirect, mockNotFound, mockRevalidatePath } from "../support/navigation-mock";
@@ -118,7 +125,12 @@ vi.mock("@/lib/supabase/server", () => ({
         return { data: { user: null }, error: null };
       },
       // SaaS Signup Foundation (Stage 6.1) — see setMockSignUpConfig()'s
-      // own doc comment for what each configured "kind" simulates.
+      // own doc comment for what each configured "kind" simulates. Still
+      // used by src/app/portal/signup/actions.ts's own direct signUp()
+      // call — the signup-confirmation defect fix moved staff signup
+      // (src/app/(auth)/signup/actions.ts) off this call entirely (see
+      // its own generateToken()/verifyOtp() dependencies below), but this
+      // mock stays exactly as-is for the portal flow that still uses it.
       async signUp({ email, options }: { email: string; password: string; options?: { data?: Record<string, unknown> } }) {
         const config = consumeMockSignUpConfig();
         if (config.kind === "error") {
@@ -132,6 +144,25 @@ vi.mock("@/lib/supabase/server", () => ({
           return { data: { user, session: { access_token: "mock-session-token" } }, error: null };
         }
         return { data: { user, session: null }, error: null };
+      },
+      // Signup-confirmation defect fix (Invited Signup Confirmation
+      // Redirect Investigation) — see setMockVerifyOtpConfig()'s own doc
+      // comment for what each configured "kind" simulates. Used by both
+      // src/app/(auth)/signup/actions.ts's own immediate-session branch
+      // and src/app/auth/confirm/route.ts's type=signup branch.
+      async verifyOtp() {
+        const config = consumeMockVerifyOtpConfig();
+        if (config.kind === "error") {
+          return { data: { user: null, session: null }, error: { message: config.message } };
+        }
+        // Mirrors the real SSR client persisting a session cookie that a
+        // subsequent getUser()/getOrCreateUser() call in the same request
+        // then reads back.
+        setMockAuthUser(config.user);
+        return {
+          data: { user: config.user, session: { access_token: "mock-session-token" } },
+          error: null,
+        };
       },
     },
   }),

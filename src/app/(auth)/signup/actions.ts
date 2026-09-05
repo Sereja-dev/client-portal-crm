@@ -7,16 +7,64 @@ import { withToast } from "@/lib/toast-url";
 import { sanitizeRedirectPath } from "@/lib/safe-redirect";
 import { checkRateLimit, getRequestIp, SIGNUP_LIMIT } from "@/lib/rate-limit";
 import { resolveValidSignupInvitation } from "@/lib/invitations/resolve-signup-invitation";
-import { buildSignupConfirmRedirectTo } from "@/lib/auth/signup-confirm-redirect";
+import {
+  generateSignupConfirmationToken,
+  type GenerateSignupConfirmationTokenFn,
+} from "@/lib/auth/signup-confirmation-token";
+import { buildSignupConfirmationUrl } from "@/lib/auth/signup-confirm-redirect";
+import {
+  sendSignupConfirmationEmail,
+  type SendSignupConfirmationEmailFn,
+} from "@/lib/email/signup-confirmation";
 import type { AuthActionState } from "@/types";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const MIN_PASSWORD_LENGTH = 8;
 
+export type SignupDeps = {
+  generateToken?: GenerateSignupConfirmationTokenFn;
+  sendConfirmationEmail?: SendSignupConfirmationEmailFn;
+};
+
+/**
+ * Signup-confirmation defect fix (Invited Signup Confirmation Redirect
+ * Investigation). Never calls supabase.auth.signUp() — that call cannot
+ * have its native "Confirm signup" email suppressed while still creating
+ * the user, and that native email's confirmation link, under this
+ * project's (default, unchanged — see the investigation's own explicit
+ * instruction not to touch flowType) implicit flowType, never delivers a
+ * server-visible token to any redirect target. Instead:
+ *
+ *   1. generateToken() (default: generateSignupConfirmationToken, wrapping
+ *      Supabase's Admin API `generateLink({type:"signup",...})`) both
+ *      creates the auth user and returns a real, server-generated
+ *      `hashed_token` — no email is sent by Supabase at any point.
+ *   2. If the project auto-confirms new users (`alreadyConfirmed: true` —
+ *      the exact "Confirm email disabled" case that used to give an
+ *      immediate session via signUp()'s own return value), this
+ *      establishes that same session synchronously here, via the exact
+ *      real verifyOtp() call src/lib/auth/recovery-token.ts's own
+ *      verifyRecoveryToken() already relies on to persist a session
+ *      through the request-scoped cookie adapter.
+ *   3. Otherwise, this app sends its own branded confirmation email via
+ *      Resend (sendConfirmationEmail, default: sendSignupConfirmationEmail),
+ *      linking to this app's own /auth/confirm route with that same
+ *      token_hash — the exact URL shape that route's existing type=signup
+ *      branch already verifies and redirects from.
+ *
+ * `deps` is the sole seam for tests — inject fakes for both network-bound
+ * calls without a real Supabase Admin API or Resend call, the same
+ * pattern every email-sending module in this app already uses (see
+ * sendInvitationEmail's own `deps.sendEmail`).
+ */
 export async function signup(
   _prevState: AuthActionState,
   formData: FormData,
+  deps: SignupDeps = {},
 ): Promise<AuthActionState> {
+  const generateToken = deps.generateToken ?? generateSignupConfirmationToken;
+  const sendConfirmationEmail = deps.sendConfirmationEmail ?? sendSignupConfirmationEmail;
+
   const ip = await getRequestIp();
   const limitCheck = checkRateLimit(SIGNUP_LIMIT, ip);
   if (limitCheck.limited) {
@@ -28,20 +76,14 @@ export async function signup(
   const confirmPassword = String(formData.get("confirmPassword") ?? "");
   const redirectTo = sanitizeRedirectPath(String(formData.get("redirectTo") ?? ""));
 
-  // Invited-signup defect fix. Re-validated here independently of the
-  // signup page's own display-only lookup — the client's mere claim that
-  // an invitationToken exists is never trusted, only used as a lookup key.
-  // A token that was valid when the page rendered but has since expired/
-  // been revoked/been accepted resolves to null here, exactly like an
-  // absent one — see the explicit, distinct error below for that case.
+  // Invited-signup defect fix (PR #188), unchanged. Re-validated here
+  // independently of the signup page's own display-only lookup — the
+  // client's mere claim that an invitationToken exists is never trusted,
+  // only used as a lookup key.
   const invitationTokenRaw = String(formData.get("invitationToken") ?? "").trim();
   const invitation = invitationTokenRaw ? await resolveValidSignupInvitation(invitationTokenRaw) : null;
 
   if (invitationTokenRaw && !invitation) {
-    // The form never rendered an "Organization name" field in this case
-    // (the page believed the invitation was valid at render time) — a
-    // generic "All fields are required" would be confusing here, since
-    // the user has no such field to fill in.
     return { error: "This invitation is no longer available. Please refresh and try again." };
   }
 
@@ -67,59 +109,67 @@ export async function signup(
     return { error: "Passwords do not match." };
   }
 
-  const supabase = await createClient();
-  // organizationName travels as user_metadata only for a standalone
-  // signup: if Supabase requires email confirmation (no session below),
-  // this is the only place it's preserved until the user actually
-  // confirms and the *existing* lazy getOrCreateOrganizationId() path
-  // (unchanged, called from (dashboard)/layout.tsx on their first real
-  // visit) provisions their organization — this app never creates
-  // business data for an identity that isn't a real authenticated session
-  // yet (see getOrCreateUser()'s own doc comment), so eager creation only
-  // happens in the branch below. An invited signup never carries
-  // organizationName at all — there is nothing for it to name.
-  const { data, error } = await supabase.auth.signUp({
+  // organizationName travels through Supabase's own user_metadata only
+  // for a standalone signup that ends up needing real email confirmation
+  // — src/app/auth/confirm/route.ts's own type=signup branch is the only
+  // other place that ever reads it back, once this same identity is
+  // re-authenticated in a later, separate request. An invited signup
+  // never sets it at all — there is nothing for it to name.
+  const tokenResult = await generateToken({
     email,
     password,
-    options: {
-      data: invitation ? {} : { organizationName },
-      emailRedirectTo: buildSignupConfirmRedirectTo(invitation),
-    },
+    organizationName: invitation ? undefined : organizationName,
   });
 
-  if (error) {
-    return { error: error.message };
+  if (!tokenResult.ok) {
+    return { error: tokenResult.error };
   }
 
-  if (data.session) {
-    // A real session exists immediately (email confirmation disabled/not
-    // required for this project).
+  if (tokenResult.alreadyConfirmed) {
+    // Mirrors the exact "immediate session" UX this app had before this
+    // fix, for a project with email confirmation disabled — established
+    // synchronously, never by waiting on an email that was never sent.
+    const supabase = await createClient();
+    const { error: verifyError } = await supabase.auth.verifyOtp({
+      type: "signup",
+      token_hash: tokenResult.tokenHash,
+    });
+    if (verifyError) {
+      return { error: "Unable to complete signup. Please try again." };
+    }
+
     if (invitation) {
-      // Invited-signup defect fix. Only the identity is established here
-      // — getOrCreateUser() ensures the Prisma User row exists, nothing
-      // more. getOrCreateOrganizationId() is deliberately never called on
-      // this path: this user is about to join an *existing* organization,
-      // never a brand-new one they'd own. The actual Membership is only
-      // ever created by the existing, already-validated
-      // acceptInvitationAction() once this user reaches /invite/<token>
-      // again — this preserves that flow's own explicit acceptance model
-      // and authorization checks unchanged (email match, expiry, status,
-      // role, organization-suspension) rather than auto-accepting here.
+      // Invited-signup defect fix (PR #188), unchanged. Only the identity
+      // is established here — getOrCreateOrganizationId() is deliberately
+      // never called on this path; acceptInvitationAction() remains the
+      // sole authority for granting the actual membership.
       await getOrCreateUser();
       redirect(withToast(sanitizeRedirectPath(`/invite/${invitation.token}`), "Account created"));
     }
 
-    // Standalone signup — provision the tenant synchronously, through the
-    // exact same service-layer functions the rest of the app already
-    // relies on (getOrCreateUser, getOrCreateOrganizationId), so
-    // Organization + OWNER Membership + trial Subscription all exist
-    // before the redirect. Onboarding needs no separate row: its progress
-    // is always computed live from real data (docs/onboarding-
-    // architecture.md), so a fresh Membership already renders the full
-    // checklist at 0% the moment /dashboard loads.
     const user = await getOrCreateUser();
     await getOrCreateOrganizationId(user, organizationName);
     redirect(withToast(redirectTo, "Account created"));
+  }
+
+  const confirmUrl = buildSignupConfirmationUrl({ tokenHash: tokenResult.tokenHash, invitation });
+
+  const emailResult = await sendConfirmationEmail({
+    to: email,
+    confirmUrl,
+    isInvited: Boolean(invitation),
+  });
+
+  if (!emailResult.delivered) {
+    // The auth user already exists (unconfirmed) at this point — never
+    // claimed as a success. A retried signup for the same email is left
+    // to Supabase's own admin.generateLink() semantics for an existing,
+    // still-unconfirmed user (see generateSignupConfirmationToken's own
+    // doc comment) rather than this action attempting to distinguish
+    // "genuine duplicate" from "safe to regenerate" itself.
+    return {
+      error: "Account could not be created because the confirmation email could not be sent. Please try again.",
+    };
   }
 
   return {
