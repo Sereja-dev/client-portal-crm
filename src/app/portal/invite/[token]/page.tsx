@@ -132,7 +132,7 @@ export default async function ClientInvitePage({
               Client Portal login
             </Link>
             <Link
-              href={`/portal/signup?redirectTo=${encodeURIComponent(redirectTarget)}`}
+              href={`/portal/signup?invitationToken=${encodeURIComponent(token)}&redirectTo=${encodeURIComponent(redirectTarget)}`}
               className={`flex-1 text-center ${SECONDARY_LINK_CLASSES}`}
             >
               Sign up
