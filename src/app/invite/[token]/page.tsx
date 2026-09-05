@@ -147,7 +147,7 @@ export default async function InvitePage({
               Log in
             </Link>
             <Link
-              href={`/signup?redirectTo=${encodeURIComponent(redirectTarget)}`}
+              href={`/signup?invitationToken=${encodeURIComponent(token)}&redirectTo=${encodeURIComponent(redirectTarget)}`}
               className="flex-1 rounded-md border border-gray-300 px-4 py-2 text-center text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
             >
               Sign up

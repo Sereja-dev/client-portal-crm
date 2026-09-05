@@ -149,6 +149,14 @@ export async function sendInvitationEmail(
   });
 
   if (!result.ok) {
+    // Observability fix (Production Invitation Email Investigation). The
+    // prior investigation found zero operational signal anywhere for a
+    // failed send — this is the one, coarse, non-PII line that closes
+    // that gap: never the recipient email, invitation token, subject,
+    // rendered body, or any provider response detail — only the already-
+    // normalized, non-identifying reason sendEmailViaResend itself
+    // produced.
+    console.warn("[email] invitation send failed", { flow: "invitation", reason: result.reason });
     return { delivered: false, reason: result.reason };
   }
 
