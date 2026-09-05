@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { verifyRecoveryToken, testModeRecoveryCookie } from "@/lib/auth/recovery-token";
 import { createClient } from "@/lib/supabase/server";
+import { getOrCreateUser, getOrCreateOrganizationId } from "@/lib/current-user";
 import { TEST_MODE } from "@/lib/test-mode";
 import { sanitizeRedirectPath } from "@/lib/safe-redirect";
 
@@ -77,8 +78,41 @@ async function handleSignupConfirm(tokenHash: string | null, nextParam: string |
 
   const supabase = await createClient();
   const { data, error } = await supabase.auth.verifyOtp({ type: "signup", token_hash: tokenHash });
-  if (error || !data.session) {
+  if (error || !data.session || !data.user) {
     return NextResponse.redirect(new URL("/signup?invalid=1", origin));
+  }
+
+  // Signup-confirmation defect fix, standalone-signup provisioning
+  // handoff. A standalone signup's typed Organization name has no other
+  // durable place to survive the gap between form submission and this
+  // later, separate confirmation request — src/app/(auth)/signup/
+  // actions.ts's own generateToken() call is the only place that ever
+  // writes it, into Supabase's own user_metadata, and only for a
+  // standalone (non-invited) signup; an invitation-originated signup
+  // never sets it at all, so this is a no-op on that path. Deliberately
+  // never sourced from a query parameter — this app already established
+  // (Sale-Ready Phase B) that untrusted request input must never resolve
+  // an organization; the only place this value ever came from is the
+  // already-validated form submission itself, round-tripped through
+  // Supabase's own server-side user record, never anything client-
+  // supplied on this exact request.
+  //
+  // getOrCreateOrganizationId() is the exact same idempotent function the
+  // pre-confirmation-required immediate-session branch of signup() itself
+  // already calls — safe to call again here for the same reason its own
+  // doc comment already gives ("idempotent and safe to call on every
+  // request"); (dashboard)/layout.tsx's own existing lazy-provisioning
+  // fallback remains the safety net if this is ever skipped for any
+  // reason, so a standalone user is never left without an organization —
+  // only without their originally-typed name for it.
+  const organizationName =
+    typeof data.user.user_metadata?.organizationName === "string"
+      ? data.user.user_metadata.organizationName.trim()
+      : "";
+
+  const user = await getOrCreateUser();
+  if (organizationName) {
+    await getOrCreateOrganizationId(user, organizationName);
   }
 
   return NextResponse.redirect(new URL(destination, origin));
