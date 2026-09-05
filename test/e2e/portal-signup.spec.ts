@@ -21,34 +21,34 @@ function formAlert(page: Page) {
  * reference (legal-pages.spec.ts) checks solely that the legal-footer
  * link is present on the page, never submits the form.
  *
- * No seeded fixtures are used here at all — portalSignup() never touches
- * Prisma (see src/app/portal/signup/actions.ts's own doc comment: it
- * only ever calls Supabase's signUp; a PortalUser is created only by
- * acceptClientInvitationAction, on a genuinely different flow), so there
- * is nothing this file's own real writes need to seed or clean up beyond
- * the fake, never-persisted identities used below.
+ * No seeded fixtures are used here at all — none of the scenarios below
+ * ever reach a real invitationToken (see src/app/portal/signup/actions.ts's
+ * own doc comment: portalSignup() never creates a Prisma User,
+ * Organization, or Membership row of any kind; a PortalUser is created
+ * only by acceptClientInvitationAction, on a genuinely different flow),
+ * so there is nothing this file's own real writes need to seed or clean
+ * up beyond the fake, never-persisted identities used below.
  *
  * HONEST, DELIBERATE SCOPE LIMIT — not a coverage gap left unclosed:
- * src/lib/supabase/server.ts's TEST_MODE stub client does NOT implement
- * signUp() at all (only getUser/updateUser/signOut are stubbed) — by its
- * own doc comment, calling it "would throw 'is not a function', loudly,
- * rather than silently doing nothing," precisely because E2E tests are
- * expected to inject a session directly rather than exercise a real
- * signup/login form to completion (there is no real Supabase Auth to
- * authenticate against locally at all). This is the exact same
- * limitation password-reset.spec.ts's own header comment already
- * discloses for login/signup generally, and it is why staff signup also
- * has no E2E coverage of its own (test/integration/auth/signup.test.ts
- * covers it at the integration level, where Supabase itself can be
- * mocked). Extending the TEST_MODE stub to add a working signUp() is
- * shared harness code and out of this test-only PR's scope — so the
- * genuine account-creation success path and the existing/duplicate-email
- * path are NOT exercised here. Every scenario below is deliberately
- * chosen because it is provably reachable and provably resolved *before*
- * portalSignup() ever calls supabase.auth.signUp() — confirmed directly
- * from the real Server Action's own control flow (rate limit check,
- * then field validation, then the Supabase call) — so nothing here can
- * ever reach that unimplemented method.
+ * portalSignup() (Portal signup-confirmation defect fix) no longer calls
+ * supabase.auth.signUp() at all — it calls
+ * generateSignupConfirmationToken() (Supabase's real Admin API), which
+ * this local E2E environment has no real endpoint to reach either. This
+ * is the exact same limitation password-reset.spec.ts's own header
+ * comment already discloses for login/signup generally, and it is why
+ * staff signup also has no E2E coverage of its own
+ * (test/integration/auth/signup.test.ts and
+ * test/integration/auth/signup-confirmation-e2e.test.ts cover it at the
+ * integration level, where the Admin API call is injected directly).
+ * Building a TEST_MODE-only fake for the Admin API is shared harness code
+ * and out of this test-only PR's scope — so the genuine account-creation
+ * success path and the existing/duplicate-email path are NOT exercised
+ * here. Every scenario below is deliberately chosen because it is
+ * provably reachable and provably resolved *before* portalSignup() ever
+ * calls generateToken() — confirmed directly from the real Server
+ * Action's own control flow (rate limit check, then field validation,
+ * then the token-generation call) — so nothing here can ever reach that
+ * real network call.
  */
 
 test.describe("Portal signup — page and form content", () => {

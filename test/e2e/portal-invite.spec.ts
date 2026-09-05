@@ -155,7 +155,13 @@ test.describe("Portal invite — valid pending token", () => {
       await expect(loginLink).toHaveAttribute("href", `/portal/login?redirectTo=${encodeURIComponent(redirectTarget)}`);
       const signupLink = page.getByRole("link", { name: "Sign up" });
       await expect(signupLink).toBeVisible();
-      await expect(signupLink).toHaveAttribute("href", `/portal/signup?redirectTo=${encodeURIComponent(redirectTarget)}`);
+      // Portal signup-confirmation defect fix: the Sign up link now also
+      // carries invitationToken, so /portal/signup can server-validate
+      // and prefill/lock the invited email — see resolveValidPortalSignupInvitation.
+      await expect(signupLink).toHaveAttribute(
+        "href",
+        `/portal/signup?invitationToken=${encodeURIComponent(invitation.token)}&redirectTo=${encodeURIComponent(redirectTarget)}`,
+      );
 
       await expect(page.getByRole("button", { name: "Accept invitation" })).toHaveCount(0);
     } finally {
