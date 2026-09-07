@@ -99,6 +99,25 @@ export const STATUS_TONES: Record<string, StatusTone> = {
   FULL_ACCESS: "success",
   LIMITED_WRITES: "warning",
   READ_ONLY: "danger",
+
+  // Leads / Sales Pipeline Phase 3 — LeadStage. NEW mirrors PLANNING/
+  // TODO/DRAFT's own "just started" neutral tone; CONTACTED/QUALIFIED/
+  // PROPOSAL share the same "in motion" info tone IN_PROGRESS/SENT
+  // already use elsewhere (the stage's own label text, not color, is
+  // what distinguishes them — see this file's own "no color-only
+  // semantics" precedent for status pairs that already share a tone);
+  // WON/LOST reuse the same success/danger tones every other terminal-
+  // outcome pair in this map already does (COMPLETED/CANCELLED,
+  // ACCEPTED/REVOKED). No collision with ClientStatus's own LEAD entry
+  // above — that's a Client.status value ("LEAD" meaning "an unqualified
+  // Client record"), a completely different concept from a Lead's own
+  // stage.
+  NEW: "neutral",
+  CONTACTED: "info",
+  QUALIFIED: "info",
+  PROPOSAL: "info",
+  WON: "success",
+  LOST: "danger",
 };
 
 export function StatusBadge({ status, label }: { status: string; label?: string }) {

@@ -6,6 +6,7 @@ import { siteConfig } from "@/config/site";
 
 const links = [
   { href: "/dashboard", label: "Dashboard" },
+  { href: "/leads", label: "Leads" },
   { href: "/clients", label: "Clients" },
   { href: "/projects", label: "Projects" },
   { href: "/tasks", label: "Tasks" },

@@ -38,6 +38,18 @@ export type TaskFormState = {
   >;
 };
 
+// Leads / Sales Pipeline Phase 3. Same field set as
+// src/lib/validation/lead.ts's own LeadFieldErrors (create/edit's shared
+// writable fields) — kept as its own self-contained union here rather
+// than imported, matching ClientFormState/TaskFormState's own existing
+// convention of not cross-importing from a validation module.
+export type LeadFormState = {
+  error: string | null;
+  fieldErrors?: Partial<
+    Record<"name" | "company" | "email" | "phone" | "source" | "value" | "notes" | "assignedToUserId", string>
+  >;
+};
+
 // Invoice System Slice 2b (docs/invoicing-architecture.md §5/§14 Slice 2).
 // "status" is deliberately absent — it is never a submitted create/edit
 // form field (DRAFT-only creation; a dedicated lifecycle action owns
