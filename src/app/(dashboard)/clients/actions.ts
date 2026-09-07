@@ -6,8 +6,10 @@ import { getCurrentUserOrganization } from "@/lib/current-user";
 import { createActivity } from "@/lib/activity/create-activity";
 import { buildClientActivityMetadata } from "@/lib/activity/client-metadata";
 import { deleteAttachmentsForParent, cleanupAttachmentStorageObjects } from "@/lib/attachments/attachment-mutations";
+import { mapDeleteRestrictError } from "@/lib/delete-conflict-mapper";
+import type { DeleteButtonActionResult } from "@/components/ui/delete-button";
 
-export async function deleteClientAction(clientId: string) {
+export async function deleteClientAction(clientId: string): Promise<DeleteButtonActionResult> {
   const { user, organizationId } = await getCurrentUserOrganization();
 
   // Delete, its (conditional) Activity row, and Attachment cleanup are one
@@ -15,64 +17,82 @@ export async function deleteClientAction(clientId: string) {
   // Restrict-FK violation cascading from the delete itself) rolls
   // everything back together, including any Attachment rows this would
   // otherwise have cleaned up.
-  const storagePaths = await prisma.$transaction(async (tx) => {
-    // Snapshot taken before deletion — Activity.entityId is not a foreign
-    // key, so this row (and its metadata) is what keeps the entry readable
-    // once the Client row itself is gone.
-    const existing = await tx.client.findFirst({
-      where: { id: clientId, organizationId },
-    });
+  let storagePaths: string[] | null;
+  try {
+    storagePaths = await prisma.$transaction(async (tx) => {
+      // Snapshot taken before deletion — Activity.entityId is not a foreign
+      // key, so this row (and its metadata) is what keeps the entry readable
+      // once the Client row itself is gone.
+      const existing = await tx.client.findFirst({
+        where: { id: clientId, organizationId },
+      });
 
-    if (!existing) {
-      return null;
+      if (!existing) {
+        return null;
+      }
+
+      // Projects that will cascade-delete alongside this Client (Project.clientId
+      // is onDelete: Cascade) — queried before the delete, since Postgres
+      // removes them silently at the SQL level with no application code
+      // running for them; their own Attachments would otherwise be orphaned.
+      const childProjects = await tx.project.findMany({
+        where: { clientId, organizationId },
+        select: { id: true, name: true },
+      });
+
+      const result = await tx.client.deleteMany({
+        where: { id: clientId, organizationId },
+      });
+
+      if (result.count === 0) {
+        return null;
+      }
+
+      await createActivity(tx, {
+        organizationId,
+        actorId: user.id,
+        entityType: "CLIENT",
+        entityId: clientId,
+        action: "DELETED",
+        metadata: buildClientActivityMetadata(existing, user.name),
+      });
+
+      const { storagePaths } = await deleteAttachmentsForParent(tx, {
+        organizationId,
+        actorId: user.id,
+        actorName: user.name,
+        targets: [
+          { entityType: "CLIENT", entityId: clientId, parentEntityLabel: existing.name },
+          ...childProjects.map((project) => ({
+            entityType: "PROJECT" as const,
+            entityId: project.id,
+            parentEntityLabel: project.name,
+          })),
+        ],
+      });
+
+      return storagePaths;
+    });
+  } catch (err) {
+    // Post-Hardening Residual Code Audit (P2) — a Client with existing
+    // Invoices is correctly blocked by the schema's own Invoice.clientId
+    // onDelete: Restrict (never automatically deleted/cancelled here, and
+    // never cascaded around) — this only replaces DeleteButton's own
+    // generic "Failed to delete {itemName}." with a specific, controlled
+    // reason via its existing conflictMessage prop. Any other failure
+    // (a bug, a connection error, an unrelated constraint) is not
+    // positively matched by mapDeleteRestrictError and keeps propagating
+    // exactly as before this change, to the same generic handling.
+    if (mapDeleteRestrictError(err, "Client") === "HAS_DEPENDENT_INVOICES") {
+      return { ok: false };
     }
-
-    // Projects that will cascade-delete alongside this Client (Project.clientId
-    // is onDelete: Cascade) — queried before the delete, since Postgres
-    // removes them silently at the SQL level with no application code
-    // running for them; their own Attachments would otherwise be orphaned.
-    const childProjects = await tx.project.findMany({
-      where: { clientId, organizationId },
-      select: { id: true, name: true },
-    });
-
-    const result = await tx.client.deleteMany({
-      where: { id: clientId, organizationId },
-    });
-
-    if (result.count === 0) {
-      return null;
-    }
-
-    await createActivity(tx, {
-      organizationId,
-      actorId: user.id,
-      entityType: "CLIENT",
-      entityId: clientId,
-      action: "DELETED",
-      metadata: buildClientActivityMetadata(existing, user.name),
-    });
-
-    const { storagePaths } = await deleteAttachmentsForParent(tx, {
-      organizationId,
-      actorId: user.id,
-      actorName: user.name,
-      targets: [
-        { entityType: "CLIENT", entityId: clientId, parentEntityLabel: existing.name },
-        ...childProjects.map((project) => ({
-          entityType: "PROJECT" as const,
-          entityId: project.id,
-          parentEntityLabel: project.name,
-        })),
-      ],
-    });
-
-    return storagePaths;
-  });
+    throw err;
+  }
 
   if (storagePaths) {
     await cleanupAttachmentStorageObjects(storagePaths);
   }
 
   revalidatePath("/clients");
+  return { ok: true };
 }

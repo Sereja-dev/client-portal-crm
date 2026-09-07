@@ -182,6 +182,7 @@ export default async function ClientsPage({
                           confirmTitle="Delete client"
                           confirmDescription={`Delete ${client.name}? This action cannot be undone.`}
                           successMessage="Client deleted"
+                          conflictMessage="This client can't be deleted because it has existing invoices."
                         />
                       </div>
                     </TableCell>
@@ -214,6 +215,7 @@ export default async function ClientsPage({
                     confirmTitle="Delete client"
                     confirmDescription={`Delete ${client.name}? This action cannot be undone.`}
                     successMessage="Client deleted"
+                    conflictMessage="This client can't be deleted because it has existing invoices."
                   />
                 </RecordCardActions>
               </RecordCard>

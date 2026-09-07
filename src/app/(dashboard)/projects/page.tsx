@@ -199,6 +199,7 @@ export default async function ProjectsPage({
                           confirmTitle="Delete project"
                           confirmDescription={`Delete ${project.name}? This action cannot be undone.`}
                           successMessage="Project deleted"
+                          conflictMessage="This project can't be deleted because it has existing invoices."
                         />
                       </div>
                     </TableCell>
@@ -237,6 +238,7 @@ export default async function ProjectsPage({
                     confirmTitle="Delete project"
                     confirmDescription={`Delete ${project.name}? This action cannot be undone.`}
                     successMessage="Project deleted"
+                    conflictMessage="This project can't be deleted because it has existing invoices."
                   />
                 </RecordCardActions>
               </RecordCard>

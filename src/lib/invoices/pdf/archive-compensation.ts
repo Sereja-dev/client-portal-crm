@@ -17,8 +17,11 @@ import type { InvoicePdfObjectIdentity, InvoicePdfRemoveResult } from "./storage
  * failure or a failed final transaction. Never deletes the ledger row
  * outright; only ever advances its status. If even the status update
  * fails, the row is left exactly as it was (PENDING_UPLOAD), which is
- * itself still a safe, discoverable state for the future reconciliation
- * worker (not implemented by this module or by either caller).
+ * itself still a safe, discoverable state for the reconciliation worker
+ * (not implemented by this module or by either caller — see
+ * src/lib/invoices/pdf/reconcile-archive-objects.ts and its cron route,
+ * src/app/api/cron/invoice-pdf-reconciliation/route.ts, scheduled daily
+ * in vercel.json).
  */
 export type ArchiveCompensationDeps = {
   remove: (args: { identity: InvoicePdfObjectIdentity }) => Promise<InvoicePdfRemoveResult>;
