@@ -741,7 +741,23 @@ model Client {
   postalCode       String?
   country          String?
 
-  @@unique([userId, email])
+  // Leads / Sales Pipeline Phase 2.2 — @@unique([userId, email]) removed
+  // (see the Client Email Uniqueness audit). It predates Organization
+  // multi-tenancy by two days (added 20260729025859, organizationId only
+  // arrived 20260731055411) and was never revisited once organizationId
+  // became the real tenant boundary. email is contact information here,
+  // never identity or a login credential (Client has no auth of its own
+  // — PortalUser is the separate, Supabase-UID-keyed identity), so no
+  // uniqueness on it is enforced at the database level at all — not even
+  // organization-scoped. Same-organization duplicate-email Clients are a
+  // legitimate, intentional product state (Lead conversion's own
+  // confirmDuplicate flow, and any two staff members who happen to both
+  // own a Client sharing an email) — the database no longer has any
+  // opinion about it; createClientAction/updateClientAction/
+  // convertLeadToClientAction each enforce their own, deliberately
+  // different, application-level duplicate-email policy via
+  // findDuplicateOrganizationClientByEmail (src/lib/clients/duplicate-
+  // email.ts). No replacement constraint of any scope was added.
   @@index([status])
   @@index([userId])
   @@index([organizationId])

@@ -1,7 +1,6 @@
 "use server";
 
 import { redirect } from "next/navigation";
-import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { parseClientForm } from "@/lib/validation/client";
@@ -9,6 +8,7 @@ import { withToast } from "@/lib/toast-url";
 import { createActivity } from "@/lib/activity/create-activity";
 import { buildClientActivityMetadata } from "@/lib/activity/client-metadata";
 import { assertCanCreateClient, BillingLimitError } from "@/lib/billing/enforcement";
+import { findDuplicateOrganizationClientByEmail } from "@/lib/clients/duplicate-email";
 import type { ClientFormState } from "@/types";
 
 export async function createClientAction(
@@ -22,6 +22,19 @@ export async function createClientAction(
   }
 
   const { user, organizationId } = await getCurrentUserOrganization();
+
+  // Leads / Sales Pipeline Phase 2.2 — Client no longer has any database-
+  // level email-uniqueness constraint (see the Client Email Uniqueness
+  // audit: it predated multi-tenancy and was never organization-scoped
+  // to begin with). Manual Client creation is intentionally still
+  // blocked on a same-organization duplicate — unlike Lead conversion's
+  // own confirmDuplicate flow, there is no "create anyway" path here.
+  if (await findDuplicateOrganizationClientByEmail({ organizationId, email: values.email })) {
+    return {
+      error: null,
+      fieldErrors: { email: "A client with this email already exists." },
+    };
+  }
 
   try {
     // Client create and its Activity row are one atomic unit — if the
@@ -49,15 +62,6 @@ export async function createClientAction(
   } catch (err) {
     if (err instanceof BillingLimitError) {
       return { error: err.message };
-    }
-    if (
-      err instanceof Prisma.PrismaClientKnownRequestError &&
-      err.code === "P2002"
-    ) {
-      return {
-        error: null,
-        fieldErrors: { email: "A client with this email already exists." },
-      };
     }
     throw err;
   }

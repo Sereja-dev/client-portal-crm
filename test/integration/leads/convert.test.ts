@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { Prisma } from "@/generated/prisma/client";
 import { createLeadAction, convertLeadToClientAction, markLeadLostAction } from "@/app/(dashboard)/leads/actions";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { actAs, resetAuthMock } from "../../support/auth-mock";
@@ -142,7 +141,7 @@ describe("convertLeadToClientAction", () => {
     expect(clientActivities).toHaveLength(1);
   });
 
-  it("23. duplicate email without confirmation returns requires_duplicate_confirmation and creates nothing", async () => {
+  it("16. duplicate email without confirmation returns requires_duplicate_confirmation and creates nothing", async () => {
     const sharedEmail = `dup-${randomUUID().slice(0, 8)}@example.com`;
     // A real, pre-existing Client in the same org with this email.
     actAs(fixtures.owner, fixtures.orgA.id);
@@ -168,14 +167,8 @@ describe("convertLeadToClientAction", () => {
     await prisma.client.deleteMany({ where: { email: sharedEmail, organizationId: fixtures.orgA.id } });
   });
 
-  it("24. duplicate email WITH confirmDuplicate:true creates a brand-new Client (never links to the existing one)", async () => {
+  it("17. duplicate email WITH confirmDuplicate:true creates a brand-new Client (never links to the existing one)", async () => {
     const sharedEmail = `dup-confirm-${randomUUID().slice(0, 8)}@example.com`;
-    // Owned by a DIFFERENT staff member (admin) than the one converting
-    // (owner) below — Client's own pre-existing @@unique([userId, email])
-    // constraint is scoped by owning user, not organization, so two
-    // Clients sharing an email genuinely can coexist as long as they
-    // have different owners (see duplicate_owner_conflict's own test for
-    // the narrower same-owner case, which is a real, separate outcome).
     actAs(fixtures.admin, fixtures.orgA.id);
     const existing = await prisma.client.create({
       data: { name: "Existing Client 2", email: sharedEmail, organizationId: fixtures.orgA.id, userId: fixtures.admin.id },
@@ -197,39 +190,39 @@ describe("convertLeadToClientAction", () => {
     await prisma.client.deleteMany({ where: { email: sharedEmail, organizationId: fixtures.orgA.id } });
   });
 
-  it("a P2002 unique-constraint violation from tx.client.create() (Client's own real, unrelated @@unique([userId,email]) — hit in production whenever the converting user already owns another Client with this exact email) is translated into a controlled duplicate_owner_conflict result, never a raw Prisma error", async () => {
-    // Simulated via a spy on prisma.$transaction, exactly like this
-    // repo's own established technique for exercising a real-shaped
-    // database error without depending on the shared local PGlite test
-    // database's own rollback behavior after a real constraint
-    // violation — see test/integration/clients/delete.test.ts's own
-    // header comment for the full reasoning (a confirmed, documented
-    // PGlite limitation, not a defect in convertLeadToClientAction
-    // itself; a real Postgres server correctly enforces both the
-    // constraint and its own rollback).
-    const leadId = await createLead(fixtures.orgA.id, fixtures.owner);
+  it("18/19. CRITICAL — the existing Client and the newly converted Client may share organizationId, userId, AND email, and conversion still succeeds after explicit confirmation (Phase 2.2: the legacy Client @@unique([userId, email]) constraint that used to block exactly this case has been removed)", async () => {
+    const sharedEmail = `dup-same-owner-${randomUUID().slice(0, 8)}@example.com`;
+    // Owned by the SAME staff member (owner) who will also do the
+    // conversion below — before Phase 2.2, this exact scenario hit
+    // Client's own real @@unique([userId, email]) constraint and was
+    // rejected as duplicate_owner_conflict. It must now succeed.
     actAs(fixtures.owner, fixtures.orgA.id);
-    const p2002 = new Prisma.PrismaClientKnownRequestError("Unique constraint failed on the fields: (`userId`,`email`)", {
-      code: "P2002",
-      clientVersion: "test",
-      meta: { target: ["userId", "email"] },
+    const existing = await prisma.client.create({
+      data: { name: "Existing Client Same Owner", email: sharedEmail, organizationId: fixtures.orgA.id, userId: fixtures.owner.id },
     });
-    const transactionSpy = vi.spyOn(prisma, "$transaction").mockRejectedValueOnce(p2002);
+    const leadId = await createLead(fixtures.orgA.id, fixtures.owner, { email: sharedEmail });
+    actAs(fixtures.owner, fixtures.orgA.id);
 
-    let result: Awaited<ReturnType<typeof convertLeadToClientAction>>;
-    try {
-      result = await convertLeadToClientAction(leadId, { confirmDuplicate: true });
-    } finally {
-      transactionSpy.mockRestore();
-    }
+    const result = await convertLeadToClientAction(leadId, { confirmDuplicate: true });
 
-    expect(result).toMatchObject({ ok: false, reason: "duplicate_owner_conflict" });
-    if (result.ok) throw new Error("expected rejection");
-    expect((result as { message: string }).message).toBeTruthy();
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.clientId).not.toBe(existing.id);
 
-    // Nothing was actually written — the spy intercepted the transaction
-    // before any real query ran.
-    expect((await prisma.lead.findUnique({ where: { id: leadId } }))?.convertedClientId).toBeNull();
+    const newClient = await prisma.client.findUniqueOrThrow({ where: { id: result.clientId } });
+    expect(newClient.organizationId).toBe(existing.organizationId);
+    expect(newClient.userId).toBe(existing.userId);
+    expect(newClient.email).toBe(existing.email);
+
+    // 19. Exactly two Client rows exist afterward — the pre-existing one
+    // and the newly converted one, both real, distinct rows.
+    const matchingClients = await prisma.client.findMany({
+      where: { organizationId: fixtures.orgA.id, userId: fixtures.owner.id, email: { equals: sharedEmail, mode: "insensitive" } },
+    });
+    expect(matchingClients).toHaveLength(2);
+    expect(new Set(matchingClients.map((c) => c.id)).size).toBe(2);
+
+    await prisma.client.deleteMany({ where: { email: sharedEmail, organizationId: fixtures.orgA.id } });
   });
 
   it("an unrelated database failure during conversion still propagates instead of being silently swallowed", async () => {
@@ -246,7 +239,7 @@ describe("convertLeadToClientAction", () => {
     }
   });
 
-  it("25/26. the duplicate lookup is same-organization only — a matching email in a different org never triggers confirmation", async () => {
+  it("22. the duplicate lookup is same-organization only — a matching email in a different org never triggers confirmation", async () => {
     const crossOrgEmail = `cross-org-${randomUUID().slice(0, 8)}@example.com`;
     // Existing Client with this email lives in orgB.
     actAs(fixtures.orgBOwner, fixtures.orgB.id);
@@ -280,7 +273,7 @@ describe("convertLeadToClientAction", () => {
     await prisma.client.deleteMany({ where: { email: email.toUpperCase(), organizationId: fixtures.orgA.id } });
   });
 
-  it("27. a repeat conversion attempt returns already_converted and creates no second Client", async () => {
+  it("20. a repeat conversion attempt returns already_converted and creates no second Client", async () => {
     const leadId = await createLead(fixtures.orgA.id, fixtures.owner);
     actAs(fixtures.owner, fixtures.orgA.id);
     const first = await convertLeadToClientAction(leadId);
@@ -299,7 +292,7 @@ describe("convertLeadToClientAction", () => {
     expect(convertedActivities).toHaveLength(1);
   });
 
-  it("28. two simultaneous conversion attempts on the same Lead persist exactly one Client", async () => {
+  it("23. two simultaneous conversion attempts on the same Lead persist exactly one Client", async () => {
     const leadId = await createLead(fixtures.orgA.id, fixtures.owner);
     actAs(fixtures.owner, fixtures.orgA.id);
 
@@ -328,7 +321,7 @@ describe("convertLeadToClientAction", () => {
     expect(convertedActivities).toHaveLength(1);
   });
 
-  it("29/30. a Starter org already at its Client cap blocks conversion, and creates no partial Client", async () => {
+  it("21. a Starter org already at its Client cap blocks conversion, and creates no partial Client", async () => {
     const { owner, org } = await createStarterOrgAtClientCap("29");
     const leadId = await createLead(org.id, owner);
     actAs(owner, org.id);

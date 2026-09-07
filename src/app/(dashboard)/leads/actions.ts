@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { Prisma } from "@/generated/prisma/client";
 import type { LeadStage } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserOrganization } from "@/lib/current-user";
@@ -16,6 +15,7 @@ import {
   type LeadWritableInput,
 } from "@/lib/validation/lead";
 import { assertCanCreateClient, BillingLimitError } from "@/lib/billing/enforcement";
+import { findDuplicateOrganizationClientByEmail } from "@/lib/clients/duplicate-email";
 import { LEAD_STAGES, isLostLeadStage } from "@/lib/leads/stages";
 
 /**
@@ -60,23 +60,6 @@ class LeadConversionError extends Error {
 }
 
 const DUPLICATE_EMAIL_MESSAGE = "A client with this email already exists. Do you still want to create a new client?";
-
-// Client's own real (pre-existing, unrelated to this feature) uniqueness
-// constraint is @@unique([userId, email]) — scoped by owning STAFF USER,
-// not by organization. The duplicate-email preflight above is
-// deliberately org-scoped (matching the product's own "duplicate" model),
-// so it can genuinely let a confirmed conversion through to
-// tx.client.create() only for that write to still collide at the
-// database level in one narrow case: the CONVERTING user (whose id
-// becomes the new Client's own userId) already owns another Client row
-// with this exact email — realistically common for a solo Starter-plan
-// user, whose own Client roster is entirely self-owned. Caught here
-// rather than left to surface as a raw, unhandled Prisma error (Section
-// P's own explicit "never expose a raw Prisma error" requirement) —
-// mirrors createClientAction/updateClientAction's own identical P2002
-// handling for the exact same underlying constraint.
-const DUPLICATE_OWNER_CONFLICT_MESSAGE =
-  "You already have a client record with this email. Update that client directly instead of converting this lead.";
 
 /**
  * Verifies a candidate assignee actually belongs to the caller's own
@@ -535,7 +518,6 @@ export type ConvertLeadResult =
   | { ok: false; reason: "already_converted" }
   | { ok: false; reason: "lost" }
   | { ok: false; reason: "requires_duplicate_confirmation"; message: string }
-  | { ok: false; reason: "duplicate_owner_conflict"; message: string }
   | { ok: false; reason: "entitlement_blocked"; message: string };
 
 export type ConvertLeadOptions = {
@@ -589,14 +571,11 @@ export async function convertLeadToClientAction(
   // never revealing the existing Client's own id anywhere in the
   // returned result. Skipped when the Lead has no email at all (nothing
   // to collide on) or the caller already confirmed once.
-  if (preCheck.email && !options.confirmDuplicate) {
-    const duplicate = await prisma.client.findFirst({
-      where: { organizationId, email: { equals: preCheck.email, mode: "insensitive" } },
-      select: { id: true },
-    });
-    if (duplicate) {
-      return { ok: false, reason: "requires_duplicate_confirmation", message: DUPLICATE_EMAIL_MESSAGE };
-    }
+  if (
+    !options.confirmDuplicate &&
+    (await findDuplicateOrganizationClientByEmail({ organizationId, email: preCheck.email }))
+  ) {
+    return { ok: false, reason: "requires_duplicate_confirmation", message: DUPLICATE_EMAIL_MESSAGE };
   }
 
   try {
@@ -618,14 +597,11 @@ export async function convertLeadToClientAction(
       // Re-check duplicate-email state too, for the same TOCTOU reason —
       // a different request could have created a colliding Client after
       // the preflight above ran but before this transaction opened.
-      if (lead.email && !options.confirmDuplicate) {
-        const duplicate = await tx.client.findFirst({
-          where: { organizationId, email: { equals: lead.email, mode: "insensitive" } },
-          select: { id: true },
-        });
-        if (duplicate) {
-          throw new LeadConversionError("requires_duplicate_confirmation");
-        }
+      if (
+        !options.confirmDuplicate &&
+        (await findDuplicateOrganizationClientByEmail({ organizationId, email: lead.email, client: tx }))
+      ) {
+        throw new LeadConversionError("requires_duplicate_confirmation");
       }
 
       // Billing & Subscriptions Stage 2's own re-check-inside-the-
@@ -708,9 +684,6 @@ export async function convertLeadToClientAction(
     }
     if (err instanceof BillingLimitError) {
       return { ok: false, reason: "entitlement_blocked", message: err.message };
-    }
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      return { ok: false, reason: "duplicate_owner_conflict", message: DUPLICATE_OWNER_CONFLICT_MESSAGE };
     }
     throw err;
   }
