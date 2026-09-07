@@ -14,17 +14,17 @@ export default function TermsOfServicePage() {
     <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
       <Link
         href="/"
-        className="rounded text-sm text-gray-500 hover:text-gray-900 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
+        className="rounded text-sm text-text-muted hover:text-text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
       >
         ← Back
       </Link>
 
-      <h1 className="mt-4 text-3xl font-semibold tracking-tight text-gray-900">Terms of Service</h1>
-      <p className="mt-2 text-sm text-gray-500">Effective {config.tosEffectiveDate}</p>
+      <h1 className="mt-4 text-3xl font-semibold tracking-tight text-text-primary">Terms of Service</h1>
+      <p className="mt-2 text-sm text-text-muted">Effective {config.tosEffectiveDate}</p>
 
-      <div className="mt-10 space-y-10 text-sm leading-relaxed text-gray-700">
+      <div className="mt-10 space-y-10 text-sm leading-relaxed text-text-secondary">
         <section>
-          <h2 className="text-lg font-semibold text-gray-900">1. Agreement</h2>
+          <h2 className="text-lg font-semibold text-text-primary">1. Agreement</h2>
           <p className="mt-3">
             These Terms of Service (&ldquo;Terms&rdquo;) govern your use of {siteConfig.name} (the
             &ldquo;Service&rdquo;), operated by {config.legalName} (&ldquo;we&rdquo;, &ldquo;us&rdquo;). By
@@ -35,7 +35,7 @@ export default function TermsOfServicePage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-gray-900">2. The Service</h2>
+          <h2 className="text-lg font-semibold text-text-primary">2. The Service</h2>
           <p className="mt-3">
             The Service is a client relationship management tool. A staff account belongs to an Organization and
             can be used to manage that Organization&rsquo;s own clients, projects, tasks, invoices, comments, and
@@ -49,7 +49,7 @@ export default function TermsOfServicePage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-gray-900">3. Accounts and invitations</h2>
+          <h2 className="text-lg font-semibold text-text-primary">3. Accounts and invitations</h2>
           <p className="mt-3">
             You are responsible for maintaining the confidentiality of your account credentials and for all
             activity under your account. Staff accounts are provisioned by signing up (which creates a new
@@ -60,12 +60,12 @@ export default function TermsOfServicePage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-gray-900">4. Your data</h2>
+          <h2 className="text-lg font-semibold text-text-primary">4. Your data</h2>
           <p className="mt-3">
             As between you and us, an Organization owns the business data (client records, projects, tasks,
             invoices, files, and comments) it enters into the Service. We only process that data to provide the
             Service, as described in our{" "}
-            <Link href="/privacy" className="rounded font-medium text-black hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2">
+            <Link href="/privacy" className="rounded font-medium text-text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2">
               Privacy Policy
             </Link>
             . You are responsible for the accuracy and legality of the data you enter, including having any
@@ -74,7 +74,7 @@ export default function TermsOfServicePage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-gray-900">5. Acceptable use</h2>
+          <h2 className="text-lg font-semibold text-text-primary">5. Acceptable use</h2>
           <p className="mt-3">You agree not to:</p>
           <ul className="mt-3 list-disc space-y-2 pl-5">
             <li>Use the Service for any unlawful purpose, or to store or transmit content you do not have the right to store or transmit;</li>
@@ -85,7 +85,7 @@ export default function TermsOfServicePage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-gray-900">6. Billing</h2>
+          <h2 className="text-lg font-semibold text-text-primary">6. Billing</h2>
           <p className="mt-3">
             The Service does not currently charge for access through any live payment processor &mdash;
             organizations today use the Service on a trial or complimentary basis. If paid subscription plans
@@ -95,7 +95,7 @@ export default function TermsOfServicePage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-gray-900">7. Termination</h2>
+          <h2 className="text-lg font-semibold text-text-primary">7. Termination</h2>
           <p className="mt-3">
             You may stop using the Service at any time. We do not currently offer a self-service control to
             delete an account or Organization from within the Service; to close an account or request deletion
@@ -106,7 +106,7 @@ export default function TermsOfServicePage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-gray-900">8. Disclaimers and limitation of liability</h2>
+          <h2 className="text-lg font-semibold text-text-primary">8. Disclaimers and limitation of liability</h2>
           <p className="mt-3">
             To the maximum extent permitted by law, the Service is provided without warranties of any kind,
             express or implied. We are not liable for indirect, incidental, or consequential damages arising
@@ -116,7 +116,7 @@ export default function TermsOfServicePage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-gray-900">9. Changes to these Terms</h2>
+          <h2 className="text-lg font-semibold text-text-primary">9. Changes to these Terms</h2>
           <p className="mt-3">
             We may update these Terms as the Service changes. If we make a material change, we will update the
             effective date above; continued use of the Service after a change constitutes acceptance of the
@@ -125,7 +125,7 @@ export default function TermsOfServicePage() {
         </section>
 
         <section>
-          <h2 className="text-lg font-semibold text-gray-900">10. Governing law and contact</h2>
+          <h2 className="text-lg font-semibold text-text-primary">10. Governing law and contact</h2>
           <p className="mt-3">
             These Terms are governed by the laws applicable in {config.jurisdiction}, without regard to conflict
             of law principles.{" "}
@@ -134,7 +134,7 @@ export default function TermsOfServicePage() {
                 Questions about these Terms can be sent to{" "}
                 <a
                   href={`mailto:${config.supportEmail}`}
-                  className="rounded font-medium text-black hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
+                  className="rounded font-medium text-text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
                 >
                   {config.supportEmail}
                 </a>
