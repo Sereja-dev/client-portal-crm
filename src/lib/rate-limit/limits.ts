@@ -230,3 +230,27 @@ export const TASK_CREATE_LIMIT: RateLimitConfig = { scope: "task-create", limit:
 // ATTACHMENT_UPLOAD_LIMIT above, generous for a heavy invoicing session
 // while still bounding a scripted create loop.
 export const INVOICE_CREATE_LIMIT: RateLimitConfig = { scope: "invoice-create", limit: 30, windowMs: HOUR_MS };
+
+// Leads / Sales Pipeline Phase 2. Per authenticated staff user id, same
+// shape as every other per-user limiter above — never an env var, never
+// derived from anything but the server-resolved user.id.
+//
+// LEAD_CREATE_LIMIT mirrors TASK_CREATE_LIMIT's own reasoning exactly:
+// leads are this feature's highest-frequency legitimate create (an
+// agency importing/logging a batch of new prospects in one sitting is
+// realistic), so the same 100/hour ceiling applies — generous for real
+// use, still a real bound on a scripted create loop.
+export const LEAD_CREATE_LIMIT: RateLimitConfig = { scope: "lead-create", limit: 100, windowMs: HOUR_MS };
+
+// One shared bucket for every other Lead mutation (edit, stage move,
+// assignment, archive/unarchive, conversion) — deliberately not split
+// into a limiter per action the way create/download pairs elsewhere in
+// this file are: those stay isolated from each other because they're
+// different *resources* (an attachment upload vs. a PDF download), but
+// these are all the same resource (one Lead) touched through different
+// small mutations in the same working session. A Kanban-style pipeline
+// view (a later phase) can mean many quick stage moves in a row, so this
+// ceiling is intentionally well above LEAD_CREATE_LIMIT's own —
+// generous enough for a genuinely busy pipeline-grooming session, still
+// a real bound on a scripted loop.
+export const LEAD_UPDATE_LIMIT: RateLimitConfig = { scope: "lead-update", limit: 300, windowMs: HOUR_MS };

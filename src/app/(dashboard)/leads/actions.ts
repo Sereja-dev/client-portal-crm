@@ -1,0 +1,717 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { Prisma } from "@/generated/prisma/client";
+import type { LeadStage } from "@/generated/prisma/enums";
+import { prisma } from "@/lib/prisma";
+import { getCurrentUserOrganization } from "@/lib/current-user";
+import { checkRateLimit, LEAD_CREATE_LIMIT, LEAD_UPDATE_LIMIT } from "@/lib/rate-limit";
+import { createActivity } from "@/lib/activity/create-activity";
+import { buildLeadActivityMetadata, buildLeadStageChangeMetadata, diffLeadFields } from "@/lib/activity/lead-metadata";
+import { buildClientActivityMetadata } from "@/lib/activity/client-metadata";
+import {
+  parseLeadInput,
+  parseLostReason,
+  type LeadFieldErrors,
+  type LeadWritableInput,
+} from "@/lib/validation/lead";
+import { assertCanCreateClient, BillingLimitError } from "@/lib/billing/enforcement";
+import { LEAD_STAGES, isLostLeadStage } from "@/lib/leads/stages";
+
+/**
+ * Leads / Sales Pipeline Phase 2. No Lead UI exists yet (Phase 3+) — every
+ * action here takes plain, already-typed arguments rather than FormData,
+ * and every result is a discriminated union rather than a redirect/toast,
+ * so a future form layer (useActionState or a plain client-component
+ * call) can adopt whichever shape it needs without this module changing.
+ * See each result type's own comment for exactly which reasons it can
+ * carry — never a raw Prisma error, never a provider/database detail
+ * (the same "typed, controlled domain error" discipline
+ * src/lib/billing/enforcement.ts's own BillingLimitError already
+ * establishes).
+ *
+ * Every action below follows the same architecture the rest of this app
+ * already uses for Client/Project/Task/Invoice mutations: resolve
+ * {user, organizationId} via getCurrentUserOrganization() first (never
+ * accept organizationId as input), rate-limit keyed by the resolved
+ * user.id, verify any foreign-key input (assignedToUserId) actually
+ * belongs to this same organization, do the write inside
+ * prisma.$transaction alongside its Activity row, scope every lookup and
+ * write by {id, organizationId} together so a foreign-org id is
+ * indistinguishable from a nonexistent one, and revalidatePath("/leads")
+ * even though nothing renders there yet — matching deleteClientAction's
+ * own precedent of calling revalidatePath from a plain (non-redirecting)
+ * action, not only from a form-redirect one.
+ */
+
+// The 5 stages a generic stage-move may target — LOST is deliberately
+// excluded (markLeadLostAction is its own dedicated action, see that
+// function's own comment on why), computed from the one canonical
+// LEAD_STAGES definition rather than a second hardcoded list.
+const MOVABLE_LEAD_STAGES: readonly LeadStage[] = LEAD_STAGES.filter((s) => !isLostLeadStage(s.value)).map(
+  (s) => s.value,
+);
+
+/** Thrown only inside convertLeadToClientAction's own transaction, to carry a typed rejection reason out to its catch block — never allowed to escape that function. */
+class LeadConversionError extends Error {
+  constructor(readonly reason: "not_found" | "already_converted" | "lost" | "requires_duplicate_confirmation") {
+    super(`Lead conversion rejected: ${reason}`);
+  }
+}
+
+const DUPLICATE_EMAIL_MESSAGE = "A client with this email already exists. Do you still want to create a new client?";
+
+// Client's own real (pre-existing, unrelated to this feature) uniqueness
+// constraint is @@unique([userId, email]) — scoped by owning STAFF USER,
+// not by organization. The duplicate-email preflight above is
+// deliberately org-scoped (matching the product's own "duplicate" model),
+// so it can genuinely let a confirmed conversion through to
+// tx.client.create() only for that write to still collide at the
+// database level in one narrow case: the CONVERTING user (whose id
+// becomes the new Client's own userId) already owns another Client row
+// with this exact email — realistically common for a solo Starter-plan
+// user, whose own Client roster is entirely self-owned. Caught here
+// rather than left to surface as a raw, unhandled Prisma error (Section
+// P's own explicit "never expose a raw Prisma error" requirement) —
+// mirrors createClientAction/updateClientAction's own identical P2002
+// handling for the exact same underlying constraint.
+const DUPLICATE_OWNER_CONFLICT_MESSAGE =
+  "You already have a client record with this email. Update that client directly instead of converting this lead.";
+
+/**
+ * Verifies a candidate assignee actually belongs to the caller's own
+ * organization (a Membership row must exist) — never trusts that a
+ * client-supplied id was really offered by an in-org-only <select>, the
+ * same "re-verify server-side" discipline createTaskAction's own
+ * projectId check already establishes. A plain read via the top-level
+ * `prisma` client (not `tx`) BEFORE opening any transaction, mirroring
+ * that same existing precedent exactly.
+ */
+async function verifyAssigneeInOrganization(assignedToUserId: string | null, organizationId: string): Promise<boolean> {
+  if (!assignedToUserId) return true;
+  const membership = await prisma.membership.findUnique({
+    where: { userId_organizationId: { userId: assignedToUserId, organizationId } },
+    select: { userId: true },
+  });
+  return membership !== null;
+}
+
+// ---------------------------------------------------------------------------
+// Create
+// ---------------------------------------------------------------------------
+
+export type CreateLeadResult =
+  | { ok: true; leadId: string }
+  | { ok: false; reason: "validation"; fieldErrors: LeadFieldErrors }
+  | { ok: false; reason: "rate_limited" }
+  | { ok: false; reason: "invalid_assignee" };
+
+/**
+ * Always creates at stage NEW — no explicit initial-stage input is
+ * accepted. A deliberate, conservative Phase 2 choice: every other stage
+ * transition (including into WON/LOST) goes through its own dedicated
+ * action with its own invariants (converted-locking, lostReason
+ * handling); letting create bypass those by setting an arbitrary initial
+ * stage would undermine them for no real benefit. No entitlement gate —
+ * leads are unlimited (approved product decision); only Client creation
+ * (via conversion) is ever entitlement-checked.
+ */
+export async function createLeadAction(input: LeadWritableInput): Promise<CreateLeadResult> {
+  const { values, fieldErrors } = parseLeadInput(input);
+  if (Object.keys(fieldErrors).length > 0) {
+    return { ok: false, reason: "validation", fieldErrors };
+  }
+
+  const { user, organizationId } = await getCurrentUserOrganization();
+
+  // Keyed by the authenticated staff user id — never anything from the
+  // input — same ordering (auth resolved, then rate limit checked
+  // immediately after, before any other work) every per-user limiter in
+  // this app already uses.
+  const limitCheck = checkRateLimit(LEAD_CREATE_LIMIT, user.id);
+  if (limitCheck.limited) {
+    return { ok: false, reason: "rate_limited" };
+  }
+
+  if (!(await verifyAssigneeInOrganization(values.assignedToUserId, organizationId))) {
+    return { ok: false, reason: "invalid_assignee" };
+  }
+
+  // Lead create and its Activity row are one atomic unit — a failed
+  // Activity insert rolls the create back with it, matching
+  // createClientAction/createTaskAction's own exact pattern.
+  const lead = await prisma.$transaction(async (tx) => {
+    const created = await tx.lead.create({
+      data: {
+        organizationId,
+        name: values.name,
+        company: values.company,
+        email: values.email,
+        phone: values.phone,
+        source: values.source,
+        value: values.value,
+        notes: values.notes,
+        assignedToUserId: values.assignedToUserId,
+        // stage: not set — the schema's own @default(NEW) applies. Never
+        // accepted from `input` (see this action's own doc comment).
+      },
+    });
+
+    await createActivity(tx, {
+      organizationId,
+      actorId: user.id,
+      entityType: "LEAD",
+      entityId: created.id,
+      action: "CREATED",
+      metadata: buildLeadActivityMetadata(created, user.name),
+    });
+
+    return created;
+  });
+
+  revalidatePath("/leads");
+  return { ok: true, leadId: lead.id };
+}
+
+// ---------------------------------------------------------------------------
+// Update (generic edit — never stage/lostReason/archivedAt/converted*)
+// ---------------------------------------------------------------------------
+
+export type UpdateLeadResult =
+  | { ok: true }
+  | { ok: false; reason: "validation"; fieldErrors: LeadFieldErrors }
+  | { ok: false; reason: "rate_limited" }
+  | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "invalid_assignee" };
+
+/**
+ * Editable: name, company, email, phone, source, value, notes,
+ * assignedToUserId — exactly the approved Phase 2 field set. Always
+ * "full values", matching updateClientAction/updateTaskAction's own
+ * convention (no partial-patch variant): a caller wanting to change one
+ * field still supplies every field's current desired value.
+ * organizationId/convertedClientId/convertedAt/archivedAt/stage/
+ * lostReason are structurally impossible to set through this action —
+ * `input`'s own LeadWritableInput type has no such fields, and the write
+ * below only ever assigns from `values`, never from a route param or any
+ * other caller-supplied source.
+ */
+export async function updateLeadAction(leadId: string, input: LeadWritableInput): Promise<UpdateLeadResult> {
+  const { values, fieldErrors } = parseLeadInput(input);
+  if (Object.keys(fieldErrors).length > 0) {
+    return { ok: false, reason: "validation", fieldErrors };
+  }
+
+  const { user, organizationId } = await getCurrentUserOrganization();
+
+  const limitCheck = checkRateLimit(LEAD_UPDATE_LIMIT, user.id);
+  if (limitCheck.limited) {
+    return { ok: false, reason: "rate_limited" };
+  }
+
+  if (!(await verifyAssigneeInOrganization(values.assignedToUserId, organizationId))) {
+    return { ok: false, reason: "invalid_assignee" };
+  }
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    // Scoped by id + organizationId together — a foreign org's lead id
+    // simply doesn't match, indistinguishable from a nonexistent one.
+    // Also doubles as the "before" snapshot for the Activity diff below.
+    const existing = await tx.lead.findFirst({ where: { id: leadId, organizationId } });
+    if (!existing) {
+      return "not_found" as const;
+    }
+
+    const result = await tx.lead.updateMany({
+      where: { id: leadId, organizationId },
+      data: {
+        name: values.name,
+        company: values.company,
+        email: values.email,
+        phone: values.phone,
+        source: values.source,
+        value: values.value,
+        notes: values.notes,
+        assignedToUserId: values.assignedToUserId,
+      },
+    });
+
+    if (result.count === 0) {
+      return "not_found" as const;
+    }
+
+    // Only log a real change — a re-submit of identical values shouldn't
+    // add a no-op entry to the log, matching updateClientAction exactly.
+    // The diff itself only ever carries field NAMES, never their values
+    // (see lead-metadata.ts's own doc comment) — full notes/email/phone
+    // content never reaches Activity.metadata either way.
+    const changedFields = diffLeadFields(existing, values);
+    if (changedFields.length > 0) {
+      await createActivity(tx, {
+        organizationId,
+        actorId: user.id,
+        entityType: "LEAD",
+        entityId: leadId,
+        action: "UPDATED",
+        metadata: buildLeadActivityMetadata({ name: values.name, stage: existing.stage }, user.name, changedFields),
+      });
+    }
+
+    return "updated" as const;
+  });
+
+  if (outcome === "not_found") {
+    return { ok: false, reason: "not_found" };
+  }
+
+  revalidatePath("/leads");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Stage move (generic — NEW/CONTACTED/QUALIFIED/PROPOSAL/WON only)
+// ---------------------------------------------------------------------------
+
+export type MoveLeadStageResult =
+  | { ok: true }
+  | { ok: false; reason: "rate_limited" }
+  | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "invalid_stage" }
+  | { ok: false; reason: "converted_locked" };
+
+/**
+ * LOST is deliberately not a valid target here — markLeadLostAction is
+ * its own dedicated action, since marking a Lead lost also records
+ * lostReason, a second field this generic move never touches. WON *is* a
+ * valid target here even before conversion ("won but not yet converted"
+ * is a legitimate state per the approved product model) — conversion
+ * itself separately guarantees stage WON when it happens.
+ *
+ * Reactivation: moving a LOST Lead to any of the 5 stages here is exactly
+ * how a Lead is reactivated — no separate "reactivate" action exists.
+ * lostReason is cleared automatically whenever the Lead's stage was LOST
+ * before this move (never otherwise, so a still-open Lead's own
+ * always-null lostReason is simply left untouched).
+ *
+ * A converted Lead can never move stage at all (locked to WON) —
+ * enforced both by an upfront read and, for the race where a concurrent
+ * conversion completes between that read and this write, by the guarded
+ * updateMany's own `convertedClientId: null` condition.
+ */
+export async function moveLeadStageAction(leadId: string, stage: LeadStage): Promise<MoveLeadStageResult> {
+  if (!MOVABLE_LEAD_STAGES.includes(stage)) {
+    return { ok: false, reason: "invalid_stage" };
+  }
+
+  const { user, organizationId } = await getCurrentUserOrganization();
+
+  const limitCheck = checkRateLimit(LEAD_UPDATE_LIMIT, user.id);
+  if (limitCheck.limited) {
+    return { ok: false, reason: "rate_limited" };
+  }
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    const existing = await tx.lead.findFirst({ where: { id: leadId, organizationId } });
+    if (!existing) {
+      return "not_found" as const;
+    }
+    if (existing.convertedClientId) {
+      return "converted_locked" as const;
+    }
+
+    const wasLost = isLostLeadStage(existing.stage);
+
+    const result = await tx.lead.updateMany({
+      where: { id: leadId, organizationId, convertedClientId: null },
+      data: {
+        stage,
+        // undefined = "leave this column untouched" to Prisma; only ever
+        // explicitly cleared when actually leaving LOST.
+        lostReason: wasLost ? null : undefined,
+      },
+    });
+
+    if (result.count === 0) {
+      // Raced with a concurrent conversion between the read above and
+      // this write — treat exactly like the upfront check above.
+      return "converted_locked" as const;
+    }
+
+    await createActivity(tx, {
+      organizationId,
+      actorId: user.id,
+      entityType: "LEAD",
+      entityId: leadId,
+      action: "STATUS_CHANGED",
+      metadata: buildLeadStageChangeMetadata(existing.stage, stage),
+    });
+
+    return "updated" as const;
+  });
+
+  if (outcome === "not_found") return { ok: false, reason: "not_found" };
+  if (outcome === "converted_locked") return { ok: false, reason: "converted_locked" };
+
+  revalidatePath("/leads");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Mark lost
+// ---------------------------------------------------------------------------
+
+export type MarkLeadLostResult =
+  | { ok: true }
+  | { ok: false; reason: "validation" }
+  | { ok: false; reason: "rate_limited" }
+  | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "converted_locked" };
+
+export async function markLeadLostAction(leadId: string, lostReason?: string | null): Promise<MarkLeadLostResult> {
+  const parsedReason = parseLostReason(lostReason);
+  if (!parsedReason.ok) {
+    return { ok: false, reason: "validation" };
+  }
+
+  const { user, organizationId } = await getCurrentUserOrganization();
+
+  const limitCheck = checkRateLimit(LEAD_UPDATE_LIMIT, user.id);
+  if (limitCheck.limited) {
+    return { ok: false, reason: "rate_limited" };
+  }
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    const existing = await tx.lead.findFirst({ where: { id: leadId, organizationId } });
+    if (!existing) {
+      return "not_found" as const;
+    }
+    if (existing.convertedClientId) {
+      return "converted_locked" as const;
+    }
+
+    const result = await tx.lead.updateMany({
+      where: { id: leadId, organizationId, convertedClientId: null },
+      data: { stage: "LOST", lostReason: parsedReason.value },
+    });
+
+    if (result.count === 0) {
+      return "converted_locked" as const;
+    }
+
+    await createActivity(tx, {
+      organizationId,
+      actorId: user.id,
+      entityType: "LEAD",
+      entityId: leadId,
+      action: "STATUS_CHANGED",
+      // lostReason's own freeform text is deliberately never written into
+      // Activity.metadata — only the stage transition is (see
+      // lead-metadata.ts's own doc comment); the reason itself stays on
+      // the Lead row only.
+      metadata: buildLeadStageChangeMetadata(existing.stage, "LOST"),
+    });
+
+    return "updated" as const;
+  });
+
+  if (outcome === "not_found") return { ok: false, reason: "not_found" };
+  if (outcome === "converted_locked") return { ok: false, reason: "converted_locked" };
+
+  revalidatePath("/leads");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Archive / unarchive (soft only — no hard delete in this phase)
+// ---------------------------------------------------------------------------
+
+export type ArchiveLeadResult =
+  | { ok: true }
+  | { ok: false; reason: "rate_limited" }
+  | { ok: false; reason: "not_found" };
+
+/**
+ * Archive is visibility, not deletion — a converted Lead may still be
+ * archived (no converted_locked check here, unlike stage-changing
+ * actions), and archiving never touches stage, convertedClientId, or any
+ * other field.
+ */
+export async function archiveLeadAction(leadId: string): Promise<ArchiveLeadResult> {
+  const { user, organizationId } = await getCurrentUserOrganization();
+
+  const limitCheck = checkRateLimit(LEAD_UPDATE_LIMIT, user.id);
+  if (limitCheck.limited) {
+    return { ok: false, reason: "rate_limited" };
+  }
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    const existing = await tx.lead.findFirst({ where: { id: leadId, organizationId } });
+    if (!existing) {
+      return "not_found" as const;
+    }
+
+    const alreadyArchived = existing.archivedAt !== null;
+
+    const result = await tx.lead.updateMany({
+      where: { id: leadId, organizationId },
+      data: { archivedAt: existing.archivedAt ?? new Date() },
+    });
+    if (result.count === 0) {
+      return "not_found" as const;
+    }
+
+    // Only log a real transition — archiving an already-archived Lead is
+    // a harmless no-op, not a new event.
+    if (!alreadyArchived) {
+      await createActivity(tx, {
+        organizationId,
+        actorId: user.id,
+        entityType: "LEAD",
+        entityId: leadId,
+        action: "UPDATED",
+        metadata: buildLeadActivityMetadata(existing, user.name, ["archivedAt"]),
+      });
+    }
+
+    return "updated" as const;
+  });
+
+  if (outcome === "not_found") return { ok: false, reason: "not_found" };
+  revalidatePath("/leads");
+  return { ok: true };
+}
+
+export async function unarchiveLeadAction(leadId: string): Promise<ArchiveLeadResult> {
+  const { user, organizationId } = await getCurrentUserOrganization();
+
+  const limitCheck = checkRateLimit(LEAD_UPDATE_LIMIT, user.id);
+  if (limitCheck.limited) {
+    return { ok: false, reason: "rate_limited" };
+  }
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    const existing = await tx.lead.findFirst({ where: { id: leadId, organizationId } });
+    if (!existing) {
+      return "not_found" as const;
+    }
+
+    const wasArchived = existing.archivedAt !== null;
+
+    const result = await tx.lead.updateMany({
+      where: { id: leadId, organizationId },
+      data: { archivedAt: null },
+    });
+    if (result.count === 0) {
+      return "not_found" as const;
+    }
+
+    if (wasArchived) {
+      await createActivity(tx, {
+        organizationId,
+        actorId: user.id,
+        entityType: "LEAD",
+        entityId: leadId,
+        action: "UPDATED",
+        metadata: buildLeadActivityMetadata(existing, user.name, ["archivedAt"]),
+      });
+    }
+
+    return "updated" as const;
+  });
+
+  if (outcome === "not_found") return { ok: false, reason: "not_found" };
+  revalidatePath("/leads");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Convert Lead -> Client
+// ---------------------------------------------------------------------------
+
+export type ConvertLeadResult =
+  | { ok: true; clientId: string }
+  | { ok: false; reason: "rate_limited" }
+  | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "already_converted" }
+  | { ok: false; reason: "lost" }
+  | { ok: false; reason: "requires_duplicate_confirmation"; message: string }
+  | { ok: false; reason: "duplicate_owner_conflict"; message: string }
+  | { ok: false; reason: "entitlement_blocked"; message: string };
+
+export type ConvertLeadOptions = {
+  /**
+   * Authorizes only "proceed despite a same-organization duplicate
+   * email" — never selects an existing Client, never supplies a Client
+   * id, never bypasses tenant scoping or the entitlement check below.
+   * MVP always creates a brand-new Client either way (approved product
+   * decision: no auto-link/auto-merge).
+   */
+  confirmDuplicate?: boolean;
+};
+
+/**
+ * The highest-risk action in this phase — see this module's own header
+ * comment for the shared architecture, and the inline comments below for
+ * exactly how each of the approved requirements (atomicity, duplicate-
+ * email handling, race safety, entitlement enforcement, repeat-conversion
+ * rejection) is met.
+ */
+export async function convertLeadToClientAction(
+  leadId: string,
+  options: ConvertLeadOptions = {},
+): Promise<ConvertLeadResult> {
+  const { user, organizationId } = await getCurrentUserOrganization();
+
+  const limitCheck = checkRateLimit(LEAD_UPDATE_LIMIT, user.id);
+  if (limitCheck.limited) {
+    return { ok: false, reason: "rate_limited" };
+  }
+
+  // Cheap pre-check, outside any transaction — fails fast on the common
+  // reject paths (not found / already converted / lost / archived)
+  // before ever doing the duplicate-email lookup or opening a
+  // transaction. Never the actual authorization boundary: the
+  // transaction below re-derives every one of these from scratch against
+  // its own consistent view, specifically to close the TOCTOU window
+  // between this read and that write (Section K.7's own requirement).
+  const preCheck = await prisma.lead.findFirst({ where: { id: leadId, organizationId, archivedAt: null } });
+  if (!preCheck) {
+    return { ok: false, reason: "not_found" };
+  }
+  if (preCheck.convertedClientId) {
+    return { ok: false, reason: "already_converted" };
+  }
+  if (isLostLeadStage(preCheck.stage)) {
+    return { ok: false, reason: "lost" };
+  }
+
+  // Duplicate-email preflight — same-organization only, case-insensitive,
+  // never revealing the existing Client's own id anywhere in the
+  // returned result. Skipped when the Lead has no email at all (nothing
+  // to collide on) or the caller already confirmed once.
+  if (preCheck.email && !options.confirmDuplicate) {
+    const duplicate = await prisma.client.findFirst({
+      where: { organizationId, email: { equals: preCheck.email, mode: "insensitive" } },
+      select: { id: true },
+    });
+    if (duplicate) {
+      return { ok: false, reason: "requires_duplicate_confirmation", message: DUPLICATE_EMAIL_MESSAGE };
+    }
+  }
+
+  try {
+    const clientId = await prisma.$transaction(async (tx) => {
+      // Re-fetch and re-check every rejection condition under this
+      // transaction's own consistent view — never trust the pre-check
+      // above for the actual decision.
+      const lead = await tx.lead.findFirst({ where: { id: leadId, organizationId, archivedAt: null } });
+      if (!lead) {
+        throw new LeadConversionError("not_found");
+      }
+      if (lead.convertedClientId) {
+        throw new LeadConversionError("already_converted");
+      }
+      if (isLostLeadStage(lead.stage)) {
+        throw new LeadConversionError("lost");
+      }
+
+      // Re-check duplicate-email state too, for the same TOCTOU reason —
+      // a different request could have created a colliding Client after
+      // the preflight above ran but before this transaction opened.
+      if (lead.email && !options.confirmDuplicate) {
+        const duplicate = await tx.client.findFirst({
+          where: { organizationId, email: { equals: lead.email, mode: "insensitive" } },
+          select: { id: true },
+        });
+        if (duplicate) {
+          throw new LeadConversionError("requires_duplicate_confirmation");
+        }
+      }
+
+      // Billing & Subscriptions Stage 2's own re-check-inside-the-
+      // transaction convention (assertCanCreateClient's own doc comment)
+      // — Lead conversion must never be a way to bypass the Starter
+      // plan's Client cap that direct Client creation already enforces.
+      await assertCanCreateClient(organizationId, tx);
+
+      // Client mapping — exactly the approved field set. source/value/
+      // lostReason/archivedAt stay on the Lead as historical data, never
+      // copied onto the new Client.
+      const client = await tx.client.create({
+        data: {
+          name: lead.name,
+          company: lead.company,
+          email: lead.email,
+          phone: lead.phone,
+          notes: lead.notes,
+          status: "ACTIVE",
+          organizationId,
+          userId: user.id,
+        },
+      });
+
+      // Consistency with direct Client creation (createClientAction),
+      // which always logs its own CLIENT/CREATED Activity — a
+      // conversion-created Client gets the identical event, so its own
+      // Activity timeline reads the same regardless of how it came to
+      // exist.
+      await createActivity(tx, {
+        organizationId,
+        actorId: user.id,
+        entityType: "CLIENT",
+        entityId: client.id,
+        action: "CREATED",
+        metadata: buildClientActivityMetadata(client, user.name),
+      });
+
+      // Guarded conditional update — convertedClientId: null in the
+      // WHERE is the actual race defense (two simultaneous conversions
+      // must persist exactly one Client): if a concurrent request already
+      // converted this same Lead between the read above and this write,
+      // count is 0 here and the whole transaction throws, rolling back
+      // the Client row (and its Activity) this same transaction just
+      // created.
+      const result = await tx.lead.updateMany({
+        where: { id: leadId, organizationId, convertedClientId: null },
+        data: {
+          convertedClientId: client.id,
+          convertedAt: new Date(),
+          stage: "WON",
+          lostReason: null,
+        },
+      });
+
+      if (result.count !== 1) {
+        throw new LeadConversionError("already_converted");
+      }
+
+      await createActivity(tx, {
+        organizationId,
+        actorId: user.id,
+        entityType: "LEAD",
+        entityId: leadId,
+        action: "CONVERTED",
+        metadata: buildLeadActivityMetadata({ name: lead.name, stage: "WON" }, user.name),
+      });
+
+      return client.id;
+    });
+
+    revalidatePath("/leads");
+    return { ok: true, clientId };
+  } catch (err) {
+    if (err instanceof LeadConversionError) {
+      if (err.reason === "requires_duplicate_confirmation") {
+        return { ok: false, reason: "requires_duplicate_confirmation", message: DUPLICATE_EMAIL_MESSAGE };
+      }
+      return { ok: false, reason: err.reason };
+    }
+    if (err instanceof BillingLimitError) {
+      return { ok: false, reason: "entitlement_blocked", message: err.message };
+    }
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return { ok: false, reason: "duplicate_owner_conflict", message: DUPLICATE_OWNER_CONFLICT_MESSAGE };
+    }
+    throw err;
+  }
+}
