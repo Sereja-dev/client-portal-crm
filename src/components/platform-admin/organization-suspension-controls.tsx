@@ -4,6 +4,7 @@ import { useId, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ui/confirm-dialog";
+import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
 import { formControlClasses } from "@/components/ui/form-control-classes";
 import { useToast } from "@/components/toast/toast-provider";
 import { suspendOrganizationAction, reactivateOrganizationAction } from "@/app/(platform-admin)/platform-admin/organizations/[id]/actions";
@@ -163,7 +164,7 @@ function SuspendControl({
           setConfirmText("");
           setReasonCode("");
         }}
-        className="border-border-default bg-surface w-full max-w-sm rounded-lg border p-6 shadow-xl backdrop:bg-black/40"
+        className={`border-border-default bg-surface w-full max-w-sm rounded-lg border p-6 shadow-xl backdrop:bg-black/40 ${DIALOG_CENTER_CLASSES}`}
       >
         <h2 id={titleId} className="text-text-primary text-base font-semibold">
           Suspend organization

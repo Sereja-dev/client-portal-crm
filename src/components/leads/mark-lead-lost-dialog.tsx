@@ -3,6 +3,7 @@
 import { useId, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { FormLabel } from "@/components/ui/form-field";
+import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
 import { LEAD_LOST_REASON_MAX_LENGTH } from "@/lib/validation/lead";
 
 export type MarkLeadLostDialogHandle = { open: () => void };
@@ -45,7 +46,7 @@ export function MarkLeadLostDialog({
           dialogRef.current?.close();
         }
       }}
-      className="border-border-default bg-surface w-full max-w-sm rounded-lg border p-6 shadow-xl backdrop:bg-black/40"
+      className={`border-border-default bg-surface w-full max-w-sm rounded-lg border p-6 shadow-xl backdrop:bg-black/40 ${DIALOG_CENTER_CLASSES}`}
     >
       <h2 id={titleId} className="text-text-primary text-base font-semibold">
         Mark lead lost

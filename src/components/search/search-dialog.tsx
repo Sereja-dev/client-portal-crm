@@ -5,6 +5,7 @@ import { SearchInput } from "./search-input";
 import { SearchResults } from "./search-results";
 import { useGlobalSearch } from "./use-global-search";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
 
 export type SearchDialogHandle = {
   open: () => void;
@@ -105,7 +106,7 @@ export function SearchDialog({ ref }: { ref?: Ref<SearchDialogHandle> }) {
       // backdrop:bg-black/40 deliberately kept literal — the same
       // theme-invariant modal scrim ConfirmDialog's own <dialog> already
       // uses, not a grep hit to eliminate for its own sake.
-      className={`w-full max-w-lg p-0 shadow-xl backdrop:bg-black/40 ${CARD_SURFACE_CLASSES}`}
+      className={`w-full max-w-lg p-0 shadow-xl backdrop:bg-black/40 ${CARD_SURFACE_CLASSES} ${DIALOG_CENTER_CLASSES}`}
     >
       <h2 id={titleId} className="sr-only">
         Search

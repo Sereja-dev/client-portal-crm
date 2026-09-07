@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 
@@ -246,6 +246,87 @@ test.describe("ConfirmDialog — Invoice cancel (InvoiceLifecycleControls, useTr
       expect(controlAfter.status).toBe("SENT");
     } finally {
       await dbQuery("invoice", "deleteMany", { where: { id: { in: [target.id, control.id] } } });
+    }
+  });
+});
+
+/**
+ * Aqenra Phase 3.1 — regression coverage for the native <dialog>
+ * centering fix (src/components/ui/dialog-classes.ts): a Tailwind
+ * preflight `margin: 0` reset was silently overriding the browser's own
+ * `dialog:modal` centering, pinning every dialog to the viewport's
+ * top-left corner instead. Asserts the dialog's own bounding-box center
+ * lands close to the viewport's center — a generous tolerance, not an
+ * exact-pixel screenshot comparison, so this stays robust to minor
+ * future padding/shadow tweaks while still failing hard if the fix ever
+ * regresses (a top-left-pinned dialog would be off by hundreds of
+ * pixels, not a handful).
+ */
+async function expectDialogCentered(page: Page): Promise<void> {
+  const viewport = page.viewportSize();
+  if (!viewport) throw new Error("expectDialogCentered requires a real viewport size");
+  const box = await page.getByRole("dialog").boundingBox();
+  if (!box) throw new Error("dialog has no bounding box — is it actually open/visible?");
+  const dialogCenterX = box.x + box.width / 2;
+  const dialogCenterY = box.y + box.height / 2;
+  expect(Math.abs(dialogCenterX - viewport.width / 2)).toBeLessThan(viewport.width * 0.15);
+  expect(Math.abs(dialogCenterY - viewport.height / 2)).toBeLessThan(viewport.height * 0.15);
+}
+
+test.describe("Dialog centering (Phase 3.1) — ConfirmDialog and MarkLeadLostDialog render centered, not pinned to the top-left", () => {
+  test.beforeEach(async ({ context, baseURL }) => {
+    await injectTestSession(context, { id: fixtures.owner.id, email: fixtures.owner.email }, baseURL!);
+  });
+
+  test("the shared ConfirmDialog (Client delete) renders centered at desktop and mobile widths", async ({ page }) => {
+    const clientName = `E2E Confirm Centering ${fixtures.runId}`;
+    const target = await dbQuery<{ id: string }>("client", "create", {
+      data: { name: clientName, organizationId: fixtures.orgA.id, userId: fixtures.owner.id },
+    });
+    try {
+      await page.goto("/clients");
+      // Scoped to "tr, li" (TableRow / RecordCard, see record-list.tsx)
+      // rather than getByRole("row"): only the desktop <table> row
+      // actually has an ARIA row role — the mobile RecordCardList's own
+      // <li> cards (the only ones visible below the xl breakpoint) do
+      // not, so a role-based lookup would find nothing once the
+      // viewport is resized below.
+      await page.locator("tr, li").filter({ hasText: clientName }).getByRole("button", { name: "Delete" }).first().click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await expectDialogCentered(page);
+      await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.reload();
+      await page.locator("tr, li").filter({ hasText: clientName }).getByRole("button", { name: "Delete" }).first().click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await expectDialogCentered(page);
+      await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+    } finally {
+      await dbQuery("client", "deleteMany", { where: { id: target.id } });
+    }
+  });
+
+  test("the non-shared MarkLeadLostDialog renders centered at desktop and mobile widths", async ({ page }) => {
+    const leadName = `E2E Confirm Centering Lead ${fixtures.runId}`;
+    const lead = await dbQuery<{ id: string }>("lead", "create", {
+      data: { name: leadName, organizationId: fixtures.orgA.id },
+    });
+    try {
+      await page.goto(`/leads/${lead.id}/edit`);
+      await page.getByRole("button", { name: "Mark lost" }).click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await expectDialogCentered(page);
+      await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.reload();
+      await page.getByRole("button", { name: "Mark lost" }).click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await expectDialogCentered(page);
+      await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+    } finally {
+      await dbQuery("lead", "deleteMany", { where: { id: lead.id } });
     }
   });
 });

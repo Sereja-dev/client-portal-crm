@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useImperativeHandle, useRef, type ReactNode, type Ref } from "react";
+import { DIALOG_CENTER_CLASSES } from "./dialog-classes";
 
 export type ConfirmDialogHandle = {
   open: () => void;
@@ -56,7 +57,7 @@ export function ConfirmDialog({
           dialogRef.current?.close();
         }
       }}
-      className="border-border-default bg-surface w-full max-w-sm rounded-lg border p-6 shadow-xl backdrop:bg-black/40"
+      className={`border-border-default bg-surface w-full max-w-sm rounded-lg border p-6 shadow-xl backdrop:bg-black/40 ${DIALOG_CENTER_CLASSES}`}
     >
       <h2 id={titleId} className="text-text-primary text-base font-semibold">
         {title}
