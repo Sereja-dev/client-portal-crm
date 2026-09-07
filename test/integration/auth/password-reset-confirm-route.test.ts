@@ -19,6 +19,7 @@ const { GET: confirmGet } = await import("@/app/auth/confirm/route");
 const { generateRecoveryToken } = await import("@/lib/auth/recovery-token");
 const { decodeTestModeIdentity } = await import("@/lib/test-mode");
 
+import { prisma } from "@/lib/prisma";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 
 // The confirm route sets its TEST_MODE identity cookie directly on the
@@ -116,6 +117,115 @@ describe("/auth/confirm — integration (real Route Handler, TEST_MODE token bra
   it("an unknown audience value falls back to the staff destination for the invalid-link case", async () => {
     const response = await confirmGet(confirmRequest({ token_hash: "never-issued", audience: "not-a-real-value" }));
     expect(response.headers.get("location")).toBe("http://localhost/reset-password?invalid=1");
+  });
+});
+
+describe("/auth/confirm — recovery redirect precedence when both a Staff User and a PortalUser exist (dual-identity minimal hardening)", () => {
+  let fixtures: TestFixtures;
+  // fixtures.owner (a real Staff User) additionally gets a PortalUser row
+  // for this describe block only — a genuine dual identity, created and
+  // torn down here rather than added to the shared seed, so no other
+  // suite's own assumptions about fixtures.owner being Staff-only are
+  // affected.
+  let dualIdentityClientId: string;
+
+  beforeAll(async () => {
+    fixtures = await seedTestData();
+    await prisma.portalUser.create({
+      data: {
+        id: fixtures.owner.id,
+        clientId: fixtures.clientB.id,
+        email: fixtures.owner.email,
+        name: fixtures.owner.name,
+      },
+    });
+    dualIdentityClientId = fixtures.clientB.id;
+  });
+
+  afterAll(async () => {
+    await prisma.portalUser.deleteMany({ where: { id: fixtures.owner.id } });
+    await cleanupTestData(fixtures);
+  });
+
+  it("both rows exist + audience=portal: the Portal reset page wins", async () => {
+    const generated = await generateRecoveryToken(fixtures.owner.email);
+    expect(generated.ok).toBe(true);
+    if (!generated.ok) return;
+
+    const response = await confirmGet(confirmRequest({ token_hash: generated.tokenHash, audience: "portal" }));
+    expect(response.headers.get("location")).toBe("http://localhost/portal/reset-password");
+
+    const cookie = response.cookies.get(TEST_USER_COOKIE_NAME);
+    expect(decodeTestModeIdentity(cookie?.value)).toEqual({ id: fixtures.owner.id, email: fixtures.owner.email });
+  });
+
+  it("both rows exist + audience=staff: the Staff reset page wins", async () => {
+    const generated = await generateRecoveryToken(fixtures.owner.email);
+    expect(generated.ok).toBe(true);
+    if (!generated.ok) return;
+
+    const response = await confirmGet(confirmRequest({ token_hash: generated.tokenHash, audience: "staff" }));
+    expect(response.headers.get("location")).toBe("http://localhost/reset-password");
+
+    const cookie = response.cookies.get(TEST_USER_COOKIE_NAME);
+    expect(decodeTestModeIdentity(cookie?.value)).toEqual({ id: fixtures.owner.id, email: fixtures.owner.email });
+  });
+
+  it("both rows exist + no audience param at all: falls back to the documented default (Staff wins), deterministically", async () => {
+    const generated = await generateRecoveryToken(fixtures.owner.email);
+    expect(generated.ok).toBe(true);
+    if (!generated.ok) return;
+
+    const response = await confirmGet(confirmRequest({ token_hash: generated.tokenHash }));
+    expect(response.headers.get("location")).toBe("http://localhost/reset-password");
+  });
+
+  it("both rows exist + an unrecognized audience value: treated the same as no hint, falls back to Staff", async () => {
+    const generated = await generateRecoveryToken(fixtures.owner.email);
+    expect(generated.ok).toBe(true);
+    if (!generated.ok) return;
+
+    const response = await confirmGet(confirmRequest({ token_hash: generated.tokenHash, audience: "not-a-real-value" }));
+    expect(response.headers.get("location")).toBe("http://localhost/reset-password");
+  });
+
+  it("Portal-only identity + audience=staff: never routed to Staff — there is no Staff row to send them to", async () => {
+    const generated = await generateRecoveryToken(fixtures.portalUser.email);
+    expect(generated.ok).toBe(true);
+    if (!generated.ok) return;
+
+    const response = await confirmGet(confirmRequest({ token_hash: generated.tokenHash, audience: "staff" }));
+    expect(response.headers.get("location")).toBe("http://localhost/portal/reset-password");
+
+    const cookie = response.cookies.get(TEST_USER_COOKIE_NAME);
+    expect(decodeTestModeIdentity(cookie?.value)).toEqual({
+      id: fixtures.portalUser.id,
+      email: fixtures.portalUser.email,
+    });
+  });
+
+  it("Staff-only identity + audience=portal: never routed to Portal — there is no Portal row to send them to", async () => {
+    // A second, genuinely Staff-only fixture (not fixtures.owner, which
+    // this describe block has deliberately made dual-identity above).
+    const generated = await generateRecoveryToken(fixtures.admin.email);
+    expect(generated.ok).toBe(true);
+    if (!generated.ok) return;
+
+    const response = await confirmGet(confirmRequest({ token_hash: generated.tokenHash, audience: "portal" }));
+    expect(response.headers.get("location")).toBe("http://localhost/reset-password");
+
+    const cookie = response.cookies.get(TEST_USER_COOKIE_NAME);
+    expect(decodeTestModeIdentity(cookie?.value)).toEqual({ id: fixtures.admin.id, email: fixtures.admin.email });
+  });
+
+  it("dual identity remains allowed end to end: the PortalUser row created for this describe block coexists with fixtures.owner's own Staff row throughout", async () => {
+    const [staffRow, portalRow] = await Promise.all([
+      prisma.user.findUnique({ where: { id: fixtures.owner.id } }),
+      prisma.portalUser.findUnique({ where: { id: fixtures.owner.id } }),
+    ]);
+    expect(staffRow).not.toBeNull();
+    expect(portalRow).not.toBeNull();
+    expect(portalRow?.clientId).toBe(dualIdentityClientId);
   });
 });
 

@@ -105,6 +105,19 @@ export default async function ClientInvitePage({
   const normalizedUserEmail = authUser?.email?.trim().toLowerCase() ?? null;
   const emailMatches = normalizedUserEmail !== null && normalizedUserEmail === normalizedInviteEmail;
 
+  // Dual-identity minimal hardening. Server-side only — never a
+  // client-supplied flag, and never anything beyond a boolean reaching
+  // the rendered page (no organizationId/userId/internal id of any kind
+  // is exposed). Only computed on the exact branch that can actually
+  // render the accept form below, so an already-Staff visitor sees a
+  // plain-language heads-up before accepting, without changing
+  // acceptClientInvitationAction's own behavior or the email-match check
+  // above it in any way.
+  const alreadyStaffAtThisEmail =
+    authUser && emailMatches
+      ? Boolean(await prisma.user.findUnique({ where: { id: authUser.id }, select: { id: true } }))
+      : false;
+
   return (
     <InviteCard title="You're invited">
       <div className="text-text-muted space-y-2 text-sm">
@@ -160,9 +173,18 @@ export default async function ClientInvitePage({
         )}
 
         {authUser && emailMatches && (
-          <AcceptClientInvitationForm
-            action={acceptClientInvitationAction.bind(null, token)}
-          />
+          <div className="space-y-3">
+            {alreadyStaffAtThisEmail && (
+              <div role="status" className="border-warning bg-warning-subtle text-warning rounded-md border p-3 text-sm">
+                Heads up — you&apos;re already signed in with a Staff account at this email.
+                Accepting this invitation will also give you Client Portal access for this
+                client. Your Staff account won&apos;t be changed.
+              </div>
+            )}
+            <AcceptClientInvitationForm
+              action={acceptClientInvitationAction.bind(null, token)}
+            />
+          </div>
         )}
       </div>
     </InviteCard>

@@ -181,8 +181,16 @@ export async function GET(request: Request) {
     return handlePortalSignupConfirm(tokenHash, url.searchParams.get("next"), url.origin);
   }
 
-  const audienceHint = url.searchParams.get("audience") === "portal" ? "portal" : "staff";
-  const fallback = DESTINATIONS[audienceHint];
+  // Sanitized to exactly three states — "portal", "staff", or `null`
+  // (absent, or any value other than the two literal strings this app
+  // ever sends itself) — never trusted beyond that. `null` genuinely
+  // means "no hint," distinct from an explicit "staff" value, so the
+  // dual-identity precedence logic below can tell "the sender didn't say"
+  // apart from "the sender said staff."
+  const rawAudience = url.searchParams.get("audience");
+  const audienceHint: "staff" | "portal" | null =
+    rawAudience === "portal" ? "portal" : rawAudience === "staff" ? "staff" : null;
+  const fallback = DESTINATIONS[audienceHint ?? "staff"];
 
   if (!tokenHash) {
     return NextResponse.redirect(new URL(`${fallback}?invalid=1`, url.origin));
@@ -198,7 +206,26 @@ export async function GET(request: Request) {
     prisma.portalUser.findFirst({ where: { email: verified.email }, select: { id: true } }),
   ]);
 
-  const isPortal = Boolean(portalUser) && !staffUser;
+  const hasStaff = Boolean(staffUser);
+  const hasPortal = Boolean(portalUser);
+
+  // Dual-identity minimal hardening. Previously: Staff unconditionally
+  // won whenever both a User and a PortalUser row existed for this email,
+  // regardless of which login page the reset actually started from — so
+  // a person resetting their password from /portal/login could land on
+  // the Staff reset page instead. Now: an explicit, verified-real hint
+  // wins first (never a surface the identity doesn't actually have —
+  // `&& hasPortal`/`&& hasStaff` below); only when the hint is absent, or
+  // doesn't match anything real, does this fall back to the original,
+  // unchanged default (Staff wins if both exist; otherwise whichever one
+  // actually exists).
+  const isPortal =
+    audienceHint === "portal" && hasPortal
+      ? true
+      : audienceHint === "staff" && hasStaff
+        ? false
+        : hasPortal && !hasStaff;
+
   const destination = isPortal ? DESTINATIONS.portal : DESTINATIONS.staff;
   const localId = isPortal ? portalUser?.id : staffUser?.id;
 
