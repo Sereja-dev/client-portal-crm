@@ -212,3 +212,21 @@ export const BILLING_WEBHOOK_LIMIT: RateLimitConfig = { scope: "billing-webhook"
 // one sitting, and in the same band as INVITE_MEMBER_LIMIT/
 // LOGO_UPLOAD_LIMIT/BILLING_CHECKOUT_LIMIT above.
 export const AI_ASSISTANT_LIMIT: RateLimitConfig = { scope: "ai-assistant", limit: 20, windowMs: HOUR_MS };
+
+// Post-Hardening Residual Code Audit (P1) — Task and Invoice creation had
+// no rate limit at all, unlike every other mutation-prone surface in this
+// file; a single authenticated session (any role) could otherwise script
+// unbounded row creation. Per authenticated staff user id, same shape as
+// every other per-user limiter above.
+//
+// Tasks are the highest-frequency legitimate create in this app (bulk
+// project setup can reasonably mean dozens of tasks in one sitting) —
+// 100/hour stays well above realistic interactive use while still being a
+// real ceiling, in the same generous band as SEARCH_LIMIT's own reasoning.
+export const TASK_CREATE_LIMIT: RateLimitConfig = { scope: "task-create", limit: 100, windowMs: HOUR_MS };
+
+// Invoices are created far less frequently per session than tasks even
+// during a busy billing run — 30/hour is in the same band as
+// ATTACHMENT_UPLOAD_LIMIT above, generous for a heavy invoicing session
+// while still bounding a scripted create loop.
+export const INVOICE_CREATE_LIMIT: RateLimitConfig = { scope: "invoice-create", limit: 30, windowMs: HOUR_MS };

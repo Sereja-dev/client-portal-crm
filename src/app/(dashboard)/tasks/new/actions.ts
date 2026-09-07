@@ -7,6 +7,7 @@ import { parseTaskForm, deriveCompletedAt } from "@/lib/validation/task";
 import { withToast } from "@/lib/toast-url";
 import { createActivity } from "@/lib/activity/create-activity";
 import { buildTaskMetadata } from "@/lib/activity/task-metadata";
+import { checkRateLimit, TASK_CREATE_LIMIT, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 import type { TaskFormState } from "@/types";
 
 export async function createTaskAction(
@@ -20,6 +21,15 @@ export async function createTaskAction(
   }
 
   const { user, organizationId } = await getCurrentUserOrganization();
+
+  // Keyed by the authenticated staff user id — never anything from
+  // formData — same "auth resolved first, rate limit checked immediately
+  // after" ordering every other per-user limiter in this app already
+  // uses (see e.g. createCommentForEntity).
+  const limitCheck = checkRateLimit(TASK_CREATE_LIMIT, user.id);
+  if (limitCheck.limited) {
+    return { error: RATE_LIMIT_MESSAGE };
+  }
 
   // The <select> only lists this org's projects, but the submitted value
   // is still client-controlled input — re-verify ownership server-side so a
