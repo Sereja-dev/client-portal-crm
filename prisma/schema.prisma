@@ -164,6 +164,15 @@ enum ActivityEntityType {
   // a comment has no such transition to name). A mention is a consequence
   // of a create/edit, never its own ActivityAction.
   COMMENT
+
+  // Leads / Sales Pipeline Phase 1 (schema foundation only). Additive enum
+  // value only — no code writes a LEAD Activity row yet. Confirmed safe:
+  // src/lib/activity/format-activity.ts's own entityType dispatch is a
+  // plain if-chain ending in a defined FALLBACK model (never a switch with
+  // no default/an exhaustive `never` check), so an unhandled entityType
+  // already renders a neutral "Activity recorded" line today, for any
+  // enum value — this one included — rather than throwing.
+  LEAD
 }
 
 enum ActivityAction {
@@ -186,6 +195,22 @@ enum ActivityAction {
   PORTAL_INVITATION_CANCELED
   PORTAL_INVITATION_ACCEPTED
   PORTAL_USER_REMOVED
+
+  // Leads / Sales Pipeline Phase 1 (schema foundation only). Additive enum
+  // value only — no code writes a CONVERTED Activity row yet (Lead ->
+  // Client conversion itself is a later phase). A genuine, nameable
+  // transition in its own right (a Lead becoming a Client), the same
+  // reasoning STATUS_CHANGED/ROLE_CHANGED already got their own distinct
+  // action for — never reused as a generic STATUS_CHANGED, since
+  // "conversion" creates a new entity and links it, which a plain stage
+  // change does not. Confirmed safe against every existing ActivityAction
+  // consumer: format-activity.ts's own action dispatch always falls
+  // through to a defined FALLBACK for any unhandled value (no switch
+  // lacks a default/exhaustiveness check), and notification-rules.ts's
+  // RULES map is a Partial<Record<...>> — an action with no rule simply
+  // produces no notification, exactly as intended until a later phase
+  // deliberately adds one.
+  CONVERTED
 }
 
 enum AttachmentEntityType {
@@ -333,6 +358,10 @@ model User {
   assignedTasks Task[]    @relation("TaskAssignee")
   clients       Client[]  @relation("ClientOwner")
 
+  // Leads / Sales Pipeline Phase 1 — same "assignee" role/naming
+  // convention as assignedTasks/TaskAssignee above, applied to Lead.
+  assignedLeads Lead[] @relation("LeadAssignee")
+
   memberships             Membership[]
   sentInvitations         Invitation[]             @relation("InvitationInvitedBy")
   sentClientInvitations   ClientInvitation[]       @relation("ClientInvitationInvitedBy")
@@ -369,6 +398,12 @@ model Organization {
   invoices    Invoice[]
   attachments Attachment[]
   comments    Comment[]
+
+  // Leads / Sales Pipeline Phase 1 (schema foundation only — see Lead's own
+  // doc comment for the full story). organizationId is required here (not
+  // the legacy nullable pattern Client/Project/Task carry), so this is a
+  // plain, unnamed relation exactly like their own organization relation.
+  leads Lead[]
 
   // Invoice System Slice 3, sub-PR 3b — see InvoicePdfArchiveObject's own
   // doc comment.
@@ -682,6 +717,12 @@ model Client {
   // (see PortalUser/ClientInvitation below), scoped to exactly this Client.
   portalUsers       PortalUser[]
   clientInvitations ClientInvitation[]
+
+  // Leads / Sales Pipeline Phase 1 (schema foundation only). At most one
+  // Lead ever converts into a given Client — enforced by Lead.
+  // convertedClientId's own @unique, which is what makes this back-relation
+  // a single optional object rather than an array.
+  convertedFromLead Lead? @relation("LeadConvertedClient")
 
   // Invoice System Slice 1 (docs/invoicing-architecture.md §4.4) — optional
   // billing identity used by a future invoice PDF's "Bill To" block. All
@@ -1686,4 +1727,105 @@ model OrganizationOnboardingStep {
   // never queried any other way (no cross-org listing, no per-step
   // reporting across organizations exists in this design).
   @@index([organizationId])
+}
+
+// Leads / Sales Pipeline, Phase 1 (schema foundation only — see the
+// architecture audit and Lead's own doc comment below). Fixed, hardcoded
+// for MVP (Option C from the audit: DB-backed custom stages are a real
+// future feature, not built yet — see src/lib/leads/stages.ts for the one
+// canonical ordered definition every consumer must use instead of
+// scattering these names directly).
+enum LeadStage {
+  NEW
+  CONTACTED
+  QUALIFIED
+  PROPOSAL
+  WON
+  LOST
+}
+
+// Leads / Sales Pipeline, Phase 1. Deliberately small — never a marketing-
+// attribution taxonomy. Five buckets covering the two fundamental
+// directions a freelancer/agency lead arrives by (OUTREACH = we initiated
+// contact; everything else = they did, or a third party did), plus the two
+// specific channels common enough to be worth their own bucket on their
+// own (word of mouth, and a business's own website), plus a broad SOCIAL
+// catch-all and an OTHER escape valve. Optional on Lead — never forced at
+// quick-add time.
+enum LeadSource {
+  REFERRAL
+  WEBSITE
+  SOCIAL
+  OUTREACH
+  OTHER
+}
+
+// Leads / Sales Pipeline, Phase 1 (schema foundation only — see the
+// approved Leads / Sales Pipeline architecture audit). No server action,
+// UI, navigation, or conversion logic exists yet; this migration is purely
+// additive schema so later phases (actions, list/edit UI, Kanban,
+// conversion) can each ship as their own small, independently-reviewable
+// slice without a schema change blocking them.
+//
+// Deliberately a SEPARATE model from Client, not a reinterpretation of
+// Client's own existing `status: ClientStatus.LEAD` value. That value is
+// legacy/current behavior — it is untouched by this migration, no existing
+// Client row is read, migrated, or reinterpreted, and no automatic
+// synchronization exists (or is planned) between Client.status and this
+// model's own `stage`. Whether/how to reconcile the two is a deliberate,
+// separate, later product decision, not an accidental side effect of
+// shipping this foundation.
+model Lead {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name    String
+  company String?
+  email   String?
+  phone   String?
+
+  source LeadSource?
+  stage  LeadStage   @default(NEW)
+
+  // Same Decimal precision/type convention as Project.budget — a rough
+  // estimated deal value, never a real charge (Invoice is the only model
+  // that actually bills anything).
+  value Decimal? @db.Decimal(10, 2)
+
+  notes String?
+
+  assignedToUserId String? @db.Uuid
+  assignedTo       User?   @relation("LeadAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+
+  // Conversion (Lead -> Client) is NOT implemented in this phase — these
+  // three fields exist now purely so a later phase never needs a schema
+  // change to add them retroactively onto rows that may already exist by
+  // then (and so a future Quote can eventually reference a Lead before
+  // conversion or a Client after it, per the architecture audit's §N). At
+  // most one Lead ever converts into a given Client (@unique); SetNull
+  // (not Cascade/Restrict) so a Client's own later deletion never cascades
+  // back to silently delete this Lead's own history.
+  convertedClientId String?   @unique @db.Uuid
+  convertedClient   Client?   @relation("LeadConvertedClient", fields: [convertedClientId], references: [id], onDelete: SetNull)
+  convertedAt       DateTime?
+
+  lostReason String?
+
+  // Soft-archive only — no hard-delete action is planned for Leads (see
+  // the architecture audit's §H). Null = active.
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([organizationId, stage])
+  @@index([organizationId, assignedToUserId])
+  // No separate @@index([convertedClientId]) — @unique above already
+  // creates that exact index (a unique constraint is backed by a unique
+  // B-tree index in Postgres); an additional plain index on the same
+  // single column would be a pure duplicate.
+  @@index([createdAt])
 }
