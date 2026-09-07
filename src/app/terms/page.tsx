@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { siteConfig } from "@/config/site";
 import { getPlatformLegalConfig } from "@/lib/legal/platform-config";
+import { LegalBackButton } from "@/components/legal/legal-back-button";
 
 export const metadata: Metadata = {
   title: `Terms of Service — ${siteConfig.name}`,
@@ -12,12 +13,7 @@ export default function TermsOfServicePage() {
 
   return (
     <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
-      <Link
-        href="/"
-        className="rounded text-sm text-text-muted hover:text-text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-      >
-        ← Back
-      </Link>
+      <LegalBackButton />
 
       <h1 className="mt-4 text-3xl font-semibold tracking-tight text-text-primary">Terms of Service</h1>
       <p className="mt-2 text-sm text-text-muted">Effective {config.tosEffectiveDate}</p>
