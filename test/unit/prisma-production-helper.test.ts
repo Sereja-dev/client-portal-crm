@@ -4,15 +4,26 @@ import {
   resolvePrismaArgs,
   runProductionPrismaCommand,
   SUPPORTED_COMMANDS,
+  PRODUCTION_ENV_FILENAME,
 } from "../../scripts/prisma-production.mjs";
 
 /**
- * Pre-Launch Audit F2 (Prisma CLI env-loading ambiguity) hardening —
- * covers scripts/prisma-production.mjs entirely through dependency
- * injection. No real .env.production.local, no real database, and no
- * real child process is ever touched here — every fixture below is a
- * synthetic sentinel value, never a real credential shape.
+ * Pre-Launch Audit F2 (Prisma CLI env-loading ambiguity) hardening,
+ * extended by Database Environment Safety Phase 2 — covers
+ * scripts/prisma-production.mjs entirely through dependency injection. No
+ * real .env.production.db.local, no real database, and no real child
+ * process is ever touched here — every fixture below is a synthetic
+ * sentinel value, never a real credential shape. Every test below passes
+ * its own explicit `envFilePath` (never relying on the real default), so
+ * only the one dedicated test right below actually asserts what that
+ * default filename is.
  */
+
+describe("PRODUCTION_ENV_FILENAME", () => {
+  it("is .env.production.db.local, never .env.production.local — that filename is one of Next.js's own reserved, auto-loaded env-file names (see this script's own header comment, part 2)", () => {
+    expect(PRODUCTION_ENV_FILENAME).toBe(".env.production.db.local");
+  });
+});
 
 const SENTINEL_DATABASE_URL = "postgres://sentinel-db-value";
 const SENTINEL_DIRECT_URL = "postgres://sentinel-direct-value";

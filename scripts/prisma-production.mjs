@@ -1,23 +1,37 @@
 #!/usr/bin/env node
-// Pre-Launch Audit F2 (Prisma CLI env-loading ambiguity) — the one safe,
-// explicit path for running Prisma migration commands against Production.
+// Pre-Launch Audit F2 (Prisma CLI env-loading ambiguity), extended by
+// Database Environment Safety Phase 2 — the one safe, explicit path for
+// running Prisma migration commands against Production.
 //
-// The problem this exists to close: `prisma.config.ts` imports bare
-// "dotenv/config", which only ever auto-loads a plain `.env` file — never
-// `.env.production.local` (the canonical local file holding real
-// Production `DATABASE_URL`/`DIRECT_URL`, per docs/operator-setup.md's own
-// security note). A plain `npx prisma migrate status`/`deploy` therefore
-// silently reads whatever stale DATABASE_URL/DIRECT_URL happens to be in
-// `.env`/`.env.local`/the inherited shell environment instead — exactly
-// what caused real operator confusion during the Production database
-// password-rotation incident this hardening follows.
+// Two separate problems this closes:
 //
-// This script is the fix: it refuses to run at all unless
-// `.env.production.local` genuinely exists and defines both required
+// 1. `prisma.config.ts` imports bare "dotenv/config", which only ever
+//    auto-loads a plain `.env` file — never any of the files below. A
+//    plain `npx prisma migrate status`/`deploy` therefore silently reads
+//    whatever stale DATABASE_URL/DIRECT_URL happens to be in `.env`/
+//    `.env.local`/the inherited shell environment instead — what caused
+//    real operator confusion during the Production database
+//    password-rotation incident this hardening originally followed.
+//
+// 2. Phase 2: `.env.production.local` (this script's original choice)
+//    turned out to be unsafe for a second, independent reason — it's one
+//    of Next.js's own reserved env-file names, auto-loaded during any
+//    LOCAL "production mode" run (`npm run build`, `next build`,
+//    `next start`). Keeping real Production credentials there meant an
+//    ordinary local build silently received them too, defeating the
+//    isolation this script exists to guarantee. Production credentials
+//    now live in `.env.production.db.local` instead — a filename that
+//    does not match any of Next.js's exact reserved patterns
+//    (`.env`, `.env.local`, `.env.$(NODE_ENV)`, `.env.$(NODE_ENV).local`),
+//    so Next.js never auto-loads it under any NODE_ENV.
+//
+// This script is the fix for both: it refuses to run at all unless
+// `.env.production.db.local` genuinely exists and defines both required
 // variables, and it always spawns the repository-local Prisma CLI with an
 // explicitly constructed environment where the production file's values
-// win over anything already set — so a stale inherited value can never
-// silently take over.
+// win over anything already set (never `.env`, never `.env.local`, never
+// the old `.env.production.local`, never an inherited shell value) — so a
+// stale or accidentally-set value can never silently take over.
 //
 // Deliberately narrow: only "status" and "deploy" are accepted (mapped to
 // `prisma migrate status`/`prisma migrate deploy`) — this is not a
@@ -32,7 +46,11 @@ import dotenv from "dotenv";
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 
 export const REPO_ROOT = join(SCRIPT_DIR, "..");
-export const PRODUCTION_ENV_FILENAME = ".env.production.local";
+// Deliberately NOT `.env.production.local` — see this file's own header
+// comment, part 2. `.env.production.db.local` matches none of Next.js's
+// reserved env-file patterns, so it is never auto-loaded by
+// `npm run dev`/`npm run build`/`next start` — only by this script.
+export const PRODUCTION_ENV_FILENAME = ".env.production.db.local";
 export const REQUIRED_VARS = ["DATABASE_URL", "DIRECT_URL"];
 
 /** The only two operations this helper will ever run — never a passthrough. */

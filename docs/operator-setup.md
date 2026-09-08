@@ -216,9 +216,27 @@ already has.
 
 ### Security note — handling production database credentials
 
+**Environment files, in one table** (Database Environment Safety,
+Phases 1-2):
+
+| File | Holds | Notes |
+|---|---|---|
+| `.env` | Local/dev only | Never a Production `DATABASE_URL`/`DIRECT_URL`/`SUPABASE_SERVICE_ROLE_KEY` — not even temporarily. Auto-loaded by the Prisma CLI (`dotenv/config`) and, as the lowest-priority fallback, by Next.js. |
+| `.env.local` | Local/dev only | Same rule as `.env`. Beware: `vercel env pull`/`vercel dev` write real values for whichever environment is linked (Production, for this project) straight into this file, and for `next dev`/`next build`, Next.js's own precedence puts it **above** plain `.env` — re-comment `DATABASE_URL`/`DIRECT_URL`/`SUPABASE_SERVICE_ROLE_KEY` here after every `vercel env pull`. |
+| `.env.production.local` | Nothing sensitive | **Do NOT use this for Production database secrets.** Despite the name, this is one of Next.js's own reserved env-file names — auto-loaded locally during any "production mode" run (`npm run build`, `next build`, `next start`), so anything real here leaks into an ordinary local build. |
+| `.env.production.db.local` | Production `DATABASE_URL`/`DIRECT_URL` ONLY | The one real Production DB credential file. Matches none of Next.js's reserved patterns, so it is **never** auto-loaded by `next dev`/`next build`/`next start` — read only by `scripts/prisma-production.mjs` (`npm run prisma:prod:status` / `npm run prisma:prod:deploy`). |
+| Vercel Project Settings → Environment Variables | Production app/runtime secrets | What the real deployed app actually uses — entirely independent of every local file above (Vercel builds from a fresh git checkout; no local `.env*` file is ever uploaded or read). |
+
+All of the above are gitignored (`.env*`, except `.env.example`/
+`.env.test.example`) — never commit one. Production **schema**
+operations go through exactly two commands, never a bare
+`npx prisma migrate ...`: `npm run prisma:prod:status` (read-only) and
+`npm run prisma:prod:deploy` (mutating — apply only with explicit
+authorization).
+
 Operating against the production database (checking migration status,
-running the backfill script) requires `DATABASE_URL`/`DIRECT_URL`
-locally, per the [README's own Environment variables table](../README.md#environment-variables)
+running the backfill script) requires `DATABASE_URL`/`DIRECT_URL` in
+`.env.production.db.local`, per the [README's own Environment variables table](../README.md#environment-variables)
 (Supabase → Project Settings → Database → Connection string). A few
 rules, reinforced by an actual incident during Sale-Ready Phase E, E1:
 
@@ -226,30 +244,27 @@ rules, reinforced by an actual incident during Sale-Ready Phase E, E1:
   into a chat/AI session — not even partially. If one is exposed this
   way regardless, treat it as compromised and rotate it immediately, the
   same as if it had been committed to git.
-- A local file holding real production credentials (e.g.
-  `.env.production.local`) stays gitignored (`.env*` is ignored except
-  `.env.example`/`.env.test.example`) and should be deleted once the
-  task that needed it is done.
+- A local file holding real production credentials (`.env.production.db.local`)
+  stays gitignored and should be deleted once the task that needed it is
+  done.
 - After rotating the database password in Supabase, **both** Vercel's
   stored `DATABASE_URL`/`DIRECT_URL` (Project Settings → Environment
-  Variables) **and** any local `.env*` file must be updated to match —
-  and production must be redeployed afterward, since a running
+  Variables) **and** `.env.production.db.local` must be updated to
+  match — and production must be redeployed afterward, since a running
   deployment does not pick up an env var change without a new build.
   Until both are done, production will fail every database query with
   Prisma error `P1000` ("Authentication failed against the database
   server").
 - **Never run a plain `npx prisma migrate status`/`migrate deploy` against
-  production.** A follow-up hardening after the incident above found the
-  actual root cause of that confusion: `prisma.config.ts` only auto-loads
-  a bare `.env`, never `.env.production.local` — so a plain invocation can
-  silently read stale, pre-rotation credentials instead of failing
-  loudly. `.env.production.local` is the one canonical local file for
-  real production credentials; always go through
-  `npm run prisma:prod:status` (read-only) or `npm run prisma:prod:deploy`
-  (mutating — apply only with explicit authorization) instead
-  (`scripts/prisma-production.mjs`) — both refuse to run at all if
-  `.env.production.local` is missing or incomplete, and never fall back
-  to any other `.env` file.
+  production.** The original incident's root cause: `prisma.config.ts`
+  only auto-loads a bare `.env` — so a plain invocation can silently read
+  stale, pre-rotation credentials instead of failing loudly.
+  `.env.production.db.local` is the one canonical local file for real
+  production credentials; always go through `npm run prisma:prod:status`
+  (read-only) or `npm run prisma:prod:deploy` (mutating — apply only with
+  explicit authorization) instead (`scripts/prisma-production.mjs`) —
+  both refuse to run at all if `.env.production.db.local` is missing or
+  incomplete, and never fall back to any other `.env` file.
 
 ### Automated Production migration-status safeguard
 
