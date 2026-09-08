@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { computeMatchTier, sortRanked } from "./ranking";
 import { buildInvoiceResultUrl } from "./result-links";
 import { escapeLikePattern } from "./normalize-query";
+import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 import type { SearchResult } from "./types";
 
 /**
@@ -49,8 +50,15 @@ export async function searchInvoices(params: {
     orderBy: { createdAt: "desc" },
   });
 
+  // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow
+  // (see src/lib/invoices/require-invoice-project.ts's own header
+  // comment). Invoice.project is nullable at the schema level now, but
+  // the scoped query above already requires `project: { organizationId:
+  // params.organizationId }`, so every row here always has one.
+  const narrowedRows = rows.map((row) => ({ ...row, project: requireInvoiceProject(row.project, "searchInvoices") }));
+
   const ranked = sortRanked(
-    rows.map((row) => ({
+    narrowedRows.map((row) => ({
       id: row.id,
       recencyKey: row.createdAt.toISOString(),
       tier: computeMatchTier({

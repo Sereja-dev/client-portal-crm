@@ -865,15 +865,28 @@ model Invoice {
   clientId String @db.Uuid
   client   Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
 
-  projectId String  @db.Uuid
-  project   Project @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  // Quotes / Estimates Phase 2.2 (schema-only expansion — see the Invoice
+  // / Project Coupling Audit). Nullable now purely so the column itself
+  // can accept a future project-less Invoice; every CURRENT write path
+  // (createInvoiceAction/updateInvoiceAction/duplicate) still always
+  // supplies a real, verified projectId, so no code path can produce a
+  // null value yet. Still Restrict, deliberately NOT SetNull yet — a
+  // Project with any existing Invoice remains fully protected from
+  // deletion exactly as it is today; loosening that is Phase 2.4's own
+  // separate, later decision, only once every project-less-aware read
+  // path has shipped (Phase 2.3). Do not change this to SetNull as part
+  // of any change that doesn't also complete that full sweep.
+  projectId String?  @db.Uuid
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
 
-  // Required, kept consistent with project.organizationId by every write
-  // path (never trusted from client input) — Restrict, not SetNull, since
-  // an Invoice's Project/Client can never be deleted out from under it
-  // either, and Organizations are never hard-deleted anywhere in this app.
-  // Migration 20260911090000_repair_invoice_organization_scope backfilled
-  // this column from Project.organizationId for every pre-existing row.
+  // Required, independent of projectId (never derived from
+  // project.organizationId at read time, kept consistent with it by every
+  // write path instead — never trusted from client input) — Restrict, not
+  // SetNull, since an Invoice's Client can never be deleted out from under
+  // it either, and Organizations are never hard-deleted anywhere in this
+  // app. Migration 20260911090000_repair_invoice_organization_scope
+  // backfilled this column from Project.organizationId for every
+  // pre-existing row, back when projectId itself was still required.
   organizationId String       @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 

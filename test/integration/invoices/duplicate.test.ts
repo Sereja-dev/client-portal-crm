@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createInvoiceAction } from "@/app/(dashboard)/invoices/new/actions";
 import { getDuplicateSourceInvoice } from "@/lib/invoices/duplicate-source";
 import { buildDuplicateInvoiceDefaults, type DuplicateInvoiceDefaults, type DuplicateSourceData } from "@/lib/invoices/duplicate";
+import { requireInvoiceProjectId } from "@/lib/invoices/require-invoice-project";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { actAs, resetAuthMock } from "../../support/auth-mock";
 import { RedirectSignal } from "../../support/navigation-mock";
@@ -116,7 +117,7 @@ async function seedInvoice(fixtures: TestFixtures, overrides: SeedInvoiceOverrid
 
 function toSourceData(source: {
   invoiceNumber: string;
-  projectId: string;
+  projectId: string | null;
   amount: unknown;
   currency: string;
   notes: string | null;
@@ -128,7 +129,11 @@ function toSourceData(source: {
 }): DuplicateSourceData {
   return {
     invoiceNumber: source.invoiceNumber,
-    projectId: source.projectId,
+    // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow
+    // (see src/lib/invoices/require-invoice-project.ts's own header
+    // comment). seedInvoice() above always supplies a real projectId
+    // (never null), so every source row passed here always has one.
+    projectId: requireInvoiceProjectId(source.projectId, "duplicate.test.ts toSourceData"),
     amount: String(source.amount),
     currency: source.currency.trim().toUpperCase(),
     notes: source.notes,

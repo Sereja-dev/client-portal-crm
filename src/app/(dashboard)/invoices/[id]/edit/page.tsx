@@ -12,6 +12,7 @@ import { formatDateOnly } from "@/lib/invoices/date-only";
 import { canAccessPaymentDetails } from "@/lib/organization-setup/authorization";
 import { getInvoiceIssuanceReadiness } from "@/lib/organization-setup/invoice-readiness";
 import { classifyInvoiceArchival } from "@/lib/invoices/pdf/classify-archival";
+import { requireInvoiceProject, requireInvoiceProjectId } from "@/lib/invoices/require-invoice-project";
 import { updateInvoiceAction } from "./actions";
 import { InvoiceAttachmentsSection } from "./attachments-section";
 import { loadInvoiceEmailAttempts } from "@/lib/invoices/email/attempt-history";
@@ -48,6 +49,12 @@ export default async function EditInvoicePage({
   }
 
   const isDraft = invoice.status === "DRAFT";
+  // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow
+  // (see src/lib/invoices/require-invoice-project.ts's own header
+  // comment). The scoped read above already requires `project: {
+  // organizationId }`, so `invoice.project` always has one; only the
+  // non-draft (read-only) branch below actually uses this.
+  const readOnlyProject = requireInvoiceProject(invoice.project, "invoice edit page read-only view");
   // Invoice System Official Slice 3 — the one place this page ever
   // touches archival state. `include` above already retains every
   // Invoice scalar column (finalizedAt/pdfStoragePath/pdfGeneratedAt/
@@ -116,7 +123,12 @@ export default async function EditInvoicePage({
             currencyOptions={getSupportedInvoiceCurrencies()}
             defaultValues={{
               invoiceNumber: invoice.invoiceNumber,
-              projectId: invoice.projectId,
+              // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
+              // narrow (see src/lib/invoices/require-invoice-project.ts's
+              // own header comment). The scoped read above already
+              // requires `project: { organizationId }`, so
+              // `invoice.projectId` always has a value.
+              projectId: requireInvoiceProjectId(invoice.projectId, "invoice edit page draft defaultValues"),
               mode: invoice.lineItems.length > 0 ? "itemized" : "flat",
               amount: invoice.amount.toString(),
               lineItems: invoice.lineItems.map((li) => ({
@@ -142,8 +154,8 @@ export default async function EditInvoicePage({
             invoiceId={invoice.id}
             invoiceNumber={invoice.invoiceNumber}
             status={invoice.status}
-            projectName={invoice.project.name}
-            clientName={invoice.project.client.name}
+            projectName={readOnlyProject.name}
+            clientName={readOnlyProject.client.name}
             currency={invoice.currency}
             issueDate={invoice.issueDate}
             dueDate={invoice.dueDate}

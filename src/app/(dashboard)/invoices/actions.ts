@@ -6,6 +6,7 @@ import { getCurrentUserOrganization } from "@/lib/current-user";
 import { createActivity } from "@/lib/activity/create-activity";
 import { buildInvoiceSnapshotMetadata } from "@/lib/activity/invoice-metadata";
 import { deleteAttachmentsForParent, cleanupAttachmentStorageObjects } from "@/lib/attachments/attachment-mutations";
+import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 
 export type DeleteInvoiceResult =
   | { ok: true }
@@ -50,7 +51,17 @@ export async function deleteInvoiceAction(invoiceId: string): Promise<DeleteInvo
       entityType: "INVOICE",
       entityId: invoiceId,
       action: "DELETED",
-      metadata: buildInvoiceSnapshotMetadata(existing, existing._count.lineItems, existing.project.name, user.name),
+      // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
+      // narrow (see src/lib/invoices/require-invoice-project.ts's own
+      // header comment). The scoped read above already requires
+      // `project: { organizationId }`, so `existing.project` always has
+      // one.
+      metadata: buildInvoiceSnapshotMetadata(
+        existing,
+        existing._count.lineItems,
+        requireInvoiceProject(existing.project, "deleteInvoiceAction").name,
+        user.name,
+      ),
     });
 
     const { storagePaths } = await deleteAttachmentsForParent(tx, {

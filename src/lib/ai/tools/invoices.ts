@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { INVOICE_STATUSES } from "@/lib/validation/invoice";
 import { escapeLikePattern } from "@/lib/search/normalize-query";
+import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 import { isPlainObject, hasOnlyAllowedKeys, isValidOptionalQuery, isValidOptionalEnum } from "./validation";
 import { assertExactKeysList } from "./output-projection";
 import { toolError, toolOk, type AiToolResult } from "./result";
@@ -113,17 +114,24 @@ export async function executeSearchInvoices(organizationId: string, rawInput: un
     });
 
     const results = assertExactKeysList(
-      rows.map(
-        (row): InvoiceSearchItem => ({
+      rows.map((row): InvoiceSearchItem => {
+        // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
+        // narrow (see src/lib/invoices/require-invoice-project.ts's own
+        // header comment). The scoped query above already requires
+        // `project: { organizationId }`, so every row here always has
+        // one; a throw here is caught by this function's own try/catch
+        // below and mapped to the same generic "unavailable" result.
+        const project = requireInvoiceProject(row.project, "ai/tools/invoices.searchInvoices");
+        return {
           invoiceNumber: row.invoiceNumber,
           status: row.status,
           amount: Number(row.amount),
           currency: row.currency,
           dueDate: row.dueDate ? row.dueDate.toISOString() : null,
-          clientName: row.project.client.name,
-          projectName: row.project.name,
-        }),
-      ),
+          clientName: project.client.name,
+          projectName: project.name,
+        };
+      }),
       SEARCH_ITEM_KEYS,
       TOOL_NAME,
     ) as InvoiceSearchItem[];

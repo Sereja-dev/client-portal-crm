@@ -5,6 +5,7 @@ import { formatCurrency } from "@/lib/format";
 import { formatInvoiceStatusLabel } from "@/lib/invoices/status-label";
 import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
 import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib/list-params";
+import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { deleteInvoiceAction } from "./actions";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -62,7 +63,7 @@ export default async function InvoicesPage({
   const where = buildInvoiceWhere(organizationId, listParams);
   const orderBy = buildInvoiceOrderBy(listParams);
 
-  const [projectCount, [invoices, total]] = await Promise.all([
+  const [projectCount, [rawInvoices, total]] = await Promise.all([
     prisma.project.count({ where: { organizationId } }),
     prisma.$transaction([
       prisma.invoice.findMany({
@@ -77,6 +78,16 @@ export default async function InvoicesPage({
       prisma.invoice.count({ where }),
     ]),
   ]);
+
+  // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow
+  // (see src/lib/invoices/require-invoice-project.ts's own header
+  // comment). buildInvoiceWhere's own `where` already requires
+  // `project: { organizationId }`, so every fetched row here always has
+  // one.
+  const invoices = rawInvoices.map((invoice) => ({
+    ...invoice,
+    project: requireInvoiceProject(invoice.project, "invoices list page"),
+  }));
 
   const totalPages = getTotalPages(total);
   const hasActiveParams = Boolean(listParams.q || listParams.status);

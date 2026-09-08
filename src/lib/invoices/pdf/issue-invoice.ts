@@ -9,6 +9,7 @@ import { createActivity } from "@/lib/activity/create-activity";
 import { buildInvoiceStatusChangedMetadata } from "@/lib/activity/invoice-metadata";
 import { deliverNotificationEmails } from "@/lib/notifications/email/deliver-notification-email";
 import { calculateInvoiceTotals, type InvoiceCalculationInput } from "@/lib/invoices/calculations";
+import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 import type { IssueInvoiceInput, IssueInvoiceResult, IssueInvoiceErrorCode } from "@/lib/invoices/lifecycle";
 import {
   buildIssuerSnapshotV1,
@@ -502,9 +503,14 @@ export async function issueInvoice(
         entityType: "INVOICE",
         entityId: invoice.id,
         action: "STATUS_CHANGED",
+        // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
+        // narrow (see src/lib/invoices/require-invoice-project.ts's own
+        // header comment). The scoped read at the top of this function
+        // already requires `project: { organizationId }`, so
+        // `draftInvoice.project` always has one.
         metadata: buildInvoiceStatusChangedMetadata(
           { invoiceNumber: invoice.invoiceNumber },
-          invoice.project.name,
+          requireInvoiceProject(draftInvoice.project, "issueInvoice").name,
           "DRAFT",
           "SENT",
           actor.userName,

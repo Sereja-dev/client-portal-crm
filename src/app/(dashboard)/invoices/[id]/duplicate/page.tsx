@@ -8,6 +8,7 @@ import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { getDuplicateSourceInvoice } from "@/lib/invoices/duplicate-source";
 import { buildDuplicateInvoiceDefaults, type DuplicateSourceData } from "@/lib/invoices/duplicate";
 import { isSupportedInvoiceCurrency, getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
+import { requireInvoiceProjectId } from "@/lib/invoices/require-invoice-project";
 import { createInvoiceAction } from "../../new/actions";
 
 /**
@@ -91,7 +92,12 @@ export default async function DuplicateInvoicePage({
 
   const sourceData: DuplicateSourceData = {
     invoiceNumber: source.invoiceNumber,
-    projectId: source.projectId,
+    // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow
+    // (see src/lib/invoices/require-invoice-project.ts's own header
+    // comment). getDuplicateSourceInvoice's own scoped query already
+    // requires `project: { organizationId }`, so `source.projectId`
+    // always has a value.
+    projectId: requireInvoiceProjectId(source.projectId, "duplicate invoice page"),
     amount: source.amount.toString(),
     currency: normalizedCurrency,
     notes: source.notes,

@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { createActivity } from "@/lib/activity/create-activity";
 import { buildInvoiceUpdatedMetadata } from "@/lib/activity/invoice-metadata";
+import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 import { INVOICE_NOTES_MAX_LENGTH } from "@/lib/validation/invoice";
 
 export type UpdateInvoiceInternalNotesResult =
@@ -58,7 +59,17 @@ export async function updateInvoiceInternalNotesAction(
       // changedFields: ["internalNotes"] only — the value itself never
       // enters metadata, and this event never notifies anyone (INVOICE/
       // UPDATED has no entry in notification-rules.ts's RULES table).
-      metadata: buildInvoiceUpdatedMetadata(existing.invoiceNumber, ["internalNotes"], existing.project.name, user.name),
+      // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
+      // narrow (see src/lib/invoices/require-invoice-project.ts's own
+      // header comment). The scoped read above already requires
+      // `project: { organizationId }`, so `existing.project` always has
+      // one.
+      metadata: buildInvoiceUpdatedMetadata(
+        existing.invoiceNumber,
+        ["internalNotes"],
+        requireInvoiceProject(existing.project, "updateInvoiceInternalNotesAction").name,
+        user.name,
+      ),
     });
 
     return { status: "updated" as const };

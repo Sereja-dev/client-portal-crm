@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { ProjectStatus, InvoiceStatus } from "@/generated/prisma/enums";
 import { classifyInvoiceArchival } from "@/lib/invoices/pdf/classify-archival";
+import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 
 // Same definition the staff Dashboard KPI already uses for "active
 // projects" (src/app/(dashboard)/dashboard/query.ts) — kept identical so
@@ -183,7 +184,13 @@ export async function getPortalOverview(
     openInvoicesCount: openInvoicesAgg._count._all,
     outstandingAmount: Number(openInvoicesAgg._sum.amount ?? 0),
     recentProjects,
-    recentInvoices: recentInvoices.map(toInvoiceSummary),
+    // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow
+    // (see src/lib/invoices/require-invoice-project.ts's own header
+    // comment). No code path can produce a null Project on an existing
+    // Invoice yet.
+    recentInvoices: recentInvoices
+      .map((invoice) => ({ ...invoice, project: requireInvoiceProject(invoice.project, "getPortalOverview recentInvoices") }))
+      .map(toInvoiceSummary),
   };
 }
 
@@ -260,7 +267,13 @@ export async function getPortalInvoices(
     select: INVOICE_SUMMARY_SELECT,
   });
 
-  return invoices.map(toInvoiceSummary);
+  // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow
+  // (see src/lib/invoices/require-invoice-project.ts's own header
+  // comment). The query above already requires `project: { clientId }`,
+  // so every row here always has one.
+  return invoices
+    .map((invoice) => ({ ...invoice, project: requireInvoiceProject(invoice.project, "getPortalInvoices") }))
+    .map(toInvoiceSummary);
 }
 
 /**
@@ -301,11 +314,17 @@ export async function getPortalInvoice(
 
   if (!invoice) return null;
 
+  // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow
+  // (see src/lib/invoices/require-invoice-project.ts's own header
+  // comment). The query above already requires `project: { clientId }`,
+  // so `invoice.project` always has one.
+  const project = requireInvoiceProject(invoice.project, "getPortalInvoice");
+
   return {
-    ...toInvoiceSummary(invoice),
+    ...toInvoiceSummary({ ...invoice, project }),
     paidAt: invoice.paidAt,
     clientName: invoice.client.name,
-    projectOrganizationId: invoice.project.organizationId,
+    projectOrganizationId: project.organizationId,
     hasArchivedPdf: classifyInvoiceArchival(invoice).kind === "archived",
   };
 }

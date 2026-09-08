@@ -10,6 +10,7 @@ import { createActivity } from "@/lib/activity/create-activity";
 import { diffInvoiceFields, buildInvoiceUpdatedMetadata, type InvoiceTrackedSnapshot } from "@/lib/activity/invoice-metadata";
 import { calculateInvoiceTotals } from "@/lib/invoices/calculations";
 import { mapInvoiceWriteError } from "@/lib/invoices/write-conflict-mapper";
+import { requireInvoiceProjectId } from "@/lib/invoices/require-invoice-project";
 import type { InvoiceFormState } from "@/types";
 
 function isCanonicalIso(raw: string): boolean {
@@ -96,7 +97,12 @@ export async function updateInvoiceAction(
 
       const beforeSnapshot: InvoiceTrackedSnapshot = {
         invoiceNumber: existing.invoiceNumber,
-        projectId: existing.projectId,
+        // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
+        // narrow (see src/lib/invoices/require-invoice-project.ts's own
+        // header comment). The scoped read above already requires
+        // `project: { organizationId }`, so `existing.projectId` always
+        // has a value.
+        projectId: requireInvoiceProjectId(existing.projectId, "updateInvoiceAction beforeSnapshot"),
         amount: existing.amount,
         currency: existing.currency,
         issueDate: existing.issueDate,

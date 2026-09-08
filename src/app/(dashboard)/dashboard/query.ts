@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { formatActivity, type ActivityDisplayModel } from "@/lib/activity/format-activity";
+import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 import { InvoiceStatus, TaskStatus, ProjectStatus } from "@/generated/prisma/enums";
 import type { DashboardPeriod } from "@/lib/dashboard/period";
 import { getDashboardPeriodRange, type DashboardBucketUnit } from "@/lib/dashboard/period";
@@ -222,12 +223,16 @@ export async function getDashboardAnalytics({
       }),
     ),
     ...overdueInvoicesRows.map(
+      // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
+      // narrow (see src/lib/invoices/require-invoice-project.ts's own
+      // header comment). The query above already requires `project: {
+      // organizationId }`, so every row here always has one.
       (invoice): OverdueItem => ({
         kind: "invoice",
         id: invoice.id,
         invoiceNumber: invoice.invoiceNumber,
         dueDate: invoice.dueDate as Date,
-        clientName: invoice.project.client.name,
+        clientName: requireInvoiceProject(invoice.project, "dashboard overdue invoices").client.name,
         amount: Number(invoice.amount),
         currency: invoice.currency,
       }),
@@ -276,13 +281,15 @@ export async function getDashboardAnalytics({
       projectName: task.project.name,
     })),
     overdueItems,
+    // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow,
+    // same reasoning as overdueItems above.
     recentInvoices: recentInvoicesRows.map((invoice) => ({
       id: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
       status: invoice.status,
       amount: Number(invoice.amount),
       currency: invoice.currency,
-      clientName: invoice.project.client.name,
+      clientName: requireInvoiceProject(invoice.project, "dashboard recent invoices").client.name,
       createdAt: invoice.createdAt,
     })),
   };

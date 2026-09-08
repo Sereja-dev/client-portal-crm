@@ -9,6 +9,7 @@ import { createActivity } from "@/lib/activity/create-activity";
 import { buildInvoiceUpdatedMetadata } from "@/lib/activity/invoice-metadata";
 import { calculateInvoiceTotals, type InvoiceCalculationInput } from "@/lib/invoices/calculations";
 import { isSupportedInvoiceCurrency } from "@/lib/invoices/currencies";
+import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 import type {
   LegacyArchiveInput,
   LegacyArchiveResult,
@@ -600,7 +601,17 @@ export async function archiveLegacyInvoice(
         entityType: "INVOICE",
         entityId: invoice.id,
         action: "UPDATED",
-        metadata: buildInvoiceUpdatedMetadata(invoice.invoiceNumber, ["legacyArchive"], invoice.project.name, actor.userName),
+        // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
+        // narrow (see src/lib/invoices/require-invoice-project.ts's own
+        // header comment). The scoped read at the top of this function
+        // already requires `project: { organizationId }`, so
+        // `legacyInvoice.project` always has one.
+        metadata: buildInvoiceUpdatedMetadata(
+          invoice.invoiceNumber,
+          ["legacyArchive"],
+          requireInvoiceProject(legacyInvoice.project, "legacyArchiveInvoice").name,
+          actor.userName,
+        ),
       });
 
       return { ok: true, finalizedAt: now };
