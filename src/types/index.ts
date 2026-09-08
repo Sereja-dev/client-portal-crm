@@ -24,6 +24,17 @@ export type ClientFormState = {
   >;
 };
 
+// Multiple Contacts Phase 2 (Staff UI). Shared by both the Add and Edit
+// contact forms — mirrors ClientFormState's own shape exactly. `isPrimary`
+// has no field-level error of its own (it's a checkbox, never invalid on
+// its own terms) so it's deliberately absent from this union, matching
+// PortalInvitationFormState's own precedent of only listing fields that
+// can actually produce a validation error.
+export type ClientContactFormState = {
+  error: string | null;
+  fieldErrors?: Partial<Record<"name" | "email" | "phone" | "role", string>>;
+};
+
 export type ProjectFormState = {
   error: string | null;
   fieldErrors?: Partial<

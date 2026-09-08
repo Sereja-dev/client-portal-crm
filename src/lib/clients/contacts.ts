@@ -315,6 +315,50 @@ export async function archiveClientContact(
 }
 
 /**
+ * Multiple Contacts Phase 2 (Staff UI) — the smallest safe unarchive rule,
+ * added because Phase 1 deliberately left this unimplemented (no UI
+ * existed yet to need it). Idempotent: an already-active contact is
+ * returned unchanged. Always unarchives as non-primary
+ * (`isPrimary: false`, unconditionally, in the same write as
+ * `archivedAt: null`) — never attempts to "safely" restore a prior
+ * `isPrimary: true` value, even though archiveClientContact's own
+ * documented behavior leaves that column untouched (true) on an archived
+ * row. That prior value cannot be trusted blindly: another contact may
+ * have been set primary while this one was archived, and restoring
+ * `isPrimary: true` here would either violate the partial unique index
+ * (client_contact_one_active_primary) with a raw P2002 the caller would
+ * have to somehow explain, or — worse — silently succeed and leave a
+ * stale, wrong primary if the check were done sloppily. Forcing
+ * non-primary sidesteps the whole class of hazard deterministically: an
+ * unarchive can never violate the partial unique index, full stop, and
+ * never touches Client.email either (a non-primary contact is never a
+ * sync source). A user who wants this contact to be primary again uses
+ * the ordinary "Set primary" action afterward — the same explicit,
+ * single code path every other primary change already goes through.
+ */
+export async function unarchiveClientContact(
+  organizationId: string,
+  contactId: string,
+  client: PrismaClientOrTx = prisma,
+): Promise<ClientContactMutationResult> {
+  const existing = await client.clientContact.findFirst({ where: { id: contactId, organizationId } });
+  if (!existing) {
+    return { ok: false, reason: "CONTACT_NOT_FOUND" };
+  }
+
+  if (existing.archivedAt === null) {
+    return { ok: true, contact: existing };
+  }
+
+  const contact = await client.clientContact.update({
+    where: { id: contactId },
+    data: { archivedAt: null, isPrimary: false },
+  });
+
+  return { ok: true, contact };
+}
+
+/**
  * The dedicated transactional primary switch (Section H) — the only
  * function in this file allowed to flip isPrimary. Validates the target
  * contact actually belongs to BOTH organizationId and clientId together

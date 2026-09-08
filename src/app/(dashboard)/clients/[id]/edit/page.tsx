@@ -7,6 +7,7 @@ import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { updateClientAction } from "./actions";
 import { ClientAttachmentsSection } from "./attachments-section";
+import { ClientContactsSection } from "./contacts-section";
 import { ClientPortalAccessSection } from "./portal-access-section";
 
 export default async function EditClientPage({
@@ -44,6 +45,7 @@ export default async function EditClientPage({
           submitLabel="Save changes"
           pendingLabel="Saving…"
         />
+        <ClientContactsSection clientId={client.id} organizationId={organizationId} />
         <ClientAttachmentsSection clientId={client.id} organizationId={organizationId} />
         <ClientPortalAccessSection clientId={client.id} role={membership.role} />
       </div>

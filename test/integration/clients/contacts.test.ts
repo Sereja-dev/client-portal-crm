@@ -7,6 +7,7 @@ import {
   createClientContact,
   updateClientContact,
   archiveClientContact,
+  unarchiveClientContact,
   setPrimaryClientContact,
   resolveFallbackContactName,
 } from "@/lib/clients/contacts";
@@ -187,6 +188,85 @@ describe("Client Contacts — domain layer CRUD/security/compatibility (Multiple
     expect(primary).toBeNull();
     // No automatic promotion of any other contact — there is none here,
     // and even if there were, archiving never touches other rows.
+  });
+
+  // ---------------------------------------------------------------------
+  // unarchiveClientContact (Multiple Contacts Phase 2, items 15-17)
+  // ---------------------------------------------------------------------
+
+  it("15. unarchiveClientContact restores a secondary (never-primary) contact to the active list unchanged", async () => {
+    const client = await makeClient(fixtures.orgA.id, fixtures.owner.id);
+    const created = await createClientContact(fixtures.orgA.id, client.id, { name: "Secondary", email: "sec@example.com" });
+    if (!created.ok) throw new Error("expected ok");
+    await archiveClientContact(fixtures.orgA.id, created.contact.id);
+
+    const result = await unarchiveClientContact(fixtures.orgA.id, created.contact.id);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.contact.archivedAt).toBeNull();
+    expect(result.contact.isPrimary).toBe(false);
+    expect(result.contact.email).toBe("sec@example.com");
+
+    const list = await listClientContacts(fixtures.orgA.id, client.id);
+    expect(list.map((c) => c.id)).toContain(created.contact.id);
+  });
+
+  it("16/17. unarchiving a contact that was primary when archived never restores isPrimary — always non-primary, so it can never violate the active-primary uniqueness invariant even when another contact has since become primary", async () => {
+    const client = await makeClient(fixtures.orgA.id, fixtures.owner.id);
+    const original = await createClientContact(fixtures.orgA.id, client.id, {
+      name: "Original Primary",
+      email: "orig@example.com",
+      isPrimary: true,
+    });
+    if (!original.ok) throw new Error("expected ok");
+    await archiveClientContact(fixtures.orgA.id, original.contact.id);
+
+    // A new primary was set while the original was archived.
+    const replacement = await createClientContact(fixtures.orgA.id, client.id, {
+      name: "Replacement Primary",
+      email: "replacement@example.com",
+      isPrimary: true,
+    });
+    if (!replacement.ok) throw new Error("expected ok");
+
+    // Unarchiving the original must succeed (no hidden P2002 path) and
+    // must NOT make it primary again, even though its own isPrimary
+    // column was left true by archiveClientContact's own documented
+    // behavior — doing so would collide with the replacement's own now-
+    // active primary status.
+    const result = await unarchiveClientContact(fixtures.orgA.id, original.contact.id);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.contact.isPrimary).toBe(false);
+    expect(result.contact.archivedAt).toBeNull();
+
+    const activePrimaries = await prisma.clientContact.findMany({
+      where: { clientId: client.id, isPrimary: true, archivedAt: null },
+    });
+    expect(activePrimaries).toHaveLength(1);
+    expect(activePrimaries[0].id).toBe(replacement.contact.id);
+  });
+
+  it("unarchiving is idempotent — an already-active contact is returned unchanged", async () => {
+    const client = await makeClient(fixtures.orgA.id, fixtures.owner.id);
+    const created = await createClientContact(fixtures.orgA.id, client.id, { name: "Already Active" });
+    if (!created.ok) throw new Error("expected ok");
+
+    const result = await unarchiveClientContact(fixtures.orgA.id, created.contact.id);
+    expect(result).toEqual({ ok: true, contact: created.contact });
+  });
+
+  it("unarchiveClientContact is organization-scoped — a foreign org's id cannot unarchive another org's contact", async () => {
+    const client = await makeClient(fixtures.orgA.id, fixtures.owner.id);
+    const created = await createClientContact(fixtures.orgA.id, client.id, { name: "Protected" });
+    if (!created.ok) throw new Error("expected ok");
+    await archiveClientContact(fixtures.orgA.id, created.contact.id);
+
+    const result = await unarchiveClientContact(fixtures.orgB.id, created.contact.id);
+    expect(result).toEqual({ ok: false, reason: "CONTACT_NOT_FOUND" });
+
+    const unchanged = await prisma.clientContact.findUniqueOrThrow({ where: { id: created.contact.id } });
+    expect(unchanged.archivedAt).not.toBeNull();
   });
 
   // ---------------------------------------------------------------------
