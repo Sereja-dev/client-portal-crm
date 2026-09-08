@@ -40,6 +40,7 @@ export type RecentInvoice = {
   status: string;
   amount: number;
   currency: string;
+  clientId: string;
   clientName: string;
   createdAt: Date;
 };
@@ -281,6 +282,7 @@ export async function getDashboardAnalytics({
       status: invoice.status,
       amount: Number(invoice.amount),
       currency: invoice.currency,
+      clientId: invoice.clientId,
       clientName: invoice.client.name,
       createdAt: invoice.createdAt,
     })),

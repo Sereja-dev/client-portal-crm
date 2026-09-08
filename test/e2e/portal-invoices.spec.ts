@@ -297,6 +297,43 @@ test.describe("Portal Invoice PDF access", () => {
       });
     }
   });
+
+  test("Aqenra Invoice UX — the Portal invoice detail page never exposes a Staff Client/Project link", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    // Staff-only §C/§D added real /clients/{id}/edit and /projects/{id}/edit
+    // links to the Staff Invoice list and read-only view — this Portal page
+    // renders its own, separate, plain-text clientName/projectName (see
+    // src/app/portal/(app)/invoices/[id]/page.tsx) and must never gain a
+    // Staff-route link of either kind.
+    await actAsPortalUser(context, baseURL!, { id: fixtures.portalUser.id, email: fixtures.portalUser.email });
+
+    const invoice = await dbQuery<{ id: string }>("invoice", "create", {
+      data: {
+        invoiceNumber: `E2E-PORTAL-NOSTAFFLINK-${fixtures.runId}`,
+        status: "SENT",
+        amount: "50.00",
+        subtotal: "50.00",
+        discountAmount: "0.00",
+        taxAmount: "0.00",
+        projectId: fixtures.project.id,
+        clientId: fixtures.clientA.id,
+        organizationId: fixtures.orgA.id,
+      },
+    });
+
+    try {
+      await page.goto(`/portal/invoices/${invoice.id}`);
+      await expect(page.getByText(fixtures.clientA.name).first()).toBeVisible();
+      await expect(page.getByText(fixtures.project.name).first()).toBeVisible();
+      await expect(page.locator('a[href^="/clients/"]')).toHaveCount(0);
+      await expect(page.locator('a[href^="/projects/"]')).toHaveCount(0);
+    } finally {
+      await dbQuery("invoice", "deleteMany", { where: { id: invoice.id } });
+    }
+  });
 });
 
 test.describe("Portal DRAFT-visibility correction — Invoice System Official Slice 5", () => {

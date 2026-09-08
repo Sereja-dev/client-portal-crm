@@ -192,8 +192,20 @@ export default async function InvoicesPage({
                 {invoices.map((invoice) => (
                   <TableRow key={invoice.id}>
                     <TableCell emphasis>{invoice.invoiceNumber}</TableCell>
-                    <TableCell>{invoice.project?.name ?? "No project"}</TableCell>
-                    <TableCell>{invoice.client.name}</TableCell>
+                    <TableCell>
+                      {invoice.project ? (
+                        <Link href={`/projects/${invoice.projectId}/edit`} className={ACTION_LINK_CLASSES}>
+                          {invoice.project.name}
+                        </Link>
+                      ) : (
+                        "No project"
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <Link href={`/clients/${invoice.clientId}/edit`} className={ACTION_LINK_CLASSES}>
+                        {invoice.client.name}
+                      </Link>
+                    </TableCell>
                     <TableCell>
                       {formatCurrency(Number(invoice.amount), invoice.currency)}
                     </TableCell>
@@ -246,8 +258,26 @@ export default async function InvoicesPage({
             {invoices.map((invoice) => (
               <RecordCard key={invoice.id}>
                 <RecordCardField label="Invoice #" value={invoice.invoiceNumber} emphasis />
-                <RecordCardField label="Project" value={invoice.project?.name ?? "No project"} />
-                <RecordCardField label="Client" value={invoice.client.name} />
+                <RecordCardField
+                  label="Project"
+                  value={
+                    invoice.project ? (
+                      <Link href={`/projects/${invoice.projectId}/edit`} className={ACTION_LINK_CLASSES}>
+                        {invoice.project.name}
+                      </Link>
+                    ) : (
+                      "No project"
+                    )
+                  }
+                />
+                <RecordCardField
+                  label="Client"
+                  value={
+                    <Link href={`/clients/${invoice.clientId}/edit`} className={ACTION_LINK_CLASSES}>
+                      {invoice.client.name}
+                    </Link>
+                  }
+                />
                 <RecordCardField
                   label="Amount"
                   value={formatCurrency(Number(invoice.amount), invoice.currency)}

@@ -149,7 +149,9 @@ export default async function EditInvoicePage({
             invoiceId={invoice.id}
             invoiceNumber={invoice.invoiceNumber}
             status={invoice.status}
+            projectId={invoice.projectId}
             projectName={invoice.project?.name ?? null}
+            clientId={invoice.clientId}
             clientName={invoice.client.name}
             currency={invoice.currency}
             issueDate={invoice.issueDate}

@@ -182,7 +182,11 @@ export default async function DashboardPage({
                   <Link href={`/invoices/${invoice.id}/edit`} className={itemLinkClass}>
                     {invoice.invoiceNumber}
                   </Link>
-                  <p className="text-text-muted text-sm">{invoice.clientName}</p>
+                  <p className="text-text-muted text-sm">
+                    <Link href={`/clients/${invoice.clientId}/edit`} className={ACTION_LINK_CLASSES}>
+                      {invoice.clientName}
+                    </Link>
+                  </p>
                   <div className="mt-1 flex items-center gap-2">
                     <StatusBadge status={invoice.status} label={formatInvoiceStatusLabel(invoice.status)} />
                     <span className="text-text-muted text-xs">

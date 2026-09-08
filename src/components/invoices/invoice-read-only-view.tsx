@@ -1,3 +1,4 @@
+import Link from "next/link";
 import type { Prisma } from "@/generated/prisma/client";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
@@ -40,7 +41,9 @@ export function InvoiceReadOnlyView({
   invoiceId,
   invoiceNumber,
   status,
+  projectId,
   projectName,
+  clientId,
   clientName,
   currency,
   issueDate,
@@ -59,7 +62,9 @@ export function InvoiceReadOnlyView({
   invoiceId: string;
   invoiceNumber: string;
   status: InvoiceStatusValue;
+  projectId: string | null;
   projectName: string | null;
+  clientId: string;
   clientName: string;
   currency: string;
   issueDate: Date;
@@ -83,7 +88,17 @@ export function InvoiceReadOnlyView({
         <div>
           <h2 className="text-text-primary text-lg font-semibold">{invoiceNumber}</h2>
           <p className="text-text-secondary mt-1 text-sm">
-            {projectName ? `${projectName} — ${clientName}` : clientName}
+            {projectId && projectName && (
+              <>
+                <Link href={`/projects/${projectId}/edit`} className={ACTION_LINK_CLASSES}>
+                  {projectName}
+                </Link>
+                {" — "}
+              </>
+            )}
+            <Link href={`/clients/${clientId}/edit`} className={ACTION_LINK_CLASSES}>
+              {clientName}
+            </Link>
           </p>
         </div>
         <StatusBadge status={status} label={formatInvoiceStatusLabel(status)} />

@@ -357,6 +357,105 @@ test.describe("staff Invoice list — DRAFT vs non-DRAFT row actions, read-only 
   });
 });
 
+test.describe("Aqenra Invoice UX — Client/Project links", () => {
+  let projectInvoiceId: string;
+  let projectLessInvoiceId: string;
+  const projectInvoiceNumber = `E2E-LINK-PROJ-${Date.now()}`;
+  const projectLessInvoiceNumber = `E2E-LINK-NOPROJ-${Date.now()}`;
+
+  test.beforeAll(async () => {
+    // SENT (not DRAFT) — the read-only view test below needs this same
+    // fixture to render InvoiceReadOnlyView, not the DRAFT-only editable
+    // InvoiceDraftPanel (which never renders a Client/Project link at
+    // all, by design — see §D).
+    const withProject = await dbQuery<{ id: string }>("invoice", "create", {
+      data: {
+        invoiceNumber: projectInvoiceNumber,
+        status: "SENT",
+        amount: "150.00",
+        subtotal: "150.00",
+        discountAmount: "0.00",
+        taxAmount: "0.00",
+        projectId: fixtures.project.id,
+        clientId: fixtures.clientA.id,
+        organizationId: fixtures.orgA.id,
+      },
+    });
+    projectInvoiceId = withProject.id;
+
+    const projectLess = await dbQuery<{ id: string }>("invoice", "create", {
+      data: {
+        invoiceNumber: projectLessInvoiceNumber,
+        status: "SENT",
+        amount: "80.00",
+        subtotal: "80.00",
+        discountAmount: "0.00",
+        taxAmount: "0.00",
+        projectId: null,
+        clientId: fixtures.clientA.id,
+        organizationId: fixtures.orgA.id,
+      },
+    });
+    projectLessInvoiceId = projectLess.id;
+  });
+
+  test.afterAll(async () => {
+    await dbQuery("invoice", "deleteMany", { where: { id: { in: [projectInvoiceId, projectLessInvoiceId] } } });
+  });
+
+  test.beforeEach(async ({ context, baseURL }) => {
+    await injectTestSession(context, { id: fixtures.owner.id, email: fixtures.owner.email }, baseURL!);
+  });
+
+  test("list: Client and Project names are links to their canonical routes, with correct entity ids", async ({ page }) => {
+    await page.goto("/invoices");
+    const row = page.getByRole("row", { name: new RegExp(projectInvoiceNumber) });
+
+    const clientLink = row.getByRole("link", { name: fixtures.clientA.name });
+    await expect(clientLink).toBeVisible();
+    await expect(clientLink).toHaveAttribute("href", `/clients/${fixtures.clientA.id}/edit`);
+
+    const projectLink = row.getByRole("link", { name: fixtures.project.name });
+    await expect(projectLink).toBeVisible();
+    await expect(projectLink).toHaveAttribute("href", `/projects/${fixtures.project.id}/edit`);
+  });
+
+  test("list: a project-less invoice shows plain 'No project' text, not a link", async ({ page }) => {
+    await page.goto("/invoices");
+    const row = page.getByRole("row", { name: new RegExp(projectLessInvoiceNumber) });
+
+    await expect(row.getByText("No project")).toBeVisible();
+    await expect(row.getByRole("link", { name: "No project" })).toHaveCount(0);
+
+    // The Client link is still present on the very same row.
+    await expect(row.getByRole("link", { name: fixtures.clientA.name })).toHaveAttribute(
+      "href",
+      `/clients/${fixtures.clientA.id}/edit`,
+    );
+  });
+
+  test("read-only view: Client and Project names in the header are links to their canonical routes", async ({ page }) => {
+    await page.goto(`/invoices/${projectInvoiceId}/edit`);
+
+    const clientLink = page.getByRole("link", { name: fixtures.clientA.name });
+    await expect(clientLink).toBeVisible();
+    await expect(clientLink).toHaveAttribute("href", `/clients/${fixtures.clientA.id}/edit`);
+
+    const projectLink = page.getByRole("link", { name: fixtures.project.name });
+    await expect(projectLink).toBeVisible();
+    await expect(projectLink).toHaveAttribute("href", `/projects/${fixtures.project.id}/edit`);
+  });
+
+  test("read-only view: a project-less invoice's header shows plain 'No project' text, not a link, but still links its Client", async ({ page }) => {
+    await page.goto(`/invoices/${projectLessInvoiceId}/edit`);
+
+    await expect(page.getByText("No project")).toHaveCount(0); // never rendered for the read-only header — it only ever shows Client alone when there's no Project.
+    const clientLink = page.getByRole("link", { name: fixtures.clientA.name });
+    await expect(clientLink).toBeVisible();
+    await expect(clientLink).toHaveAttribute("href", `/clients/${fixtures.clientA.id}/edit`);
+  });
+});
+
 test.describe("Duplicate-as-new-DRAFT — completing official Invoice System Slice 2", () => {
   // Slice 2c: only a CANCELLED invoice ever exposes "Duplicate as new
   // draft" (docs/invoicing-architecture.md §3.2). No Slice-2b production

@@ -106,4 +106,27 @@ describe("getDashboardAnalytics — project-less Invoice inclusion (Quotes / Est
     expect(found).toBeDefined();
     expect(found?.clientName).toBe(fixtures.clientA.name);
   });
+
+  /**
+   * Aqenra Invoice UX — Client / Project Links §E. Dashboard "Recent
+   * invoices" links each row's Client name to /clients/{clientId}/edit,
+   * built directly from this same `recentInvoices[].clientId` field —
+   * these two tests prove the id itself is present and correct (what the
+   * link's href is actually built from), and that this still holds for a
+   * project-less invoice (no Project is ever shown in this section, so
+   * there is no separate Project-link case to prove safe here).
+   */
+  it("7. recent invoices list carries the correct clientId for its Client link target", async () => {
+    const analytics = await getDashboardAnalytics({ organizationId: fixtures.orgA.id, period: "30d", now: new Date() });
+    const found = analytics.recentInvoices.find((r) => r.id === unpaidInvoice.id || r.id === paidInvoice.id || r.id === overdueInvoice.id);
+    expect(found).toBeDefined();
+    expect(found?.clientId).toBe(fixtures.clientA.id);
+  });
+
+  it("8. the project-less case is safe: clientId is still correct even though this same invoice has no Project", async () => {
+    const analytics = await getDashboardAnalytics({ organizationId: fixtures.orgA.id, period: "30d", now: new Date() });
+    const found = analytics.recentInvoices.find((r) => r.id === unpaidInvoice.id);
+    expect(found).toBeDefined();
+    expect(found?.clientId).toBe(fixtures.clientA.id);
+  });
 });
