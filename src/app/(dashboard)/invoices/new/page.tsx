@@ -10,21 +10,26 @@ import { resolveInvoiceCurrencyDefault, getSupportedInvoiceCurrencies } from "@/
 import { formatDateOnly } from "@/lib/invoices/date-only";
 import { createInvoiceAction } from "./actions";
 
-// Matches Button's own primary variant tokens — same constant used by
-// the Clients/Invoices/Projects/Tasks list pages' own primary action.
-const PRIMARY_LINK_CLASSES =
-  "focus-visible:ring-focus-ring rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
-
 export default async function NewInvoicePage() {
   // Authentication resolved first, standalone — organizationId is never
   // referenced inside a Promise.all that is still awaiting this.
   const { organizationId } = await getCurrentUserOrganization();
 
-  const [projects, companyProfile] = await Promise.all([
+  // Quotes / Estimates Phase 2.3 — Client REQUIRED, Project OPTIONAL
+  // (Invoice / Project Coupling Audit). Every Client is a valid Invoice
+  // target regardless of whether the org has any Projects at all — the
+  // old "You need a project first" gate (which blocked Invoice creation
+  // entirely whenever the org had zero Projects) is removed.
+  const [clients, projects, companyProfile] = await Promise.all([
+    prisma.client.findMany({
+      where: { organizationId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
     prisma.project.findMany({
       where: { organizationId },
       orderBy: { name: "asc" },
-      select: { id: true, name: true, client: { select: { name: true } } },
+      select: { id: true, name: true, clientId: true },
     }),
     getCompanyProfile(organizationId),
   ]);
@@ -42,13 +47,16 @@ export default async function NewInvoicePage() {
         </Link>
       </div>
 
-      {projects.length === 0 ? (
+      {clients.length === 0 ? (
         <EmptyState
-          title="You need a project first"
-          description="Invoices must belong to a project. Add one before creating an invoice."
+          title="You need a client first"
+          description="Invoices must belong to a client. Add one before creating an invoice."
           action={
-            <Link href="/projects/new" className={PRIMARY_LINK_CLASSES}>
-              Add project
+            <Link
+              href="/clients/new"
+              className="focus-visible:ring-focus-ring rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+            >
+              Add client
             </Link>
           }
         />
@@ -56,10 +64,8 @@ export default async function NewInvoicePage() {
         <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
           <InvoiceForm
             action={createInvoiceAction}
-            projects={projects.map((project) => ({
-              id: project.id,
-              label: `${project.name} — ${project.client.name}`,
-            }))}
+            clients={clients}
+            projects={projects.map((project) => ({ id: project.id, label: project.name, clientId: project.clientId }))}
             currencyOptions={getSupportedInvoiceCurrencies()}
             currencyFallbackNotice={
               currencyDefault.isFallback && currencyDefault.organizationCurrency

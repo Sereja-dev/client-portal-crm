@@ -288,6 +288,7 @@ describe("invoice-metadata", () => {
   function baseSnapshot(overrides: Partial<InvoiceTrackedSnapshot> = {}): InvoiceTrackedSnapshot {
     return {
       invoiceNumber: "INV-1",
+      clientId: "c1",
       projectId: "p1",
       amount: "100.00",
       currency: "USD",

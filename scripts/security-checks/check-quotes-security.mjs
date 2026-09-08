@@ -1,9 +1,10 @@
 import { readFileSync } from "node:fs";
 import { report } from "./lib.mjs";
 
-// Quotes / Estimates Phase 2. Mirrors check-leads-security.mjs's own
-// exact discipline and reasoning for the same three invariants, applied
-// to Quote's own actions file.
+// Quotes / Estimates Phase 2, extended by Phase 2.3 (Quote -> Invoice
+// conversion). Mirrors check-leads-security.mjs's own exact discipline
+// and reasoning for the same invariants, applied to Quote's own actions
+// file.
 
 let ok = true;
 
@@ -18,10 +19,9 @@ const organizationIdAsParam = /\bexport\s+async\s+function\s+\w+\s*\([^)]*\borga
 ok = report("no exported Quote action accepts organizationId as a parameter", !organizationIdAsParam, "") && ok;
 
 // 2. convertedInvoiceId is never a parameter of one of this file's own
-// exported actions — no Quote -> Invoice conversion action exists in
-// this phase at all (see this file's own header comment on why), so
-// this column is never written anywhere in this file; this check is a
-// forward guard for whenever that action is eventually added.
+// exported actions — convertQuoteToInvoiceAction only ever writes it via
+// its own internal, guarded updateMany (never accepts it as caller
+// input).
 const convertedInvoiceIdAsParam = /\bexport\s+async\s+function\s+\w+\s*\([^)]*\bconvertedInvoiceId\s*:/.test(content);
 ok = report("no exported Quote action accepts convertedInvoiceId as a parameter", !convertedInvoiceIdAsParam, "") && ok;
 
@@ -37,5 +37,13 @@ ok = report(
   foundUnsafeCalls.length === 0,
   foundUnsafeCalls.join(", "),
 ) && ok;
+
+// 4. Quotes / Estimates Phase 2.3 — convertQuoteToInvoiceAction must
+// never accept clientId as a parameter (the new Invoice's clientId
+// always comes from the re-fetched Quote's own clientId, never from the
+// caller) — a forged clientId could otherwise attach the resulting
+// Invoice to an arbitrary Client this Staff member never selected.
+const clientIdAsParam = /\bexport\s+async\s+function\s+\w+\s*\([^)]*\bclientId\s*:/.test(content);
+ok = report("no exported Quote action accepts clientId as a parameter", !clientIdAsParam, "") && ok;
 
 process.exit(ok ? 0 : 1);

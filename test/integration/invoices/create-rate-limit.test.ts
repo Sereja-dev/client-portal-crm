@@ -31,9 +31,10 @@ function uniqueInvoiceNumber(runId: string): string {
   return `${INVOICE_NUMBER_PREFIX}-${runId}-${randomUUID().slice(0, 8)}`;
 }
 
-function buildFormData(invoiceNumber: string, projectId: string): FormData {
+function buildFormData(invoiceNumber: string, clientId: string, projectId: string): FormData {
   const fd = new FormData();
   fd.set("invoiceNumber", invoiceNumber);
+  fd.set("clientId", clientId);
   fd.set("projectId", projectId);
   fd.set("mode", "flat");
   fd.set("amount", "100.00");
@@ -84,7 +85,7 @@ describe("createInvoiceAction — rate limiting (Post-Hardening Residual Code Au
     actAs(fixtures.owner, fixtures.orgA.id);
     const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
 
-    await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id)));
+    await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id)));
 
     const created = await prisma.invoice.findFirst({ where: { invoiceNumber } });
     expect(created).not.toBeNull();
@@ -95,7 +96,7 @@ describe("createInvoiceAction — rate limiting (Post-Hardening Residual Code Au
     mockedCheckRateLimit.mockReturnValue({ limited: true, message: RATE_LIMIT_MESSAGE });
     const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
 
-    const result = await createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id));
+    const result = await createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id));
 
     expect(result.error).toBe(RATE_LIMIT_MESSAGE);
     expect(result.fieldErrors).toBeUndefined();
@@ -107,7 +108,7 @@ describe("createInvoiceAction — rate limiting (Post-Hardening Residual Code Au
     actAs(fixtures.owner, fixtures.orgA.id);
     const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
 
-    await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id)));
+    await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id)));
 
     expect(mockedCheckRateLimit).toHaveBeenCalledWith(INVOICE_CREATE_LIMIT, fixtures.owner.id);
   });
@@ -119,13 +120,13 @@ describe("createInvoiceAction — rate limiting (Post-Hardening Residual Code Au
 
     actAs(fixtures.owner, fixtures.orgA.id);
     const blockedInvoiceNumber = uniqueInvoiceNumber(fixtures.runId);
-    const blockedResult = await createInvoiceAction({ error: null }, buildFormData(blockedInvoiceNumber, fixtures.project.id));
+    const blockedResult = await createInvoiceAction({ error: null }, buildFormData(blockedInvoiceNumber, fixtures.clientA.id, fixtures.project.id));
     expect(blockedResult.error).toBe(RATE_LIMIT_MESSAGE);
     resetAuthMock();
 
     actAs(fixtures.admin, fixtures.orgA.id);
     const allowedInvoiceNumber = uniqueInvoiceNumber(fixtures.runId);
-    await expectRedirect(createInvoiceAction({ error: null }, buildFormData(allowedInvoiceNumber, fixtures.project.id)));
+    await expectRedirect(createInvoiceAction({ error: null }, buildFormData(allowedInvoiceNumber, fixtures.clientA.id, fixtures.project.id)));
 
     expect(await prisma.invoice.findFirst({ where: { invoiceNumber: blockedInvoiceNumber } })).toBeNull();
     expect(await prisma.invoice.findFirst({ where: { invoiceNumber: allowedInvoiceNumber } })).not.toBeNull();
@@ -135,9 +136,9 @@ describe("createInvoiceAction — rate limiting (Post-Hardening Residual Code Au
     actAs(fixtures.owner, fixtures.orgA.id);
     const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
 
-    const result = await createInvoiceAction({ error: null }, buildFormData(invoiceNumber, randomUUID()));
+    const result = await createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, randomUUID()));
 
-    expect(result.fieldErrors?.projectId).toBe("Select a valid project.");
+    expect(result.fieldErrors?.clientId).toBe("Select a valid client.");
     const created = await prisma.invoice.findFirst({ where: { invoiceNumber } });
     expect(created).toBeNull();
   });
@@ -146,9 +147,9 @@ describe("createInvoiceAction — rate limiting (Post-Hardening Residual Code Au
     actAs(fixtures.owner, fixtures.orgA.id);
     const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
 
-    await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id)));
+    await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id)));
 
-    const result = await createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id));
+    const result = await createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id));
     expect(result.fieldErrors?.invoiceNumber).toBe("An invoice with this number already exists.");
   });
 });

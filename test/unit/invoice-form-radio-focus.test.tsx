@@ -33,7 +33,8 @@ function renderForm() {
   return renderToStaticMarkup(
     <InvoiceForm
       action={async (prev) => prev}
-      projects={[{ id: "p1", label: "Project — Client" }]}
+      clients={[{ id: "c1", name: "Client" }]}
+      projects={[{ id: "p1", label: "Project", clientId: "c1" }]}
       currencyOptions={["USD", "EUR"]}
     />,
   );

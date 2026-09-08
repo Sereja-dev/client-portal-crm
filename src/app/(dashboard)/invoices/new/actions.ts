@@ -10,6 +10,7 @@ import { createActivity } from "@/lib/activity/create-activity";
 import { buildInvoiceSnapshotMetadata } from "@/lib/activity/invoice-metadata";
 import { calculateInvoiceTotals } from "@/lib/invoices/calculations";
 import { mapInvoiceWriteError } from "@/lib/invoices/write-conflict-mapper";
+import { resolveInvoiceTarget } from "@/lib/invoices/target";
 import { checkRateLimit, INVOICE_CREATE_LIMIT, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 import type { InvoiceFormState } from "@/types";
 
@@ -34,19 +35,24 @@ export async function createInvoiceAction(
     return { error: RATE_LIMIT_MESSAGE };
   }
 
-  // The <select> only lists this org's projects, but the submitted value
-  // is still client-controlled input — re-verify ownership server-side so a
-  // tampered projectId can never attach an invoice to another org's project.
-  // Also require the project's client to be in the same org, so a stale or
-  // inconsistent clientId FK can never carry over onto the invoice.
-  const project = await prisma.project.findFirst({
-    where: { id: values.projectId, organizationId, client: { organizationId } },
-    select: { id: true, clientId: true, name: true },
+  // Quotes / Estimates Phase 2.3 — clientId REQUIRED, projectId OPTIONAL
+  // (Invoice / Project Coupling Audit's own durable invariant). The
+  // <select>s only list this org's own Clients/Projects, but the
+  // submitted values are still client-controlled input — re-verify
+  // ownership server-side, and (when a Project is supplied) that it
+  // belongs to the exact same Client, so a tampered pair can never
+  // attach an invoice to another org's Client/Project or mismatch the
+  // two. Never a distinguishable response for "foreign" vs "nonexistent"
+  // vs "mismatched" — resolveInvoiceTarget's own invalid_target result
+  // covers all three identically.
+  const targetResult = await resolveInvoiceTarget(prisma, organizationId, {
+    clientId: values.clientId,
+    projectId: values.projectId,
   });
-
-  if (!project) {
-    return { error: null, fieldErrors: { projectId: "Select a valid project." } };
+  if (!targetResult.ok) {
+    return { error: null, fieldErrors: { clientId: "Select a valid client." } };
   }
+  const { target } = targetResult;
 
   const calc = calculateInvoiceTotals({
     subtotalSource:
@@ -63,6 +69,12 @@ export async function createInvoiceAction(
   if (!calc.ok) {
     const mapped = mapInvoiceCalculationError(calc.error, values.mode);
     return { error: null, fieldErrors: mapped.fieldErrors, lineItemErrors: mapped.lineItemErrors };
+  }
+
+  let projectName: string | null = null;
+  if (target.projectId) {
+    const project = await prisma.project.findUnique({ where: { id: target.projectId }, select: { name: true } });
+    projectName = project?.name ?? null;
   }
 
   try {
@@ -93,13 +105,12 @@ export async function createInvoiceAction(
           dueDate: values.dueDate,
           notes: values.notes,
           internalNotes: values.internalNotes,
-          projectId: project.id,
-          // Derived from the project, never a form field — keeps the two
-          // FKs from ever disagreeing about which client this invoice bills.
-          clientId: project.clientId,
-          // Also derived from the verified project (the findFirst above
-          // already matched project.organizationId === organizationId), not
-          // from formData.
+          // Resolved and re-verified server-side above — never taken from
+          // formData directly, and never derived from one another; a
+          // project-less Invoice (projectId: null) is a fully valid,
+          // first-class target here.
+          clientId: target.clientId,
+          projectId: target.projectId,
           organizationId,
           lineItems:
             values.mode === "itemized"
@@ -125,7 +136,7 @@ export async function createInvoiceAction(
         entityType: "INVOICE",
         entityId: invoice.id,
         action: "CREATED",
-        metadata: buildInvoiceSnapshotMetadata(invoice, calc.lineItems.length, project.name, user.name),
+        metadata: buildInvoiceSnapshotMetadata(invoice, calc.lineItems.length, projectName, user.name),
       });
     });
   } catch (err) {

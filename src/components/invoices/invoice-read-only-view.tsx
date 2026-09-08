@@ -59,7 +59,7 @@ export function InvoiceReadOnlyView({
   invoiceId: string;
   invoiceNumber: string;
   status: InvoiceStatusValue;
-  projectName: string;
+  projectName: string | null;
   clientName: string;
   currency: string;
   issueDate: Date;
@@ -83,7 +83,7 @@ export function InvoiceReadOnlyView({
         <div>
           <h2 className="text-text-primary text-lg font-semibold">{invoiceNumber}</h2>
           <p className="text-text-secondary mt-1 text-sm">
-            {projectName} — {clientName}
+            {projectName ? `${projectName} — ${clientName}` : clientName}
           </p>
         </div>
         <StatusBadge status={status} label={formatInvoiceStatusLabel(status)} />

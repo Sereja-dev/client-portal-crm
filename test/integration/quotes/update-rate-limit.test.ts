@@ -8,6 +8,7 @@ import {
   reopenQuoteAction,
   archiveQuoteAction,
   unarchiveQuoteAction,
+  convertQuoteToInvoiceAction,
 } from "@/app/(dashboard)/quotes/actions";
 import { checkRateLimit, QUOTE_UPDATE_LIMIT, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
@@ -109,6 +110,18 @@ describe("Quote lifecycle actions — rate limiting", () => {
     expect(archiveResult).toEqual({ ok: false, reason: "rate_limited" });
     const unarchiveResult = await unarchiveQuoteAction(created.quoteId);
     expect(unarchiveResult).toEqual({ ok: false, reason: "rate_limited" });
+    expect(mockedCheckRateLimit).toHaveBeenCalledWith(QUOTE_UPDATE_LIMIT, fixtures.owner.id);
+  });
+
+  it("Quotes / Estimates Phase 2.3 — convertQuoteToInvoiceAction shares the same QUOTE_UPDATE_LIMIT bucket", async () => {
+    actAs(fixtures.owner, fixtures.orgA.id);
+    const created = await createQuoteAction(baseInput({ clientId: fixtures.clientA.id }));
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    mockedCheckRateLimit.mockReturnValue({ limited: true, message: RATE_LIMIT_MESSAGE });
+    const result = await convertQuoteToInvoiceAction(created.quoteId, "RL-CONVERT-1");
+    expect(result).toEqual({ ok: false, reason: "rate_limited" });
     expect(mockedCheckRateLimit).toHaveBeenCalledWith(QUOTE_UPDATE_LIMIT, fixtures.owner.id);
   });
 });

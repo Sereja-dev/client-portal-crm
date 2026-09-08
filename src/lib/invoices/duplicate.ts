@@ -25,7 +25,8 @@ export type DuplicateSourceLineItem = {
 
 export type DuplicateSourceData = {
   invoiceNumber: string;
-  projectId: string;
+  clientId: string;
+  projectId: string | null;
   amount: string;
   currency: string;
   notes: string | null;
@@ -49,7 +50,8 @@ export type DuplicateSourceData = {
  */
 export type DuplicateInvoiceDefaults = {
   invoiceNumber: string;
-  projectId: string;
+  clientId: string;
+  projectId: string | null;
   mode: "flat" | "itemized";
   amount: string;
   lineItems: DuplicateSourceLineItem[];
@@ -94,6 +96,7 @@ export function buildDuplicateInvoiceDefaults(source: DuplicateSourceData, today
 
   return {
     invoiceNumber: suggestDuplicateInvoiceNumber(source.invoiceNumber),
+    clientId: source.clientId,
     projectId: source.projectId,
     mode: itemized ? "itemized" : "flat",
     amount: itemized ? "" : source.amount,

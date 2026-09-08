@@ -32,9 +32,10 @@ function baseFields(overrides: Record<string, string> = {}) {
   };
 }
 
-function buildFormData(invoiceNumber: string, projectId: string, overrides: Record<string, string> = {}): FormData {
+function buildFormData(invoiceNumber: string, clientId: string, projectId: string, overrides: Record<string, string> = {}): FormData {
   const fd = new FormData();
   fd.set("invoiceNumber", invoiceNumber);
+  fd.set("clientId", clientId);
   fd.set("projectId", projectId);
   for (const [key, value] of Object.entries(baseFields(overrides))) fd.set(key, value);
   return fd;
@@ -53,7 +54,7 @@ async function expectRedirect(promise: Promise<unknown>): Promise<void> {
 async function createDraft(fixtures: TestFixtures, overrides: Record<string, string> = {}) {
   actAs(fixtures.owner, fixtures.orgA.id);
   const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
-  await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id, overrides)));
+  await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id, overrides)));
   resetAuthMock();
   return prisma.invoice.findUniqueOrThrow({
     where: { organizationId_invoiceNumber: { organizationId: fixtures.orgA.id, invoiceNumber } },
@@ -82,7 +83,7 @@ describe("updateInvoiceAction — DRAFT editing", () => {
         created.id,
         created.updatedAt.toISOString(),
         { error: null },
-        buildFormData(created.invoiceNumber, fixtures.project.id, { amount: "75.00" }),
+        buildFormData(created.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { amount: "75.00" }),
       ),
     );
     resetAuthMock();
@@ -104,7 +105,7 @@ describe("updateInvoiceAction — DRAFT editing", () => {
         created.id,
         created.updatedAt.toISOString(),
         { error: null },
-        buildFormData(created.invoiceNumber, fixtures.project.id, { mode: "itemized", lineItems }),
+        buildFormData(created.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { mode: "itemized", lineItems }),
       ),
     );
     resetAuthMock();
@@ -128,7 +129,7 @@ describe("updateInvoiceAction — DRAFT editing", () => {
         created.id,
         created.updatedAt.toISOString(),
         { error: null },
-        buildFormData(created.invoiceNumber, fixtures.project.id, { mode: "flat", amount: "42.00" }),
+        buildFormData(created.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { mode: "flat", amount: "42.00" }),
       ),
     );
     resetAuthMock();
@@ -142,7 +143,7 @@ describe("updateInvoiceAction — DRAFT editing", () => {
     const created = await createDraft(fixtures, { amount: "50.00" });
     actAs(fixtures.owner, fixtures.orgA.id);
 
-    const fd = buildFormData(created.invoiceNumber, fixtures.project.id, { amount: "60.00" });
+    const fd = buildFormData(created.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { amount: "60.00" });
     // No "totalOverride"/"subtotal"/"status" field this form even reads —
     // parseInvoiceForm() only ever looks at the named fields it knows.
     fd.set("subtotal", "999999.99");
@@ -167,11 +168,11 @@ describe("updateInvoiceAction — DRAFT editing", () => {
       created.id,
       created.updatedAt.toISOString(),
       { error: null },
-      buildFormData(created.invoiceNumber, orgBProject.id),
+      buildFormData(created.invoiceNumber, fixtures.clientA.id, orgBProject.id),
     );
     resetAuthMock();
 
-    expect(result).toEqual({ error: null, fieldErrors: { projectId: "Select a valid project." } });
+    expect(result).toEqual({ error: null, fieldErrors: { clientId: "Select a valid client." } });
     await prisma.project.delete({ where: { id: orgBProject.id } });
   });
 
@@ -184,7 +185,7 @@ describe("updateInvoiceAction — DRAFT editing", () => {
         created.id,
         created.updatedAt.toISOString(),
         { error: null },
-        buildFormData(created.invoiceNumber, fixtures.project.id, { amount: "88.00", issueDate: "2026-08-16" }),
+        buildFormData(created.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { amount: "88.00", issueDate: "2026-08-16" }),
       ),
     );
     resetAuthMock();
@@ -204,7 +205,7 @@ describe("updateInvoiceAction — DRAFT editing", () => {
         created.id,
         created.updatedAt.toISOString(),
         { error: null },
-        buildFormData(created.invoiceNumber, fixtures.project.id, { amount: "20.00", internalNotes: "brand new secret note" }),
+        buildFormData(created.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { amount: "20.00", internalNotes: "brand new secret note" }),
       ),
     );
     resetAuthMock();
@@ -225,7 +226,7 @@ describe("updateInvoiceAction — DRAFT editing", () => {
       created.id,
       created.updatedAt.toISOString(),
       { error: null },
-      buildFormData(created.invoiceNumber, fixtures.project.id, { mode: "bogus" }),
+      buildFormData(created.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { mode: "bogus" }),
     );
     resetAuthMock();
 

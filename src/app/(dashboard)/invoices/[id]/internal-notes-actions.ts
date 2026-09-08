@@ -5,7 +5,6 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { createActivity } from "@/lib/activity/create-activity";
 import { buildInvoiceUpdatedMetadata } from "@/lib/activity/invoice-metadata";
-import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 import { INVOICE_NOTES_MAX_LENGTH } from "@/lib/validation/invoice";
 
 export type UpdateInvoiceInternalNotesResult =
@@ -35,7 +34,7 @@ export async function updateInvoiceInternalNotesAction(
 
   const outcome = await prisma.$transaction(async (tx) => {
     const existing = await tx.invoice.findFirst({
-      where: { id: invoiceId, organizationId, project: { organizationId } },
+      where: { id: invoiceId, organizationId },
       include: { project: { select: { name: true } } },
     });
     if (!existing) return { status: "not_found" as const };
@@ -45,7 +44,7 @@ export async function updateInvoiceInternalNotesAction(
     }
 
     const result = await tx.invoice.updateMany({
-      where: { id: invoiceId, organizationId, project: { organizationId } },
+      where: { id: invoiceId, organizationId },
       data: { internalNotes: nextValue },
     });
     if (result.count === 0) return { status: "not_found" as const };
@@ -59,15 +58,10 @@ export async function updateInvoiceInternalNotesAction(
       // changedFields: ["internalNotes"] only — the value itself never
       // enters metadata, and this event never notifies anyone (INVOICE/
       // UPDATED has no entry in notification-rules.ts's RULES table).
-      // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
-      // narrow (see src/lib/invoices/require-invoice-project.ts's own
-      // header comment). The scoped read above already requires
-      // `project: { organizationId }`, so `existing.project` always has
-      // one.
       metadata: buildInvoiceUpdatedMetadata(
         existing.invoiceNumber,
         ["internalNotes"],
-        requireInvoiceProject(existing.project, "updateInvoiceInternalNotesAction").name,
+        existing.project?.name ?? null,
         user.name,
       ),
     });

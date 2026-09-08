@@ -48,11 +48,13 @@ export async function GET(
     return new NextResponse(limitCheck.message, { status: 429 });
   }
 
-  // 4. Organization-scoped fetch, project.organizationId as defense in
-  // depth — select only the scalar fields classifyInvoiceArchival() and
-  // the ledger-consistency proof below actually need.
+  // 4. Organization-scoped fetch — Invoice.organizationId alone (Quotes /
+  // Estimates Phase 2.3): a project relation filter would silently 404 a
+  // project-less Invoice's own PDF. Select only the scalar fields
+  // classifyInvoiceArchival() and the ledger-consistency proof below
+  // actually need.
   const invoice = await prisma.invoice.findFirst({
-    where: { id, organizationId, project: { organizationId } },
+    where: { id, organizationId },
     select: {
       id: true,
       invoiceNumber: true,

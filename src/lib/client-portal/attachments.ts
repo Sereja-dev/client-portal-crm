@@ -74,20 +74,19 @@ export async function getPortalProjectAttachments(project: {
 
 /**
  * Invoice-level (INVOICE) attachments. Same contract as
- * getPortalProjectAttachments, except the organizationId boundary is
- * deliberately the invoice's *project's* organizationId (matching how the
- * portal download route re-verifies INVOICE attachments), not the
- * invoice's own organizationId column.
+ * getPortalProjectAttachments, except the organizationId boundary is the
+ * Invoice's own `organizationId` column directly (Quotes / Estimates
+ * Phase 2.3 — never derived from Project, which may not exist at all for
+ * a project-less Invoice; deriving it that way would silently make every
+ * project-less Invoice's attachments unreachable).
  */
 export async function getPortalInvoiceAttachments(invoice: {
   id: string;
   invoiceNumber: string;
-  projectOrganizationId: string | null;
+  organizationId: string;
 }): Promise<PortalAttachment[]> {
-  if (!invoice.projectOrganizationId) return [];
-
   const attachments = await prisma.attachment.findMany({
-    where: { entityType: "INVOICE", entityId: invoice.id, organizationId: invoice.projectOrganizationId },
+    where: { entityType: "INVOICE", entityId: invoice.id, organizationId: invoice.organizationId },
     orderBy: [{ createdAt: "desc" }, { id: "desc" }],
     select: ATTACHMENT_DISPLAY_SELECT,
   });
@@ -140,7 +139,6 @@ export async function verifyPortalAttachmentAccess(
         where: {
           id: attachment.entityId,
           clientId: identity.clientId,
-          project: { clientId: identity.clientId },
           status: { in: [...VISIBLE_PORTAL_STATUSES] },
         },
         select: { id: true },

@@ -93,7 +93,7 @@ export default async function PortalInvoicesPage({
                     {invoice.invoiceNumber}
                   </Link>
                 </TableCell>
-                <TableCell>{invoice.projectName}</TableCell>
+                <TableCell>{invoice.projectName ?? "No project"}</TableCell>
                 <TableCell>{invoice.issueDate.toLocaleDateString()}</TableCell>
                 <TableCell>
                   {invoice.dueDate ? invoice.dueDate.toLocaleDateString() : "—"}

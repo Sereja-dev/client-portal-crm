@@ -12,7 +12,6 @@ import { formatDateOnly } from "@/lib/invoices/date-only";
 import { canAccessPaymentDetails } from "@/lib/organization-setup/authorization";
 import { getInvoiceIssuanceReadiness } from "@/lib/organization-setup/invoice-readiness";
 import { classifyInvoiceArchival } from "@/lib/invoices/pdf/classify-archival";
-import { requireInvoiceProject, requireInvoiceProjectId } from "@/lib/invoices/require-invoice-project";
 import { updateInvoiceAction } from "./actions";
 import { InvoiceAttachmentsSection } from "./attachments-section";
 import { loadInvoiceEmailAttempts } from "@/lib/invoices/email/attempt-history";
@@ -33,14 +32,18 @@ export default async function EditInvoicePage({
   const canIssue = canAccessPaymentDetails(membership.role);
 
   // The one shared Invoice fetch, needed by both branches — ordered line
-  // items and Project/Client display, never a duplicate Invoice lookup.
-  // No `attachments` — Invoice has no such relation; attachments are
-  // fetched separately by the existing, unchanged InvoiceAttachmentsSection.
+  // items and Client/Project display, never a duplicate Invoice lookup.
+  // Scoped by organizationId alone (Invoice's own column) — never a
+  // project relation filter, which would silently 404 a project-less
+  // Invoice (Quotes / Estimates Phase 2.3). No `attachments` — Invoice
+  // has no such relation; attachments are fetched separately by the
+  // existing, unchanged InvoiceAttachmentsSection.
   const invoice = await prisma.invoice.findFirst({
-    where: { id, organizationId, project: { organizationId } },
+    where: { id, organizationId },
     include: {
       lineItems: { orderBy: { position: "asc" } },
-      project: { select: { name: true, client: { select: { name: true } } } },
+      client: { select: { name: true } },
+      project: { select: { name: true } },
     },
   });
 
@@ -49,12 +52,6 @@ export default async function EditInvoicePage({
   }
 
   const isDraft = invoice.status === "DRAFT";
-  // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow
-  // (see src/lib/invoices/require-invoice-project.ts's own header
-  // comment). The scoped read above already requires `project: {
-  // organizationId }`, so `invoice.project` always has one; only the
-  // non-draft (read-only) branch below actually uses this.
-  const readOnlyProject = requireInvoiceProject(invoice.project, "invoice edit page read-only view");
   // Invoice System Official Slice 3 — the one place this page ever
   // touches archival state. `include` above already retains every
   // Invoice scalar column (finalizedAt/pdfStoragePath/pdfGeneratedAt/
@@ -75,15 +72,19 @@ export default async function EditInvoicePage({
   const actor = { organizationId, userId: user.id, userName: user.name, role: membership.role };
   const emailAttempts = canSendEmail ? await loadInvoiceEmailAttempts(actor, invoice.id) : [];
 
-  // The full project option list is fetched only for the DRAFT branch —
-  // the read-only view never offers a project-changing control.
-  const projects = isDraft
-    ? await prisma.project.findMany({
-        where: { organizationId },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true, client: { select: { name: true } } },
-      })
-    : null;
+  // The full Client/Project option lists are fetched only for the DRAFT
+  // branch — the read-only view never offers a Client/Project-changing
+  // control.
+  const [clients, projects] = isDraft
+    ? await Promise.all([
+        prisma.client.findMany({ where: { organizationId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+        prisma.project.findMany({
+          where: { organizationId },
+          orderBy: { name: "asc" },
+          select: { id: true, name: true, clientId: true },
+        }),
+      ])
+    : [null, null];
 
   // Advisory pre-issuance readiness notice — fetched only for a DRAFT
   // invoice, and only when canIssue is already true. getInvoiceIssuanceReadiness()
@@ -116,19 +117,13 @@ export default async function EditInvoicePage({
             canIssue={canIssue}
             readiness={readiness}
             action={boundUpdateInvoiceAction}
-            projects={(projects ?? []).map((project) => ({
-              id: project.id,
-              label: `${project.name} — ${project.client.name}`,
-            }))}
+            clients={clients ?? []}
+            projects={(projects ?? []).map((project) => ({ id: project.id, label: project.name, clientId: project.clientId }))}
             currencyOptions={getSupportedInvoiceCurrencies()}
             defaultValues={{
               invoiceNumber: invoice.invoiceNumber,
-              // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
-              // narrow (see src/lib/invoices/require-invoice-project.ts's
-              // own header comment). The scoped read above already
-              // requires `project: { organizationId }`, so
-              // `invoice.projectId` always has a value.
-              projectId: requireInvoiceProjectId(invoice.projectId, "invoice edit page draft defaultValues"),
+              clientId: invoice.clientId,
+              projectId: invoice.projectId,
               mode: invoice.lineItems.length > 0 ? "itemized" : "flat",
               amount: invoice.amount.toString(),
               lineItems: invoice.lineItems.map((li) => ({
@@ -154,8 +149,8 @@ export default async function EditInvoicePage({
             invoiceId={invoice.id}
             invoiceNumber={invoice.invoiceNumber}
             status={invoice.status}
-            projectName={readOnlyProject.name}
-            clientName={readOnlyProject.client.name}
+            projectName={invoice.project?.name ?? null}
+            clientName={invoice.client.name}
             currency={invoice.currency}
             issueDate={invoice.issueDate}
             dueDate={invoice.dueDate}

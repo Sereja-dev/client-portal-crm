@@ -56,6 +56,7 @@ export type LeadFormState = {
 // status for existing non-DRAFT invoices, see status-actions.ts).
 export type InvoiceScalarFieldKey =
   | "invoiceNumber"
+  | "clientId"
   | "projectId"
   | "mode"
   | "amount"

@@ -6,7 +6,6 @@ import { getCurrentUserOrganization } from "@/lib/current-user";
 import { createActivity } from "@/lib/activity/create-activity";
 import { buildInvoiceSnapshotMetadata } from "@/lib/activity/invoice-metadata";
 import { deleteAttachmentsForParent, cleanupAttachmentStorageObjects } from "@/lib/attachments/attachment-mutations";
-import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 
 export type DeleteInvoiceResult =
   | { ok: true }
@@ -29,7 +28,7 @@ export async function deleteInvoiceAction(invoiceId: string): Promise<DeleteInvo
     // once the Invoice row itself is gone. _count.lineItems, never the
     // full line-item rows, is all DELETED metadata ever needs.
     const existing = await tx.invoice.findFirst({
-      where: { id: invoiceId, organizationId, project: { organizationId }, status: "DRAFT" },
+      where: { id: invoiceId, organizationId, status: "DRAFT" },
       include: { project: { select: { name: true } }, _count: { select: { lineItems: true } } },
     });
 
@@ -38,7 +37,7 @@ export async function deleteInvoiceAction(invoiceId: string): Promise<DeleteInvo
     }
 
     const result = await tx.invoice.deleteMany({
-      where: { id: invoiceId, organizationId, project: { organizationId }, status: "DRAFT" },
+      where: { id: invoiceId, organizationId, status: "DRAFT" },
     });
 
     if (result.count === 0) {
@@ -51,15 +50,10 @@ export async function deleteInvoiceAction(invoiceId: string): Promise<DeleteInvo
       entityType: "INVOICE",
       entityId: invoiceId,
       action: "DELETED",
-      // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
-      // narrow (see src/lib/invoices/require-invoice-project.ts's own
-      // header comment). The scoped read above already requires
-      // `project: { organizationId }`, so `existing.project` always has
-      // one.
       metadata: buildInvoiceSnapshotMetadata(
         existing,
         existing._count.lineItems,
-        requireInvoiceProject(existing.project, "deleteInvoiceAction").name,
+        existing.project?.name ?? null,
         user.name,
       ),
     });

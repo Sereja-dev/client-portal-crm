@@ -31,9 +31,10 @@ function baseFields(overrides: Record<string, string> = {}) {
   };
 }
 
-function buildFormData(invoiceNumber: string, projectId: string, overrides: Record<string, string> = {}): FormData {
+function buildFormData(invoiceNumber: string, clientId: string, projectId: string, overrides: Record<string, string> = {}): FormData {
   const fd = new FormData();
   fd.set("invoiceNumber", invoiceNumber);
+  fd.set("clientId", clientId);
   fd.set("projectId", projectId);
   for (const [key, value] of Object.entries(baseFields(overrides))) fd.set(key, value);
   return fd;
@@ -66,7 +67,7 @@ describe("createInvoiceAction — DRAFT creation, flat and itemized", () => {
     const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
 
     await expectRedirect(
-      createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id, { amount: "250.00" })),
+      createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id, { amount: "250.00" })),
     );
     resetAuthMock();
 
@@ -89,7 +90,7 @@ describe("createInvoiceAction — DRAFT creation, flat and itemized", () => {
     ]);
 
     await expectRedirect(
-      createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id, { mode: "itemized", lineItems })),
+      createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id, { mode: "itemized", lineItems })),
     );
     resetAuthMock();
 
@@ -116,7 +117,7 @@ describe("createInvoiceAction — DRAFT creation, flat and itemized", () => {
     await expectRedirect(
       createInvoiceAction(
         { error: null },
-        buildFormData(invoiceNumber, fixtures.project.id, {
+        buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id, {
           mode: "itemized",
           lineItems,
           discountType: "PERCENTAGE",
@@ -143,7 +144,7 @@ describe("createInvoiceAction — DRAFT creation, flat and itemized", () => {
 
     const result = await createInvoiceAction(
       { error: null },
-      buildFormData(invoiceNumber, fixtures.project.id, { mode: "itemized", lineItems }),
+      buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id, { mode: "itemized", lineItems }),
     );
     resetAuthMock();
 
@@ -161,7 +162,7 @@ describe("createInvoiceAction — DRAFT creation, flat and itemized", () => {
     ]);
 
     await expectRedirect(
-      createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id, { mode: "itemized", lineItems })),
+      createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id, { mode: "itemized", lineItems })),
     );
     resetAuthMock();
 
@@ -187,7 +188,7 @@ describe("createInvoiceAction — DRAFT creation, flat and itemized", () => {
     const lineItems = encodeInvoiceLineItemsFormValue([{ description: "Ignored", quantity: "1", unitPrice: "1.00" }]);
 
     await expectRedirect(
-      createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id, { mode: "flat", lineItems })),
+      createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id, { mode: "flat", lineItems })),
     );
     resetAuthMock();
 
@@ -206,7 +207,7 @@ describe("createInvoiceAction — DRAFT creation, flat and itemized", () => {
 
     const result = await createInvoiceAction(
       { error: null },
-      buildFormData(invoiceNumber, fixtures.project.id, { mode: "bogus" }),
+      buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id, { mode: "bogus" }),
     );
     resetAuthMock();
 

@@ -88,7 +88,7 @@ const VALID_RECIPIENT_SNAPSHOT = {
 type LedgerMode = "matching" | "none" | "wrongVersion" | "wrongStatus" | "wrongPath" | "nullReferencedAt" | "mismatchedIdentity";
 
 async function seedArchivedInvoice(
-  target: { clientId: string; projectId: string; organizationId: string },
+  target: { clientId: string; projectId: string | null; organizationId: string },
   opts: { documentVersion?: number; ledger?: LedgerMode; invoiceNumberSuffix?: string } = {},
 ) {
   const documentVersion = opts.documentVersion ?? 1;
@@ -429,6 +429,16 @@ describe("GET /api/portal/invoices/[id]/pdf — Invoice System Official Slice 3,
     expect(response.status).toBe(307);
     expect(response.headers.get("location")).toBe(DEFAULT_SIGNED_URL);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+
+  it("Quotes / Estimates Phase 2.3 — a project-less archived Invoice's PDF is still downloadable by its own Client", async () => {
+    actAsPortalUser();
+    const { invoice } = await seedArchivedInvoice({ clientId: fixtures.clientA.id, projectId: null, organizationId: fixtures.orgA.id });
+
+    const response = await pdfRequest(invoice.id);
+
+    expect(response.status).toBe(307);
+    expect(response.headers.get("location")).toBe(DEFAULT_SIGNED_URL);
   });
 
   // --- 404 collapse: nonexistent / cross-org / same-org-different-client / DRAFT / legacy / invariant --

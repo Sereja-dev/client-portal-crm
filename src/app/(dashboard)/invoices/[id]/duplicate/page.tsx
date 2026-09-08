@@ -8,20 +8,24 @@ import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { getDuplicateSourceInvoice } from "@/lib/invoices/duplicate-source";
 import { buildDuplicateInvoiceDefaults, type DuplicateSourceData } from "@/lib/invoices/duplicate";
 import { isSupportedInvoiceCurrency, getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
-import { requireInvoiceProjectId } from "@/lib/invoices/require-invoice-project";
 import { createInvoiceAction } from "../../new/actions";
 
 /**
  * Invoice System — Duplicate-as-new-DRAFT (completing official Slice 2,
  * docs/invoicing-architecture.md §3.2/§14). Opening this page performs
  * zero writes in every branch — it only ever reads the authorized
- * CANCELLED source and (for the eligible-currency case) the org's project
- * list, exactly the same reads `/invoices/new` already performs. The
- * only write happens later, when the user explicitly submits through the
- * ordinary, completely unmodified `createInvoiceAction` — this page never
- * adds a `sourceInvoiceId` or any other source-identity field to the
- * form, so the created invoice is, and always was, an ordinary new
- * invoice; the source is only a page-load prefill snapshot.
+ * CANCELLED source and the org's own Client/Project lists, exactly the
+ * same reads `/invoices/new` already performs. The only write happens
+ * later, when the user explicitly submits through the ordinary,
+ * completely unmodified `createInvoiceAction` — this page never adds a
+ * `sourceInvoiceId` or any other source-identity field to the form, so
+ * the created invoice is, and always was, an ordinary new invoice; the
+ * source is only a page-load prefill snapshot.
+ *
+ * Quotes / Estimates Phase 2.3 — a project-less source Invoice can be
+ * duplicated exactly like any other: Client is copied from the source,
+ * Project stays null unless Staff explicitly picks one (Client/Project
+ * pairing is re-verified server-side by createInvoiceAction regardless).
  */
 export default async function DuplicateInvoicePage({
   params,
@@ -80,11 +84,14 @@ export default async function DuplicateInvoicePage({
     );
   }
 
-  const projects = await prisma.project.findMany({
-    where: { organizationId },
-    orderBy: { name: "asc" },
-    select: { id: true, name: true, client: { select: { name: true } } },
-  });
+  const [clients, projects] = await Promise.all([
+    prisma.client.findMany({ where: { organizationId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.project.findMany({
+      where: { organizationId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true, clientId: true },
+    }),
+  ]);
 
   // Captured exactly once, then injected — the pure mapper below never
   // calls `new Date()` internally.
@@ -92,12 +99,8 @@ export default async function DuplicateInvoicePage({
 
   const sourceData: DuplicateSourceData = {
     invoiceNumber: source.invoiceNumber,
-    // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow
-    // (see src/lib/invoices/require-invoice-project.ts's own header
-    // comment). getDuplicateSourceInvoice's own scoped query already
-    // requires `project: { organizationId }`, so `source.projectId`
-    // always has a value.
-    projectId: requireInvoiceProjectId(source.projectId, "duplicate invoice page"),
+    clientId: source.clientId,
+    projectId: source.projectId,
     amount: source.amount.toString(),
     currency: normalizedCurrency,
     notes: source.notes,
@@ -133,22 +136,16 @@ export default async function DuplicateInvoicePage({
         .
       </p>
 
-      {projects.length === 0 ? (
-        <p className="text-text-secondary text-sm">You need a project first — add one before duplicating this invoice.</p>
-      ) : (
-        <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-          <InvoiceForm
-            action={createInvoiceAction}
-            projects={projects.map((project) => ({
-              id: project.id,
-              label: `${project.name} — ${project.client.name}`,
-            }))}
-            currencyOptions={getSupportedInvoiceCurrencies()}
-            defaultValues={defaults}
-            submitLabel="Create duplicate"
-          />
-        </div>
-      )}
+      <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
+        <InvoiceForm
+          action={createInvoiceAction}
+          clients={clients}
+          projects={projects.map((project) => ({ id: project.id, label: project.name, clientId: project.clientId }))}
+          currencyOptions={getSupportedInvoiceCurrencies()}
+          defaultValues={defaults}
+          submitLabel="Create duplicate"
+        />
+      </div>
     </div>
   );
 }

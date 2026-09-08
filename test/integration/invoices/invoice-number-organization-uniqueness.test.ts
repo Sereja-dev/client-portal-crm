@@ -51,9 +51,10 @@ function baseFields(overrides: Record<string, string> = {}) {
   };
 }
 
-function buildFormData(invoiceNumber: string, projectId: string, overrides: Record<string, string> = {}): FormData {
+function buildFormData(invoiceNumber: string, clientId: string, projectId: string, overrides: Record<string, string> = {}): FormData {
   const fd = new FormData();
   fd.set("invoiceNumber", invoiceNumber);
+  fd.set("clientId", clientId);
   fd.set("projectId", projectId);
   for (const [key, value] of Object.entries(baseFields(overrides))) fd.set(key, value);
   return fd;
@@ -145,9 +146,9 @@ describe("Invoice System Official Slice 5c — organization-wide Invoice-number 
     it("same Client + same number: rejected with the existing duplicate-number field error", async () => {
       actAs(fixtures.owner, fixtures.orgA.id);
       const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
-      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id)));
+      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id)));
 
-      const result = await createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id));
+      const result = await createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id));
       resetAuthMock();
 
       expect(result).toEqual({ error: null, fieldErrors: { invoiceNumber: "An invoice with this number already exists." } });
@@ -161,9 +162,9 @@ describe("Invoice System Official Slice 5c — organization-wide Invoice-number 
     it("different Clients in the same organization + same number: rejected with the existing duplicate-number field error", async () => {
       actAs(fixtures.owner, fixtures.orgA.id);
       const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
-      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id)));
+      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id)));
 
-      const result = await createInvoiceAction({ error: null }, buildFormData(invoiceNumber, projectA2.id));
+      const result = await createInvoiceAction({ error: null }, buildFormData(invoiceNumber, clientA2.id, projectA2.id));
       resetAuthMock();
 
       expect(result).toEqual({ error: null, fieldErrors: { invoiceNumber: "An invoice with this number already exists." } });
@@ -182,11 +183,11 @@ describe("Invoice System Official Slice 5c — organization-wide Invoice-number 
       const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
 
       actAs(fixtures.owner, fixtures.orgA.id);
-      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id)));
+      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id)));
       resetAuthMock();
 
       actAs(fixtures.orgBOwner, fixtures.orgB.id);
-      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, projectB.id)));
+      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientB.id, projectB.id)));
       resetAuthMock();
 
       const inOrgA = await prisma.invoice.count({ where: { organizationId: fixtures.orgA.id, invoiceNumber } });
@@ -202,8 +203,8 @@ describe("Invoice System Official Slice 5c — organization-wide Invoice-number 
       const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
 
       const [resultA, resultB] = await Promise.allSettled([
-        createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id)),
-        createInvoiceAction({ error: null }, buildFormData(invoiceNumber, projectA2.id)),
+        createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id)),
+        createInvoiceAction({ error: null }, buildFormData(invoiceNumber, clientA2.id, projectA2.id)),
       ]);
       resetAuthMock();
 
@@ -229,17 +230,17 @@ describe("Invoice System Official Slice 5c — organization-wide Invoice-number 
     it("same Client + same number as another existing Invoice: rejected with the existing duplicate-number field error, no partial write", async () => {
       actAs(fixtures.owner, fixtures.orgA.id);
       const takenNumber = uniqueInvoiceNumber(fixtures.runId);
-      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(takenNumber, fixtures.project.id)));
+      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(takenNumber, fixtures.clientA.id, fixtures.project.id)));
 
       const ownNumber = uniqueInvoiceNumber(fixtures.runId);
-      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(ownNumber, fixtures.project.id)));
+      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(ownNumber, fixtures.clientA.id, fixtures.project.id)));
       const toEdit = await prisma.invoice.findFirstOrThrow({ where: { organizationId: fixtures.orgA.id, invoiceNumber: ownNumber } });
 
       const result = await updateInvoiceAction(
         toEdit.id,
         toEdit.updatedAt.toISOString(),
         { error: null },
-        buildFormData(takenNumber, fixtures.project.id),
+        buildFormData(takenNumber, fixtures.clientA.id, fixtures.project.id),
       );
       resetAuthMock();
 
@@ -254,17 +255,17 @@ describe("Invoice System Official Slice 5c — organization-wide Invoice-number 
     it("different Client in the same organization + same number as another existing Invoice: rejected", async () => {
       actAs(fixtures.owner, fixtures.orgA.id);
       const takenNumber = uniqueInvoiceNumber(fixtures.runId);
-      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(takenNumber, fixtures.project.id)));
+      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(takenNumber, fixtures.clientA.id, fixtures.project.id)));
 
       const ownNumber = uniqueInvoiceNumber(fixtures.runId);
-      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(ownNumber, projectA2.id)));
+      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(ownNumber, clientA2.id, projectA2.id)));
       const toEdit = await prisma.invoice.findFirstOrThrow({ where: { organizationId: fixtures.orgA.id, invoiceNumber: ownNumber } });
 
       const result = await updateInvoiceAction(
         toEdit.id,
         toEdit.updatedAt.toISOString(),
         { error: null },
-        buildFormData(takenNumber, projectA2.id),
+        buildFormData(takenNumber, clientA2.id, projectA2.id),
       );
       resetAuthMock();
 
@@ -279,7 +280,7 @@ describe("Invoice System Official Slice 5c — organization-wide Invoice-number 
     it("an unchanged DRAFT resubmitting its own current number: no-op, no error, no duplicate rejection", async () => {
       actAs(fixtures.owner, fixtures.orgA.id);
       const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
-      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id)));
+      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id)));
       const invoice = await prisma.invoice.findFirstOrThrow({ where: { organizationId: fixtures.orgA.id, invoiceNumber } });
 
       await expectRedirect(
@@ -287,7 +288,7 @@ describe("Invoice System Official Slice 5c — organization-wide Invoice-number 
           invoice.id,
           invoice.updatedAt.toISOString(),
           { error: null },
-          buildFormData(invoiceNumber, fixtures.project.id),
+          buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id),
         ),
       );
       resetAuthMock();
@@ -306,11 +307,11 @@ describe("Invoice System Official Slice 5c — organization-wide Invoice-number 
       // test above which only checks both rows persist.
       const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
       actAs(fixtures.owner, fixtures.orgA.id);
-      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id)));
+      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id)));
       resetAuthMock();
 
       actAs(fixtures.orgBOwner, fixtures.orgB.id);
-      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, projectB.id)));
+      await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientB.id, projectB.id)));
       resetAuthMock();
 
       const orgAInvoice = await prisma.invoice.findFirstOrThrow({ where: { organizationId: fixtures.orgA.id, invoiceNumber } });

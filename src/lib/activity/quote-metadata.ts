@@ -136,3 +136,20 @@ export function buildQuoteActivityMetadata(
 export function buildQuoteStatusChangeMetadata(from: string, to: string): QuoteStatusChangeMetadata {
   return { from, to };
 }
+
+export type QuoteConvertedMetadata = {
+  number: string;
+  invoiceNumber: string;
+  actorName: string;
+};
+
+/**
+ * Quotes / Estimates Phase 2.3 — Quote -> Invoice conversion's own
+ * CONVERTED event. Deliberately not the resulting Invoice's id (Activity
+ * metadata never carries a raw id a reader could use to probe another
+ * record — same discipline every other builder in this file already
+ * follows) — only the two human-readable reference numbers.
+ */
+export function buildQuoteConvertedMetadata(quote: { number: string }, invoiceNumber: string, actorName: string): QuoteConvertedMetadata {
+  return { number: quote.number, invoiceNumber, actorName };
+}

@@ -38,7 +38,9 @@ export const INVOICE_NOTES_MAX_LENGTH = 10_000;
 export type ParsedInvoiceValues = {
   mode: "flat" | "itemized";
   invoiceNumber: string;
-  projectId: string;
+  clientId: string;
+  /** Optional — Quotes / Estimates Phase 2.3 (Invoice.projectId is nullable at the schema level). Empty string in the submitted form means "no project", parsed here to `null`, never to `""`. */
+  projectId: string | null;
   /** Present only when mode === "flat" — ignored/never read otherwise. */
   amount: string | null;
   /** Present only when mode === "itemized" — ignored/never read otherwise. */
@@ -96,7 +98,8 @@ export function parseInvoiceForm(formData: FormData): ParseInvoiceFormResult {
   const modeRaw = String(formData.get("mode") ?? "");
 
   const invoiceNumber = String(formData.get("invoiceNumber") ?? "").trim();
-  const projectId = String(formData.get("projectId") ?? "").trim();
+  const clientId = String(formData.get("clientId") ?? "").trim();
+  const projectIdRaw = String(formData.get("projectId") ?? "").trim();
   const amountRaw = String(formData.get("amount") ?? "").trim();
   const lineItemsRaw = String(formData.get("lineItems") ?? "");
   const currencyRaw = String(formData.get("currency") ?? "").trim().toUpperCase();
@@ -115,9 +118,12 @@ export function parseInvoiceForm(formData: FormData): ParseInvoiceFormResult {
   if (!invoiceNumber) {
     fieldErrors.invoiceNumber = "Invoice number is required.";
   }
-  if (!projectId) {
-    fieldErrors.projectId = "Select a project.";
+  if (!clientId) {
+    fieldErrors.clientId = "Select a client.";
   }
+  // projectId is optional — an empty submitted value means "no project",
+  // never a validation error.
+  const projectId = projectIdRaw || null;
 
   // Only the exact runtime values "flat"/"itemized" are accepted — a
   // missing, empty, differently-cased, or forged value (e.g. "bogus") is
@@ -230,6 +236,7 @@ export function parseInvoiceForm(formData: FormData): ParseInvoiceFormResult {
     values: {
       mode,
       invoiceNumber,
+      clientId,
       projectId,
       amount,
       lineItems,

@@ -16,7 +16,8 @@ export type InvoiceTrackedLineItem = {
 
 export type InvoiceTrackedSnapshot = {
   invoiceNumber: string;
-  projectId: string;
+  clientId: string;
+  projectId: string | null;
   // Decimal on the "before" (DB) side, a Decimal or numeric string on the
   // "after" (calculation-result) side — compared via Prisma.Decimal,
   // never Number() (precision-lossy for large/precise decimals).
@@ -35,6 +36,7 @@ export type InvoiceTrackedSnapshot = {
 
 const INVOICE_TRACKED_FIELDS = [
   "invoiceNumber",
+  "clientId",
   "projectId",
   "amount",
   "currency",
@@ -137,7 +139,7 @@ export type InvoiceSnapshotMetadata = {
   taxAmount: string | null;
   taxLabel: string;
   lineItemCount: number;
-  projectName: string;
+  projectName: string | null;
   actorName: string;
 };
 
@@ -160,7 +162,7 @@ function toStringOrNull(value: unknown): string | null {
 export function buildInvoiceSnapshotMetadata(
   invoice: InvoiceSnapshotValue,
   lineItemCount: number,
-  projectName: string,
+  projectName: string | null,
   actorName: string,
 ): InvoiceSnapshotMetadata {
   return {
@@ -182,7 +184,7 @@ export function buildInvoiceSnapshotMetadata(
 
 export type InvoiceStatusChangedMetadata = {
   invoiceNumber: string;
-  projectName: string;
+  projectName: string | null;
   from: string;
   to: string;
   actorName: string;
@@ -191,7 +193,7 @@ export type InvoiceStatusChangedMetadata = {
 /** Unchanged shape/event from before Slice 2b — reused verbatim by status-actions.ts. */
 export function buildInvoiceStatusChangedMetadata(
   invoice: Pick<InvoiceSnapshotValue, "invoiceNumber">,
-  projectName: string,
+  projectName: string | null,
   from: string,
   to: string,
   actorName: string,
@@ -201,7 +203,7 @@ export function buildInvoiceStatusChangedMetadata(
 
 export type InvoiceUpdatedMetadata = {
   invoiceNumber: string;
-  projectName: string;
+  projectName: string | null;
   /** Field names only — e.g. ["currency", "lineItems", "internalNotes"]. Never a value, before or after. */
   changedFields: string[];
   actorName: string;
@@ -211,7 +213,7 @@ export type InvoiceUpdatedMetadata = {
 export function buildInvoiceUpdatedMetadata(
   invoiceNumber: string,
   changedFields: string[],
-  projectName: string,
+  projectName: string | null,
   actorName: string,
 ): InvoiceUpdatedMetadata {
   return { invoiceNumber, projectName, changedFields, actorName };

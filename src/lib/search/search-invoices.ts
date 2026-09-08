@@ -2,24 +2,21 @@ import { prisma } from "@/lib/prisma";
 import { computeMatchTier, sortRanked } from "./ranking";
 import { buildInvoiceResultUrl } from "./result-links";
 import { escapeLikePattern } from "./normalize-query";
-import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 import type { SearchResult } from "./types";
 
 /**
  * Global Search Stage 2 (docs/search-architecture.md §2/§5/§8). Scoped by
- * `organizationId` (required, kept consistent with project.organizationId
- * by every write path — matching the existing `buildInvoiceWhere`
- * convention exactly, src/app/(dashboard)/invoices/query.ts) as the primary
- * predicate, with BOTH `project: { organizationId }` and
- * `client: { organizationId }` retained as defense in depth — an Invoice's
- * Client and Project always belong to the same organization in valid data,
- * so requiring all three costs nothing on the happy path while refusing to
- * surface a row in the rare case those relations were ever inconsistent.
+ * `organizationId` (Invoice's own column) as the sole tenant boundary —
+ * Quotes / Estimates Phase 2.3 (Invoice / Project Coupling Audit) removed
+ * the `project: { organizationId }`/`client: { organizationId }`
+ * defense-in-depth filters this used to also require: a project-less
+ * Invoice has no Project relation to match, so that filter would have
+ * silently excluded it from every search result.
  *
- * Searches `invoiceNumber` and the related `Project.name`/`Client.name`
- * only — matching the design doc's §2 Scope exactly. `notes` is never
- * searched or selected: it is explicit free-text the design doc's §8 names
- * as never returned.
+ * Searches `invoiceNumber`, `Client.name` (Invoice's own direct relation
+ * — never routed through Project), and `Project.name` (only present for
+ * an Invoice that has one). `notes` is never searched or selected: it is
+ * explicit free-text the design doc's §8 names as never returned.
  */
 export async function searchInvoices(params: {
   organizationId: string;
@@ -32,39 +29,31 @@ export async function searchInvoices(params: {
   const rows = await prisma.invoice.findMany({
     where: {
       organizationId: params.organizationId,
-      project: { organizationId: params.organizationId },
-      client: { organizationId: params.organizationId },
       OR: [
         { invoiceNumber: { contains: escaped, mode: "insensitive" } },
+        { client: { name: { contains: escaped, mode: "insensitive" } } },
         { project: { name: { contains: escaped, mode: "insensitive" } } },
-        { project: { client: { name: { contains: escaped, mode: "insensitive" } } } },
       ],
     },
     select: {
       id: true,
       invoiceNumber: true,
       createdAt: true,
-      project: { select: { name: true, client: { select: { name: true } } } },
+      client: { select: { name: true } },
+      project: { select: { name: true } },
     },
     take: params.candidateLimit,
     orderBy: { createdAt: "desc" },
   });
 
-  // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow
-  // (see src/lib/invoices/require-invoice-project.ts's own header
-  // comment). Invoice.project is nullable at the schema level now, but
-  // the scoped query above already requires `project: { organizationId:
-  // params.organizationId }`, so every row here always has one.
-  const narrowedRows = rows.map((row) => ({ ...row, project: requireInvoiceProject(row.project, "searchInvoices") }));
-
   const ranked = sortRanked(
-    narrowedRows.map((row) => ({
+    rows.map((row) => ({
       id: row.id,
       recencyKey: row.createdAt.toISOString(),
       tier: computeMatchTier({
         query: params.query,
         primary: row.invoiceNumber,
-        secondary: `${row.project.name} ${row.project.client.name}`,
+        secondary: row.project ? `${row.project.name} ${row.client.name}` : row.client.name,
       }),
       row,
     })),
@@ -79,7 +68,7 @@ export async function searchInvoices(params: {
         type: "INVOICE",
         id: entry.row.id,
         title: `Invoice #${entry.row.invoiceNumber}`,
-        subtitle: `${entry.row.project.name} · ${entry.row.project.client.name}`,
+        subtitle: entry.row.project ? `${entry.row.project.name} · ${entry.row.client.name}` : entry.row.client.name,
         preview: null,
         url,
       };

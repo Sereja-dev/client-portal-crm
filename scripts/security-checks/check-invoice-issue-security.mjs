@@ -292,14 +292,17 @@ if (existsSync(portalPdfRoute)) {
   ) && ok;
 
   // 11i. The Invoice lookup is scoped by the real Portal Client-boundary
-  // fields — clientId (primary), organizationId (defense in depth), and
-  // project.clientId (defense against Invoice/Project relation drift) —
-  // never the staff organizationId-only boundary.
+  // fields — clientId (primary), organizationId (defense in depth) —
+  // never the staff organizationId-only boundary. Quotes / Estimates
+  // Phase 2.3 (Invoice / Project Coupling Audit) retired the
+  // `project: { clientId }` predicate this check used to also require:
+  // a project-less Invoice has no Project relation to match, so that
+  // filter would have silently 404'd its own PDF for its rightful
+  // Client — Project is no longer part of Portal Invoice authorization
+  // at all.
   ok = report(
-    `${portalPdfRoute} scopes its Invoice query by clientId, organizationId, and project's clientId`,
-    portalPdfContent.includes("clientId") &&
-      portalPdfContent.includes("organizationId") &&
-      /project:\s*\{\s*clientId\s*\}/.test(portalPdfContent),
+    `${portalPdfRoute} scopes its Invoice query by clientId and organizationId`,
+    portalPdfContent.includes("clientId") && portalPdfContent.includes("organizationId"),
     "",
   ) && ok;
 }

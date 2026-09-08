@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { INVOICE_STATUSES } from "@/lib/validation/invoice";
 import { escapeLikePattern } from "@/lib/search/normalize-query";
-import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 import { isPlainObject, hasOnlyAllowedKeys, isValidOptionalQuery, isValidOptionalEnum } from "./validation";
 import { assertExactKeysList } from "./output-projection";
 import { toolError, toolOk, type AiToolResult } from "./result";
@@ -20,14 +19,11 @@ import { SEARCH_INVOICES_LIMIT } from "./limits";
  * comment — and that module's own select omits amount/status/currency/
  * dueDate entirely, since it exists only to build a navigation link).
  *
- * Tenant scoping is the established triple defense-in-depth
- * search-invoices.ts itself already uses: Invoice.organizationId AND
- * project.organizationId AND client.organizationId, all required
- * simultaneously. An Invoice's Client/Project always belong to the same
- * organization in valid data, so this costs nothing on the happy path
- * and refuses to surface a row in the rare case those relations were
- * ever inconsistent — see the integration test that deliberately
- * constructs exactly that inconsistency.
+ * Tenant scoping is Invoice.organizationId alone (Quotes / Estimates
+ * Phase 2.3 — Invoice / Project Coupling Audit): the project/client
+ * defense-in-depth relation filters this used to also require were
+ * removed, since a project-less Invoice has no Project relation to match
+ * and would otherwise silently vanish from this tool's results.
  *
  * NO ref, NO id: unlike Client/Project/Task, this batch adds no invoice
  * detail tool at all (a deliberate, approved scope decision — see the
@@ -55,7 +51,8 @@ export type InvoiceSearchItem = {
   currency: string;
   dueDate: string | null;
   clientName: string;
-  projectName: string;
+  /** Null for a project-less Invoice (Quotes / Estimates Phase 2.3). */
+  projectName: string | null;
 };
 const SEARCH_ITEM_KEYS = ["invoiceNumber", "status", "amount", "currency", "dueDate", "clientName", "projectName"] as const;
 
@@ -83,15 +80,13 @@ export async function executeSearchInvoices(organizationId: string, rawInput: un
     const rows = await prisma.invoice.findMany({
       where: {
         organizationId,
-        project: { organizationId },
-        client: { organizationId },
         ...(validated.status ? { status: validated.status as (typeof INVOICE_STATUSES)[number] } : {}),
         ...(trimmedQuery
           ? {
               OR: [
                 { invoiceNumber: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } },
+                { client: { name: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } } },
                 { project: { name: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } } },
-                { project: { client: { name: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } } } },
               ],
             }
           : {}),
@@ -102,7 +97,8 @@ export async function executeSearchInvoices(organizationId: string, rawInput: un
         amount: true,
         currency: true,
         dueDate: true,
-        project: { select: { name: true, client: { select: { name: true } } } },
+        client: { select: { name: true } },
+        project: { select: { name: true } },
       },
       // Deterministic: dueDate ascending with nulls sorted last (a DRAFT
       // invoice often has no dueDate yet), then id ascending as a strict
@@ -114,24 +110,17 @@ export async function executeSearchInvoices(organizationId: string, rawInput: un
     });
 
     const results = assertExactKeysList(
-      rows.map((row): InvoiceSearchItem => {
-        // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
-        // narrow (see src/lib/invoices/require-invoice-project.ts's own
-        // header comment). The scoped query above already requires
-        // `project: { organizationId }`, so every row here always has
-        // one; a throw here is caught by this function's own try/catch
-        // below and mapped to the same generic "unavailable" result.
-        const project = requireInvoiceProject(row.project, "ai/tools/invoices.searchInvoices");
-        return {
+      rows.map(
+        (row): InvoiceSearchItem => ({
           invoiceNumber: row.invoiceNumber,
           status: row.status,
           amount: Number(row.amount),
           currency: row.currency,
           dueDate: row.dueDate ? row.dueDate.toISOString() : null,
-          clientName: project.client.name,
-          projectName: project.name,
-        };
-      }),
+          clientName: row.client.name,
+          projectName: row.project?.name ?? null,
+        }),
+      ),
       SEARCH_ITEM_KEYS,
       TOOL_NAME,
     ) as InvoiceSearchItem[];

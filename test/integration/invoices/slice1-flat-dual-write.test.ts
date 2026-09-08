@@ -29,6 +29,7 @@ function uniqueInvoiceNumber(runId: string): string {
 
 function buildFlatInvoiceFormData(fields: {
   invoiceNumber: string;
+  clientId: string;
   projectId: string;
   amount?: string;
   dueDate?: string;
@@ -37,6 +38,7 @@ function buildFlatInvoiceFormData(fields: {
   const formData = new FormData();
   formData.set("mode", "flat");
   formData.set("invoiceNumber", fields.invoiceNumber);
+  formData.set("clientId", fields.clientId);
   formData.set("projectId", fields.projectId);
   formData.set("amount", fields.amount ?? "100.00");
   formData.set("currency", "USD");
@@ -91,7 +93,7 @@ describe("Invoice flat dual-write compatibility — through the real Slice 2b ac
     await expectRedirect(
       createInvoiceAction(
         { error: null },
-        buildFlatInvoiceFormData({ invoiceNumber, projectId: fixtures.project.id, amount: "123.45" }),
+        buildFlatInvoiceFormData({ invoiceNumber, clientId: fixtures.clientA.id, projectId: fixtures.project.id, amount: "123.45" }),
       ),
     );
     resetAuthMock();
@@ -127,7 +129,7 @@ describe("Invoice flat dual-write compatibility — through the real Slice 2b ac
     await expectRedirect(
       createInvoiceAction(
         { error: null },
-        buildFlatInvoiceFormData({ invoiceNumber, projectId: fixtures.project.id, amount: "50.00" }),
+        buildFlatInvoiceFormData({ invoiceNumber, clientId: fixtures.clientA.id, projectId: fixtures.project.id, amount: "50.00" }),
       ),
     );
     const created = await prisma.invoice.findUniqueOrThrow({
@@ -140,7 +142,7 @@ describe("Invoice flat dual-write compatibility — through the real Slice 2b ac
         created.id,
         created.updatedAt.toISOString(),
         { error: null },
-        buildFlatInvoiceFormData({ invoiceNumber, projectId: fixtures.project.id, amount: "75.50" }),
+        buildFlatInvoiceFormData({ invoiceNumber, clientId: fixtures.clientA.id, projectId: fixtures.project.id, amount: "75.50" }),
       ),
     );
     resetAuthMock();
@@ -164,11 +166,11 @@ describe("Invoice flat dual-write compatibility — through the real Slice 2b ac
 
     const result = await createInvoiceAction(
       { error: null },
-      buildFlatInvoiceFormData({ invoiceNumber, projectId: projectB.id }),
+      buildFlatInvoiceFormData({ invoiceNumber, clientId: fixtures.clientA.id, projectId: projectB.id }),
     );
     resetAuthMock();
 
-    expect(result).toEqual({ error: null, fieldErrors: { projectId: "Select a valid project." } });
+    expect(result).toEqual({ error: null, fieldErrors: { clientId: "Select a valid client." } });
     const created = await prisma.invoice.findFirst({ where: { invoiceNumber } });
     expect(created).toBeNull();
   });
@@ -179,7 +181,7 @@ describe("Invoice flat dual-write compatibility — through the real Slice 2b ac
     await expectRedirect(
       createInvoiceAction(
         { error: null },
-        buildFlatInvoiceFormData({ invoiceNumber, projectId: fixtures.project.id, amount: "999.99" }),
+        buildFlatInvoiceFormData({ invoiceNumber, clientId: fixtures.clientA.id, projectId: fixtures.project.id, amount: "999.99" }),
       ),
     );
     resetAuthMock();

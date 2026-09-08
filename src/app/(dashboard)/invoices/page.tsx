@@ -5,7 +5,6 @@ import { formatCurrency } from "@/lib/format";
 import { formatInvoiceStatusLabel } from "@/lib/invoices/status-label";
 import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
 import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib/list-params";
-import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { deleteInvoiceAction } from "./actions";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -63,8 +62,12 @@ export default async function InvoicesPage({
   const where = buildInvoiceWhere(organizationId, listParams);
   const orderBy = buildInvoiceOrderBy(listParams);
 
-  const [projectCount, [rawInvoices, total]] = await Promise.all([
-    prisma.project.count({ where: { organizationId } }),
+  // Quotes / Estimates Phase 2.3 — Client REQUIRED, Project OPTIONAL
+  // (Invoice / Project Coupling Audit). Gating Invoice creation on
+  // `clientCount` (never `projectCount`) — an org with zero Projects can
+  // still fully use Invoices, as long as it has at least one Client.
+  const [clientCount, [invoices, total]] = await Promise.all([
+    prisma.client.count({ where: { organizationId } }),
     prisma.$transaction([
       prisma.invoice.findMany({
         where,
@@ -72,22 +75,13 @@ export default async function InvoicesPage({
         skip: getOffset(listParams.page),
         take: PAGE_SIZE,
         include: {
-          project: { select: { name: true, client: { select: { name: true } } } },
+          client: { select: { name: true } },
+          project: { select: { name: true } },
         },
       }),
       prisma.invoice.count({ where }),
     ]),
   ]);
-
-  // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow
-  // (see src/lib/invoices/require-invoice-project.ts's own header
-  // comment). buildInvoiceWhere's own `where` already requires
-  // `project: { organizationId }`, so every fetched row here always has
-  // one.
-  const invoices = rawInvoices.map((invoice) => ({
-    ...invoice,
-    project: requireInvoiceProject(invoice.project, "invoices list page"),
-  }));
 
   const totalPages = getTotalPages(total);
   const hasActiveParams = Boolean(listParams.q || listParams.status);
@@ -103,7 +97,7 @@ export default async function InvoicesPage({
             {total} {total === 1 ? "invoice" : "invoices"}
           </p>
         </div>
-        {projectCount > 0 && (
+        {clientCount > 0 && (
           <Link
             href="/invoices/new"
             className={PRIMARY_LINK_CLASSES}
@@ -113,7 +107,7 @@ export default async function InvoicesPage({
         )}
       </div>
 
-      {projectCount > 0 && (
+      {clientCount > 0 && (
         <SearchFilterBar
           basePath="/invoices"
           searchValue={listParams.q}
@@ -138,16 +132,16 @@ export default async function InvoicesPage({
       )}
 
       {total === 0 ? (
-        projectCount === 0 ? (
+        clientCount === 0 ? (
           <EmptyState
-            title="You need a project first"
-            description="Invoices must belong to a project. Add one before creating an invoice."
+            title="You need a client first"
+            description="Invoices must belong to a client. Add one before creating an invoice."
             action={
               <Link
-                href="/projects/new"
+                href="/clients/new"
                 className={PRIMARY_LINK_CLASSES}
               >
-                Add project
+                Add client
               </Link>
             }
           />
@@ -198,8 +192,8 @@ export default async function InvoicesPage({
                 {invoices.map((invoice) => (
                   <TableRow key={invoice.id}>
                     <TableCell emphasis>{invoice.invoiceNumber}</TableCell>
-                    <TableCell>{invoice.project.name}</TableCell>
-                    <TableCell>{invoice.project.client.name}</TableCell>
+                    <TableCell>{invoice.project?.name ?? "No project"}</TableCell>
+                    <TableCell>{invoice.client.name}</TableCell>
                     <TableCell>
                       {formatCurrency(Number(invoice.amount), invoice.currency)}
                     </TableCell>
@@ -252,8 +246,8 @@ export default async function InvoicesPage({
             {invoices.map((invoice) => (
               <RecordCard key={invoice.id}>
                 <RecordCardField label="Invoice #" value={invoice.invoiceNumber} emphasis />
-                <RecordCardField label="Project" value={invoice.project.name} />
-                <RecordCardField label="Client" value={invoice.project.client.name} />
+                <RecordCardField label="Project" value={invoice.project?.name ?? "No project"} />
+                <RecordCardField label="Client" value={invoice.client.name} />
                 <RecordCardField
                   label="Amount"
                   value={formatCurrency(Number(invoice.amount), invoice.currency)}

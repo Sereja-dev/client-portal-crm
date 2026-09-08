@@ -6,6 +6,7 @@ import { encodeInvoiceLineItemsFormValue } from "@/lib/invoices/line-items-form"
 function flatFormDataWithoutModeKey(): FormData {
   const fd = new FormData();
   fd.set("invoiceNumber", "INV-1");
+  fd.set("clientId", "22222222-2222-4222-8222-222222222222");
   fd.set("projectId", "11111111-1111-4111-8111-111111111111");
   fd.set("amount", "100.00");
   fd.set("currency", "USD");
@@ -25,6 +26,7 @@ function baseFlatFormData(overrides: Record<string, string> = {}): FormData {
   const fields: Record<string, string> = {
     mode: "flat",
     invoiceNumber: "INV-1",
+    clientId: "22222222-2222-4222-8222-222222222222",
     projectId: "11111111-1111-4111-8111-111111111111",
     amount: "100.00",
     currency: "USD",
@@ -61,10 +63,16 @@ describe("parseInvoiceForm — flat mode", () => {
     if (!result.ok) expect(result.fieldErrors.invoiceNumber).toBeTruthy();
   });
 
-  it("requires projectId", () => {
-    const result = parseInvoiceForm(baseFlatFormData({ projectId: "" }));
+  it("requires clientId", () => {
+    const result = parseInvoiceForm(baseFlatFormData({ clientId: "" }));
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.fieldErrors.projectId).toBeTruthy();
+    if (!result.ok) expect(result.fieldErrors.clientId).toBeTruthy();
+  });
+
+  it("projectId is optional — an empty submitted value parses to null, never a validation error (Quotes / Estimates Phase 2.3)", () => {
+    const result = parseInvoiceForm(baseFlatFormData({ projectId: "" }));
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.values.projectId).toBeNull();
   });
 
   it("requires amount in flat mode", () => {

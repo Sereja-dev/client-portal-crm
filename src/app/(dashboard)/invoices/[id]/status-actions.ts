@@ -7,7 +7,6 @@ import { createActivity } from "@/lib/activity/create-activity";
 import { deliverNotificationEmails } from "@/lib/notifications/email/deliver-notification-email";
 import { buildInvoiceStatusChangedMetadata } from "@/lib/activity/invoice-metadata";
 import { isTransitionAllowed, computePaidAtUpdate } from "@/lib/invoices/lifecycle";
-import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 import { INVOICE_STATUSES, type InvoiceStatusValue } from "@/lib/validation/invoice";
 
 export type ChangeInvoiceStatusResult =
@@ -35,7 +34,7 @@ export async function changeInvoiceStatusAction(
 
   const outcome = await prisma.$transaction(async (tx) => {
     const existing = await tx.invoice.findFirst({
-      where: { id: invoiceId, organizationId, project: { organizationId } },
+      where: { id: invoiceId, organizationId },
       include: { project: { select: { name: true } } },
     });
     if (!existing) return { status: "not_found" as const, notificationIds: [] as string[] };
@@ -52,7 +51,7 @@ export async function changeInvoiceStatusAction(
     // (a concurrent winner's write changes `status`, so a loser's WHERE
     // evaluated against the post-commit row matches zero rows).
     const result = await tx.invoice.updateMany({
-      where: { id: invoiceId, organizationId, project: { organizationId }, status: existing.status },
+      where: { id: invoiceId, organizationId, status: existing.status },
       data: { status: validatedTarget, ...paidAtUpdate },
     });
     if (result.count === 0) return { status: "conflict" as const, notificationIds: [] as string[] };
@@ -63,14 +62,9 @@ export async function changeInvoiceStatusAction(
       entityType: "INVOICE",
       entityId: invoiceId,
       action: "STATUS_CHANGED",
-      // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
-      // narrow (see src/lib/invoices/require-invoice-project.ts's own
-      // header comment). The scoped read above already requires
-      // `project: { organizationId }`, so `existing.project` always has
-      // one.
       metadata: buildInvoiceStatusChangedMetadata(
         existing,
-        requireInvoiceProject(existing.project, "changeInvoiceStatusAction").name,
+        existing.project?.name ?? null,
         existing.status,
         validatedTarget,
         user.name,

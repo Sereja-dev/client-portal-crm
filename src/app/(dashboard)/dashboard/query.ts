@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma";
 import { formatActivity, type ActivityDisplayModel } from "@/lib/activity/format-activity";
-import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 import { InvoiceStatus, TaskStatus, ProjectStatus } from "@/generated/prisma/enums";
 import type { DashboardPeriod } from "@/lib/dashboard/period";
 import { getDashboardPeriodRange, type DashboardBucketUnit } from "@/lib/dashboard/period";
@@ -139,7 +138,7 @@ export async function getDashboardAnalytics({
       where: { project: { organizationId }, status: { not: "DONE" }, dueDate: { lt: now } },
     }),
     prisma.invoice.aggregate({
-      where: { organizationId, project: { organizationId }, status: { in: [...UNPAID_INVOICE_STATUSES] } },
+      where: { organizationId, status: { in: [...UNPAID_INVOICE_STATUSES] } },
       _sum: { amount: true },
     }),
     // Selected once, used for both the paidRevenue KPI (sum) and the
@@ -147,7 +146,6 @@ export async function getDashboardAnalytics({
     prisma.invoice.findMany({
       where: {
         organizationId,
-        project: { organizationId },
         status: "PAID",
         paidAt: { not: null, gte: periodRange.start, lte: periodRange.end },
       },
@@ -155,7 +153,7 @@ export async function getDashboardAnalytics({
     }),
     prisma.invoice.groupBy({
       by: ["status"],
-      where: { organizationId, project: { organizationId } },
+      where: { organizationId },
       _count: true,
     }),
     prisma.task.groupBy({
@@ -191,16 +189,16 @@ export async function getDashboardAnalytics({
     // dueDate is nullable in the schema; excluded here since a due-date-
     // sorted list has nothing meaningful to do with a null one.
     prisma.invoice.findMany({
-      where: { organizationId, project: { organizationId }, status: "OVERDUE", dueDate: { not: null } },
+      where: { organizationId, status: "OVERDUE", dueDate: { not: null } },
       orderBy: { dueDate: "asc" },
       take: LIST_TAKE,
-      include: { project: { select: { client: { select: { name: true } } } } },
+      include: { client: { select: { name: true } } },
     }),
     prisma.invoice.findMany({
-      where: { organizationId, project: { organizationId } },
+      where: { organizationId },
       orderBy: { createdAt: "desc" },
       take: LIST_TAKE,
-      include: { project: { select: { client: { select: { name: true } } } } },
+      include: { client: { select: { name: true } } },
     }),
   ]);
 
@@ -223,16 +221,12 @@ export async function getDashboardAnalytics({
       }),
     ),
     ...overdueInvoicesRows.map(
-      // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
-      // narrow (see src/lib/invoices/require-invoice-project.ts's own
-      // header comment). The query above already requires `project: {
-      // organizationId }`, so every row here always has one.
       (invoice): OverdueItem => ({
         kind: "invoice",
         id: invoice.id,
         invoiceNumber: invoice.invoiceNumber,
         dueDate: invoice.dueDate as Date,
-        clientName: requireInvoiceProject(invoice.project, "dashboard overdue invoices").client.name,
+        clientName: invoice.client.name,
         amount: Number(invoice.amount),
         currency: invoice.currency,
       }),
@@ -281,15 +275,13 @@ export async function getDashboardAnalytics({
       projectName: task.project.name,
     })),
     overdueItems,
-    // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow,
-    // same reasoning as overdueItems above.
     recentInvoices: recentInvoicesRows.map((invoice) => ({
       id: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
       status: invoice.status,
       amount: Number(invoice.amount),
       currency: invoice.currency,
-      clientName: requireInvoiceProject(invoice.project, "dashboard recent invoices").client.name,
+      clientName: invoice.client.name,
       createdAt: invoice.createdAt,
     })),
   };

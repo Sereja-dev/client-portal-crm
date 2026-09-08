@@ -1,7 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import type { ProjectStatus, InvoiceStatus } from "@/generated/prisma/enums";
 import { classifyInvoiceArchival } from "@/lib/invoices/pdf/classify-archival";
-import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 
 // Same definition the staff Dashboard KPI already uses for "active
 // projects" (src/app/(dashboard)/dashboard/query.ts) — kept identical so
@@ -66,7 +65,8 @@ export type PortalProjectDetail = PortalProjectSummary & {
 export type PortalInvoiceSummary = {
   id: string;
   invoiceNumber: string;
-  projectName: string;
+  /** Null for a project-less Invoice (Quotes / Estimates Phase 2.3) — every portal page renders "No project" (or omits the row) rather than assuming a value. */
+  projectName: string | null;
   issueDate: Date;
   dueDate: Date | null;
   amount: number;
@@ -78,13 +78,15 @@ export type PortalInvoiceDetail = PortalInvoiceSummary & {
   paidAt: Date | null;
   clientName: string;
   /**
-   * Invoice.project.organizationId (deliberately the project's, not the
-   * invoice's own organizationId — see client-portal/attachments.ts) kept
-   * on this internal, already-scoped detail model so the caller can pass
-   * it straight into the attachment query. Never render this field in any
-   * portal page's JSX.
+   * Invoice.organizationId directly (Quotes / Estimates Phase 2.3 —
+   * never derived from Project, which may not exist at all for a
+   * project-less Invoice; see client-portal/attachments.ts's own doc
+   * comment on why this must be the Invoice's own column, not the
+   * Project's). Kept on this internal, already-scoped detail model so
+   * the caller can pass it straight into the attachment query. Never
+   * render this field in any portal page's JSX.
    */
-  projectOrganizationId: string | null;
+  organizationId: string;
   /**
    * Invoice System Official Slice 3, Portal Invoice PDF access —
    * classifyInvoiceArchival()'s own "archived" outcome, computed here from
@@ -131,12 +133,12 @@ function toInvoiceSummary(invoice: {
   amount: unknown;
   currency: string;
   status: InvoiceStatus;
-  project: { name: string };
+  project: { name: string } | null;
 }): PortalInvoiceSummary {
   return {
     id: invoice.id,
     invoiceNumber: invoice.invoiceNumber,
-    projectName: invoice.project.name,
+    projectName: invoice.project?.name ?? null,
     issueDate: invoice.issueDate,
     dueDate: invoice.dueDate,
     amount: Number(invoice.amount),
@@ -184,13 +186,7 @@ export async function getPortalOverview(
     openInvoicesCount: openInvoicesAgg._count._all,
     outstandingAmount: Number(openInvoicesAgg._sum.amount ?? 0),
     recentProjects,
-    // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow
-    // (see src/lib/invoices/require-invoice-project.ts's own header
-    // comment). No code path can produce a null Project on an existing
-    // Invoice yet.
-    recentInvoices: recentInvoices
-      .map((invoice) => ({ ...invoice, project: requireInvoiceProject(invoice.project, "getPortalOverview recentInvoices") }))
-      .map(toInvoiceSummary),
+    recentInvoices: recentInvoices.map(toInvoiceSummary),
   };
 }
 
@@ -252,34 +248,28 @@ export async function getPortalInvoices(
         ? ("PAID" as const)
         : { in: [...VISIBLE_PORTAL_STATUSES] };
 
+  // Quotes / Estimates Phase 2.3 — clientId (primary) + organizationId
+  // (defense in depth) are the complete Portal tenant boundary; a
+  // project-based defense-in-depth filter is deliberately NOT added here
+  // (it would silently exclude a project-less Invoice from this list
+  // entirely — see the Invoice / Project Coupling Audit).
   const invoices = await prisma.invoice.findMany({
     where: {
       clientId,
-      // Defense in depth beyond Invoice.clientId (the primary boundary):
-      // also require organizationId (from the verified portal identity)
-      // and the invoice's own project to belong to this same Client, in
-      // case any of these ever disagree.
       organizationId,
       status: statusWhere,
-      project: { clientId },
     },
     orderBy: { createdAt: "desc" },
     select: INVOICE_SUMMARY_SELECT,
   });
 
-  // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow
-  // (see src/lib/invoices/require-invoice-project.ts's own header
-  // comment). The query above already requires `project: { clientId }`,
-  // so every row here always has one.
-  return invoices
-    .map((invoice) => ({ ...invoice, project: requireInvoiceProject(invoice.project, "getPortalInvoices") }))
-    .map(toInvoiceSummary);
+  return invoices.map(toInvoiceSummary);
 }
 
 /**
- * Scoped by id + clientId + organizationId + project.clientId together —
- * same reasoning as getPortalProject, extended with organizationId as
- * defense in depth. Callers must notFound() on null.
+ * Scoped by id + clientId + organizationId together — clientId is the
+ * primary Portal tenant boundary, organizationId is defense in depth.
+ * Callers must notFound() on null.
  */
 export async function getPortalInvoice(
   clientId: string,
@@ -291,7 +281,6 @@ export async function getPortalInvoice(
       id: invoiceId,
       clientId,
       organizationId,
-      project: { clientId },
       // Invoice System Official Slice 5 (docs/invoicing-architecture.md
       // §10) — a DRAFT invoice must never resolve here, exactly like a
       // nonexistent/cross-tenant id: this returns null, and the caller's
@@ -302,7 +291,6 @@ export async function getPortalInvoice(
       ...INVOICE_SUMMARY_SELECT,
       paidAt: true,
       client: { select: { name: true } },
-      project: { select: { name: true, organizationId: true } },
       finalizedAt: true,
       pdfStoragePath: true,
       pdfGeneratedAt: true,
@@ -314,17 +302,11 @@ export async function getPortalInvoice(
 
   if (!invoice) return null;
 
-  // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety narrow
-  // (see src/lib/invoices/require-invoice-project.ts's own header
-  // comment). The query above already requires `project: { clientId }`,
-  // so `invoice.project` always has one.
-  const project = requireInvoiceProject(invoice.project, "getPortalInvoice");
-
   return {
-    ...toInvoiceSummary({ ...invoice, project }),
+    ...toInvoiceSummary(invoice),
     paidAt: invoice.paidAt,
     clientName: invoice.client.name,
-    projectOrganizationId: project.organizationId,
+    organizationId,
     hasArchivedPdf: classifyInvoiceArchival(invoice).kind === "archived",
   };
 }

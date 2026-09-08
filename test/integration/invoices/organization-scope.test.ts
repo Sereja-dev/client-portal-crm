@@ -39,6 +39,7 @@ function uniqueInvoiceNumber(runId: string): string {
 
 function buildInvoiceFormData(fields: {
   invoiceNumber: string;
+  clientId: string;
   projectId: string;
   amount?: string;
   dueDate?: string;
@@ -47,6 +48,7 @@ function buildInvoiceFormData(fields: {
   const formData = new FormData();
   formData.set("mode", "flat");
   formData.set("invoiceNumber", fields.invoiceNumber);
+  formData.set("clientId", fields.clientId);
   formData.set("projectId", fields.projectId);
   formData.set("amount", fields.amount ?? "100.00");
   formData.set("currency", "USD");
@@ -126,7 +128,7 @@ describe("Invoice.organizationId — real production write/read paths", () => {
       const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
 
       await expectRedirect(
-        createInvoiceAction({ error: null }, buildInvoiceFormData({ invoiceNumber, projectId: fixtures.project.id })),
+        createInvoiceAction({ error: null }, buildInvoiceFormData({ invoiceNumber, clientId: fixtures.clientA.id, projectId: fixtures.project.id })),
       );
 
       const created = await prisma.invoice.findUnique({ where: { organizationId_invoiceNumber: { organizationId: fixtures.orgA.id, invoiceNumber } } });
@@ -145,9 +147,9 @@ describe("Invoice.organizationId — real production write/read paths", () => {
 
       const result = await createInvoiceAction(
         { error: null },
-        buildInvoiceFormData({ invoiceNumber, projectId: projectB.id }),
+        buildInvoiceFormData({ invoiceNumber, clientId: fixtures.clientA.id, projectId: projectB.id }),
       );
-      expect(result).toEqual({ error: null, fieldErrors: { projectId: "Select a valid project." } });
+      expect(result).toEqual({ error: null, fieldErrors: { clientId: "Select a valid client." } });
 
       const created = await prisma.invoice.findFirst({ where: { invoiceNumber } });
       expect(created).toBeNull();
@@ -161,7 +163,7 @@ describe("Invoice.organizationId — real production write/read paths", () => {
       actAs(fixtures.owner, fixtures.orgA.id);
       const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
       await expectRedirect(
-        createInvoiceAction({ error: null }, buildInvoiceFormData({ invoiceNumber, projectId: fixtures.project.id })),
+        createInvoiceAction({ error: null }, buildInvoiceFormData({ invoiceNumber, clientId: fixtures.clientA.id, projectId: fixtures.project.id })),
       );
       const created = await prisma.invoice.findUniqueOrThrow({
         where: { organizationId_invoiceNumber: { organizationId: fixtures.orgA.id, invoiceNumber } },
@@ -172,7 +174,7 @@ describe("Invoice.organizationId — real production write/read paths", () => {
           created.id,
           created.updatedAt.toISOString(),
           { error: null },
-          buildInvoiceFormData({ invoiceNumber, projectId: projectA2.id }),
+          buildInvoiceFormData({ invoiceNumber, clientId: clientA2.id, projectId: projectA2.id }),
         ),
       );
 
@@ -188,7 +190,7 @@ describe("Invoice.organizationId — real production write/read paths", () => {
       actAs(fixtures.owner, fixtures.orgA.id);
       const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
       await expectRedirect(
-        createInvoiceAction({ error: null }, buildInvoiceFormData({ invoiceNumber, projectId: fixtures.project.id })),
+        createInvoiceAction({ error: null }, buildInvoiceFormData({ invoiceNumber, clientId: fixtures.clientA.id, projectId: fixtures.project.id })),
       );
       const created = await prisma.invoice.findUniqueOrThrow({
         where: { organizationId_invoiceNumber: { organizationId: fixtures.orgA.id, invoiceNumber } },
@@ -198,9 +200,9 @@ describe("Invoice.organizationId — real production write/read paths", () => {
         created.id,
         created.updatedAt.toISOString(),
         { error: null },
-        buildInvoiceFormData({ invoiceNumber, projectId: projectB.id }),
+        buildInvoiceFormData({ invoiceNumber, clientId: fixtures.clientA.id, projectId: projectB.id }),
       );
-      expect(result).toEqual({ error: null, fieldErrors: { projectId: "Select a valid project." } });
+      expect(result).toEqual({ error: null, fieldErrors: { clientId: "Select a valid client." } });
 
       const unchanged = await prisma.invoice.findUniqueOrThrow({ where: { id: created.id } });
       expect(unchanged.projectId).toBe(fixtures.project.id);
@@ -218,7 +220,7 @@ describe("Invoice.organizationId — real production write/read paths", () => {
       actAs(fixtures.owner, fixtures.orgA.id);
       const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
       await expectRedirect(
-        createInvoiceAction({ error: null }, buildInvoiceFormData({ invoiceNumber, projectId: fixtures.project.id })),
+        createInvoiceAction({ error: null }, buildInvoiceFormData({ invoiceNumber, clientId: fixtures.clientA.id, projectId: fixtures.project.id })),
       );
       resetAuthMock();
 
@@ -286,7 +288,7 @@ describe("Invoice.organizationId — real production write/read paths", () => {
       actAs(fixtures.owner, fixtures.orgA.id);
       const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
       await expectRedirect(
-        createInvoiceAction({ error: null }, buildInvoiceFormData({ invoiceNumber, projectId: fixtures.project.id })),
+        createInvoiceAction({ error: null }, buildInvoiceFormData({ invoiceNumber, clientId: fixtures.clientA.id, projectId: fixtures.project.id })),
       );
       resetAuthMock();
 

@@ -94,21 +94,39 @@ describe("executeSearchInvoices — integration", () => {
   });
 
   it("B. never returns another organization's invoice even when searching by its exact number", async () => {
-    // orgB has no invoice of its own seeded by default; use the
-    // cross-org probe's own number to prove it's excluded from orgA.
+    // orgB has no invoice of its own seeded by default (the cross-org
+    // probe row created below has Invoice.organizationId = orgA, so it
+    // is not "another organization's invoice" by the one tenant boundary
+    // that now governs this tool — see test C's own header comment).
+    // This test instead proves a genuinely different org's own invoice
+    // (if any existed) would never surface; absence of orgB-owned
+    // invoices in the fixture makes this assertion vacuous by
+    // construction — a real cross-org exclusion case has no fixture
+    // gap left to fill once C is read alongside it.
     const result = await executeSearchInvoices(fixtures.orgA.id, { query: `INV-INCONSISTENT-${fixtures.runId}` });
-    // This IS scoped to orgA (Invoice.organizationId = orgA), so the
-    // "foreign-org" exclusion proof for this exact row is covered by
-    // test C below (relation inconsistency) — this test instead proves
-    // a genuinely different org's own invoice (if any existed) would
-    // never surface; absence of orgB-owned invoices in the fixture makes
-    // this assertion vacuous by construction, so C is the real proof.
     expect(result.ok).toBe(true);
   });
 
-  it("C. CRITICAL — triple-scoping defense in depth: Invoice.organizationId=orgA but project/client belong to orgB is NEVER returned to orgA", async () => {
+  it("C. Invoice.organizationId is the sole tenant boundary — a row whose Client/Project happen to belong to another org (impossible through any real write path, since resolveInvoiceTarget enforces this pairing at write time) is still returned, exactly as its own organizationId says", async () => {
+    // Quotes / Estimates Phase 2.3 (Invoice / Project Coupling Audit) —
+    // this tool used to also require project.organizationId AND
+    // client.organizationId as "defense in depth," which would have
+    // silently excluded a project-less Invoice from every search result
+    // (a project-less Invoice has no Project relation to match at all).
+    // Invoice.organizationId is Invoice's own column, independently
+    // server-resolved on every write, never client input — it is now
+    // the one and only tenant boundary this tool trusts. The synthetic
+    // "inconsistent" row below cannot be produced by any real create/
+    // edit/conversion path (resolveInvoiceTarget always re-verifies
+    // Client.organizationId, Project.organizationId, and
+    // Project.clientId against the acting organization before any
+    // write) — it exists here only to prove this tool's own current,
+    // deliberate contract: it trusts Invoice.organizationId alone, and
+    // does not additionally re-derive tenant scope through relations.
     const result = await executeSearchInvoices(fixtures.orgA.id, { query: `INV-INCONSISTENT-${fixtures.runId}` });
-    expect(result).toEqual({ ok: true, results: [] });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.results.some((r) => r.invoiceNumber === `INV-INCONSISTENT-${fixtures.runId}`)).toBe(true);
   });
 
   it("D. filters by status", async () => {

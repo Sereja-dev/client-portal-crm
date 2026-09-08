@@ -40,9 +40,10 @@ function baseFields(overrides: Record<string, string> = {}) {
   };
 }
 
-function buildFormData(invoiceNumber: string, projectId: string, overrides: Record<string, string> = {}): FormData {
+function buildFormData(invoiceNumber: string, clientId: string, projectId: string, overrides: Record<string, string> = {}): FormData {
   const fd = new FormData();
   fd.set("invoiceNumber", invoiceNumber);
+  fd.set("clientId", clientId);
   fd.set("projectId", projectId);
   for (const [key, value] of Object.entries(baseFields(overrides))) fd.set(key, value);
   return fd;
@@ -68,7 +69,7 @@ describe("Invoice mutation + Activity atomicity", () => {
     const lineItems = encodeInvoiceLineItemsFormValue([{ description: "A", quantity: "1", unitPrice: "10.00" }]);
 
     await expect(
-      createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id, { mode: "itemized", lineItems })),
+      createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id, { mode: "itemized", lineItems })),
     ).rejects.toThrow("simulated failure");
     resetAuthMock();
 
@@ -85,7 +86,7 @@ describe("Invoice mutation + Activity atomicity", () => {
 
     let caught: unknown;
     try {
-      await createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id, { mode: "itemized", lineItems: originalLineItems }));
+      await createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id, { mode: "itemized", lineItems: originalLineItems }));
     } catch (err) {
       caught = err;
     }
@@ -105,7 +106,7 @@ describe("Invoice mutation + Activity atomicity", () => {
         created.id,
         created.updatedAt.toISOString(),
         { error: null },
-        buildFormData(invoiceNumber, fixtures.project.id, { mode: "itemized", lineItems: newLineItems }),
+        buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id, { mode: "itemized", lineItems: newLineItems }),
       ),
     ).rejects.toThrow("simulated failure");
     resetAuthMock();

@@ -17,7 +17,8 @@ const initialState: InvoiceFormState = { error: null };
 
 type InvoiceFormDefaults = {
   invoiceNumber?: string;
-  projectId?: string;
+  clientId?: string;
+  projectId?: string | null;
   mode?: "flat" | "itemized";
   amount?: string;
   lineItems?: InvoiceLineItemFormValue[];
@@ -49,6 +50,7 @@ const BLANK_LINE_ITEM: InvoiceLineItemFormValue = { description: "", quantity: "
  */
 export function InvoiceForm({
   action,
+  clients,
   projects,
   currencyOptions,
   currencyFallbackNotice,
@@ -58,7 +60,9 @@ export function InvoiceForm({
   onDirtyChange,
 }: {
   action: (prevState: InvoiceFormState, formData: FormData) => Promise<InvoiceFormState>;
-  projects: { id: string; label: string }[];
+  clients: { id: string; name: string }[];
+  /** Every Project in the org, each carrying its own clientId — filtered client-side to the selected Client (Quotes / Estimates Phase 2.3). */
+  projects: { id: string; label: string; clientId: string }[];
   currencyOptions: readonly string[];
   currencyFallbackNotice?: string;
   defaultValues?: InvoiceFormDefaults;
@@ -89,6 +93,28 @@ export function InvoiceForm({
   function dismissCurrentErrors() {
     setDismissedState(state);
     onDirtyChange?.();
+  }
+
+  // Quotes / Estimates Phase 2.3 — Client REQUIRED, Project OPTIONAL and
+  // filtered to whichever Client is currently selected. Changing Client
+  // clears an incompatible Project selection (never silently carries a
+  // Project belonging to the OLD Client forward) — the server
+  // independently re-verifies this same pairing regardless (see
+  // resolveInvoiceTarget), this is purely a UX convenience.
+  const [clientId, setClientId] = useState(defaultValues?.clientId ?? "");
+  const [projectId, setProjectId] = useState(defaultValues?.projectId ?? "");
+  const projectsForClient = projects.filter((project) => project.clientId === clientId);
+
+  function handleClientChange(nextClientId: string) {
+    setClientId(nextClientId);
+    // Only clear the Project if it no longer belongs to the newly chosen
+    // Client — switching back and forth between two Clients that both
+    // happen to include the same-named Project id never surprises the
+    // user by clearing a still-valid selection.
+    if (projectId && !projects.some((project) => project.id === projectId && project.clientId === nextClientId)) {
+      setProjectId("");
+    }
+    dismissCurrentErrors();
   }
 
   const [mode, setMode] = useState<"flat" | "itemized">(defaultValues?.mode ?? "flat");
@@ -150,25 +176,50 @@ export function InvoiceForm({
         />
       </FormField>
 
-      <FormField label="Project" htmlFor="projectId" required error={fieldErrors.projectId}>
+      <FormField label="Client" htmlFor="clientId" required error={fieldErrors.clientId}>
+        <Select
+          id="clientId"
+          name="clientId"
+          value={clientId}
+          onChange={(event) => handleClientChange(event.target.value)}
+          required
+          aria-invalid={!!fieldErrors.clientId}
+          aria-describedby={fieldErrors.clientId ? "clientId-error" : undefined}
+        >
+          <option value="" disabled>
+            Select a client
+          </option>
+          {clients.map((client) => (
+            <option key={client.id} value={client.id}>
+              {client.name}
+            </option>
+          ))}
+        </Select>
+      </FormField>
+
+      <FormField label="Project" htmlFor="projectId" error={fieldErrors.projectId}>
         <Select
           id="projectId"
           name="projectId"
-          defaultValue={defaultValues?.projectId ?? ""}
-          required
-          onChange={dismissCurrentErrors}
+          value={projectId}
+          onChange={(event) => {
+            setProjectId(event.target.value);
+            dismissCurrentErrors();
+          }}
+          disabled={!clientId}
           aria-invalid={!!fieldErrors.projectId}
           aria-describedby={fieldErrors.projectId ? "projectId-error" : undefined}
         >
-          <option value="" disabled>
-            Select a project
-          </option>
-          {projects.map((project) => (
+          <option value="">No project</option>
+          {projectsForClient.map((project) => (
             <option key={project.id} value={project.id}>
               {project.label}
             </option>
           ))}
         </Select>
+        {clientId && projectsForClient.length === 0 && (
+          <p className="text-text-muted mt-1 text-xs">This client has no projects yet — that&rsquo;s fine, the invoice can stay project-less.</p>
+        )}
       </FormField>
 
       <fieldset aria-describedby={fieldErrors.mode ? "mode-error" : undefined}>

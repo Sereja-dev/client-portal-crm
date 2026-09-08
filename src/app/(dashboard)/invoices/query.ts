@@ -40,22 +40,20 @@ export function buildInvoiceWhere(
   { q, status }: Pick<InvoiceListParams, "q" | "status">,
 ): Prisma.InvoiceWhereInput {
   return {
-    // organizationId (required, kept consistent with project.organizationId
-    // by every write path) is the primary predicate; the project relation
-    // check is retained as defense in depth against inconsistent data.
+    // organizationId (Invoice's own column, independent of Project) is
+    // the sole tenant boundary — Quotes / Estimates Phase 2.3 (Invoice /
+    // Project Coupling Audit) removed the `project: { organizationId }`
+    // relation filter this used to also require: a project-less Invoice
+    // has no Project relation to match, so that filter would have
+    // silently excluded it from every single staff Invoice list.
     organizationId,
-    project: { organizationId },
     ...(status ? { status } : {}),
     ...(q
       ? {
           OR: [
             { invoiceNumber: { contains: q, mode: "insensitive" as const } },
+            { client: { name: { contains: q, mode: "insensitive" as const } } },
             { project: { name: { contains: q, mode: "insensitive" as const } } },
-            {
-              project: {
-                client: { name: { contains: q, mode: "insensitive" as const } },
-              },
-            },
           ],
         }
       : {}),

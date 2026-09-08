@@ -10,7 +10,7 @@ import { createActivity } from "@/lib/activity/create-activity";
 import { diffInvoiceFields, buildInvoiceUpdatedMetadata, type InvoiceTrackedSnapshot } from "@/lib/activity/invoice-metadata";
 import { calculateInvoiceTotals } from "@/lib/invoices/calculations";
 import { mapInvoiceWriteError } from "@/lib/invoices/write-conflict-mapper";
-import { requireInvoiceProjectId } from "@/lib/invoices/require-invoice-project";
+import { resolveInvoiceTarget } from "@/lib/invoices/target";
 import type { InvoiceFormState } from "@/types";
 
 function isCanonicalIso(raw: string): boolean {
@@ -48,16 +48,21 @@ export async function updateInvoiceAction(
 
   const { user, organizationId } = await getCurrentUserOrganization();
 
-  // Changing the project is allowed, but only to one owned by this org —
-  // re-verify server-side regardless of what the <select> offered.
-  const project = await prisma.project.findFirst({
-    where: { id: values.projectId, organizationId, client: { organizationId } },
-    select: { id: true, clientId: true, name: true },
+  // Quotes / Estimates Phase 2.3 — Client may change, Project may be
+  // added/switched/removed, but the resulting pair is always re-verified
+  // server-side: the Client must belong to this org, and (if a Project
+  // is supplied) it must belong to that exact Client. This is what
+  // guarantees "changing Client clears/rejects an incompatible Project"
+  // — a Project that belonged to the OLD Client but not the new one
+  // simply fails resolution here, never silently carried over.
+  const targetResult = await resolveInvoiceTarget(prisma, organizationId, {
+    clientId: values.clientId,
+    projectId: values.projectId,
   });
-
-  if (!project) {
-    return { error: null, fieldErrors: { projectId: "Select a valid project." } };
+  if (!targetResult.ok) {
+    return { error: null, fieldErrors: { clientId: "Select a valid client." } };
   }
+  const { target } = targetResult;
 
   const calc = calculateInvoiceTotals({
     subtotalSource:
@@ -82,9 +87,11 @@ export async function updateInvoiceAction(
       // Still required here — for authorization defense in depth, the
       // current-status check, the Activity before-snapshot, and no-op
       // detection — but its own updatedAt is never substituted for the
-      // page-provided expected version below.
+      // page-provided expected version below. Scoped by organizationId
+      // alone (Invoice's own column) — never a project relation filter,
+      // which would silently exclude a project-less Invoice.
       const existing = await tx.invoice.findFirst({
-        where: { id: invoiceId, organizationId, project: { organizationId } },
+        where: { id: invoiceId, organizationId },
         include: { lineItems: { orderBy: { position: "asc" } } },
       });
 
@@ -97,12 +104,8 @@ export async function updateInvoiceAction(
 
       const beforeSnapshot: InvoiceTrackedSnapshot = {
         invoiceNumber: existing.invoiceNumber,
-        // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
-        // narrow (see src/lib/invoices/require-invoice-project.ts's own
-        // header comment). The scoped read above already requires
-        // `project: { organizationId }`, so `existing.projectId` always
-        // has a value.
-        projectId: requireInvoiceProjectId(existing.projectId, "updateInvoiceAction beforeSnapshot"),
+        clientId: existing.clientId,
+        projectId: existing.projectId,
         amount: existing.amount,
         currency: existing.currency,
         issueDate: existing.issueDate,
@@ -117,7 +120,8 @@ export async function updateInvoiceAction(
       };
       const afterSnapshot: InvoiceTrackedSnapshot = {
         invoiceNumber: values.invoiceNumber,
-        projectId: project.id,
+        clientId: target.clientId,
+        projectId: target.projectId,
         amount: calc.total,
         currency: values.currency,
         issueDate: values.issueDate,
@@ -153,7 +157,7 @@ export async function updateInvoiceAction(
       const nextUpdatedAt = new Date(Math.max(Date.now(), expectedDate.getTime() + 1));
 
       const result = await tx.invoice.updateMany({
-        where: { id: invoiceId, organizationId, project: { organizationId }, status: "DRAFT", updatedAt: expectedDate },
+        where: { id: invoiceId, organizationId, status: "DRAFT", updatedAt: expectedDate },
         data: {
           invoiceNumber: values.invoiceNumber,
           amount: calc.total,
@@ -169,8 +173,8 @@ export async function updateInvoiceAction(
           dueDate: values.dueDate,
           notes: values.notes,
           internalNotes: values.internalNotes,
-          projectId: project.id,
-          clientId: project.clientId,
+          clientId: target.clientId,
+          projectId: target.projectId,
           organizationId,
           updatedAt: nextUpdatedAt,
         },
@@ -196,13 +200,19 @@ export async function updateInvoiceAction(
         await tx.invoiceLineItem.deleteMany({ where: { invoiceId } });
       }
 
+      let projectName: string | null = null;
+      if (target.projectId) {
+        const project = await tx.project.findUnique({ where: { id: target.projectId }, select: { name: true } });
+        projectName = project?.name ?? null;
+      }
+
       await createActivity(tx, {
         organizationId,
         actorId: user.id,
         entityType: "INVOICE",
         entityId: invoiceId,
         action: "UPDATED",
-        metadata: buildInvoiceUpdatedMetadata(values.invoiceNumber, changedFields, project.name, user.name),
+        metadata: buildInvoiceUpdatedMetadata(values.invoiceNumber, changedFields, projectName, user.name),
       });
 
       return { status: "updated" as const };

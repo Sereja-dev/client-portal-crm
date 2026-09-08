@@ -11,7 +11,8 @@ import type { InvoiceIssuanceReadiness } from "@/lib/organization-setup/invoice-
 
 type InvoiceFormDefaults = {
   invoiceNumber?: string;
-  projectId?: string;
+  clientId?: string;
+  projectId?: string | null;
   mode?: "flat" | "itemized";
   amount?: string;
   lineItems?: InvoiceLineItemFormValue[];
@@ -46,6 +47,7 @@ export function InvoiceDraftPanel({
   canIssue,
   readiness,
   action,
+  clients,
   projects,
   currencyOptions,
   currencyFallbackNotice,
@@ -58,7 +60,8 @@ export function InvoiceDraftPanel({
   /** Only ever populated (by the page) when canIssue is true — see EditInvoicePage's own doc comment. */
   readiness?: InvoiceIssuanceReadiness;
   action: (prevState: InvoiceFormState, formData: FormData) => Promise<InvoiceFormState>;
-  projects: { id: string; label: string }[];
+  clients: { id: string; name: string }[];
+  projects: { id: string; label: string; clientId: string }[];
   currencyOptions: readonly string[];
   currencyFallbackNotice?: string;
   defaultValues?: InvoiceFormDefaults;
@@ -69,6 +72,7 @@ export function InvoiceDraftPanel({
     <>
       <InvoiceForm
         action={action}
+        clients={clients}
         projects={projects}
         currencyOptions={currencyOptions}
         currencyFallbackNotice={currencyFallbackNotice}

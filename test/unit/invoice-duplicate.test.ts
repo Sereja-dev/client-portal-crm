@@ -46,6 +46,7 @@ describe("buildDuplicateInvoiceDefaults", () => {
   function baseSource(overrides: Partial<DuplicateSourceData> = {}): DuplicateSourceData {
     return {
       invoiceNumber: "INV-100",
+      clientId: "22222222-2222-4222-8222-222222222222",
       projectId: "11111111-1111-4111-8111-111111111111",
       amount: "250.00",
       currency: "USD",
@@ -139,10 +140,11 @@ describe("buildDuplicateInvoiceDefaults", () => {
     expect(result.taxRatePercent).toBe("8.25");
   });
 
-  it("invoiceNumber, projectId, discountType, taxLabel map correctly", () => {
+  it("invoiceNumber, clientId, projectId, discountType, taxLabel map correctly", () => {
     const result = buildDuplicateInvoiceDefaults(
       baseSource({
         invoiceNumber: "INV-42",
+        clientId: "33333333-3333-4333-8333-333333333333",
         projectId: "22222222-2222-4222-8222-222222222222",
         discountType: "FIXED",
         taxLabel: "VAT",
@@ -150,9 +152,15 @@ describe("buildDuplicateInvoiceDefaults", () => {
       today,
     );
     expect(result.invoiceNumber).toBe("INV-42-R1");
+    expect(result.clientId).toBe("33333333-3333-4333-8333-333333333333");
     expect(result.projectId).toBe("22222222-2222-4222-8222-222222222222");
     expect(result.discountType).toBe("FIXED");
     expect(result.taxLabel).toBe("VAT");
+  });
+
+  it("a project-less source (projectId: null) stays project-less in the built defaults", () => {
+    const result = buildDuplicateInvoiceDefaults(baseSource({ projectId: null }), today);
+    expect(result.projectId).toBeNull();
   });
 
   it("currency is passed through unchanged — canonicalization is the caller's responsibility, not this mapper's", () => {

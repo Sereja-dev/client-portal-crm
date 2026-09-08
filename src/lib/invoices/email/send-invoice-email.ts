@@ -124,11 +124,14 @@ const invoiceSelect = {
 } as const;
 
 async function readInvoice(invoiceId: string, organizationId: string) {
+  // Quotes / Estimates Phase 2.3 — scoped by organizationId (Invoice's
+  // own column) and client.organizationId; a project relation filter is
+  // deliberately not included, since it would silently exclude a
+  // project-less Invoice from ever being sendable.
   return prisma.invoice.findFirst({
     where: {
       id: invoiceId,
       organizationId,
-      project: { organizationId },
       client: { organizationId },
     },
     select: invoiceSelect,

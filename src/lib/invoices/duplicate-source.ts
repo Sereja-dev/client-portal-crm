@@ -20,6 +20,7 @@ import { prisma } from "@/lib/prisma";
 const DUPLICATE_SOURCE_SELECT = {
   id: true,
   invoiceNumber: true,
+  clientId: true,
   projectId: true,
   amount: true,
   currency: true,
@@ -45,20 +46,21 @@ export type DuplicateSourceInvoice = Prisma.InvoiceGetPayload<{ select: typeof D
  * page may prefill from, or `null` for every other case — DRAFT/SENT/
  * PAID/OVERDUE, a cross-organization id, or a nonexistent id are all
  * structurally indistinguishable from this function's own return value.
- * `project: { organizationId }` is retained as defense in depth, matching
- * every other Invoice query in this codebase, even though it is never
- * itself selected into the result. Currency support/normalization is
- * deliberately NOT this function's concern — an authorized CANCELLED row
- * is returned exactly as persisted, including an unsupported or
- * non-canonical (e.g. lowercase, padded) currency string; that judgment
- * belongs entirely to the page that calls this loader.
+ * Scoped by `organizationId` alone — Invoice's own column, independent of
+ * Project (Quotes / Estimates Phase 2.3, Invoice / Project Coupling
+ * Audit: a project relation filter would silently exclude a project-less
+ * source Invoice). Currency support/normalization is deliberately NOT
+ * this function's concern — an authorized CANCELLED row is returned
+ * exactly as persisted, including an unsupported or non-canonical (e.g.
+ * lowercase, padded) currency string; that judgment belongs entirely to
+ * the page that calls this loader.
  */
 export async function getDuplicateSourceInvoice(
   invoiceId: string,
   organizationId: string,
 ): Promise<DuplicateSourceInvoice | null> {
   return prisma.invoice.findFirst({
-    where: { id: invoiceId, organizationId, project: { organizationId }, status: "CANCELLED" },
+    where: { id: invoiceId, organizationId, status: "CANCELLED" },
     select: DUPLICATE_SOURCE_SELECT,
   });
 }

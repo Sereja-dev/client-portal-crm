@@ -62,7 +62,7 @@ export default async function PortalInvoiceDetailPage({
             <dt className="text-text-muted text-xs font-medium tracking-wide uppercase">
               Project
             </dt>
-            <dd className="text-text-primary mt-1 text-sm">{invoice.projectName}</dd>
+            <dd className="text-text-primary mt-1 text-sm">{invoice.projectName ?? "No project"}</dd>
           </div>
           <div>
             <dt className="text-text-muted text-xs font-medium tracking-wide uppercase">

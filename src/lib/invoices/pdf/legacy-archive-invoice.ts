@@ -9,7 +9,6 @@ import { createActivity } from "@/lib/activity/create-activity";
 import { buildInvoiceUpdatedMetadata } from "@/lib/activity/invoice-metadata";
 import { calculateInvoiceTotals, type InvoiceCalculationInput } from "@/lib/invoices/calculations";
 import { isSupportedInvoiceCurrency } from "@/lib/invoices/currencies";
-import { requireInvoiceProject } from "@/lib/invoices/require-invoice-project";
 import type {
   LegacyArchiveInput,
   LegacyArchiveResult,
@@ -162,7 +161,6 @@ export async function archiveLegacyInvoice(
     where: {
       id: invoiceId,
       organizationId: actor.organizationId,
-      project: { organizationId: actor.organizationId },
       client: { organizationId: actor.organizationId },
     },
     select: {
@@ -537,7 +535,6 @@ export async function archiveLegacyInvoice(
         where: {
           id: invoice.id,
           organizationId: actor.organizationId,
-          project: { organizationId: actor.organizationId },
           client: { organizationId: actor.organizationId },
           // The exact status this row had when the PDF was rendered —
           // never just "any non-DRAFT status" — a status change mid-
@@ -601,15 +598,10 @@ export async function archiveLegacyInvoice(
         entityType: "INVOICE",
         entityId: invoice.id,
         action: "UPDATED",
-        // Quotes / Estimates Phase 2.2b — TRANSITIONAL compile-safety
-        // narrow (see src/lib/invoices/require-invoice-project.ts's own
-        // header comment). The scoped read at the top of this function
-        // already requires `project: { organizationId }`, so
-        // `legacyInvoice.project` always has one.
         metadata: buildInvoiceUpdatedMetadata(
           invoice.invoiceNumber,
           ["legacyArchive"],
-          requireInvoiceProject(legacyInvoice.project, "legacyArchiveInvoice").name,
+          legacyInvoice.project?.name ?? null,
           actor.userName,
         ),
       });

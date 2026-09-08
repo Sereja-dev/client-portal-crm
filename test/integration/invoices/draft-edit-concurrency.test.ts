@@ -51,9 +51,10 @@ function baseFields(overrides: Record<string, string> = {}) {
   };
 }
 
-function buildFormData(invoiceNumber: string, projectId: string, overrides: Record<string, string> = {}): FormData {
+function buildFormData(invoiceNumber: string, clientId: string, projectId: string, overrides: Record<string, string> = {}): FormData {
   const fd = new FormData();
   fd.set("invoiceNumber", invoiceNumber);
+  fd.set("clientId", clientId);
   fd.set("projectId", projectId);
   for (const [key, value] of Object.entries(baseFields(overrides))) fd.set(key, value);
   return fd;
@@ -72,7 +73,7 @@ async function expectRedirect(promise: Promise<unknown>): Promise<void> {
 async function createDraft(fixtures: TestFixtures, overrides: Record<string, string> = {}) {
   actAs(fixtures.owner, fixtures.orgA.id);
   const invoiceNumber = uniqueInvoiceNumber(fixtures.runId);
-  await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.project.id, overrides)));
+  await expectRedirect(createInvoiceAction({ error: null }, buildFormData(invoiceNumber, fixtures.clientA.id, fixtures.project.id, overrides)));
   resetAuthMock();
   return prisma.invoice.findUniqueOrThrow({
     where: { organizationId_invoiceNumber: { organizationId: fixtures.orgA.id, invoiceNumber } },
@@ -97,8 +98,8 @@ describe("updateInvoiceAction — page-version concurrency", () => {
     actAs(fixtures.owner, fixtures.orgA.id);
 
     const [resultA, resultB] = await Promise.allSettled([
-      updateInvoiceAction(draft.id, T0, { error: null }, buildFormData(draft.invoiceNumber, fixtures.project.id, { amount: "111.00" })),
-      updateInvoiceAction(draft.id, T0, { error: null }, buildFormData(draft.invoiceNumber, fixtures.project.id, { amount: "222.00" })),
+      updateInvoiceAction(draft.id, T0, { error: null }, buildFormData(draft.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { amount: "111.00" })),
+      updateInvoiceAction(draft.id, T0, { error: null }, buildFormData(draft.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { amount: "222.00" })),
     ]);
     resetAuthMock();
 
@@ -142,7 +143,7 @@ describe("updateInvoiceAction — page-version concurrency", () => {
         draft.id,
         farFutureT0.toISOString(),
         { error: null },
-        buildFormData(draft.invoiceNumber, fixtures.project.id, { amount: "321.00" }),
+        buildFormData(draft.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { amount: "321.00" }),
       ),
     );
     resetAuthMock();
@@ -164,14 +165,14 @@ describe("updateInvoiceAction — page-version concurrency", () => {
     actAs(fixtures.owner, fixtures.orgA.id);
 
     await expectRedirect(
-      updateInvoiceAction(draft.id, T0, { error: null }, buildFormData(draft.invoiceNumber, fixtures.project.id, { amount: "50.00" })),
+      updateInvoiceAction(draft.id, T0, { error: null }, buildFormData(draft.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { amount: "50.00" })),
     );
 
     const stale = await updateInvoiceAction(
       draft.id,
       T0,
       { error: null },
-      buildFormData(draft.invoiceNumber, fixtures.project.id, { amount: "999.00" }),
+      buildFormData(draft.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { amount: "999.00" }),
     );
     resetAuthMock();
 
@@ -186,13 +187,13 @@ describe("updateInvoiceAction — page-version concurrency", () => {
     actAs(fixtures.owner, fixtures.orgA.id);
 
     await expectRedirect(
-      updateInvoiceAction(draft.id, T0, { error: null }, buildFormData(draft.invoiceNumber, fixtures.project.id, { amount: "50.00" })),
+      updateInvoiceAction(draft.id, T0, { error: null }, buildFormData(draft.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { amount: "50.00" })),
     );
     const afterFirst = await prisma.invoice.findUniqueOrThrow({ where: { id: draft.id } });
     const T1 = afterFirst.updatedAt.toISOString();
 
     await expectRedirect(
-      updateInvoiceAction(draft.id, T1, { error: null }, buildFormData(draft.invoiceNumber, fixtures.project.id, { amount: "75.00" })),
+      updateInvoiceAction(draft.id, T1, { error: null }, buildFormData(draft.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { amount: "75.00" })),
     );
     resetAuthMock();
 
@@ -209,7 +210,7 @@ describe("updateInvoiceAction — page-version concurrency", () => {
         draft.id,
         draft.updatedAt.toISOString(),
         { error: null },
-        buildFormData(draft.invoiceNumber, fixtures.project.id, { amount: "60.00" }),
+        buildFormData(draft.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { amount: "60.00" }),
       ),
     );
     resetAuthMock();
@@ -228,7 +229,7 @@ describe("updateInvoiceAction — page-version concurrency", () => {
       draft.id,
       "not-a-real-iso-timestamp",
       { error: null },
-      buildFormData(draft.invoiceNumber, fixtures.project.id, { amount: "999.00" }),
+      buildFormData(draft.invoiceNumber, fixtures.clientA.id, fixtures.project.id, { amount: "999.00" }),
     );
     resetAuthMock();
 

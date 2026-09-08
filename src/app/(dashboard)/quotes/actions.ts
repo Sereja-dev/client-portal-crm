@@ -6,7 +6,13 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { checkRateLimit, QUOTE_CREATE_LIMIT, QUOTE_UPDATE_LIMIT } from "@/lib/rate-limit";
 import { createActivity } from "@/lib/activity/create-activity";
-import { diffQuoteFields, buildQuoteActivityMetadata, buildQuoteStatusChangeMetadata } from "@/lib/activity/quote-metadata";
+import {
+  diffQuoteFields,
+  buildQuoteActivityMetadata,
+  buildQuoteStatusChangeMetadata,
+  buildQuoteConvertedMetadata,
+} from "@/lib/activity/quote-metadata";
+import { buildInvoiceSnapshotMetadata } from "@/lib/activity/invoice-metadata";
 import {
   parseQuoteInput,
   hasQuoteFormErrors,
@@ -18,6 +24,8 @@ import {
 import { calculateQuoteTotals } from "@/lib/quotes/calculations";
 import { resolveQuoteTarget } from "@/lib/quotes/target";
 import { mapQuoteWriteError } from "@/lib/quotes/write-conflict-mapper";
+import { mapInvoiceWriteError } from "@/lib/invoices/write-conflict-mapper";
+import { resolveInvoiceTarget } from "@/lib/invoices/target";
 import { isQuoteConverted, isQuoteExpired } from "@/lib/quotes/status";
 
 /**
@@ -41,19 +49,27 @@ import { isQuoteConverted, isQuoteExpired } from "@/lib/quotes/status";
  * even though nothing renders there yet — matching every Lead action's
  * own identical precedent.
  *
- * Quote -> Invoice conversion (convertQuoteToInvoiceAction) is
- * intentionally NOT implemented in this phase — see this phase's own
- * return report: Invoice.projectId is a required (non-nullable) column,
- * and a Quote has no Project concept at all. Implementing conversion
- * would require either a schema change (out of this phase's scope,
- * "unless a genuine blocker is discovered" — this is exactly that
- * blocker) or silently auto-creating a Project, which this phase's own
- * instructions explicitly forbid. This module still centralizes every
- * lifecycle helper (isQuoteExpired/isQuoteConverted/isQuoteEditable/
- * isQuoteApprovable in src/lib/quotes/status.ts) so a later phase that
- * resolves the Project question can implement conversion, Portal
- * approve/decline, etc. without this module changing.
+ * Quote -> Invoice conversion (convertQuoteToInvoiceAction, below) was
+ * deliberately NOT implemented in Phase 2 (Invoice.projectId was still a
+ * required column then). Quotes / Estimates Phase 2.3 resolved that
+ * blocker — Invoice.projectId is now nullable and clientId-required/
+ * projectId-optional is the durable Invoice invariant everywhere — so
+ * conversion is implemented here using exactly that invariant: the new
+ * Invoice's clientId always comes from Quote.clientId, projectId is
+ * optional and independently re-verified (never derived, never
+ * auto-created) via the same resolveInvoiceTarget() every manual Invoice
+ * create/edit action already uses.
  */
+
+/**
+ * Thrown only when convertQuoteToInvoiceAction's own guarded
+ * `convertedInvoiceId: null` Quote update matches zero rows — the
+ * losing side of a genuine concurrent double-conversion race (a second
+ * simultaneous call already won). Rolls the Invoice/InvoiceLineItem rows
+ * this same attempt just created back with it. Never escapes this
+ * module — mapped to the public "already_converted" reason.
+ */
+class QuoteConversionRaceError extends Error {}
 
 // ---------------------------------------------------------------------------
 // Create
@@ -657,4 +673,210 @@ export async function unarchiveQuoteAction(quoteId: string): Promise<ArchiveQuot
   if (outcome === "not_found") return { ok: false, reason: "not_found" };
   revalidatePath("/quotes");
   return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Convert to Invoice (APPROVED Quote -> a new DRAFT Invoice)
+// ---------------------------------------------------------------------------
+
+export type ConvertQuoteToInvoiceResult =
+  | { ok: true; invoiceId: string }
+  | { ok: false; reason: "validation"; fieldErrors: { invoiceNumber?: string } }
+  | { ok: false; reason: "rate_limited" }
+  | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "already_converted" }
+  | { ok: false; reason: "invalid_transition" }
+  | { ok: false; reason: "no_client" }
+  | { ok: false; reason: "invalid_target" }
+  | { ok: false; reason: "duplicate_invoice_number" };
+
+/**
+ * Quotes / Estimates Phase 2.3 — the highest-risk new mutation this phase
+ * adds. Input is deliberately narrow: `quoteId`, a user-supplied
+ * `invoiceNumber` (Invoice numbering stays user-supplied everywhere in
+ * this app — never auto-generated), and an OPTIONAL `projectId`. Never
+ * `clientId`, `organizationId`, or `convertedInvoiceId` — the Client
+ * always comes from the Quote itself (`quote.clientId`), organizationId
+ * is always server-resolved, and convertedInvoiceId is only ever written
+ * by the guarded update inside this same transaction, never accepted as
+ * input.
+ *
+ * Eligibility (all re-verified from a FRESH read inside the transaction,
+ * never trusting a stale pre-transaction read): the Quote must exist in
+ * this organization, must not be archived, must have status APPROVED,
+ * must not already be converted (convertedInvoiceId null), and must have
+ * a real clientId (a Quote still only attached to an unconverted Lead —
+ * clientId null — has no Client to invoice yet; converting it here would
+ * either violate Invoice.clientId's own NOT NULL contract or require
+ * silently inventing one, both of which are refused).
+ *
+ * Project is optional and, when supplied, re-verified via the exact same
+ * resolveInvoiceTarget() every manual Invoice create/edit action already
+ * uses — the Project must belong to this organization AND to this exact
+ * Client (never auto-created, never silently substituted).
+ *
+ * Totals/discount/tax/currency are copied byte-for-byte from the Quote's
+ * own already-approved, already-shown-to-the-client figures — never
+ * recalculated, never re-derived from QuoteItems a second time (the
+ * Quote's own total is the figure the client actually approved; silently
+ * recomputing it here could theoretically drift from that if this
+ * module's own calculation logic ever changed). QuoteItems are copied to
+ * InvoiceLineItems the same way, by value, with fresh ids and the same
+ * relative order.
+ *
+ * The guarded `convertedInvoiceId: null` predicate on the final Quote
+ * updateMany is what makes concurrent double-conversion safe: exactly
+ * one of two simultaneous callers can ever win it (the loser's `count`
+ * is 0), and — because the Invoice create, the InvoiceLineItem creates,
+ * and this guarded update all happen inside the ONE transaction started
+ * below — a losing attempt's own freshly-created Invoice and line items
+ * roll back with it, never left behind as an orphan.
+ */
+export async function convertQuoteToInvoiceAction(
+  quoteId: string,
+  invoiceNumberRaw: string,
+  projectId?: string | null,
+): Promise<ConvertQuoteToInvoiceResult> {
+  const invoiceNumber = invoiceNumberRaw.trim();
+  if (!invoiceNumber) {
+    return { ok: false, reason: "validation", fieldErrors: { invoiceNumber: "Invoice number is required." } };
+  }
+  const targetProjectId = projectId ?? null;
+
+  const { user, organizationId } = await getCurrentUserOrganization();
+
+  // Shares the same bucket as every other Quote lifecycle mutation
+  // (edit/send/reopen/archive) — a conversion is exactly that kind of
+  // "one more small mutation against a resource already being worked
+  // on" event, not a document-creation event like createQuoteAction's
+  // own QUOTE_CREATE_LIMIT.
+  const limitCheck = checkRateLimit(QUOTE_UPDATE_LIMIT, user.id);
+  if (limitCheck.limited) {
+    return { ok: false, reason: "rate_limited" };
+  }
+
+  try {
+    const outcome = await prisma.$transaction(async (tx) => {
+      const quote = await tx.quote.findFirst({
+        where: { id: quoteId, organizationId },
+        include: { items: { orderBy: { position: "asc" } } },
+      });
+      if (!quote) {
+        return { status: "not_found" as const };
+      }
+      if (quote.archivedAt !== null) {
+        return { status: "invalid_transition" as const };
+      }
+      if (isQuoteConverted({ convertedInvoiceId: quote.convertedInvoiceId })) {
+        return { status: "already_converted" as const };
+      }
+      if (quote.status !== "APPROVED") {
+        return { status: "invalid_transition" as const };
+      }
+      if (quote.clientId === null) {
+        return { status: "no_client" as const };
+      }
+
+      const targetResult = await resolveInvoiceTarget(tx, organizationId, {
+        clientId: quote.clientId,
+        projectId: targetProjectId,
+      });
+      if (!targetResult.ok) {
+        return { status: "invalid_target" as const };
+      }
+      const { target } = targetResult;
+
+      const invoice = await tx.invoice.create({
+        data: {
+          invoiceNumber,
+          status: "DRAFT",
+          paidAt: null,
+          dueDate: null,
+          currency: quote.currency,
+          // Copied exactly from the Quote's own already-approved
+          // figures — never recalculated from QuoteItems a second time.
+          amount: quote.total,
+          subtotal: quote.subtotal,
+          discountAmount: quote.discountAmount,
+          taxAmount: quote.taxAmount,
+          discountType: quote.discountType,
+          discountValue: quote.discountValue,
+          taxRatePercent: quote.taxRatePercent,
+          taxLabel: quote.taxLabel,
+          notes: quote.notes,
+          clientId: target.clientId,
+          projectId: target.projectId,
+          organizationId,
+          lineItems: {
+            create: quote.items.map((item, index) => ({
+              description: item.description,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              lineTotal: item.lineTotal,
+              position: index,
+            })),
+          },
+        },
+      });
+
+      // The guard that makes concurrent double-conversion safe — see
+      // this function's own header comment. Never `update()` (single-
+      // record, no organizationId in its own filter) — always the
+      // org-scoped, guarded `updateMany` form this codebase's own
+      // security check requires for every Quote mutation.
+      const guarded = await tx.quote.updateMany({
+        where: { id: quoteId, organizationId, convertedInvoiceId: null },
+        data: { convertedInvoiceId: invoice.id },
+      });
+      if (guarded.count !== 1) {
+        throw new QuoteConversionRaceError();
+      }
+
+      await createActivity(tx, {
+        organizationId,
+        actorId: user.id,
+        entityType: "QUOTE",
+        entityId: quoteId,
+        action: "CONVERTED",
+        metadata: buildQuoteConvertedMetadata(quote, invoiceNumber, user.name),
+      });
+
+      // Same CREATED event a normal, direct createInvoiceAction call
+      // always writes — a converted Invoice is otherwise indistinguishable
+      // from a manually-created one in its own Activity history.
+      await createActivity(tx, {
+        organizationId,
+        actorId: user.id,
+        entityType: "INVOICE",
+        entityId: invoice.id,
+        action: "CREATED",
+        metadata: buildInvoiceSnapshotMetadata(invoice, quote.items.length, null, user.name),
+      });
+
+      return { status: "converted" as const, invoiceId: invoice.id };
+    });
+
+    if (outcome.status === "not_found") return { ok: false, reason: "not_found" };
+    if (outcome.status === "already_converted") return { ok: false, reason: "already_converted" };
+    if (outcome.status === "invalid_transition") return { ok: false, reason: "invalid_transition" };
+    if (outcome.status === "no_client") return { ok: false, reason: "no_client" };
+    if (outcome.status === "invalid_target") return { ok: false, reason: "invalid_target" };
+
+    revalidatePath("/quotes");
+    revalidatePath("/invoices");
+    return { ok: true, invoiceId: outcome.invoiceId };
+  } catch (err) {
+    if (err instanceof QuoteConversionRaceError) {
+      // The losing side of a concurrent double-conversion race — the
+      // Invoice/InvoiceLineItem rows this same attempt just created roll
+      // back with the throw, never left behind as an orphan.
+      return { ok: false, reason: "already_converted" };
+    }
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      if (mapInvoiceWriteError(err) === "INVOICE_NUMBER_CONFLICT") {
+        return { ok: false, reason: "duplicate_invoice_number" };
+      }
+    }
+    throw err;
+  }
 }

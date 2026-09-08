@@ -60,14 +60,13 @@ export async function GET(
   // 4. The exact established Portal Invoice authorization contract
   // (matching getPortalInvoice()/verifyPortalAttachmentAccess()'s own
   // INVOICE case): clientId is the primary boundary, organizationId is
-  // defense in depth, project.clientId guards against Invoice/Project
-  // relation drift. Deliberately not project.organizationId — that
-  // column is nullable (Project.organizationId: String?), and adding it
-  // as a mandatory predicate could reject a legitimate Invoice whose
-  // Project has a null organizationId even though Invoice.organizationId
-  // itself is correct.
+  // defense in depth. Quotes / Estimates Phase 2.3 (Invoice / Project
+  // Coupling Audit) removed the `project: { clientId }` predicate this
+  // used to also require — a project-less Invoice has no Project
+  // relation to match, so that filter would have silently 404'd every
+  // project-less Invoice's own PDF for its rightful Client.
   const invoice = await prisma.invoice.findFirst({
-    where: { id, clientId, organizationId, project: { clientId } },
+    where: { id, clientId, organizationId },
     select: {
       id: true,
       invoiceNumber: true,
