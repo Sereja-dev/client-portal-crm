@@ -4,10 +4,10 @@
 
 **Overall status: Core SaaS ready. Marketing live. Paid billing and AI intentionally not enabled.**
 
-- App baseline SHA: `c7c2b0bc13e03659d8c881157ae789cb29871811` (`main`, clean, matches `origin/main`)
+- App baseline SHA: `e2fe12b3e6ba7027e997edbe9570cf5134fb5818` (`main`, clean, matches `origin/main`) — updated 2026-09-08 with the completed Quotes + Invoice Production smoke (see §21)
 - Marketing baseline SHA: `b635a6f6a8c188b23936d6907c7f55ff54ccda7f` (`main`, clean, matches `origin/main`)
 - Production domains: `https://aqenra.com`, `https://www.aqenra.com`, `https://app.aqenra.com` — all live, verified responding as of this handoff (see §2, §4).
-- Already live: the SaaS app (Staff + Client Portal + Platform Admin), the marketing site, transactional email, Supabase Storage.
+- Already live: the SaaS app (Staff + Client Portal + Platform Admin), Quotes (Staff create/send/archive lifecycle + Portal approval/decline + Quote → Invoice conversion — see §21), the marketing site, transactional email, Supabase Storage.
 - Intentionally disabled/deferred:
   - **Paddle billing** — not configured in Production, fails closed (see §11)
   - **AI Assistant** — not configured in Production, fails closed (see §12)
@@ -41,7 +41,7 @@ This is **not** a "full public launch complete" state — it is a ready core pro
 **client-portal-crm**
 - Path: `~/Projects/freelance/client-portal-crm`
 - Remote: `git@github.com:Sereja-dev/client-portal-crm.git`
-- Current `main` SHA: `c7c2b0bc13e03659d8c881157ae789cb29871811`
+- Current `main` SHA: `e2fe12b3e6ba7027e997edbe9570cf5134fb5818`
 
 **aqenra-marketing**
 - Path: `~/Projects/freelance/aqenra-marketing`
@@ -61,13 +61,20 @@ Both repos deploy from `main` via each project's own Vercel GitHub integration �
 | Staff invitation acceptance | **DONE (manual, Production)** | Same test — Membership row confirmed created correctly, then removed. |
 | standalone Staff signup | Not independently re-verified in Production | Code-verified (automated tests + build); the completed manual test above was invitation-based, not standalone. |
 | standalone Staff login after logout | Not independently re-verified in Production | Code-verified only. |
-| Portal invitation flow | Test fixtures prepared, not executed | A real test Client/Project/Invoice was created in Production for this purpose; the full manual click-through was not completed. |
-| Portal signup | Not independently re-verified in Production | Code-verified only. |
-| Portal confirmation | Not independently re-verified in Production | Code-verified only. |
-| Portal explicit acceptance | Not independently re-verified in Production | Code-verified only. |
-| Portal client/project isolation | Not independently re-verified in Production | Code- and test-suite-verified (tenant scoping, dedicated security checks); no live manual click-through performed. |
+| Portal invitation flow | **DONE (manual, Production)** | A full real invite → sign up → confirm → accept flow was completed for the Quotes Phase 4 smoke (`umerenko.s.v+portal3@gmail.com` → Portal Isolation Test Client) — see §21.5. |
+| Portal signup | **DONE (manual, Production)** | Same test — a real Portal account was created via the signup form. |
+| Portal confirmation | **DONE (manual, Production)** | Same test — confirmed via a real Resend-delivered confirmation email link. |
+| Portal explicit acceptance | **DONE (manual, Production)** | Same test — invitation explicitly accepted; Staff Client page confirmed the Portal user afterward. |
+| Portal client/project isolation | Not independently re-verified in Production | Code- and test-suite-verified (tenant scoping, dedicated security checks); no live cross-tenant manual click-through performed. |
 | Portal invoice isolation | Not independently re-verified in Production | Same as above. |
 | Portal denial from Staff dashboard | Code-verified (structural) | Enforced by separate identity resolvers; not a manual click-through test. |
+| Project-less Invoice (Staff) | **DONE (manual, Production)** | Full smoke `SMOKE-NOPROJ-001` — create, edit, Dashboard/Activity/list read paths, issue, PDF download/content, mobile, dark theme. Retained as a Production smoke artifact — see §21.1. |
+| Invoice → Project FK `SET NULL` migration | **DONE (Production migration + automated tests)** | `20260923090000_set_invoice_project_fk_set_null` applied and verified directly against Production; the delete-then-nullify behavior itself is covered by DB-backed integration tests, not a live destructive test — see §21.2. |
+| Invoice Client/Project link UX (Staff) | **DONE (manual, Production)** | List and issued/read-only pages, canonical destinations, back navigation, Portal non-exposure — see §21.3. |
+| Quotes — Staff UI (create/send/edit/archive lifecycle) | **DONE (manual, Production)** | `Q-0001` full lifecycle smoke — see §21.4. |
+| Quotes — Portal approval | **DONE (manual, Production)** | Full invite → signup → confirm → accept → approve E2E — see §21.5. |
+| Quote → Invoice conversion | **DONE (manual, Production)** | `Q-0001` → `QUOTE-SMOKE-001`, then cleaned up — see §21.6. |
+| Portal invite existing-user conflict UX | **DONE (manual + automated, Production)** | Honest, non-leaking denial message for the one-Client-per-Portal-login conflict; no schema change — see §21.8. |
 | Platform Admin access | Config verified only | `PLATFORM_ADMIN_EMAILS` confirmed present in Vercel Production (value not inspected); no live login-as-admin functional test performed. |
 | transactional email delivery | **DONE (manual, Production)** | A real Resend email was sent and successfully used during the Staff invited-signup test above. |
 | Resend sender/domain | Functional (inferred from successful send) | No direct Resend-dashboard domain-verification check was performed; the successful real delivery above is the evidence. |
@@ -108,6 +115,7 @@ Both repos deploy from `main` via each project's own Vercel GitHub integration �
 - A server-side notice is now shown when an already-authenticated Staff session accepts a Portal invitation at the same email — informational only, never blocking.
 - Password-reset now respects the requested surface (`audienceHint`) when both a Staff and a Portal identity exist for the same email, falling back to the documented default (Staff) only when no valid hint is present.
 - No schema unification between `User` and `PortalUser` is planned before launch.
+- Separate from the above: a single Portal login can currently belong to only one *Client* (not the Staff/Portal dual-identity concept) — see §21.8 for that invariant and its conflict-denial UX.
 
 ---
 
@@ -129,7 +137,8 @@ Both repos deploy from `main` via each project's own Vercel GitHub integration �
 - Task creation: rate-limited
 - Invoice creation: rate-limited
 - `CRON_SECRET` comparison: timing-safe
-- Client/Project delete blocked by existing invoices: now returns a clear, controlled message instead of a generic failure
+- Client delete blocked by existing invoices: returns a clear, controlled message instead of a generic failure (`Invoice.clientId` FK remains `ON DELETE RESTRICT`)
+- Project delete is **no longer** blocked by existing invoices, as of the Phase 2.4 migration (see §21.2): `Invoice.projectId` FK is now `ON DELETE SET NULL` — deleting a Project nullifies `projectId` on its Invoices instead of being blocked
 - Regression test coverage added for the destructive delete actions above
 - Brand/favicon cleanup: generic stock icon replaced in both repos
 
@@ -295,6 +304,8 @@ A real Production upload/download UI smoke test has **not** been independently p
 
 **Manual operator check required:** verify the actual legal entity name, support contact, and address fields configured for the platform are appropriate before any public commercial launch. (This document does not provide legal advice or assess the current values.)
 
+**Support email — unfinished (see §20 for the tracked step):** `support@aqenra.com` is not yet configured. Remaining work: set it up via Cloudflare Email Routing forwarding to the existing Gmail inbox, without breaking the existing Resend DNS configuration for `aqenra.com`; then replace `no-reply@aqenra.com` with `support@aqenra.com` in the appropriate Privacy/Terms/support/legal contact locations. Until that's done, `no-reply@aqenra.com` remains the sender/contact address in use (see §8).
+
 ---
 
 ## 15. Production Environment Checklist
@@ -331,6 +342,7 @@ A real Production upload/download UI smoke test has **not** been independently p
 Already satisfied:
 - Staff
 - Portal
+- Quotes (Staff create/send/archive lifecycle + Portal approval/decline + Quote → Invoice conversion — see §21; known gaps are listed in §21.9)
 - Email
 - Storage
 - Platform Admin
@@ -371,10 +383,10 @@ No destructive database rollback is documented here, as none is required for any
 
 ## 18. Known Good Baselines
 
-**App:** `c7c2b0bc13e03659d8c881157ae789cb29871811`
+**App:** `e2fe12b3e6ba7027e997edbe9570cf5134fb5818`
 **Marketing:** `b635a6f6a8c188b23936d6907c7f55ff54ccda7f`
 
-Notable prior commits (app repo, most recent first): final P2 hardening cleanup, task/invoice creation rate limiting, dual-identity UX hardening, Aqenra brand mark, Portal signup-confirmation fix, invited-signup organization-creation fix.
+Notable prior commits (app repo, most recent first) — see §21 for full detail on the first five: Portal invite existing-user conflict UX fix, Quotes Portal approval (Phase 4), Quotes Staff UI (Phase 3), Invoice Client/Project link UX, Invoice → Project FK `SET NULL` migration (Phase 2.4), final P2 hardening cleanup, task/invoice creation rate limiting, dual-identity UX hardening, Aqenra brand mark, Portal signup-confirmation fix, invited-signup organization-creation fix.
 
 ---
 
@@ -397,7 +409,177 @@ Notable prior commits (app repo, most recent first): final P2 hardening cleanup,
 
 1. Decide whether launch is free/no-billing first, or paid immediately. — **business decision**
 2. Decide Starter/Pro dollar pricing. — **business decision**
-3. If paid: configure Paddle sandbox → run E2E → configure live. — **manual external setup**, then **Production mutation** (env vars)
-4. Create the OpenAI Production project/key only when AI is ready to be enabled. — **manual external setup**, then **Production mutation** (env vars)
-5. Run final post-configuration smoke tests for whichever of Paddle/AI was just enabled. — **manual verification** (Claude can assist with a structured smoke-test pass)
-6. Declare the product ready for its next real launch milestone once the above are complete.
+3. Configure `support@aqenra.com` via Cloudflare Email Routing, forwarding to the existing Gmail inbox, without breaking the existing Resend DNS configuration for `aqenra.com`; then replace `no-reply@aqenra.com` with `support@aqenra.com` in the appropriate Privacy/Terms/support/legal contact locations (see §14). — **manual external setup**, then **Production mutation** (email routing + doc/UI copy update)
+4. If paid: configure Paddle sandbox → run E2E → configure live. — **manual external setup**, then **Production mutation** (env vars)
+5. Create the OpenAI Production project/key only when AI is ready to be enabled. — **manual external setup**, then **Production mutation** (env vars)
+6. Run final post-configuration smoke tests for whichever of Paddle/AI was just enabled. — **manual verification** (Claude can assist with a structured smoke-test pass)
+7. Declare the product ready for its next real launch milestone once the above are complete.
+
+---
+
+## 21. Quotes & Invoice Production Smoke (2026-09-08)
+
+Manual Production verification completed 2026-09-08, closing out the gaps §4 previously left open for the Quotes feature, project-less Invoices, and the Invoice→Project FK. All test data below was created against Production directly by the operator and is either retained as a documented reusable smoke artifact or was cleaned up — see §21.7 for the exact final state.
+
+Latest Production HEAD as of this update: `e2fe12b3e6ba7027e997edbe9570cf5134fb5818`. Relevant deployed commits covered below: `01046ef` (Project FK `SetNull`, §21.2), `1847ce5` (Invoice Client/Project links, §21.3), `134bf2d` (Staff Quotes UI, §21.4), `0d18fc5` (Portal Quote approval, §21.5), `e2fe12b` (Portal invite conflict UX fix, §21.8).
+
+### 21.1 Project-less Invoice (Phase 2.3)
+
+Manual Production smoke: **PASS**. Manual Production artifact `SMOKE-NOPROJ-001` (Client: `Portal Isolation Test Client`, Project: `No project`) remains an issued Production smoke artifact and was **not** deleted.
+
+Checks completed:
+- Add Invoice form supports required Client + optional Project
+- Project can remain "No project"
+- Invoice created successfully
+- Invoice appeared in the Staff list
+- Draft edit page reopened correctly
+- Amount updated successfully, $10 → $12
+- Dashboard included the project-less Invoice in KPI/read paths
+- Recent Activity included it
+- Recent Invoices included it
+- Issue Invoice succeeded
+- Issued read-only page rendered correctly
+- Download PDF succeeded
+- PDF rendered correctly: correct Invoice number, correct Client, correct line/amount, no broken/null Project output
+- Mobile Invoice form checked manually
+- Dark theme checked manually
+- Client/Project link UI checked separately (see §21.3)
+
+### 21.2 Invoice → Project FK `SET NULL` (Phase 2.4)
+
+Commit: `01046ef48874ba58c0744e599f8c78c166847be1`
+Migration: `20260923090000_set_invoice_project_fk_set_null`
+
+Production migration applied successfully. Verified directly against Production:
+
+| | Before | After |
+|---|---|---|
+| `Invoice_projectId_fkey` | `ON DELETE RESTRICT` | `ON DELETE SET NULL` |
+| `Invoice.projectId` | nullable | nullable (unchanged) |
+| `Invoice.clientId` | `NOT NULL` | `NOT NULL` (unchanged) |
+| `Invoice_clientId_fkey` | `ON DELETE RESTRICT` | `ON DELETE RESTRICT` (unchanged) |
+| `Invoice_projectId_idx` | present | present (unchanged) |
+
+No unrelated schema changes and no row-count changes attributable to the migration.
+
+No real Production Project was deleted to test this — the delete-then-nullify behavior itself was covered with DB-backed integration tests instead, not a live destructive Production test.
+
+Post-migration Vercel/runtime sanity: no relevant Prisma errors, no FK/nullability errors, no 5xx in the available log samples. Vercel log retention/window was limited, so this is not exhaustive historical coverage.
+
+This directly supersedes the previous "Client/Project delete blocked by existing invoices" statement in §6 — see that section's corrected wording: Client delete is still blocked (FK unchanged); Project delete is no longer blocked (FK now `SET NULL`).
+
+### 21.3 Invoice Client/Project link UX
+
+Commit: `1847ce59cc1067e8bab8598d93294a3cab55cd82`
+
+Production browser checks completed:
+- Invoice list Client link works
+- Invoice list Project link works
+- Issued/read-only Invoice Client link works
+- Issued/read-only Invoice Project link works
+- Canonical destinations: `/clients/{id}/edit`, `/projects/{id}/edit`
+- Back navigation works
+- Portal does not expose Staff Client/Project links
+- No console/runtime errors observed
+
+"No project" non-link behavior was covered by automated tests; the separate demo browser workspace used for this browser verification did not contain a project-less Invoice, so that specific combination was not separately checked live in that session (the project-less Invoice itself has its own dedicated Production smoke — see §21.1).
+
+### 21.4 Quotes — Staff UI (Phase 3)
+
+Commit: `134bf2d49285d65726d79192ff8053a1429bbc22`
+
+Production manual smoke: Quote `Q-0001`, title "Production Quote Smoke", target `Portal Isolation Test Client`, initial total $25.00 → updated total $30.00.
+
+Checks completed:
+- `/quotes` empty state
+- Quotes navigation
+- `/quotes/new`
+- Lead target selector
+- Client target selector
+- Switching target replaces the inactive selector correctly
+- Create Draft Quote
+- Quote appears in list
+- Draft edit reloads saved data
+- Live totals preview works
+- Draft update $25 → $30, saved total is $30
+- Mark as sent
+- SENT read-only display, recipient snapshot shown
+- Edit-sent-quote warning correctly explains the Draft reset
+- Cancel preserves SENT state
+- Archive; Active list hides the archived Quote; Archived filter shows it; Unarchive; Active list shows it again
+
+"Mark as sent" does **not** send an email — this is correctly communicated in the UI (no Quote email-delivery feature exists yet; see §21.9).
+
+### 21.5 Quotes — Portal approval (Phase 4)
+
+Commit: `0d18fc5a2e08874f463e314e96f0681719004512`
+
+Manual Production E2E completed. Portal test account ultimately used: `umerenko.s.v+portal3@gmail.com`, Client: `Portal Isolation Test Client`.
+
+Chronology:
+1. An existing Portal account, `umerenko.s.v+portal2@gmail.com`, was already linked to a different Client.
+2. Attempting to accept a new Client invitation with that account exposed the existing one-Portal-login → one-Client architecture (see §5, §21.8).
+3. This was **not** a transaction-corruption bug — the invitation stayed correctly `PENDING` throughout.
+4. A separate documentation/UI bugfix (§21.8) was implemented so this conflict is explained honestly instead of a generic error.
+5. A fresh Portal account, `umerenko.s.v+portal3@gmail.com`, was then created through the full real flow: invite → sign up → email confirmation → accept invitation.
+
+Checks completed:
+- Portal account created, invitation accepted
+- Staff Client page shows `+portal3` under Portal users
+- Portal context correctly shows `Portal Isolation Test Client`
+- `/portal/quotes` visible in Portal nav
+- `Q-0001` visible in Portal, showing Sent / "Production Quote Smoke" / $30.00
+- Quote detail opens, line items/totals correct
+- Approve and Decline both available
+- Approval confirmation correctly states the Quote number, $30.00, no Invoice auto-created, no payment processed
+- Approve succeeds; Portal state becomes Approved; decision buttons disappear
+- Staff page reflects Approved and shows "Convert to invoice"
+
+This directly supersedes the previous "Portal invitation flow / Portal signup / Portal confirmation / Portal explicit acceptance" rows in §4 — updated there to DONE.
+
+### 21.6 Quote → Invoice conversion
+
+Manual Production conversion: Quote `Q-0001` → Invoice number `QUOTE-SMOKE-001`, Project: No project.
+
+Checks completed:
+- Convert dialog opened; Invoice number required; Project optional, "No project" available/default
+- Client was not caller-selected; totals/items were not caller-entered
+- Conversion succeeded, creating a Draft Invoice: `QUOTE-SMOKE-001`, Client = Portal Isolation Test Client, Project = No project, itemized "Consulting" line, Qty 1, Unit price $30, Total $30, USD
+- Quote became derived Converted, showing the linked Invoice
+- The second conversion action disappeared
+
+### 21.7 Cleanup state (final, as of 2026-09-08)
+
+- `Q-0001`: archived; lifecycle status remains **Approved**; preserved intentionally as a historical smoke artifact — **not deleted**.
+- `QUOTE-SMOKE-001` (the converted Draft Invoice): deleted successfully; `Q-0001.convertedInvoiceId` cleared via the existing `SetNull` relation behavior; `Q-0001` correctly returned to Approved; "Convert to invoice" became available again.
+- `SMOKE-NOPROJ-001` (§21.1): remains an issued Production smoke artifact — **not deleted**.
+- Pending Portal invitation for `umerenko.s.v+portal2@gmail.com`: cancelled/removed.
+- Portal user `umerenko.s.v+portal3@gmail.com`: remains linked to `Portal Isolation Test Client`; intentionally retained as a reusable Portal regression/smoke account — **not deleted**.
+
+### 21.8 Portal invite architecture / conflict bugfix
+
+Commit: `e2fe12b3e6ba7027e997edbe9570cf5134fb5818`
+
+Current MVP invariant, unchanged by this fix: one Portal auth identity → one `PortalUser` row → one required `clientId`. One Portal login can currently belong to only one Client.
+
+An existing Portal account invited to a different Client is intentionally denied: old Client access is preserved, the invitation remains pending until Staff cancels/reassigns it, and the app must never silently reassign `PortalUser.clientId`.
+
+Bugfix behavior:
+- The conflict now gets a distinct, honest error instead of the generic "This invitation is no longer available."
+- No other Client name/id is leaked.
+- New-user flow unchanged; same-Client idempotent acceptance unchanged.
+- No schema change, no migration.
+
+Real multi-Client-per-login support would require a future architectural change: a join/membership model, Portal context selection/switching, and a broader auth/query migration. This is **not** a planned launch gate — it is a known future architecture item only (see §21.9).
+
+### 21.9 Known gaps — Quotes (not yet implemented)
+
+- Quote email delivery
+- Quote PDF
+- Public/anonymous approval links
+- E-signature
+- Revision/version history
+- Automatic Invoice creation on approval (conversion remains a manual Staff action)
+- Automatic Lead → Client conversion on Quote approval
+- Multi-Client-per-Portal-login architecture (see §21.8)
+- Custom Quote workflows/statuses
