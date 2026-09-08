@@ -8,10 +8,18 @@ import { ContactFormDialog } from "./contact-form-dialog";
 import type { ContactFormDefaults } from "./contact-form";
 import type { ClientContactFormState } from "@/types";
 
-/** Multiple Contacts Phase 2 — small semantic badges, same visual language as StatusBadge's own tone pairs (a subtle-background + readable-foreground token pair, never a literal color), but not routed through STATUS_TONES itself: Primary/Billing aren't a status enum value, just a boolean flag each contact either has or doesn't. */
+/**
+ * Multiple Contacts Phase 2 — small semantic badges, same visual language
+ * as StatusBadge's own tone pairs (a subtle-background + readable-
+ * foreground token pair, never a literal color), but not routed through
+ * STATUS_TONES itself: Primary/Billing aren't a status enum value, just a
+ * boolean flag each contact either has or doesn't. `whitespace-nowrap`
+ * (Contacts UI Polish) — a pill badge wrapping its own single-word label
+ * mid-word at a narrow width reads as broken, never intentional.
+ */
 export function PrimaryBadge() {
   return (
-    <span className="bg-success-subtle text-success inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium">
+    <span className="bg-success-subtle text-success inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap">
       Primary
     </span>
   );
@@ -19,7 +27,7 @@ export function PrimaryBadge() {
 
 export function BillingBadge() {
   return (
-    <span className="bg-info-subtle text-info inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium">
+    <span className="bg-info-subtle text-info inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap">
       Billing
     </span>
   );
@@ -44,7 +52,7 @@ export function EditContactButton({
       <button
         type="button"
         onClick={() => dialogRef.current?.showModal()}
-        className={ACTION_LINK_CLASSES}
+        className={`${ACTION_LINK_CLASSES} whitespace-nowrap`}
       >
         Edit
       </button>
@@ -88,7 +96,7 @@ export function SetPrimaryButton({
       type="button"
       disabled={pending}
       onClick={handleClick}
-      className={`${ACTION_LINK_CLASSES} disabled:cursor-not-allowed disabled:opacity-60`}
+      className={`${ACTION_LINK_CLASSES} whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-60`}
     >
       Set primary
     </button>
@@ -127,7 +135,7 @@ export function ArchiveContactButton({
         type="button"
         disabled={pending}
         onClick={() => dialogRef.current?.open()}
-        className="text-danger focus-visible:ring-danger rounded text-sm font-medium transition-colors hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+        className="text-danger focus-visible:ring-danger rounded text-sm font-medium whitespace-nowrap transition-colors hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
       >
         Archive
       </button>
@@ -177,7 +185,7 @@ export function UnarchiveContactButton({
       type="button"
       disabled={pending}
       onClick={handleClick}
-      className={`${ACTION_LINK_CLASSES} disabled:cursor-not-allowed disabled:opacity-60`}
+      className={`${ACTION_LINK_CLASSES} whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-60`}
     >
       Unarchive
     </button>

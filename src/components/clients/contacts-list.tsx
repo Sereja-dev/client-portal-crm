@@ -109,8 +109,12 @@ export function ContactsList({
             <tr>
               <TableHeaderCell>Contact</TableHeaderCell>
               <TableHeaderCell>Email</TableHeaderCell>
-              <TableHeaderCell>Phone</TableHeaderCell>
-              <TableHeaderCell className="hidden md:table-cell">Role</TableHeaderCell>
+              {/* Contacts UI Polish — priority order (name+badges, email,
+                  actions always visible; phone medium, role lowest):
+                  Role hides first, below lg (1024px, "tablet" width in
+                  this task's own 834px check), well before Phone does. */}
+              <TableHeaderCell className="hidden sm:table-cell">Phone</TableHeaderCell>
+              <TableHeaderCell className="hidden lg:table-cell">Role</TableHeaderCell>
               <TableHeaderCell align="right">Actions</TableHeaderCell>
             </tr>
           </TableHead>
@@ -124,11 +128,17 @@ export function ContactsList({
                     {contact.isBilling && <BillingBadge />}
                   </div>
                 </TableCell>
-                <TableCell>{contact.email ?? "—"}</TableCell>
-                <TableCell>{contact.phone ?? "—"}</TableCell>
-                <TableCell className="hidden md:table-cell">{contact.role ?? "—"}</TableCell>
+                <TableCell className="break-words">{contact.email ?? "—"}</TableCell>
+                <TableCell className="hidden sm:table-cell">{contact.phone ?? "—"}</TableCell>
+                <TableCell className="hidden lg:table-cell">{contact.role ?? "—"}</TableCell>
                 <TableCell align="right">
-                  <div className="flex items-center justify-end gap-4">
+                  {/* flex-wrap (Contacts UI Polish) — up to three actions
+                      (Edit/Set primary/Archive) never get horizontally
+                      squeezed or clipped at a narrow width; they wrap
+                      onto their own line as whole buttons instead (each
+                      button's own label is whitespace-nowrap, so a label
+                      itself never breaks word-by-word). */}
+                  <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
                     {contact.archivedAt === null ? (
                       <>
                         <EditContactButton

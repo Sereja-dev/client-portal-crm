@@ -137,7 +137,7 @@ test.describe("Client Contacts UI (Multiple Contacts Phase 2)", () => {
     await expect(page.getByRole("row", { name: /Jane Smith/ }).getByText("Primary", { exact: true })).not.toBeVisible();
   });
 
-  test("Mobile (390px): the Contacts section fits the viewport with no horizontal overflow", async ({ page }) => {
+  test("Mobile (390px), empty state: the Contacts section fits the viewport with no horizontal overflow", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 900 });
     await page.goto(`/clients/${fixtures.clientA.id}/edit`);
     await expect(page.getByRole("heading", { name: "Contacts", level: 2 })).toBeVisible();
@@ -147,6 +147,152 @@ test.describe("Client Contacts UI (Multiple Contacts Phase 2)", () => {
       clientWidth: document.documentElement.clientWidth,
     }));
     expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+  });
+
+  test.describe("Contacts UI Polish — responsive breakpoints (populated list)", () => {
+    let client: { id: string };
+
+    test.beforeAll(async () => {
+      client = await dbQuery<{ id: string }>("client", "create", {
+        data: { name: `E2E Contact Responsive ${randomUUID().slice(0, 8)}`, organizationId: fixtures.orgA.id, userId: fixtures.owner.id },
+      });
+      // A non-primary active contact (worst case for the Actions column —
+      // Edit + Set primary + Archive, three buttons) with every column
+      // populated (email/phone/role) so hiding/wrapping is actually
+      // exercised, not just an empty/near-empty row.
+      await dbQuery("clientContact", "create", {
+        data: {
+          organizationId: fixtures.orgA.id,
+          clientId: client.id,
+          name: "Priya Nair",
+          email: "priya@example.com",
+          phone: "555-0177",
+          role: "Finance Director",
+          isBilling: true,
+        },
+      });
+      // The primary contact (Edit + Archive only) — also exercises the
+      // Primary badge staying legible at every width.
+      await dbQuery("clientContact", "create", {
+        data: {
+          organizationId: fixtures.orgA.id,
+          clientId: client.id,
+          name: "Sam Ortiz",
+          email: "sam@example.com",
+          phone: "555-0188",
+          role: "Owner",
+          isPrimary: true,
+        },
+      });
+      // An archived contact (Section G) — must show its Billing badge,
+      // never a Primary badge even if isPrimary was left true internally,
+      // and expose Unarchive clearly.
+      await dbQuery("clientContact", "create", {
+        data: {
+          organizationId: fixtures.orgA.id,
+          clientId: client.id,
+          name: "Alex Chen",
+          email: "alex@example.com",
+          isBilling: true,
+          isPrimary: true,
+          archivedAt: new Date(),
+        },
+      });
+    });
+
+    test.afterAll(async () => {
+      await dbQuery("client", "deleteMany", { where: { name: { startsWith: "E2E Contact Responsive" } } });
+    });
+
+    test("390px: name/email/actions visible and reachable, Role hidden, no page overflow", async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 900 });
+      await page.goto(`/clients/${client.id}/edit`);
+
+      const priyaRow = page.getByRole("row", { name: /Priya Nair/ });
+      await expect(priyaRow).toBeVisible();
+      await expect(priyaRow.getByText("priya@example.com")).toBeVisible();
+      await expect(priyaRow.getByRole("button", { name: "Edit" })).toBeVisible();
+      await expect(priyaRow.getByRole("button", { name: "Set primary" })).toBeVisible();
+      await expect(priyaRow.getByRole("button", { name: "Archive" })).toBeVisible();
+
+      // Role is the lowest-priority column — hidden at this width so it
+      // never crushes the layout or forces character-by-character wrap.
+      await expect(page.getByRole("columnheader", { name: "Role" })).not.toBeVisible();
+      await expect(page.getByText("Finance Director")).not.toBeVisible();
+
+      // Active primary state stays legible.
+      const samRow = page.getByRole("row", { name: /Sam Ortiz/ });
+      await expect(samRow.getByText("Primary", { exact: true })).toBeVisible();
+
+      // Archived contact: Billing badge shown, Primary badge never shown,
+      // Unarchive clearly reachable.
+      await page.getByRole("button", { name: /Show archived/ }).click();
+      const alexRow = page.getByRole("row", { name: /Alex Chen/ });
+      await expect(alexRow).toBeVisible();
+      await expect(alexRow.getByText("Billing", { exact: true })).toBeVisible();
+      await expect(alexRow.getByText("Primary", { exact: true })).not.toBeVisible();
+      await expect(alexRow.getByRole("button", { name: "Unarchive" })).toBeVisible();
+
+      const overflow = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+    });
+
+    test("834px (tablet): Role still hidden (no ugly wrapping), Phone visible, actions reachable, no overflow", async ({ page }) => {
+      await page.setViewportSize({ width: 834, height: 1100 });
+      await page.goto(`/clients/${client.id}/edit`);
+
+      const priyaRow = page.getByRole("row", { name: /Priya Nair/ });
+      await expect(priyaRow).toBeVisible();
+      await expect(priyaRow.getByText("555-0177")).toBeVisible();
+      await expect(page.getByRole("columnheader", { name: "Role" })).not.toBeVisible();
+
+      await expect(priyaRow.getByRole("button", { name: "Edit" })).toBeVisible();
+      await expect(priyaRow.getByRole("button", { name: "Set primary" })).toBeVisible();
+      await expect(priyaRow.getByRole("button", { name: "Archive" })).toBeVisible();
+
+      const overflow = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+    });
+
+    test("1280px (desktop): the full table — Email/Phone/Role/Actions — remains visible and readable", async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto(`/clients/${client.id}/edit`);
+
+      await expect(page.getByRole("columnheader", { name: "Email" })).toBeVisible();
+      await expect(page.getByRole("columnheader", { name: "Phone" })).toBeVisible();
+      await expect(page.getByRole("columnheader", { name: "Role" })).toBeVisible();
+      await expect(page.getByRole("columnheader", { name: "Actions" })).toBeVisible();
+
+      const priyaRow = page.getByRole("row", { name: /Priya Nair/ });
+      await expect(priyaRow.getByText("Finance Director")).toBeVisible();
+      await expect(priyaRow.getByRole("button", { name: "Edit" })).toBeVisible();
+      await expect(priyaRow.getByRole("button", { name: "Set primary" })).toBeVisible();
+      await expect(priyaRow.getByRole("button", { name: "Archive" })).toBeVisible();
+    });
+
+    test("Dark theme, tablet (834px): Contacts table is legible, no console errors", async ({ page, context, baseURL }) => {
+      await dbQuery("user", "update", { where: { id: fixtures.owner.id }, data: { themeMode: "DARK" } });
+      await actAsOwner(context, baseURL!);
+
+      const errors: string[] = [];
+      page.on("pageerror", (e) => errors.push(String(e)));
+
+      await page.setViewportSize({ width: 834, height: 1100 });
+      await page.goto(`/clients/${client.id}/edit`);
+      await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("dark");
+
+      const priyaRow = page.getByRole("row", { name: /Priya Nair/ });
+      await expect(priyaRow).toBeVisible();
+      await expect(priyaRow.getByRole("button", { name: "Archive" })).toBeVisible();
+
+      expect(errors).toEqual([]);
+    });
   });
 
   test("Dark theme: Contacts section heading is legible, no console errors", async ({ page, context, baseURL }) => {
