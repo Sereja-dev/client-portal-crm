@@ -8,6 +8,7 @@ import { withToast } from "@/lib/toast-url";
 import { createActivity } from "@/lib/activity/create-activity";
 import { diffClientFields, buildClientActivityMetadata } from "@/lib/activity/client-metadata";
 import { findDuplicateOrganizationClientByEmail } from "@/lib/clients/duplicate-email";
+import { syncPrimaryContactEmailFromClientEdit } from "@/lib/clients/contacts";
 import type { ClientFormState } from "@/types";
 
 export async function updateClientAction(
@@ -62,6 +63,18 @@ export async function updateClientAction(
 
     if (result.count === 0) {
       return "not_found" as const;
+    }
+
+    // Multiple Contacts Phase 1 — "Close Legacy Email Sync Gap." Only
+    // when the email genuinely changed (never an unconditional write, so
+    // an untouched-email re-save never mutates a contact for no reason)
+    // — see syncPrimaryContactEmailFromClientEdit's own comment for the
+    // full rule, including the deliberate "explicit clear also clears
+    // the primary contact's email" choice. Same transaction as the
+    // Client update above: if this throws, the whole update (Client row
+    // included) rolls back with it.
+    if (existing.email !== values.email) {
+      await syncPrimaryContactEmailFromClientEdit(tx, organizationId, clientId, values.email);
     }
 
     // Only log a real change — a re-submit of identical values (e.g. an

@@ -16,6 +16,7 @@ import {
 } from "@/lib/validation/lead";
 import { assertCanCreateClient, BillingLimitError } from "@/lib/billing/enforcement";
 import { findDuplicateOrganizationClientByEmail } from "@/lib/clients/duplicate-email";
+import { createClientContact, resolveFallbackContactName } from "@/lib/clients/contacts";
 import { LEAD_STAGES, isLostLeadStage } from "@/lib/leads/stages";
 
 /**
@@ -625,6 +626,36 @@ export async function convertLeadToClientAction(
           userId: user.id,
         },
       });
+
+      // Multiple Contacts Phase 1 — same rule and reasoning as
+      // createClientAction's own identical block: a primary ClientContact
+      // is created in this same transaction whenever the Lead had
+      // contact-capable data, so contact creation failing rolls the whole
+      // conversion (Client + Activity) back with it. Lead.name is never
+      // copied onto the contact's own name for the identical reason
+      // Client.name isn't — Lead.name/Client.name share the same
+      // ambiguous "could be a person or a business" shape (both have a
+      // separate, optional `company` field), so the fallback-name rule
+      // stays consistent whether a Client was created directly or via
+      // Lead conversion. Lead.email/Lead.phone map straight across —
+      // source/value/lostReason/stage/notes are Lead-only history and
+      // were never candidates for a Contact field either way.
+      if (lead.email || lead.phone) {
+        const contactResult = await createClientContact(
+          organizationId,
+          client.id,
+          {
+            name: resolveFallbackContactName(lead.email),
+            email: lead.email,
+            phone: lead.phone,
+            isPrimary: true,
+          },
+          tx,
+        );
+        if (!contactResult.ok) {
+          throw new Error(`Unexpected ClientContact creation failure: ${contactResult.reason}`);
+        }
+      }
 
       // Consistency with direct Client creation (createClientAction),
       // which always logs its own CLIENT/CREATED Activity — a

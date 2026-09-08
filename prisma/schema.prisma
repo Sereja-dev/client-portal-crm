@@ -428,6 +428,10 @@ model Organization {
   // unnamed relation.
   quotes Quote[]
 
+  // Multiple Contacts Phase 1 (data model foundation only). Same direct-
+  // tenant-scoping shape as leads/quotes above.
+  clientContacts ClientContact[]
+
   // Invoice System Slice 3, sub-PR 3b — see InvoicePdfArchiveObject's own
   // doc comment.
   invoicePdfArchiveObjects InvoicePdfArchiveObject[]
@@ -741,6 +745,11 @@ model Client {
   portalUsers       PortalUser[]
   clientInvitations ClientInvitation[]
 
+  // Multiple Contacts Phase 1 (data model foundation only — see
+  // ClientContact's own doc comment). Cascade at the ClientContact side,
+  // not here — this back-relation is just the array view of that.
+  contacts ClientContact[]
+
   // Leads / Sales Pipeline Phase 1 (schema foundation only). At most one
   // Lead ever converts into a given Client — enforced by Lead.
   // convertedClientId's own @unique, which is what makes this back-relation
@@ -794,6 +803,87 @@ model Client {
   @@index([status])
   @@index([userId])
   @@index([organizationId])
+}
+
+// Multiple Contacts Phase 1 (data model foundation only — no UI yet, see
+// src/lib/clients/contacts.ts for the domain layer). A Client represents
+// the business/customer account; a ClientContact represents a person
+// associated with that Client (e.g. Client "Acme Consulting" might have
+// contacts "Jane Smith — Owner", "Mark Lee — Billing"). Client.name/
+// email/phone remain the legacy compatibility fields for now (see
+// Client's own comment on why email carries no uniqueness constraint) —
+// nothing here removes, renames, or reinterprets them; Client.email stays
+// synchronized with the active primary contact's email going forward
+// (one direction only in this phase — see createClientContact's own
+// comment).
+//
+// clientId is onDelete: Cascade (not Restrict, unlike Invoice/Quote's own
+// deliberate Restrict on Client) — contacts are subordinate CRM records
+// and must never block deleting a Client.
+//
+// organizationId is required + Cascade, the same direct-tenant-scoping
+// shape Lead/Quote/Comment/Attachment already use (not the legacy
+// nullable/SetNull pattern Client/Project/Task still carry). Client's own
+// organizationId is technically nullable, but a read-only Production
+// preflight taken before this migration was written found zero Client
+// rows with a null organizationId — the backfill migration still
+// explicitly skips one if it were ever found, rather than assuming this
+// holds forever.
+//
+// email is deliberately NOT globally or per-organization unique — same
+// policy as Client.email itself: contact information, never identity,
+// and a person may legitimately be the contact for more than one Client
+// (e.g. an agency's own account manager).
+//
+// Primary-contact invariant ("at most one active — non-archived —
+// primary contact per Client") is enforced by a partial unique index
+// added via raw SQL in this model's own migration, NOT expressible here
+// — this project's Prisma configuration has no partial-index syntax
+// (identical reason InvoiceEmailAttempt's own "one PENDING attempt per
+// invoice" index lives only in its migration.sql, never in that model's
+// own block; see that model's comment). isPrimary/archivedAt are
+// ordinary columns here; the actual guarantee is
+// `CREATE UNIQUE INDEX ... ON "ClientContact"("clientId") WHERE
+// "isPrimary" = true AND "archivedAt" IS NULL` in this model's migration.
+// Archiving the current primary intentionally leaves the Client with no
+// primary (no automatic promotion of another contact) — isPrimary is
+// left true on the archived row as a historical fact; every read path
+// (getPrimaryClientContact, the partial index itself) already filters on
+// `archivedAt: null` too, so an archived isPrimary row is never picked
+// up as "the" primary again.
+//
+// isPortalContact exists now purely as a placeholder for a future phase
+// that maps a specific ClientContact to a Portal login — nothing in this
+// phase ever sets it, and PortalUser.clientId's own one-Client invariant
+// is completely unchanged (see PortalUser's own comment).
+model ClientContact {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  clientId String @db.Uuid
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  name  String
+  email String?
+  phone String?
+  role  String?
+
+  isPrimary       Boolean @default(false)
+  isBilling       Boolean @default(false)
+  isPortalContact Boolean @default(false)
+
+  // Soft-archive only, same convention as Lead.archivedAt — null = active.
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([clientId])
+  @@index([email])
+  @@index([clientId, archivedAt])
 }
 
 model Project {

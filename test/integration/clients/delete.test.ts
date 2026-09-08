@@ -214,4 +214,28 @@ describe("deleteClientAction — blocked by existing invoices or quotes (Post-Ha
     expect(await prisma.attachment.findFirst({ where: { entityId: client.id } })).toBeNull();
     expect(removedPaths).toContain(storagePath);
   });
+
+  // Multiple Contacts Phase 1, item 34 — ClientContact.clientId is
+  // onDelete: Cascade (unlike Invoice/Quote's own deliberate Restrict),
+  // exactly so a Client with only Contacts (no Invoice/Quote) is never
+  // blocked from deletion. Items 35/36 (still blocked by Invoice/Quote)
+  // are already covered, unmodified, by this same file's own tests above
+  // — Contacts never enter that decision at all (ClientContact is not
+  // one of mapDeleteRestrictError's two recognized dependents).
+  it("34. a client with only ClientContact rows (no Invoice/Quote) deletes successfully, and its Contacts cascade away with it", async () => {
+    const client = await createClient(fixtures.orgA.id, fixtures.owner.id);
+    await prisma.clientContact.createMany({
+      data: [
+        { organizationId: fixtures.orgA.id, clientId: client.id, name: "Primary", email: "p@example.com", isPrimary: true },
+        { organizationId: fixtures.orgA.id, clientId: client.id, name: "Secondary", email: "s@example.com" },
+      ],
+    });
+    actAs(fixtures.owner, fixtures.orgA.id);
+
+    const result = await deleteClientAction(client.id);
+
+    expect(result).toEqual({ ok: true });
+    expect(await prisma.client.findUnique({ where: { id: client.id } })).toBeNull();
+    expect(await prisma.clientContact.findMany({ where: { clientId: client.id } })).toHaveLength(0);
+  });
 });

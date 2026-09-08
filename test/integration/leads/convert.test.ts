@@ -389,4 +389,100 @@ describe("convertLeadToClientAction", () => {
     // A brand-new Client was created — never fixtures.clientA.
     expect(result.clientId).not.toBe(someOtherClientId);
   });
+
+  // Multiple Contacts Phase 1 — items 30/31/32/33 of that feature's own
+  // test plan. See createClientAction's identical block in
+  // test/integration/clients/create.test.ts for the create-time mirror of
+  // this same rule.
+  it("30/31. converting a Lead with email/phone creates exactly one primary ClientContact, correctly mapped, with Lead.name never copied onto it", async () => {
+    const leadId = await createLead(fixtures.orgA.id, fixtures.owner, {
+      company: "Acme Co",
+      email: "lead-contact@example.com",
+      phone: "555-0199",
+    });
+    actAs(fixtures.owner, fixtures.orgA.id);
+
+    const result = await convertLeadToClientAction(leadId);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+
+    const contacts = await prisma.clientContact.findMany({ where: { clientId: result.clientId } });
+    expect(contacts).toHaveLength(1);
+    const [contact] = contacts;
+    expect(contact.isPrimary).toBe(true);
+    expect(contact.archivedAt).toBeNull();
+    expect(contact.email).toBe("lead-contact@example.com");
+    expect(contact.phone).toBe("555-0199");
+    // Same fallback-name rule as backfill/create-time — never the Lead's
+    // own `name` (Lead.name/Client.name share the same ambiguous
+    // "business or person" shape; see resolveFallbackContactName's
+    // comment).
+    expect(contact.name).toBe("lead-contact");
+    expect(contact.organizationId).toBe(fixtures.orgA.id);
+
+    // The Client's own email stays exactly what the mapping already put
+    // there (redundant sync, not a divergence).
+    const client = await prisma.client.findUniqueOrThrow({ where: { id: result.clientId } });
+    expect(client.email).toBe("lead-contact@example.com");
+  });
+
+  it("32. company/client semantics preserved — Lead.company still maps onto Client.company unchanged by contact creation", async () => {
+    const leadId = await createLead(fixtures.orgA.id, fixtures.owner, {
+      company: "Acme Co",
+      email: "lead-company-check@example.com",
+    });
+    actAs(fixtures.owner, fixtures.orgA.id);
+
+    const result = await convertLeadToClientAction(leadId);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+
+    const client = await prisma.client.findUniqueOrThrow({ where: { id: result.clientId } });
+    expect(client.company).toBe("Acme Co");
+    // company is never duplicated onto the contact — ClientContact has no
+    // company field at all in Phase 1.
+    const contact = await prisma.clientContact.findFirstOrThrow({ where: { clientId: result.clientId } });
+    expect(Object.keys(contact)).not.toContain("company");
+  });
+
+  it("a Lead with neither email nor phone converts with no ClientContact created at all", async () => {
+    const leadId = await createLead(fixtures.orgA.id, fixtures.owner);
+    actAs(fixtures.owner, fixtures.orgA.id);
+
+    const result = await convertLeadToClientAction(leadId);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+
+    const contacts = await prisma.clientContact.findMany({ where: { clientId: result.clientId } });
+    expect(contacts).toHaveLength(0);
+  });
+
+  it("33. Quote reconciliation is unaffected — a Lead's own Quote is still visible/linked identically after conversion, contact creation included", async () => {
+    const leadId = await createLead(fixtures.orgA.id, fixtures.owner, { email: "lead-quote-check@example.com" });
+    const quote = await prisma.quote.create({
+      data: {
+        organizationId: fixtures.orgA.id,
+        number: `Q-CONTACT-${randomUUID().slice(0, 8)}`,
+        leadId,
+        status: "DRAFT",
+        subtotal: "100.00",
+        total: "100.00",
+        createdByUserId: fixtures.owner.id,
+      },
+    });
+    actAs(fixtures.owner, fixtures.orgA.id);
+
+    const result = await convertLeadToClientAction(leadId);
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+
+    // Same lineage rule as every other conversion test in this file:
+    // leadId stays set, clientId gets populated — contact creation in the
+    // same transaction changes nothing about this.
+    const quoteAfter = await prisma.quote.findUniqueOrThrow({ where: { id: quote.id } });
+    expect(quoteAfter.leadId).toBe(leadId);
+    expect(quoteAfter.clientId).toBe(result.clientId);
+
+    await prisma.quote.deleteMany({ where: { id: quote.id } });
+  });
 });

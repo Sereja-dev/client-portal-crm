@@ -9,6 +9,7 @@ import { createActivity } from "@/lib/activity/create-activity";
 import { buildClientActivityMetadata } from "@/lib/activity/client-metadata";
 import { assertCanCreateClient, BillingLimitError } from "@/lib/billing/enforcement";
 import { findDuplicateOrganizationClientByEmail } from "@/lib/clients/duplicate-email";
+import { createClientContact, resolveFallbackContactName } from "@/lib/clients/contacts";
 import type { ClientFormState } from "@/types";
 
 export async function createClientAction(
@@ -49,6 +50,37 @@ export async function createClientAction(
       const client = await tx.client.create({
         data: { ...values, userId: user.id, organizationId },
       });
+
+      // Multiple Contacts Phase 1 — a Client created with contact-capable
+      // fields (email and/or phone) gets one primary ClientContact in the
+      // same transaction, so contact creation failing rolls the Client
+      // create back with it. Client.name is never copied onto the
+      // contact's own name — see resolveFallbackContactName's own comment
+      // for why (same rule this feature's backfill migration uses).
+      // Skipped entirely when neither is present, matching the backfill's
+      // own "be conservative" trigger condition.
+      if (values.email || values.phone) {
+        const contactResult = await createClientContact(
+          organizationId,
+          client.id,
+          {
+            name: resolveFallbackContactName(values.email),
+            email: values.email,
+            phone: values.phone,
+            isPrimary: true,
+          },
+          tx,
+        );
+        // CLIENT_NOT_FOUND/CONCURRENT_PRIMARY_CHANGE are both structurally
+        // unreachable here (the Client was just created in this same
+        // transaction with zero pre-existing contacts) — thrown rather
+        // than silently ignored, so an unexpected failure rolls the whole
+        // Client create back instead of committing a Client with a
+        // silently-skipped contact.
+        if (!contactResult.ok) {
+          throw new Error(`Unexpected ClientContact creation failure: ${contactResult.reason}`);
+        }
+      }
 
       await createActivity(tx, {
         organizationId,
