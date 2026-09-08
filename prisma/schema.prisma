@@ -173,6 +173,18 @@ enum ActivityEntityType {
   // already renders a neutral "Activity recorded" line today, for any
   // enum value — this one included — rather than throwing.
   LEAD
+
+  // Quotes / Estimates Phase 1 (schema foundation only). Additive enum
+  // value only -- no code writes a QUOTE Activity row yet (Phase 2 server
+  // actions do). Re-verified safe the same way LEAD was above:
+  // format-activity.ts's buildModel() is still a plain if-chain ending in
+  // FALLBACK (no exhaustive switch anywhere), and notification-rules.ts's
+  // RULES map is still Partial<Record<ActivityEntityType, ...>> -- an
+  // entityType with no entry simply produces no notification. Existing
+  // CREATED/UPDATED/STATUS_CHANGED/CONVERTED already cover every event
+  // Quotes need (see Quote's own doc comment); no new ActivityAction is
+  // added here.
+  QUOTE
 }
 
 enum ActivityAction {
@@ -375,6 +387,12 @@ model User {
   // Invoice System Slice 1 (docs/invoicing-architecture.md §4.3). Unused
   // until Slice 4 adds a real send path — see InvoiceEmailAttempt.
   requestedInvoiceEmailAttempts InvoiceEmailAttempt[] @relation("InvoiceEmailAttemptRequestedBy")
+
+  // Quotes / Estimates Phase 1 (schema foundation only). Same "author"
+  // relation shape as clients/ClientOwner above -- Restrict (see Quote's
+  // own createdByUser field), so a User who has created Quotes can never
+  // be hard-deleted while any of them still exist.
+  createdQuotes Quote[] @relation("QuoteCreatedBy")
 }
 
 // Multi-tenant scaffolding (schema-only for now; not yet wired into app
@@ -404,6 +422,11 @@ model Organization {
   // the legacy nullable pattern Client/Project/Task carry), so this is a
   // plain, unnamed relation exactly like their own organization relation.
   leads Lead[]
+
+  // Quotes / Estimates Phase 1 (schema foundation only). Same reasoning as
+  // leads above -- organizationId is required, so this is a plain,
+  // unnamed relation.
+  quotes Quote[]
 
   // Invoice System Slice 3, sub-PR 3b — see InvoicePdfArchiveObject's own
   // doc comment.
@@ -724,6 +747,16 @@ model Client {
   // a single optional object rather than an array.
   convertedFromLead Lead? @relation("LeadConvertedClient")
 
+  // Quotes / Estimates Phase 1 (schema foundation only). A Client can
+  // receive Quotes directly (leadId null, clientId set at creation) or
+  // inherit them once a Lead that already had Quotes converts (leadId
+  // stays set, clientId gets populated then -- see Quote's own doc
+  // comment for the full lead/client ownership rule). Restrict, not
+  // SetNull: this Client can never be deleted while a Quote still
+  // references it, so a Quote can never end up with leadId AND clientId
+  // both null through a Client deletion.
+  quotes Quote[] @relation("QuoteClient")
+
   // Invoice System Slice 1 (docs/invoicing-architecture.md §4.4) — optional
   // billing identity used by a future invoice PDF's "Bill To" block. All
   // nullable, never backfilled (no source-of-truth data exists to backfill
@@ -890,6 +923,15 @@ model Invoice {
   // this reverse relation exists so a still-existing Invoice can look up
   // its own archive attempts; no code path reads it in this sub-PR.
   pdfArchiveObjects InvoicePdfArchiveObject[]
+
+  // Quotes / Estimates Phase 1 (schema foundation only). At most one
+  // Quote ever converts into a given Invoice -- enforced by Quote.
+  // convertedInvoiceId's own @unique, which is what makes this back-
+  // relation a single optional object rather than an array (same shape
+  // as Client.convertedFromLead above). No Server Action writes
+  // convertedInvoiceId yet -- Quote -> Invoice conversion is a later
+  // phase.
+  convertedFromQuote Quote? @relation("QuoteConvertedInvoice")
 
   // Invoice System Official Slice 5c (docs/invoicing-architecture.md
   // §4.5/§12.5) — Invoice-number uniqueness is organization-wide, not
@@ -1829,6 +1871,17 @@ model Lead {
 
   lostReason String?
 
+  // Quotes / Estimates Phase 1 (schema foundation only). A Quote may
+  // reference this Lead before it converts (leadId set, clientId null);
+  // once this Lead converts, that same Quote's own clientId gets
+  // populated too, but leadId is never cleared (permanent lineage -- see
+  // Quote's own doc comment). Restrict, not Cascade/SetNull: since Leads
+  // have no delete action today and are never hard-deleted anywhere in
+  // this app, this costs nothing now -- it exists so a Lead can never be
+  // deleted out from under a Quote that still has clientId null, which
+  // would otherwise leave that Quote with both leadId and clientId null.
+  quotes Quote[] @relation("QuoteLead")
+
   // Soft-archive only — no hard-delete action is planned for Leads (see
   // the architecture audit's §H). Null = active.
   archivedAt DateTime?
@@ -1844,4 +1897,200 @@ model Lead {
   // B-tree index in Postgres); an additional plain index on the same
   // single column would be a pure duplicate.
   @@index([createdAt])
+}
+
+// Quotes / Estimates Phase 1 (schema foundation only -- see the approved
+// Quotes/Estimates architecture audit and this phase's own correction
+// task). No Server Action, UI, navigation, Portal code, or Lead/Client
+// conversion-logic change exists yet -- this is purely additive schema,
+// mirroring exactly how Leads Phase 1 shipped in this same repo.
+//
+// Stored vs derived status (a correction from the original audit): only
+// DRAFT/SENT/APPROVED/DECLINED are ever persisted below. EXPIRED and
+// CONVERTED are both derived, never stored -- see
+// src/lib/quotes/status.ts's isQuoteExpired()/isQuoteConverted() for the
+// single source of truth on each (EXPIRED: status is SENT AND validUntil
+// is set AND validUntil < now; CONVERTED: convertedInvoiceId is not
+// null). Storing either would let it silently disagree with what it's
+// actually derived from.
+//
+// Lead/Client ownership (a correction from the original audit -- this is
+// NOT an "exactly one forever" invariant): at creation, exactly one of
+// leadId/clientId is set -- a direct Client quote has leadId null and
+// clientId set; a Lead quote before conversion has leadId set and
+// clientId null. Once that Lead later converts to a Client, leadId is
+// preserved permanently for lineage and clientId gets populated too --
+// both fields are then intentionally non-null, and clientId must
+// correspond to the Client created from that same Lead. The durable
+// invariant is therefore only "never both null at once", enforced at the
+// application level by a future Server Action -- never a SQL CHECK
+// constraint, and this phase modifies no Lead conversion logic at all.
+enum QuoteStatus {
+  DRAFT
+  SENT
+  APPROVED
+  DECLINED
+}
+
+model Quote {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  // User-facing reference number, e.g. "Q-0001" -- free text, exactly
+  // like Invoice.invoiceNumber (a suggested default, never an
+  // auto-incrementing DB sequence -- see src/lib/quotes/numbering.ts's
+  // own doc comment for why, and the @@unique below for the real
+  // race-safety mechanism).
+  number String
+  status QuoteStatus @default(DRAFT)
+
+  title String?
+
+  // Exactly one of these two is set at creation; both may be set later
+  // (see this model's own header comment above for the full rule).
+  // Restrict on both -- deliberately NOT copied from Lead's own SetNull
+  // choice for convertedClientId: Leads/Clients are business-history
+  // documents here, and SetNull on either would let a Lead/Client
+  // deletion silently leave a Quote with both leadId and clientId null,
+  // violating the one durable invariant this model has. Leads have no
+  // delete action today (so this costs nothing there yet); Client does
+  // have one, and this Restrict is the real, active guard against that
+  // exact orphaning path.
+  leadId String? @db.Uuid
+  lead   Lead?   @relation("QuoteLead", fields: [leadId], references: [id], onDelete: Restrict)
+
+  clientId String? @db.Uuid
+  client   Client? @relation("QuoteClient", fields: [clientId], references: [id], onDelete: Restrict)
+
+  issueDate  DateTime  @default(now())
+  validUntil DateTime?
+
+  // Stamped the moment this Quote first transitions DRAFT -> SENT -- a
+  // real, distinct business event that neither issueDate (may predate
+  // sending) nor updatedAt (changes for unrelated reasons afterward) can
+  // reliably stand in for; future reporting needs the exact send time.
+  // Null until sent.
+  sentAt DateTime?
+
+  // Same Decimal(10,2) precision and NOT-NULL-with-default-0 contract
+  // Invoice's own totals use (see migration
+  // 20260915090000_add_invoice_totals_not_null_contract) -- every real
+  // write path supplies all four from calculateQuoteTotals()'s own
+  // always-non-null Decimal result (src/lib/quotes/calculations.ts, a
+  // thin wrapper over the existing, domain-neutral
+  // calculateInvoiceTotals()).
+  subtotal       Decimal @db.Decimal(10, 2)
+  discountAmount Decimal @default(0) @db.Decimal(10, 2)
+  taxAmount      Decimal @default(0) @db.Decimal(10, 2)
+  total          Decimal @db.Decimal(10, 2)
+
+  // Reusing Invoice's own enums directly, unrenamed, rather than forking
+  // equivalent QuoteDiscountType/QuoteTaxLabel enums: both are already
+  // fully domain-neutral (NONE/PERCENTAGE/FIXED and TAX/VAT/GST describe
+  // a calculation concept, not an Invoice-specific one), and duplicating
+  // them would only produce two enums with identical members instead of
+  // one shared source of truth. A Prisma enum is not "owned" by the
+  // model that happened to define it first.
+  discountType   InvoiceDiscountType @default(NONE)
+  discountValue  Decimal?            @db.Decimal(10, 2)
+  taxRatePercent Decimal?            @db.Decimal(5, 2)
+  taxLabel       InvoiceTaxLabel     @default(TAX)
+
+  currency String @default("USD")
+
+  notes String?
+
+  // Timestamp-only acceptance/decline -- deliberately not e-signature (no
+  // signer name, IP, or user agent captured anywhere in this app for any
+  // entity, and inventing that here without a stated legal-signature
+  // purpose would be scope creep). Once approvedAt is set, this Quote's
+  // financial content is immutable -- see src/lib/quotes/status.ts's
+  // isQuoteEditable(). declineReason is deliberately not added in this
+  // phase (no code writes it yet; add it alongside the actual Decline
+  // Server Action instead of speculatively now).
+  approvedAt DateTime?
+  declinedAt DateTime?
+
+  // Snapshot, not a live join to Client.email/Lead.email -- who this
+  // Quote was actually sent to stays fixed even if the underlying
+  // Client/Lead's own email is edited afterward, and this is the one
+  // field shape a future Multiple-Contacts model can grow an optional
+  // contactId alongside without ever needing to replace. Null until
+  // sent.
+  recipientName  String?
+  recipientEmail String?
+
+  // At most one Quote ever converts into a given Invoice -- enforced by
+  // this @unique, which is what makes Invoice's own convertedFromQuote
+  // back-relation a single optional object rather than an array (same
+  // shape as Client.convertedFromLead above). SetNull, not Restrict: if
+  // that Invoice is ever deleted (Invoice's own delete action is
+  // DRAFT-only -- see test/integration/invoices/delete-draft-only.test.ts
+  // -- so this is only reachable for a freshly-converted, not-yet-issued
+  // Invoice), this Quote must not be deleted or blocked along with it; it
+  // simply reverts to its own not-converted derived state
+  // (isQuoteConverted() reads convertedInvoiceId directly, never a stored
+  // status -- see this model's own header comment). No Server Action
+  // writes this column yet -- Quote -> Invoice conversion is a later
+  // phase.
+  convertedInvoiceId String?  @unique @db.Uuid
+  convertedInvoice   Invoice? @relation("QuoteConvertedInvoice", fields: [convertedInvoiceId], references: [id], onDelete: SetNull)
+
+  // Authorship, not assignment (contrast Lead.assignedToUserId's own
+  // SetNull) -- same "a User who owns/authored real records can't be
+  // hard-deleted out from under them" reasoning Client.userId/ClientOwner
+  // already established.
+  createdByUserId String @db.Uuid
+  createdByUser   User   @relation("QuoteCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  // Soft-archive only -- no hard-delete action, matching Lead's own
+  // precedent (see Lead's own archivedAt comment above) rather than
+  // Invoice's "delete DRAFT only, no archive" rule: a Quote at any
+  // status, including APPROVED or already-converted, may be archived
+  // (visibility only, never a data change).
+  archivedAt DateTime?
+
+  items QuoteItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, number])
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([leadId])
+  @@index([clientId])
+  // No separate @@index([convertedInvoiceId]) -- @unique above already
+  // creates that exact index, same reasoning as Lead's own
+  // convertedClientId comment.
+  @@index([createdAt])
+}
+
+// Quotes / Estimates Phase 1 (schema foundation only). A separate table
+// from InvoiceLineItem, not a shared one -- their lifecycles genuinely
+// diverge at conversion time (a QuoteItem is copied BY VALUE into new,
+// independent InvoiceLineItem rows in a later phase, never referenced or
+// shared afterward), and a nullable dual-parent FK on one shared table
+// would muddy an otherwise-clean single-parent Cascade relation on each
+// side. Field shapes are deliberately identical to InvoiceLineItem (same
+// Decimal(10,3)/Decimal(10,2) precision, same position-based ordering) so
+// that future copy step is a straightforward 1:1 field mapping --
+// InvoiceLineItem itself is completely untouched by this phase.
+model QuoteItem {
+  id      String @id @default(uuid()) @db.Uuid
+  quoteId String @db.Uuid
+  quote   Quote  @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  description String
+  quantity    Decimal @db.Decimal(10, 3)
+  unitPrice   Decimal @db.Decimal(10, 2)
+  lineTotal   Decimal @db.Decimal(10, 2)
+  position    Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([quoteId, position])
 }
