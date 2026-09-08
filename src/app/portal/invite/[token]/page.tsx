@@ -118,6 +118,24 @@ export default async function ClientInvitePage({
       ? Boolean(await prisma.user.findUnique({ where: { id: authUser.id }, select: { id: true } }))
       : false;
 
+  // Portal Invite — Existing Portal User Acceptance Bugfix. The MVP
+  // Portal identity model is exactly one Client per PortalUser row (see
+  // acceptClientInvitationAction's own CONFLICTING_PORTAL_USER check,
+  // which this mirrors read-only) — a signed-in account already linked
+  // to a *different* Client can never successfully accept this
+  // invitation. Detected here, before the Accept button is ever shown,
+  // so the visitor sees a clear, honest explanation up front instead of
+  // clicking Accept and hitting a same-looking-as-every-other-failure
+  // generic error. Never reveals which other Client this account is
+  // already linked to — that would leak cross-tenant information to
+  // whoever is looking at this screen.
+  const conflictingPortalAccount =
+    authUser && emailMatches
+      ? await prisma.portalUser
+          .findUnique({ where: { id: authUser.id }, select: { clientId: true } })
+          .then((existing) => existing !== null && existing.clientId !== invitation.clientId)
+      : false;
+
   return (
     <InviteCard title="You're invited">
       <div className="text-text-muted space-y-2 text-sm">
@@ -172,7 +190,24 @@ export default async function ClientInvitePage({
           </div>
         )}
 
-        {authUser && emailMatches && (
+        {authUser && emailMatches && conflictingPortalAccount && (
+          <div className="space-y-3">
+            <p className="text-text-muted text-sm">
+              This account already has Client Portal access for a different client. One
+              Client Portal account can only be connected to a single client today, so this
+              invitation can&apos;t be accepted while signed in as{" "}
+              <span className="text-text-primary font-medium">{authUser.email}</span>. Sign
+              out and use a different account, or contact the business that invited you.
+            </p>
+            <form action={signOutForPortalInviteAction.bind(null, token)}>
+              <button type="submit" className={`w-full ${SECONDARY_LINK_CLASSES}`}>
+                Sign out and use a different account
+              </button>
+            </form>
+          </div>
+        )}
+
+        {authUser && emailMatches && !conflictingPortalAccount && (
           <div className="space-y-3">
             {alreadyStaffAtThisEmail && (
               <div role="status" className="border-warning bg-warning-subtle text-warning rounded-md border p-3 text-sm">

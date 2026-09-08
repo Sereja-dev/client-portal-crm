@@ -164,15 +164,23 @@ describe("acceptClientInvitationAction — Portal Analytics login tracking", () 
     setMockAuthUser({ id: authUserId, email });
 
     const result = await acceptClientInvitationAction(invitation.token);
-    expect(result.error).toBe("This invitation is no longer available.");
+    // Portal Invite — Existing Portal User Acceptance Bugfix: this used to
+    // be the same generic "no longer available" message every other
+    // failure also returns — genuinely misleading here, since the
+    // invitation itself is fine. Now a distinct, honest message.
+    expect(result.error).toBe(
+      "This email already has Client Portal access for a different client. Sign out and use a different account, or contact the business that invited you.",
+    );
 
     const portalUser = await prisma.portalUser.findUniqueOrThrow({ where: { id: authUserId } });
     expect(portalUser.clientId).toBe(fixtures.clientA.id);
     expect(portalUser.lastLoginAt?.toISOString()).toBe(originalLoginAt.toISOString());
 
     // The conflicting invitation itself must remain untouched (still
-    // PENDING) — the rejection happens before the updateMany, per the
-    // action's own transaction ordering.
+    // PENDING) — the updateMany inside the transaction does flip it to
+    // ACCEPTED first, but the CONFLICTING_PORTAL_USER throw later in that
+    // same transaction rolls the whole thing back atomically, so the net
+    // observable effect is exactly as if the write never happened.
     const finalInvitation = await prisma.clientInvitation.findUniqueOrThrow({ where: { id: invitation.id } });
     expect(finalInvitation.status).toBe("PENDING");
 

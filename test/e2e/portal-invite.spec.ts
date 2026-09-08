@@ -317,3 +317,117 @@ test.describe("Portal invite — successful acceptance and idempotent repeat", (
     }
   });
 });
+
+test.describe("Portal invite — existing Portal account already linked to a different Client (Existing User Acceptance Bugfix)", () => {
+  test("reproduces the exact Production scenario: an existing Portal account, already linked to Client A, visits a fresh invitation for Client B — sees a clear, honest denial (never the misleading generic unavailable screen), and neither the invitation nor any relationship is mutated", async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    const conflictingIdentityId = randomUUID();
+    const email = testEmail("portal-invite-conflict", TEST_EMAIL_DOMAIN, fixtures.runId);
+
+    // The pre-existing Portal relationship — mirrors "that Portal account
+    // already had an older Portal relationship elsewhere" from the real
+    // Production reproduction.
+    const existingPortalUser = await dbQuery<{ id: string }>("portalUser", "create", {
+      data: { id: conflictingIdentityId, clientId: fixtures.clientA.id, email, name: "Existing Portal User" },
+    });
+
+    // A brand-new, unrelated invitation to a DIFFERENT Client, same email.
+    const invitation = await dbQuery<{ id: string; token: string }>("clientInvitation", "create", {
+      data: {
+        clientId: fixtures.clientB.id,
+        email,
+        token: randomUUID(),
+        status: "PENDING",
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        invitedById: fixtures.orgBOwner.id,
+      },
+    });
+
+    try {
+      await injectTestSession(context, { id: conflictingIdentityId, email }, baseURL!);
+      await page.goto(`/portal/invite/${invitation.token}`);
+      await expect(page.getByRole("heading", { name: "You're invited" })).toBeVisible();
+
+      // The Accept button is never even offered — the page detects the
+      // conflict up front, before any click, and explains it honestly.
+      await expect(page.getByRole("button", { name: "Accept invitation" })).toHaveCount(0);
+      await expect(page.getByText(/already has Client Portal access for a different client/i)).toBeVisible();
+      const signOutButton = page.getByRole("button", { name: "Sign out and use a different account" });
+      await expect(signOutButton).toBeVisible();
+
+      // Never names the other Client this identity already belongs to.
+      await expect(page.getByText(fixtures.clientA.name, { exact: false })).toHaveCount(0);
+
+      // The invitation stays PENDING, and no second PortalUser/relationship
+      // was created or mutated — no partial state, matching the confirmed
+      // atomicity of the underlying (unchanged) transaction.
+      const invitationAfter = await dbQuery<{ status: string }>("clientInvitation", "findUniqueOrThrow", {
+        where: { id: invitation.id },
+      });
+      expect(invitationAfter.status).toBe("PENDING");
+      const portalUserAfter = await dbQuery<{ clientId: string }>("portalUser", "findUniqueOrThrow", {
+        where: { id: conflictingIdentityId },
+      });
+      expect(portalUserAfter.clientId).toBe(fixtures.clientA.id); // untouched — never reassigned
+
+      // The escape hatch actually works: signing out returns to the
+      // Portal login, ready to try a different account.
+      await signOutButton.click();
+      await expect(page).toHaveURL(/\/portal\/login/);
+    } finally {
+      await dbQuery("clientInvitation", "deleteMany", { where: { id: invitation.id } });
+      await dbQuery("portalUser", "deleteMany", { where: { id: existingPortalUser.id } });
+    }
+  });
+
+  test("an existing Portal account accepting a fresh invitation for the SAME Client it's already linked to still succeeds idempotently — no denial, no duplicate relationship, no raw constraint error", async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    const identityId = randomUUID();
+    const email = testEmail("portal-invite-samesame", TEST_EMAIL_DOMAIN, fixtures.runId);
+
+    await dbQuery("portalUser", "create", {
+      data: { id: identityId, clientId: fixtures.clientA.id, email, name: "Existing Portal User" },
+    });
+    const invitation = await dbQuery<{ id: string; token: string }>("clientInvitation", "create", {
+      data: {
+        clientId: fixtures.clientA.id,
+        email,
+        token: randomUUID(),
+        status: "PENDING",
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        invitedById: fixtures.owner.id,
+      },
+    });
+
+    try {
+      await injectTestSession(context, { id: identityId, email }, baseURL!);
+      await page.goto(`/portal/invite/${invitation.token}`);
+
+      const acceptButton = page.getByRole("button", { name: "Accept invitation" });
+      await expect(acceptButton).toBeVisible();
+      await Promise.all([page.waitForResponse((r) => r.request().method() === "POST"), acceptButton.click()]);
+      await expect(page).toHaveURL(/\/portal$/);
+
+      const portalUserAfter = await dbQuery<{ clientId: string }>("portalUser", "findUniqueOrThrow", {
+        where: { id: identityId },
+      });
+      expect(portalUserAfter.clientId).toBe(fixtures.clientA.id);
+      const portalUserCount = await dbQuery<number>("portalUser", "count", { where: { id: identityId } });
+      expect(portalUserCount).toBe(1); // never duplicated
+
+      const invitationAfter = await dbQuery<{ status: string }>("clientInvitation", "findUniqueOrThrow", {
+        where: { id: invitation.id },
+      });
+      expect(invitationAfter.status).toBe("ACCEPTED");
+    } finally {
+      await dbQuery("clientInvitation", "deleteMany", { where: { id: invitation.id } });
+      await dbQuery("portalUser", "deleteMany", { where: { id: identityId } });
+    }
+  });
+});

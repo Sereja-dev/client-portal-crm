@@ -18,6 +18,17 @@ const GENERIC_UNAVAILABLE_ERROR = "This invitation is no longer available.";
 // action's own identical constant for the full reasoning. The
 // ClientInvitation row is never touched on this path.
 const WORKSPACE_UNAVAILABLE_ERROR = "This workspace is currently unavailable. Contact support.";
+// Portal Invite — Existing Portal User Acceptance Bugfix. Previously this
+// case returned the same GENERIC_UNAVAILABLE_ERROR as every other
+// failure — genuinely misleading here: the invitation itself is fine
+// (still PENDING, still usable), the actual blocker is this specific
+// signed-in account already having Client Portal access elsewhere (see
+// the CONFLICTING_PORTAL_USER check below for the full "why" — the MVP
+// model is exactly one Client per Portal account, confirmed unchanged by
+// this fix). Deliberately does not name the other Client — that would
+// leak cross-tenant information to whoever is looking at this screen.
+const CONFLICTING_PORTAL_ACCOUNT_ERROR =
+  "This email already has Client Portal access for a different client. Sign out and use a different account, or contact the business that invited you.";
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
@@ -253,7 +264,7 @@ export async function acceptClientInvitationAction(token: string): Promise<Invit
       return { error: GENERIC_UNAVAILABLE_ERROR };
     }
     if (err instanceof Error && err.message === "CONFLICTING_PORTAL_USER") {
-      return { error: GENERIC_UNAVAILABLE_ERROR };
+      return { error: CONFLICTING_PORTAL_ACCOUNT_ERROR };
     }
     if (err instanceof Error && err.message === "WORKSPACE_UNAVAILABLE") {
       return { error: WORKSPACE_UNAVAILABLE_ERROR };
