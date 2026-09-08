@@ -118,6 +118,26 @@ export const STATUS_TONES: Record<string, StatusTone> = {
   PROPOSAL: "info",
   WON: "success",
   LOST: "danger",
+
+  // Quotes / Estimates Phase 3 (Staff UI) — QuoteStatus's own two values
+  // not already covered above (DRAFT/SENT are shared with Invoice's own
+  // identical-meaning values, same reasoning as every other shared entry
+  // in this map). APPROVED mirrors WON/ACCEPTED/COMPLETED's own "positive
+  // terminal outcome" success tone; DECLINED mirrors LOST/REVOKED/
+  // CANCELLED's own "negative terminal outcome" danger tone. CONVERTED is
+  // a derived-only Quote state (see src/lib/quotes/status.ts) that
+  // deliberately shares APPROVED's success tone — every converted Quote
+  // was necessarily approved first, so this is still the same positive
+  // outcome, not a new one — distinguished from a plain APPROVED badge by
+  // its own label text alone (see quote-status-badge.tsx), the same
+  // "color shared, label text is what actually distinguishes them"
+  // precedent this map already uses for NEW/PLANNING/TODO/DRAFT sharing
+  // neutral. EXPIRED (also derived-only) is NOT added here — it already
+  // exists above (Invitation's own EXPIRED entry) with exactly the right
+  // "muted" tone for a lapsed-but-not-actively-rejected state.
+  APPROVED: "success",
+  DECLINED: "danger",
+  CONVERTED: "success",
 };
 
 export function StatusBadge({ status, label }: { status: string; label?: string }) {

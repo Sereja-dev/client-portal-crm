@@ -34,6 +34,18 @@ import type { QuoteCalculationError, QuoteLineItemInput } from "@/lib/quotes/cal
 // none today) — this is a deliberately conservative cap for a real
 // reference number, not an essay, chosen independently rather than
 // inheriting an absent bound.
+// Quotes / Estimates Phase 3 (Staff UI) — the four real, persisted
+// QuoteStatus values, in the same "stored statuses first" order the
+// architecture docs and src/lib/quotes/status.ts's own header comment
+// both already use. Mirrors INVOICE_STATUSES's own exact convention.
+// EXPIRED/CONVERTED are deliberately NOT included here — both are
+// derived-only (see src/lib/quotes/status.ts) and must never be written
+// as a QuoteStatus value; a UI status *filter* that also wants those two
+// pseudo-values defines its own separate, wider list rather than
+// widening this one.
+export const QUOTE_STATUSES = ["DRAFT", "SENT", "APPROVED", "DECLINED"] as const;
+export type QuoteStatusValue = (typeof QUOTE_STATUSES)[number];
+
 export const QUOTE_NUMBER_MAX_LENGTH = 50;
 export const QUOTE_TITLE_MAX_LENGTH = 200;
 // Matches this app's one existing convention for a large freeform text
