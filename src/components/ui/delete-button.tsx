@@ -5,8 +5,17 @@ import { TrashIcon } from "@/components/ui/icons";
 import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/toast/toast-provider";
 
-/** A void-returning action's success is unconditional (every existing caller); a result-aware action can report a controlled failure instead of throwing (Invoice's DRAFT-only guard, e.g.). */
-export type DeleteButtonActionResult = void | { ok: boolean };
+/**
+ * A void-returning action's success is unconditional (every existing
+ * caller); a result-aware action can report a controlled failure instead
+ * of throwing (Invoice's DRAFT-only guard, e.g.). `message` is optional
+ * and additive (Quotes / Estimates Phase 2) — when a blocked delete can
+ * be caused by more than one kind of dependent (e.g. Client: Invoice OR
+ * Quote), the action itself picks the exact wording and this component
+ * prefers it over the caller's own single static `conflictMessage` prop;
+ * every existing caller that never supplies `message` is unaffected.
+ */
+export type DeleteButtonActionResult = void | { ok: boolean; message?: string };
 
 export function DeleteButton({
   action,
@@ -34,7 +43,7 @@ export function DeleteButton({
     try {
       const result = await action();
       if (result && "ok" in result && !result.ok) {
-        showToast(conflictMessage, "error");
+        showToast(result.message ?? conflictMessage, "error");
       } else {
         showToast(successMessage);
       }

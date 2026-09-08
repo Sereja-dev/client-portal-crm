@@ -254,3 +254,25 @@ export const LEAD_CREATE_LIMIT: RateLimitConfig = { scope: "lead-create", limit:
 // generous enough for a genuinely busy pipeline-grooming session, still
 // a real bound on a scripted loop.
 export const LEAD_UPDATE_LIMIT: RateLimitConfig = { scope: "lead-update", limit: 300, windowMs: HOUR_MS };
+
+// Quotes / Estimates Phase 2. Per authenticated staff user id, same shape
+// as every other per-user limiter above.
+//
+// QUOTE_CREATE_LIMIT mirrors INVOICE_CREATE_LIMIT's own reasoning and
+// value exactly: a Quote is the same kind of document-creation event as
+// an Invoice (a real, itemized document a Staff member deliberately
+// authors), not a high-frequency data-entry action like a Lead — 30/hour
+// is generous for a heavy quoting session while still bounding a
+// scripted create loop.
+export const QUOTE_CREATE_LIMIT: RateLimitConfig = { scope: "quote-create", limit: 30, windowMs: HOUR_MS };
+
+// One shared bucket for every other Quote mutation (edit, send, reopen,
+// archive/unarchive, convert-to-invoice) — same "these are all the same
+// resource touched through different small mutations in one working
+// session" reasoning LEAD_UPDATE_LIMIT's own comment gives, not a
+// per-action limiter. Lower than LEAD_UPDATE_LIMIT's own 300/hour: Quotes
+// have no Kanban-style rapid-fire pipeline-grooming session the way
+// Leads do (this phase adds no Quote UI at all), so a smaller ceiling
+// already comfortably covers a genuinely busy quoting/review session
+// while bounding a scripted loop more tightly.
+export const QUOTE_UPDATE_LIMIT: RateLimitConfig = { scope: "quote-update", limit: 150, windowMs: HOUR_MS };

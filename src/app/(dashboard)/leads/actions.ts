@@ -661,6 +661,24 @@ export async function convertLeadToClientAction(
         throw new LeadConversionError("already_converted");
       }
 
+      // Quotes / Estimates Phase 2 — reconcile any Quotes already
+      // attached to this Lead before conversion (leadId set, clientId
+      // null). This is the durable Quote invariant approved in Phase 1
+      // (see Quote's own schema comment): once a Lead converts, leadId
+      // is preserved permanently for lineage while clientId gets
+      // populated. Scoped by organizationId + leadId + clientId: null,
+      // so this can only ever fill in a still-null clientId — it can
+      // never touch a Quote that already has one (a direct-Client Quote,
+      // or one an earlier conversion attempt already reconciled), and it
+      // never accepts a caller-supplied Quote id. No new transaction:
+      // this lives inside the exact same one as the Lead/Client writes
+      // above, so it rolls back together with everything else if
+      // anything later in this transaction fails.
+      await tx.quote.updateMany({
+        where: { organizationId, leadId, clientId: null },
+        data: { clientId: client.id },
+      });
+
       await createActivity(tx, {
         organizationId,
         actorId: user.id,

@@ -43,15 +43,34 @@ async function createClient(organizationId: string, userId: string, name = uniqu
   return prisma.client.create({ data: { name, organizationId, userId } });
 }
 
-function realClientRestrictViolation(): Prisma.PrismaClientKnownRequestError {
+// Quotes / Estimates Phase 2 — delete-conflict-mapper.ts's own
+// extractRestrictChildTable() now requires the adapter error's cause.
+// message/detail strings (the only place the real blocking child table
+// name is available — see that file's own header comment) to positively
+// disambiguate an Invoice-caused violation from a Quote-caused one, so
+// the synthetic mock must carry both, cross-checked, exactly like a real
+// Postgres RESTRICT violation does. Defaults to "Invoice" (this file's
+// own original/pre-Quotes-Phase-2 scenario); pass "Quote" for the new
+// dependent-Quotes coverage below.
+function realClientRestrictViolation(childTable: "Invoice" | "Quote" = "Invoice"): Prisma.PrismaClientKnownRequestError {
+  const referencedId = randomUUID();
   return new Prisma.PrismaClientKnownRequestError("mock restrict violation", {
     code: "P2039",
     clientVersion: "test",
-    meta: { modelName: "Client", driverAdapterError: { cause: { code: "23001" } } },
+    meta: {
+      modelName: "Client",
+      driverAdapterError: {
+        cause: {
+          code: "23001",
+          message: `update or delete on table "Client" violates foreign key constraint "${childTable}_clientId_fkey" on table "${childTable}"`,
+          detail: `Key (id)=(${referencedId}) is referenced from table "${childTable}".`,
+        },
+      },
+    },
   });
 }
 
-describe("deleteClientAction — blocked by existing invoices (Post-Hardening Residual Code Audit P2)", () => {
+describe("deleteClientAction — blocked by existing invoices or quotes (Post-Hardening Residual Code Audit P2, extended by Quotes / Estimates Phase 2)", () => {
   let fixtures: TestFixtures;
 
   beforeAll(async () => {
@@ -93,7 +112,7 @@ describe("deleteClientAction — blocked by existing invoices (Post-Hardening Re
     // is both correct and sufficient to prove the catch block's own
     // classify-and-return wiring, without ever needing the callback to
     // run at all.
-    const transactionSpy = vi.spyOn(prisma, "$transaction").mockRejectedValueOnce(realClientRestrictViolation());
+    const transactionSpy = vi.spyOn(prisma, "$transaction").mockRejectedValueOnce(realClientRestrictViolation("Invoice"));
     let result: Awaited<ReturnType<typeof deleteClientAction>>;
     try {
       result = await deleteClientAction(client.id);
@@ -101,11 +120,9 @@ describe("deleteClientAction — blocked by existing invoices (Post-Hardening Re
       transactionSpy.mockRestore();
     }
 
-    // The controlled { ok: false } is what DeleteButton renders as its own
-    // conflictMessage prop ("This client can't be deleted because it has
-    // existing invoices.") — never a distinct error string returned from
-    // the action itself.
-    expect(result).toEqual({ ok: false });
+    // The controlled, dependency-specific message is what DeleteButton
+    // renders — never a distinct error string derived some other way.
+    expect(result).toEqual({ ok: false, message: "This client can't be deleted because it has existing invoices." });
 
     // No partial destructive mutation: no DELETED Activity was written,
     // and nothing was queued for Storage cleanup.
@@ -116,7 +133,28 @@ describe("deleteClientAction — blocked by existing invoices (Post-Hardening Re
     await prisma.client.deleteMany({ where: { id: client.id } });
   });
 
-  it("a client belonging to a different organization cannot be deleted (existing tenant scoping unchanged)", async () => {
+  it("67 & 68. a blocked deletion (existing dependent quotes) returns the Quote-specific controlled result, writes no Activity, and queues no Storage cleanup", async () => {
+    const client = await createClient(fixtures.orgA.id, fixtures.owner.id);
+    actAs(fixtures.owner, fixtures.orgA.id);
+
+    const transactionSpy = vi.spyOn(prisma, "$transaction").mockRejectedValueOnce(realClientRestrictViolation("Quote"));
+    let result: Awaited<ReturnType<typeof deleteClientAction>>;
+    try {
+      result = await deleteClientAction(client.id);
+    } finally {
+      transactionSpy.mockRestore();
+    }
+
+    expect(result).toEqual({ ok: false, message: "This client can't be deleted because it has existing quotes." });
+
+    const deletedActivity = await prisma.activity.findFirst({ where: { entityId: client.id, action: "DELETED" } });
+    expect(deletedActivity).toBeNull();
+    expect(removedPaths).toHaveLength(0);
+
+    await prisma.client.deleteMany({ where: { id: client.id } });
+  });
+
+  it("69/70. a client belonging to a different organization cannot be deleted (existing tenant scoping unchanged)", async () => {
     // fixtures.clientB belongs to orgB — acting as an orgA identity.
     actAs(fixtures.owner, fixtures.orgA.id);
 

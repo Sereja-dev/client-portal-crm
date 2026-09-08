@@ -28,11 +28,29 @@ async function createProject(organizationId: string, clientId: string, ownerId: 
   return prisma.project.create({ data: { name, organizationId, clientId, ownerId } });
 }
 
+// Quotes / Estimates Phase 2 — delete-conflict-mapper.ts's own
+// extractRestrictChildTable() now requires the adapter error's cause.
+// message/detail strings (the only place the real blocking child table
+// name is available — see that file's own header comment) to positively
+// disambiguate the violation, so the synthetic mock must carry both,
+// cross-checked, exactly like a real Postgres RESTRICT violation does
+// (Project's own only Restrict child is still Invoice alone — Quote has
+// no projectId at all).
 function realProjectRestrictViolation(): Prisma.PrismaClientKnownRequestError {
+  const referencedId = randomUUID();
   return new Prisma.PrismaClientKnownRequestError("mock restrict violation", {
     code: "P2039",
     clientVersion: "test",
-    meta: { modelName: "Project", driverAdapterError: { cause: { code: "23001" } } },
+    meta: {
+      modelName: "Project",
+      driverAdapterError: {
+        cause: {
+          code: "23001",
+          message: 'update or delete on table "Project" violates foreign key constraint "Invoice_projectId_fkey" on table "Invoice"',
+          detail: `Key (id)=(${referencedId}) is referenced from table "Invoice".`,
+        },
+      },
+    },
   });
 }
 
