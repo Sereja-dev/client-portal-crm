@@ -65,7 +65,7 @@ function extractRestrictChildTable(cause: { message?: unknown; detail?: unknown 
  * Postgres SQLSTATE, `"23001"` (restrict_violation).
  *
  * Schema fact this classification originally relied on (verified against
- * prisma/schema.prisma, since revised): `Invoice.clientId` and
+ * prisma/schema.prisma, since revised twice): `Invoice.clientId` and
  * `Invoice.projectId` used to be the ONLY `onDelete: Restrict` relations
  * pointing at Client/Project respectively — that stopped being true the
  * moment Quotes / Estimates Phase 1 added `Quote.clientId`, also
@@ -74,9 +74,22 @@ function extractRestrictChildTable(cause: { message?: unknown; detail?: unknown 
  * caused a Client-targeted violation, so this function now also inspects
  * `extractRestrictChildTable()` (see its own doc comment for the exact,
  * cross-checked signal) to tell an Invoice-caused violation from a
- * Quote-caused one. Project's own only Restrict child is still Invoice
- * alone (Quote has no projectId at all), so `HAS_DEPENDENT_QUOTES` is
- * only ever returned for `expectedModelName === "Client"`.
+ * Quote-caused one.
+ *
+ * Quotes / Estimates Phase 2.4: `Invoice.projectId`'s own FK became
+ * `onDelete: SetNull`, so Project no longer has ANY `onDelete: Restrict`
+ * child at all — `deleteProjectAction` no longer calls this function with
+ * `expectedModelName === "Project"`. The parameter type is left as
+ * `"Client" | "Project"` deliberately (this is a generic, reusable
+ * classifier, not something to narrow just because today's only caller
+ * happens to be Client) — if a future model ever adds a Restrict relation
+ * to Project, this function already handles it correctly once called
+ * again with `"Project"`, with zero change needed here. Until then,
+ * `HAS_DEPENDENT_QUOTES` is only ever returned for
+ * `expectedModelName === "Client"`, and `HAS_DEPENDENT_INVOICES` is
+ * unreachable in production for either model (kept working, and covered
+ * by tests below, purely so this file stays correct on its own terms
+ * rather than by relying on nothing else calling it wrong).
  *
  * Fails closed to UNRECOGNIZED for anything not positively matched —
  * every unrelated failure (a different constraint, a connection error, a

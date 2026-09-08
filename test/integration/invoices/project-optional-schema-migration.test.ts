@@ -8,11 +8,25 @@ import pg from "pg";
 /**
  * Quotes / Estimates Phase 2.2 — live database behavior coverage for
  * 20260922090000_make_invoice_project_optional. This is an expand-only
- * schema change (Invoice.projectId DROP NOT NULL, onDelete: Restrict
- * deliberately UNCHANGED) — see that migration's own directory and
- * prisma/schema.prisma's Invoice.projectId comment for the full staged-
- * rollout rationale (Phase 2.3 application code, Phase 2.4 the later
- * Restrict -> SetNull decision, neither of which is this task's scope).
+ * schema change (Invoice.projectId DROP NOT NULL; at the time this
+ * migration shipped, onDelete: Restrict was deliberately left UNCHANGED)
+ * — see that migration's own directory and prisma/schema.prisma's
+ * Invoice.projectId comment for the full staged-rollout rationale.
+ *
+ * Superseded by Phase 2.4 (20260923090000_set_invoice_project_fk_set_
+ * null): every test below deploys the COMPLETE migration history from
+ * zero — never a snapshot pinned to this migration alone — so once Phase
+ * 2.4 shipped, the FK-action and Project-delete-blocked assertions this
+ * file originally made stopped describing reality and were updated in
+ * place below to describe the CURRENT (SET NULL) behavior instead, with
+ * this comment kept as the historical record of what Phase 2.2 alone
+ * changed. The still-current, Phase-2.4-owned version of these same two
+ * checks now also lives in test/integration/invoices/project-set-null-
+ * schema-migration.test.ts and test/integration/projects/delete.test.ts
+ * — this file is not deleted only because it still independently proves
+ * the OTHER three Phase 2.2 facts below (nullable column, unchanged
+ * clientId, unchanged indexes), which remain true and unrelated to
+ * either FK's own delete action.
  *
  * Deliberately does NOT use this suite's own shared harness
  * (test/support/local-postgres.ts, port 55432, started once by
@@ -24,15 +38,14 @@ import pg from "pg";
  * affect the shared harness or any other test file.
  *
  * This file only proves the SCHEMA/DB-level contract (nullable column,
- * unchanged FK action, still-required clientId, Project-delete still
- * blocked). It deliberately does NOT exercise createInvoiceAction/
- * updateInvoiceAction or any other application code — those already
- * exist, are unmodified by this migration, and continue to be verified
- * by the full pre-existing test/integration/invoices/*.test.ts suite
- * (run unchanged against the shared harness) as this task's own proof
- * that "existing normal Invoice creation with Project remains
- * unaffected." No project-less Invoice product-flow test belongs here —
- * that is Phase 2.3's scope.
+ * current FK action, still-required clientId). It deliberately does NOT
+ * exercise createInvoiceAction/updateInvoiceAction or any other
+ * application code — those already exist, are unmodified by this
+ * migration, and continue to be verified by the full pre-existing
+ * test/integration/invoices/*.test.ts suite (run unchanged against the
+ * shared harness) as this task's own proof that "existing normal Invoice
+ * creation with Project remains unaffected." No project-less Invoice
+ * product-flow test belongs here — that is Phase 2.3's scope.
  */
 
 const execFileAsync = promisify(execFile);
@@ -96,7 +109,7 @@ async function seedOrgClientProject(
 }
 
 describe("20260922090000_make_invoice_project_optional — live database behavior (isolated, disposable PGlite instances)", () => {
-  it("1/3. applying the complete migration history from zero: Invoice.projectId is nullable, and its FK still has ON DELETE RESTRICT", async () => {
+  it("1/3. applying the complete migration history from zero: Invoice.projectId is nullable, and its FK's own delete action is the current one (SET NULL as of Phase 2.4)", async () => {
     const port = 55650;
     const { databaseUrl, pglite, socketServer } = await startIsolatedDatabase(port);
     try {
@@ -111,16 +124,21 @@ describe("20260922090000_make_invoice_project_optional — live database behavio
         expect(column.rows).toHaveLength(1);
         expect(column.rows[0].is_nullable).toBe("YES");
 
-        // pg_constraint.confdeltype: 'r' = ON DELETE RESTRICT (the exact
-        // value this schema's own history already used before this
-        // migration — see the ON DELETE RESTRICT clause added by
-        // 20260729033112_require_invoice_project). 'n' would mean SET
-        // NULL, which this migration must NOT introduce.
+        // pg_constraint.confdeltype: 'r' = ON DELETE RESTRICT was this
+        // migration's own contemporary value (unchanged from the clause
+        // 20260729033112_require_invoice_project first added), and this
+        // migration itself deliberately did NOT introduce 'n' (SET NULL).
+        // That stopped being the value applying the FULL current history
+        // produces the moment 20260923090000_set_invoice_project_fk_set_
+        // null shipped (Phase 2.4) — this assertion now reflects THAT
+        // migration's own value instead, since this test can only ever
+        // observe the end state of the complete history, never a pinned
+        // snapshot of this migration alone.
         const fk = await rawClient.query(
           `SELECT confdeltype FROM pg_constraint WHERE conname = 'Invoice_projectId_fkey'`,
         );
         expect(fk.rows).toHaveLength(1);
-        expect(fk.rows[0].confdeltype).toBe("r");
+        expect(fk.rows[0].confdeltype).toBe("n");
       } finally {
         await rawClient.end();
       }
@@ -226,7 +244,7 @@ describe("20260922090000_make_invoice_project_optional — live database behavio
     }
   }, 30_000);
 
-  it("4. deleting a Project referenced by an Invoice remains blocked by the RESTRICT FK — the Phase 2.2 regression guard", async () => {
+  it("4. deleting a Project referenced by an Invoice — raw-SQL-level regression guard, updated for Phase 2.4's SET NULL", async () => {
     const port = 55654;
     const { databaseUrl, pglite, socketServer } = await startIsolatedDatabase(port);
     try {
@@ -251,15 +269,22 @@ describe("20260922090000_make_invoice_project_optional — live database behavio
           [ids.clientId, ids.projectId, orgId],
         );
 
-        // The staged-rollout regression guard: even after this migration,
-        // a Project with any Invoice still cannot be deleted — proves
-        // Phase 2.2 alone changes zero live delete behavior.
-        await expect(rawClient.query(`DELETE FROM "Project" WHERE id = $1`, [ids.projectId])).rejects.toThrow(
-          /violates RESTRICT setting of foreign key constraint "Invoice_projectId_fkey"/,
-        );
+        // As of Phase 2.2 alone, this raw DELETE was still rejected — the
+        // staged rollout deliberately changed zero live delete behavior
+        // at that point (see this file's own header comment). Once Phase
+        // 2.4's migration is in the applied history (as it always is
+        // here — full history from zero, never a pinned snapshot), the
+        // same raw DELETE now succeeds and the FK's own SET NULL action
+        // resets the Invoice's projectId, entirely at the database level
+        // — no application code involved in this test at all.
+        await expect(rawClient.query(`DELETE FROM "Project" WHERE id = $1`, [ids.projectId])).resolves.toBeDefined();
 
         const stillThere = await rawClient.query(`SELECT id FROM "Project" WHERE id = $1`, [ids.projectId]);
-        expect(stillThere.rows).toHaveLength(1);
+        expect(stillThere.rows).toHaveLength(0);
+
+        const survivingInvoice = await rawClient.query(`SELECT "projectId" FROM "Invoice" WHERE id = 'ffffffff-0000-0000-0000-000000000005'`);
+        expect(survivingInvoice.rows).toHaveLength(1);
+        expect(survivingInvoice.rows[0].projectId).toBeNull();
       } finally {
         await rawClient.end();
       }

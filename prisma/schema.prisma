@@ -865,19 +865,21 @@ model Invoice {
   clientId String @db.Uuid
   client   Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
 
-  // Quotes / Estimates Phase 2.2 (schema-only expansion — see the Invoice
-  // / Project Coupling Audit). Nullable now purely so the column itself
-  // can accept a future project-less Invoice; every CURRENT write path
-  // (createInvoiceAction/updateInvoiceAction/duplicate) still always
-  // supplies a real, verified projectId, so no code path can produce a
-  // null value yet. Still Restrict, deliberately NOT SetNull yet — a
-  // Project with any existing Invoice remains fully protected from
-  // deletion exactly as it is today; loosening that is Phase 2.4's own
-  // separate, later decision, only once every project-less-aware read
-  // path has shipped (Phase 2.3). Do not change this to SetNull as part
-  // of any change that doesn't also complete that full sweep.
+  // Quotes / Estimates Phase 2.2/2.3/2.4 (see the Invoice / Project
+  // Coupling Audit). Nullable since Phase 2.2 (migration
+  // 20260922090000_make_invoice_project_optional); a project-less
+  // Invoice became a real, fully-supported application state in Phase
+  // 2.3 (every read/write path — staff CRUD, Dashboard, Search, the AI
+  // tool, Portal, PDF/issue, email — treats it as first-class, never an
+  // exceptional case). SetNull since Phase 2.4 (migration
+  // 20260923090000_set_invoice_project_fk_set_null) — deliberately NOT
+  // Restrict anymore: a Project may now be deleted even while Invoices
+  // still reference it; those Invoices survive, with projectId reset to
+  // null, and remain fully usable Client-only Invoices. Client's own
+  // Restrict below is unaffected — an Invoice's real, permanent business
+  // anchor is its Client, never its (optional) Project.
   projectId String?  @db.Uuid
-  project   Project? @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   // Required, independent of projectId (never derived from
   // project.organizationId at read time, kept consistent with it by every
