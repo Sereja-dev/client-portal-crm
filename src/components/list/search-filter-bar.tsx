@@ -13,6 +13,8 @@ export function SearchFilterBar({
   filters = [],
   sort,
   hasActiveParams = false,
+  hiddenFields = [],
+  clearHref,
 }: {
   basePath: string;
   searchValue: string;
@@ -28,6 +30,10 @@ export function SearchFilterBar({
     options: SelectOption[];
   };
   hasActiveParams?: boolean;
+  /** Rendered as <input type="hidden">s inside this same form — e.g. Leads Pipeline view's `view=pipeline`, so submitting Search/an AutoSubmitSelect filter stays on the current view instead of falling back to the default. */
+  hiddenFields?: { name: string; value: string }[];
+  /** Where the "Clear" link points — defaults to `basePath` (every existing caller's unchanged behavior). Override when clearing filters should still preserve something basePath alone wouldn't (e.g. `?view=pipeline`). */
+  clearHref?: string;
 }) {
   return (
     <form
@@ -35,6 +41,10 @@ export function SearchFilterBar({
       action={basePath}
       className="border-border-default bg-surface mt-6 flex flex-wrap items-end gap-4 rounded-lg border p-4"
     >
+      {hiddenFields.map((field) => (
+        <input key={field.name} type="hidden" name={field.name} value={field.value} />
+      ))}
+
       <div className="min-w-48 flex-1">
         <label htmlFor="q" className="text-text-secondary block text-sm font-medium">
           Search
@@ -85,7 +95,7 @@ export function SearchFilterBar({
         <Button type="submit">Search</Button>
         {hasActiveParams && (
           <Link
-            href={basePath}
+            href={clearHref ?? basePath}
             className={ACTION_LINK_CLASSES}
           >
             Clear
