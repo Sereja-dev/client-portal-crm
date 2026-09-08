@@ -276,3 +276,14 @@ export const QUOTE_CREATE_LIMIT: RateLimitConfig = { scope: "quote-create", limi
 // already comfortably covers a genuinely busy quoting/review session
 // while bounding a scripted loop more tightly.
 export const QUOTE_UPDATE_LIMIT: RateLimitConfig = { scope: "quote-update", limit: 150, windowMs: HOUR_MS };
+
+// Quotes / Estimates Phase 4 (Client Portal approval/decline) — isolated
+// bucket from QUOTE_UPDATE_LIMIT (a staff-only limiter, keyed by staff
+// User.id; a Portal identity never shares that namespace) and from every
+// other Portal limiter above, keyed by the authenticated PortalUser's own
+// id. A real client approves or declines a given Quote at most once ever
+// (both transitions are one-way and guarded — see the Portal Quote
+// actions' own header comment) — 20/hour is generous headroom for a
+// legitimate multi-Quote review session while still bounding a scripted
+// loop tightly.
+export const PORTAL_QUOTE_DECISION_LIMIT: RateLimitConfig = { scope: "portal-quote-decision", limit: 20, windowMs: HOUR_MS };

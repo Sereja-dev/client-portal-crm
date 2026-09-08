@@ -118,6 +118,18 @@ export type QuoteActivityMetadata = {
 export type QuoteStatusChangeMetadata = {
   from: string;
   to: string;
+  /**
+   * Only ever populated by a Portal-driven transition (approve/decline —
+   * Quotes / Estimates Phase 4). A staff-driven STATUS_CHANGED event
+   * (send/reopen) never passes this — Activity.actorId is a real staff
+   * User relation there, so formatActivity's own actorLabel already
+   * resolves correctly from that relation alone. A PortalUser is never a
+   * valid Activity.actor (see src/app/portal/invite/[token]/actions.ts's
+   * own identical actorId: null + metadata.actorName precedent) — this is
+   * the same fallback formatActivity already reads for every other
+   * null-actorId Activity in this app, not a new mechanism.
+   */
+  actorName?: string;
 };
 
 export function buildQuoteActivityMetadata(
@@ -133,8 +145,8 @@ export function buildQuoteActivityMetadata(
   };
 }
 
-export function buildQuoteStatusChangeMetadata(from: string, to: string): QuoteStatusChangeMetadata {
-  return { from, to };
+export function buildQuoteStatusChangeMetadata(from: string, to: string, actorName?: string): QuoteStatusChangeMetadata {
+  return { from, to, ...(actorName ? { actorName } : {}) };
 }
 
 export type QuoteConvertedMetadata = {

@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import type { ProjectStatus, InvoiceStatus } from "@/generated/prisma/enums";
+import type { ProjectStatus, InvoiceStatus, QuoteStatus } from "@/generated/prisma/enums";
 import { classifyInvoiceArchival } from "@/lib/invoices/pdf/classify-archival";
 
 // Same definition the staff Dashboard KPI already uses for "active
@@ -308,5 +308,201 @@ export async function getPortalInvoice(
     clientName: invoice.client.name,
     organizationId,
     hasArchivedPdf: classifyInvoiceArchival(invoice).kind === "archived",
+  };
+}
+
+// Quotes / Estimates Phase 4 (Client Portal approval/decline) — the one
+// authoritative Portal-visible Quote status set, mirroring
+// VISIBLE_PORTAL_STATUSES's own exact discipline above. DRAFT is the only
+// stored status ever excluded: a DRAFT Quote is still a Staff-only
+// work-in-progress document, never shown to a client, on any Portal
+// surface (list or detail) — matching Invoice's own "DRAFT never visible
+// anywhere" rule exactly. SENT/APPROVED/DECLINED are all visible
+// (EXPIRED is a derived read of a still-SENT row, CONVERTED a derived
+// read of a still-APPROVED row — neither is a separate stored value, so
+// neither needs its own entry here; see src/lib/quotes/status.ts).
+export const VISIBLE_PORTAL_QUOTE_STATUSES: readonly QuoteStatus[] = ["SENT", "APPROVED", "DECLINED"];
+
+export type PortalQuoteSummary = {
+  id: string;
+  number: string;
+  title: string | null;
+  status: QuoteStatus;
+  validUntil: Date | null;
+  convertedInvoiceId: string | null;
+  issueDate: Date;
+  total: number;
+  currency: string;
+};
+
+export type PortalQuoteLineItem = {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+};
+
+export type PortalQuoteConvertedInvoice = { id: string; invoiceNumber: string };
+
+export type PortalQuoteDetail = PortalQuoteSummary & {
+  subtotal: number;
+  discountType: string;
+  discountAmount: number | null;
+  discountValue: number | null;
+  taxRatePercent: number | null;
+  taxAmount: number | null;
+  taxLabel: string;
+  notes: string | null;
+  items: PortalQuoteLineItem[];
+  /**
+   * Only populated when convertedInvoiceId is set AND that Invoice's own
+   * CURRENT clientId still matches this exact Portal Client (§K) — an
+   * Invoice's own Client is editable after conversion (Invoice edit's own
+   * resolveInvoiceTarget), so convertedInvoiceId alone is not proof this
+   * Portal identity may still see it. null here never implies "not
+   * converted" on its own — the Quote's own status/convertedInvoiceId
+   * (via isQuoteConverted) remains the only source for the CONVERTED
+   * badge itself; this is only ever consulted for whether to render the
+   * "View invoice" link.
+   */
+  convertedInvoice: PortalQuoteConvertedInvoice | null;
+};
+
+const QUOTE_SUMMARY_SELECT = {
+  id: true,
+  number: true,
+  title: true,
+  status: true,
+  validUntil: true,
+  convertedInvoiceId: true,
+  issueDate: true,
+  total: true,
+  currency: true,
+} as const;
+
+function toQuoteSummary(quote: {
+  id: string;
+  number: string;
+  title: string | null;
+  status: QuoteStatus;
+  validUntil: Date | null;
+  convertedInvoiceId: string | null;
+  issueDate: Date;
+  total: unknown;
+  currency: string;
+}): PortalQuoteSummary {
+  return {
+    id: quote.id,
+    number: quote.number,
+    title: quote.title,
+    status: quote.status,
+    validUntil: quote.validUntil,
+    convertedInvoiceId: quote.convertedInvoiceId,
+    issueDate: quote.issueDate,
+    total: Number(quote.total),
+    currency: quote.currency,
+  };
+}
+
+/**
+ * §B — the complete Portal Quote authorization boundary: clientId
+ * (primary) + organizationId (defense in depth), exactly like every
+ * other Portal query in this module. Never leadId, never Project, never
+ * recipientEmail/recipientName, never a caller-supplied clientId. A
+ * Lead-only Quote (leadId set, clientId still null — an unconverted
+ * Lead's own Quote) is excluded by construction: `clientId` here is
+ * always a real, non-null value from the verified Portal identity, and
+ * Prisma's `clientId: clientId` filter can never match a row whose own
+ * clientId column is null — no extra `clientId: { not: null }` guard is
+ * needed or added. archivedAt: null — archived Quotes are hidden from
+ * this list by default (§D); there is no Portal "show archived" toggle
+ * (unlike the Staff list), matching this phase's own explicit
+ * recommendation and Invoice's own Portal precedent (no archive concept
+ * ever surfaces to a Portal identity anywhere in this app today).
+ */
+export async function getPortalQuotes(
+  clientId: string,
+  organizationId: string,
+): Promise<PortalQuoteSummary[]> {
+  const quotes = await prisma.quote.findMany({
+    where: {
+      clientId,
+      organizationId,
+      archivedAt: null,
+      status: { in: [...VISIBLE_PORTAL_QUOTE_STATUSES] },
+    },
+    orderBy: { createdAt: "desc" },
+    select: QUOTE_SUMMARY_SELECT,
+  });
+
+  return quotes.map(toQuoteSummary);
+}
+
+/**
+ * Scoped by id + clientId + organizationId + archivedAt + status
+ * together — a DRAFT Quote, an archived Quote, a foreign Client's Quote,
+ * a foreign organization's Quote, and a Lead-only (clientId null) Quote
+ * are all simply not found here, indistinguishably from a nonexistent
+ * id (§L/§M). Callers must notFound() on null, never fall back to a bare
+ * id lookup.
+ */
+export async function getPortalQuote(
+  clientId: string,
+  organizationId: string,
+  quoteId: string,
+): Promise<PortalQuoteDetail | null> {
+  const quote = await prisma.quote.findFirst({
+    where: {
+      id: quoteId,
+      clientId,
+      organizationId,
+      archivedAt: null,
+      status: { in: [...VISIBLE_PORTAL_QUOTE_STATUSES] },
+    },
+    select: {
+      ...QUOTE_SUMMARY_SELECT,
+      subtotal: true,
+      discountType: true,
+      discountAmount: true,
+      discountValue: true,
+      taxRatePercent: true,
+      taxAmount: true,
+      taxLabel: true,
+      notes: true,
+      items: {
+        orderBy: { position: "asc" },
+        select: { description: true, quantity: true, unitPrice: true, lineTotal: true },
+      },
+      convertedInvoice: { select: { id: true, invoiceNumber: true, clientId: true } },
+    },
+  });
+
+  if (!quote) return null;
+
+  // §K — revalidate Invoice ownership at render time, never trust
+  // convertedInvoiceId alone (see PortalQuoteDetail's own doc comment on
+  // `convertedInvoice`).
+  const convertedInvoice =
+    quote.convertedInvoice && quote.convertedInvoice.clientId === clientId
+      ? { id: quote.convertedInvoice.id, invoiceNumber: quote.convertedInvoice.invoiceNumber }
+      : null;
+
+  return {
+    ...toQuoteSummary(quote),
+    subtotal: Number(quote.subtotal),
+    discountType: quote.discountType,
+    discountAmount: quote.discountAmount === null ? null : Number(quote.discountAmount),
+    discountValue: quote.discountValue === null ? null : Number(quote.discountValue),
+    taxRatePercent: quote.taxRatePercent === null ? null : Number(quote.taxRatePercent),
+    taxAmount: quote.taxAmount === null ? null : Number(quote.taxAmount),
+    taxLabel: quote.taxLabel,
+    notes: quote.notes,
+    items: quote.items.map((item) => ({
+      description: item.description,
+      quantity: Number(item.quantity),
+      unitPrice: Number(item.unitPrice),
+      lineTotal: Number(item.lineTotal),
+    })),
+    convertedInvoice,
   };
 }
