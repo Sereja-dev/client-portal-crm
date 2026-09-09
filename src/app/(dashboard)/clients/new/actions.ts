@@ -16,6 +16,7 @@ import {
   validateCustomFieldFormValues,
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
+import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import type { ClientFormState } from "@/types";
 
 export async function createClientAction(
@@ -66,8 +67,22 @@ export async function createClientAction(
       // immediately before the Client write it guards.
       await assertCanCreateClient(organizationId, tx);
 
+      // Custom Statuses Phase 1 (Section P) — keeps the new, backfilled
+      // statusDefinitionId identity in sync with the legacy `status`
+      // enum this action already writes, for every organization that
+      // has been bootstrapped with its system definitions (every
+      // organization, per Section N — this lookup is only ever null if
+      // that invariant is somehow violated, and creation must not be
+      // blocked by that: `?.id` simply leaves the column unset).
+      const statusDefinition = await resolveSystemStatusDefinition(
+        organizationId,
+        "CLIENT",
+        values.status.toLowerCase(),
+        tx,
+      );
+
       const client = await tx.client.create({
-        data: { ...values, userId: user.id, organizationId },
+        data: { ...values, userId: user.id, organizationId, statusDefinitionId: statusDefinition?.id },
       });
 
       await persistCustomFieldValuesInTransaction(tx, {

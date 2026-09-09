@@ -14,6 +14,7 @@ import {
   validateCustomFieldFormValues,
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
+import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import type { ProjectFormState } from "@/types";
 
 export async function createProjectAction(
@@ -63,10 +64,20 @@ export async function createProjectAction(
       // immediately before the Project write it guards.
       await assertCanCreateProject(organizationId, tx);
 
+      // Custom Statuses Phase 1 (Section P) — see createClientAction's
+      // own identical comment.
+      const statusDefinition = await resolveSystemStatusDefinition(
+        organizationId,
+        "PROJECT",
+        values.status.toLowerCase(),
+        tx,
+      );
+
       const project = await tx.project.create({
         data: {
           name: values.name,
           status: values.status,
+          statusDefinitionId: statusDefinition?.id,
           startDate: values.startDate,
           endDate: values.endDate,
           clientId: values.clientId,

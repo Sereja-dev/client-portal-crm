@@ -439,6 +439,10 @@ model Organization {
   customFieldDefinitions CustomFieldDefinition[]
   customFieldValues      CustomFieldValue[]
 
+  // Custom Statuses Phase 1 (schema/domain foundation only). Same direct-
+  // tenant-scoping shape as customFieldDefinitions above.
+  customStatusDefinitions CustomStatusDefinition[]
+
   // Invoice System Slice 3, sub-PR 3b — see InvoicePdfArchiveObject's own
   // doc comment.
   invoicePdfArchiveObjects InvoicePdfArchiveObject[]
@@ -738,6 +742,34 @@ model Client {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
+  // Custom Statuses Phase 1 — see CustomStatusDefinition's own doc
+  // comment for the full compatibility-bridge story. `status` above
+  // remains fully authoritative for every existing business rule/filter/
+  // display in this phase (deliberately NOT made nullable — see this
+  // feature's own migration header comment for why); this FK is the new
+  // parallel identity that becomes authoritative once a later phase
+  // actually builds the UI/Server Actions to read it. Nullable, not NOT
+  // NULL: every EXISTING Client is fully backfilled by this feature's own
+  // migration, and createClientAction/convertLeadToClientAction populate
+  // it for every NEW one going forward — but dozens of pre-existing test
+  // files and prisma/seed.ts construct Client rows directly via
+  // `prisma.client.create` without any knowledge of Custom Statuses; a
+  // NOT NULL column would have forced touching all of them for a
+  // capability nothing reads as authoritative yet (see this feature's own
+  // migration header comment for the identical reasoning already applied
+  // to the legacy column's own nullability question). RESTRICT (not
+  // SetNull/Cascade): a status definition can never be silently removed
+  // out from under a Client that still references it — normal app
+  // behavior is to archive a definition, never delete it (Section M).
+  // The literal database constraint is actually `NO ACTION ...
+  // DEFERRABLE INITIALLY DEFERRED`, not RESTRICT — Prisma has no
+  // `deferrable` relation attribute, so `onDelete: Restrict` here is the
+  // closest DSL approximation of the real intent; see this feature's own
+  // migration header comment, deviation (c), for why plain RESTRICT
+  // breaks Organization deletion's own cascade ordering.
+  statusDefinitionId String?                 @db.Uuid
+  statusDefinition   CustomStatusDefinition? @relation(fields: [statusDefinitionId], references: [id], onDelete: Restrict)
+
   userId String @db.Uuid
   user   User   @relation("ClientOwner", fields: [userId], references: [id], onDelete: Restrict)
 
@@ -810,6 +842,7 @@ model Client {
   @@index([status])
   @@index([userId])
   @@index([organizationId])
+  @@index([statusDefinitionId])
 }
 
 // Multiple Contacts Phase 1 (data model foundation only — no UI yet, see
@@ -1091,6 +1124,115 @@ model CustomFieldValue {
   @@index([definitionId])
 }
 
+// Custom Statuses Phase 1 (schema/domain foundation only — no UI, no
+// Server Actions, no replacement of the existing ClientStatus/LeadStage/
+// ProjectStatus enum-driven screens; see src/lib/custom-statuses/ for the
+// domain layer). V1 supports exactly these three entities, mirroring
+// Custom Fields' own V1 scope decision for the identical reason: they're
+// this app's three core CRM records with an existing status concept.
+enum CustomStatusEntityType {
+  CLIENT
+  LEAD
+  PROJECT
+}
+
+// Reuses this app's own existing status-color vocabulary
+// (StatusTone/STATUS_TONES in src/components/ui/status-badge.tsx) rather
+// than inventing a second, parallel color system — Section T's own
+// "if current app already has status color conventions, support a
+// constrained color token" instruction, applied literally: every value
+// here is spelled identically to its StatusTone counterpart.
+enum CustomStatusColor {
+  NEUTRAL
+  INFO
+  WARNING
+  SUCCESS
+  DANGER
+  MUTED
+}
+
+// Custom Statuses Phase 1 — one row per configurable status, org-owned.
+// A deliberately close structural twin of CustomFieldDefinition (same
+// organizationId+entityType+key+label+position+archivedAt shape, same
+// "system/custom" split as CustomFieldDefinition's own isSystem-free
+// design didn't need but this one does — see below).
+//
+// SEMANTIC IDENTITY (Section G/H/I/J's own central requirement): exactly
+// four of this app's existing built-in statuses carry real, code-level
+// business meaning today — Lead WON, Lead LOST (src/lib/leads/stages.ts's
+// own isWonLeadStage/isLostLeadStage, conversion gating, lostReason
+// handling), Project IN_PROGRESS (the dashboard's "active projects" KPI
+// and the Client Portal's own "active projects" count — both literal
+// `status: "IN_PROGRESS"` reads), and Client ACTIVE (the one status Lead
+// conversion always assigns a freshly-created Client, by explicit
+// business rule, distinct from Client's own creation-time default of
+// LEAD). Deliberately NO separate `systemType`/semantic enum column for
+// these — Section G explicitly offers "isSystem + immutable key
+// convention" as an equally valid, simpler alternative to a parallel
+// semantic-identity column, and it is: `key` is already immutable once
+// set (never changes on label rename, permanently reserved even once
+// archived — identical rule to CustomFieldDefinition.key) and already
+// unique per organization+entityType, so it already IS a stable internal
+// identity a lookup can pin to. The domain layer's own well-known key
+// constants (src/lib/custom-statuses/keys.ts — e.g. LEAD_SYSTEM_KEYS.WON
+// = "won") are what code checks against, never a definition's own
+// (user-editable) label — a custom status a Staff member happens to
+// label "Won" gets an entirely different, freshly-derived key (Section
+// S's own collision-suffixing), so it can never collide with the one
+// true system "won" key and can never accidentally trigger WON semantics
+// (Section H's own explicit requirement).
+//
+// `isSystem` definitions are seeded once per organization (bootstrap —
+// see src/lib/custom-statuses/bootstrap.ts, invoked both from new-
+// organization provisioning and this feature's own migration backfill)
+// and can never be archived in this phase (Section L) — nothing in
+// Phase 1 rewires the entity screens that still read the legacy enum
+// columns as authoritative for existing business rules, so removing a
+// system definition's availability would be observable breakage with no
+// compensating benefit yet.
+model CustomStatusDefinition {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  entityType CustomStatusEntityType
+
+  key   String
+  label String
+
+  // Optional — a definition with no color falls back to the same
+  // "neutral" default StatusBadge's own STATUS_TONES lookup already uses
+  // for any status it doesn't recognize (Section T: keep this simple,
+  // don't overbuild).
+  color CustomStatusColor?
+
+  position Int
+
+  isDefault Boolean @default(false)
+  isSystem  Boolean @default(false)
+
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  clients  Client[]
+  leads    Lead[]
+  projects Project[]
+  // The "exactly one active default per organization+entityType" rule
+  // (Section K) is a partial unique index — not expressible in the
+  // Prisma schema DSL, so it lives only in this feature's own
+  // migration.sql (the same "raw SQL constraint, documented in both
+  // places" precedent ClientContact's own primary-contact index and
+  // Custom Fields' own typed-value CHECK constraint already established).
+
+  @@unique([organizationId, entityType, key])
+  @@index([organizationId, entityType])
+  @@index([organizationId, entityType, archivedAt])
+  @@index([organizationId, entityType, position])
+}
+
 model Project {
   id          String        @id @default(uuid()) @db.Uuid
   name        String
@@ -1101,6 +1243,18 @@ model Project {
   budget      Decimal?      @db.Decimal(10, 2)
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
+
+  // Custom Statuses Phase 1 — see CustomStatusDefinition's own doc
+  // comment. `status` above remains fully authoritative for every
+  // existing dashboard KPI/Portal "active projects" read in this phase
+  // (both literal `status: "IN_PROGRESS"` comparisons, untouched).
+  // Nullable — see Client.statusDefinitionId's own comment for the full
+  // "why not NOT NULL" reasoning (identical here: every existing Project
+  // is fully backfilled, createProjectAction populates it for every new
+  // one, but dozens of pre-existing test files construct Project rows
+  // directly without it).
+  statusDefinitionId String?                 @db.Uuid
+  statusDefinition   CustomStatusDefinition? @relation(fields: [statusDefinitionId], references: [id], onDelete: Restrict)
 
   clientId String @db.Uuid
   client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -1117,6 +1271,7 @@ model Project {
   @@index([status])
   @@index([ownerId])
   @@index([organizationId])
+  @@index([statusDefinitionId])
 }
 
 model Task {
@@ -2157,6 +2312,16 @@ model Lead {
   source LeadSource?
   stage  LeadStage   @default(NEW)
 
+  // Custom Statuses Phase 1 — see CustomStatusDefinition's own doc
+  // comment. `stage` above remains fully authoritative for every existing
+  // pipeline/WON/LOST/conversion rule in this phase — see
+  // src/lib/leads/stages.ts's own isWonLeadStage/isLostLeadStage, which
+  // are completely untouched by this addition. Nullable — see
+  // Client.statusDefinitionId's own comment for the full "why not NOT
+  // NULL" reasoning.
+  statusDefinitionId String?                 @db.Uuid
+  statusDefinition   CustomStatusDefinition? @relation(fields: [statusDefinitionId], references: [id], onDelete: Restrict)
+
   // Same Decimal precision/type convention as Project.budget — a rough
   // estimated deal value, never a real charge (Invoice is the only model
   // that actually bills anything).
@@ -2207,6 +2372,7 @@ model Lead {
   // B-tree index in Postgres); an additional plain index on the same
   // single column would be a pure duplicate.
   @@index([createdAt])
+  @@index([statusDefinitionId])
 }
 
 // Quotes / Estimates Phase 1 (schema foundation only -- see the approved

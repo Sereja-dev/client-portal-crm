@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { Role } from "@/generated/prisma/enums";
 import { createTrialSubscription } from "@/lib/billing/provisioning";
+import { bootstrapOrganizationStatusDefinitions } from "@/lib/custom-statuses/bootstrap";
 import { isOrganizationSuspended, ORGANIZATION_UNAVAILABLE_PATH } from "@/lib/organization-access";
 import { seedThemeModeFromRequestCookie } from "@/lib/theme/request-cookie-seed";
 
@@ -149,6 +150,14 @@ async function createPersonalOrganizationAndMembership(
     // row atomically alongside it — same transaction, so either both
     // exist or neither does.
     await createTrialSubscription(tx, organization.id, new Date());
+    // Custom Statuses Phase 1 (Section N): every brand-new Organization
+    // must get the full set of built-in system status definitions for
+    // CLIENT/LEAD/PROJECT, atomically alongside it — same transaction, so
+    // no organization can ever be created without them. Existing
+    // organizations are backfilled by this feature's own migration
+    // instead (Section O); this call only ever runs for organizations
+    // created after this point in time.
+    await bootstrapOrganizationStatusDefinitions(tx, organization.id);
     return organization.id;
   });
 }

@@ -25,6 +25,7 @@ import {
   validateCustomFieldFormValues,
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
+import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 
 /**
  * Leads / Sales Pipeline Phase 2. No Lead UI exists yet (Phase 3+) — every
@@ -160,6 +161,13 @@ export async function createLeadAction(
   // the create back with it, matching createClientAction/
   // createTaskAction's own exact pattern.
   const lead = await prisma.$transaction(async (tx) => {
+    // Custom Statuses Phase 1 (Section P) — the created Lead always
+    // starts at the schema's own default NEW stage (see the comment
+    // below), so its statusDefinitionId is resolved to the matching
+    // system definition's key up front, same "leave unset if somehow
+    // not found" fail-open rule as createClientAction's own comment.
+    const statusDefinition = await resolveSystemStatusDefinition(organizationId, "LEAD", "new", tx);
+
     const created = await tx.lead.create({
       data: {
         organizationId,
@@ -171,6 +179,7 @@ export async function createLeadAction(
         value: values.value,
         notes: values.notes,
         assignedToUserId: values.assignedToUserId,
+        statusDefinitionId: statusDefinition?.id,
         // stage: not set — the schema's own @default(NEW) applies. Never
         // accepted from `input` (see this action's own doc comment).
       },
@@ -379,10 +388,15 @@ export async function moveLeadStageAction(leadId: string, stage: LeadStage): Pro
 
     const wasLost = isLostLeadStage(existing.stage);
 
+    // Custom Statuses Phase 1 (Section P) — kept in sync with the new
+    // `stage` this action writes below.
+    const statusDefinition = await resolveSystemStatusDefinition(organizationId, "LEAD", stage.toLowerCase(), tx);
+
     const result = await tx.lead.updateMany({
       where: { id: leadId, organizationId, convertedClientId: null },
       data: {
         stage,
+        statusDefinitionId: statusDefinition?.id,
         // undefined = "leave this column untouched" to Prisma; only ever
         // explicitly cleared when actually leaving LOST.
         lostReason: wasLost ? null : undefined,
@@ -447,9 +461,14 @@ export async function markLeadLostAction(leadId: string, lostReason?: string | n
       return "converted_locked" as const;
     }
 
+    // Custom Statuses Phase 1 (Section P/H) — synced alongside `stage:
+    // "LOST"` below; this is exactly the one real LOST system definition
+    // (Section H — a custom status can never reach this path at all).
+    const statusDefinition = await resolveSystemStatusDefinition(organizationId, "LEAD", "lost", tx);
+
     const result = await tx.lead.updateMany({
       where: { id: leadId, organizationId, convertedClientId: null },
-      data: { stage: "LOST", lostReason: parsedReason.value },
+      data: { stage: "LOST", statusDefinitionId: statusDefinition?.id, lostReason: parsedReason.value },
     });
 
     if (result.count === 0) {
@@ -685,6 +704,12 @@ export async function convertLeadToClientAction(
       // plan's Client cap that direct Client creation already enforces.
       await assertCanCreateClient(organizationId, tx);
 
+      // Custom Statuses Phase 1 (Section P/I) — the converted Client
+      // always starts ACTIVE (see `status: "ACTIVE"` below); this is
+      // exactly the one real ACTIVE system definition Section I's own
+      // audit found (Lead conversion's hardcoded default).
+      const clientStatusDefinition = await resolveSystemStatusDefinition(organizationId, "CLIENT", "active", tx);
+
       // Client mapping — exactly the approved field set. source/value/
       // lostReason/archivedAt stay on the Lead as historical data, never
       // copied onto the new Client.
@@ -696,6 +721,7 @@ export async function convertLeadToClientAction(
           phone: lead.phone,
           notes: lead.notes,
           status: "ACTIVE",
+          statusDefinitionId: clientStatusDefinition?.id,
           organizationId,
           userId: user.id,
         },
@@ -752,12 +778,18 @@ export async function convertLeadToClientAction(
       // count is 0 here and the whole transaction throws, rolling back
       // the Client row (and its Activity) this same transaction just
       // created.
+      // Custom Statuses Phase 1 (Section P/H) — synced alongside
+      // `stage: "WON"` below; the one real WON system definition
+      // Section H's own audit found.
+      const leadStatusDefinition = await resolveSystemStatusDefinition(organizationId, "LEAD", "won", tx);
+
       const result = await tx.lead.updateMany({
         where: { id: leadId, organizationId, convertedClientId: null },
         data: {
           convertedClientId: client.id,
           convertedAt: new Date(),
           stage: "WON",
+          statusDefinitionId: leadStatusDefinition?.id,
           lostReason: null,
         },
       });

@@ -18,6 +18,7 @@ import {
   validateCustomFieldFormValues,
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
+import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import type { ProjectFormState } from "@/types";
 
 export async function updateProjectAction(
@@ -82,11 +83,21 @@ export async function updateProjectAction(
       return "not_found" as const;
     }
 
+    // Custom Statuses Phase 1 (Section P) — see updateClientAction's own
+    // identical comment.
+    const statusDefinition = await resolveSystemStatusDefinition(
+      organizationId,
+      "PROJECT",
+      values.status.toLowerCase(),
+      tx,
+    );
+
     const result = await tx.project.updateMany({
       where: { id: projectId, organizationId },
       data: {
         name: values.name,
         status: values.status,
+        statusDefinitionId: statusDefinition?.id,
         startDate: values.startDate,
         endDate: values.endDate,
         clientId: values.clientId,

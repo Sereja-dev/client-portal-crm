@@ -16,6 +16,7 @@ import {
   validateCustomFieldFormValues,
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
+import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import type { ClientFormState } from "@/types";
 
 export async function updateClientAction(
@@ -88,9 +89,19 @@ export async function updateClientAction(
       return "not_found" as const;
     }
 
+    // Custom Statuses Phase 1 (Section P) — see createClientAction's own
+    // identical comment; re-resolved on every update since `values.status`
+    // may have changed.
+    const statusDefinition = await resolveSystemStatusDefinition(
+      organizationId,
+      "CLIENT",
+      values.status.toLowerCase(),
+      tx,
+    );
+
     const result = await tx.client.updateMany({
       where: { id: clientId, organizationId },
-      data: values,
+      data: { ...values, statusDefinitionId: statusDefinition?.id },
     });
 
     if (result.count === 0) {
