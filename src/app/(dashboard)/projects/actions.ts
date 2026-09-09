@@ -6,6 +6,7 @@ import { getCurrentUserOrganization } from "@/lib/current-user";
 import { createActivity } from "@/lib/activity/create-activity";
 import { buildProjectMetadata } from "@/lib/activity/project-metadata";
 import { deleteAttachmentsForParent, cleanupAttachmentStorageObjects } from "@/lib/attachments/attachment-mutations";
+import { deleteCustomFieldValuesForEntities } from "@/lib/custom-fields/values";
 import type { DeleteButtonActionResult } from "@/components/ui/delete-button";
 
 /**
@@ -70,6 +71,15 @@ export async function deleteProjectAction(projectId: string): Promise<DeleteButt
       actorId: user.id,
       actorName: user.name,
       targets: [{ entityType: "PROJECT", entityId: projectId, parentEntityLabel: existing.name }],
+    });
+
+    // Custom Fields Phase 1 (Section P) — CustomFieldValue carries no
+    // literal FK to Project (see that model's own schema comment), so it
+    // would otherwise orphan silently on this hard delete exactly the way
+    // Attachments would have without the call just above.
+    await deleteCustomFieldValuesForEntities(tx, {
+      organizationId,
+      entityIds: [projectId],
     });
 
     return storagePaths;

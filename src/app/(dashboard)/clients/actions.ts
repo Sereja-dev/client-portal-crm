@@ -6,6 +6,7 @@ import { getCurrentUserOrganization } from "@/lib/current-user";
 import { createActivity } from "@/lib/activity/create-activity";
 import { buildClientActivityMetadata } from "@/lib/activity/client-metadata";
 import { deleteAttachmentsForParent, cleanupAttachmentStorageObjects } from "@/lib/attachments/attachment-mutations";
+import { deleteCustomFieldValuesForEntities } from "@/lib/custom-fields/values";
 import { mapDeleteRestrictError } from "@/lib/delete-conflict-mapper";
 import type { DeleteButtonActionResult } from "@/components/ui/delete-button";
 
@@ -69,6 +70,17 @@ export async function deleteClientAction(clientId: string): Promise<DeleteButton
             parentEntityLabel: project.name,
           })),
         ],
+      });
+
+      // Custom Fields Phase 1 (Section P) — CustomFieldValue carries no
+      // literal FK to Client/Project (see that model's own schema
+      // comment), so it would otherwise orphan silently on this hard
+      // delete exactly the way Attachments would have without the call
+      // just above. Same dual-target shape: this Client itself, plus
+      // every childProject that cascade-deletes alongside it.
+      await deleteCustomFieldValuesForEntities(tx, {
+        organizationId,
+        entityIds: [clientId, ...childProjects.map((project) => project.id)],
       });
 
       return storagePaths;

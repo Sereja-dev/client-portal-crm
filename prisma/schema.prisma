@@ -432,6 +432,13 @@ model Organization {
   // tenant-scoping shape as leads/quotes above.
   clientContacts ClientContact[]
 
+  // Custom Fields Phase 1 (schema/domain foundation only). Same direct-
+  // tenant-scoping shape as leads/quotes/contacts above. CustomFieldOption
+  // has no back-relation here — it's scoped through its own definitionId,
+  // not directly org-owned (see CustomFieldOption's own model comment).
+  customFieldDefinitions CustomFieldDefinition[]
+  customFieldValues      CustomFieldValue[]
+
   // Invoice System Slice 3, sub-PR 3b — see InvoicePdfArchiveObject's own
   // doc comment.
   invoicePdfArchiveObjects InvoicePdfArchiveObject[]
@@ -884,6 +891,204 @@ model ClientContact {
   @@index([clientId])
   @@index([email])
   @@index([clientId, archivedAt])
+}
+
+// Custom Fields Phase 1 (schema/domain foundation only — no Staff UI, no
+// Portal, no Quote/Invoice integration; see src/lib/custom-fields/ for the
+// domain layer). V1 supports exactly these three entities — CLIENT/LEAD/
+// PROJECT — chosen because they're this app's three core CRM records with
+// an existing edit surface; QUOTE/INVOICE/TASK/PORTAL_USER/CLIENT_CONTACT
+// are deliberately excluded from V1, not merely unimplemented.
+enum CustomFieldEntityType {
+  CLIENT
+  LEAD
+  PROJECT
+}
+
+// V1 field types exactly — MULTI_SELECT/FILE/USER/RELATION/FORMULA/
+// RICH_TEXT/CURRENCY/PHONE/EMAIL are all deliberately deferred to a later
+// phase, not merely unimplemented.
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  CHECKBOX
+  SELECT
+}
+
+// Custom Fields Phase 1 — the definition side of a definition/value model
+// (see CustomFieldValue's own comment for the full architecture story).
+// organizationId is required + Cascade, the same direct-tenant-scoping
+// shape Lead/Quote/Comment/Attachment/ClientContact already use.
+//
+// `key` is the stable machine identity (Section F) — unique per
+// organizationId + entityType + key, and deliberately NEVER changes when
+// `label` changes (see updateCustomFieldDefinition's own comment: only
+// label/required are ever editable after creation — fieldType is
+// immutable once set, since existing CustomFieldValue rows are already
+// typed according to it and changing it later would strand or corrupt
+// them). The uniqueness constraint is a plain (non-partial) @@unique, not
+// scoped by archivedAt: an archived definition's key stays permanently
+// reserved in that organization+entityType (consistent with "may be
+// unarchived later" — unarchiving must bring back the exact same
+// identity, not risk colliding with a same-key definition created in the
+// meantime).
+//
+// `position` is an ordinary (non-unique) indexed Int — Section G
+// explicitly calls for "a simple integer position foundation," not
+// InvoiceLineItem/QuoteLineItem's own strictly-unique, transactionally-
+// reshuffled position scheme (those model an ordered array a caller
+// replaces wholesale on every edit; this models a slowly-changing list of
+// admin-configured fields, a materially different access pattern that
+// doesn't need that same rigor yet).
+//
+// `required` is stored but NOT enforced against existing Client/Lead/
+// Project create/update flows in this phase (Section I) — deliberately:
+// this is a schema/domain foundation only, and wiring enforcement into
+// those already-shipped, already-tested forms belongs to a future UI/
+// save-integration phase. No code in this phase reads this column to
+// block anything.
+model CustomFieldDefinition {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  entityType CustomFieldEntityType
+
+  key   String
+  label String
+
+  fieldType CustomFieldType
+
+  required Boolean @default(false)
+
+  position Int
+
+  // Soft-archive only, same convention as Lead.archivedAt — null = active.
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  options CustomFieldOption[]
+  values  CustomFieldValue[]
+
+  @@unique([organizationId, entityType, key])
+  @@index([organizationId, entityType])
+  @@index([organizationId, entityType, archivedAt])
+  @@index([organizationId, entityType, position])
+}
+
+// Custom Fields Phase 1 — SELECT-only option list. No direct
+// organizationId column: same "child of an already-org-scoped parent,
+// scope through it" shape InvoiceLineItem/QuoteLineItem already use for
+// their own parent Invoice/Quote (neither carries its own organizationId
+// either) — every real access here goes through definitionId, which is
+// itself already organization-scoped.
+//
+// `value` is this option's own stable machine identity (the same "label
+// can change, machine identity doesn't" principle as
+// CustomFieldDefinition.key — see renameCustomFieldOption's own comment),
+// unique per definitionId. Deliberately no archivedAt-scoping on that
+// uniqueness either, for the identical reason as the definition's own key
+// — an archived option's value stays reserved so unarchiving can't
+// collide with a same-value option created in the meantime.
+model CustomFieldOption {
+  id String @id @default(uuid()) @db.Uuid
+
+  definitionId String                @db.Uuid
+  definition   CustomFieldDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+
+  label String
+  value String
+
+  position Int
+
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Section O — an archived option must never be silently detached from
+  // an existing CustomFieldValue that already selected it; see
+  // CustomFieldValue.selectedOptionId's own comment for the SetNull
+  // reasoning (this relation only ever actually breaks if a single
+  // option is administratively hard-deleted independently of its whole
+  // definition, which no Phase 1 domain function does at all — archive
+  // is the only removal path this phase exposes).
+  selectedByValues CustomFieldValue[] @relation("SelectedOption")
+
+  @@unique([definitionId, value])
+  @@index([definitionId, position])
+  @@index([definitionId, archivedAt])
+}
+
+// Custom Fields Phase 1 — the value side. Architecture (Section C):
+// entityType belongs to the definition, never repeated here — this row
+// stores only an opaque entityId, and every domain-layer mutation
+// re-validates that the target entity actually exists in the same
+// organization AND that entityType matches definition.entityType (see
+// src/lib/custom-fields/entity-ownership.ts's own
+// assertCustomFieldEntityOwnership). Deliberately NOT three nullable FKs
+// to Client/Lead/Project: Postgres has no way to make exactly one of
+// three nullable FKs required (that's an application-level invariant
+// regardless of which shape is chosen), and a real FK here would also
+// force every one of Client/Lead/Project's own delete paths to become
+// custom-field-aware at the DATABASE level — instead, Section P's own
+// explicit design keeps that cleanup an application-level concern
+// (deleteCustomFieldValuesForEntities, wired into the two hard-delete
+// paths that actually exist: Client and Project — Lead is soft-archive-
+// only, so it never orphans anything here).
+//
+// organizationId IS present directly (unlike CustomFieldOption above) —
+// Section J calls for it explicitly on the value table specifically,
+// since every real read/write here is already keyed by (entityType,
+// entityId) and having organizationId inline avoids an extra join back
+// through definitionId just to confirm tenant scope on the hot path.
+//
+// Exactly one typed column may ever be populated at a time — enforced by
+// a raw CHECK constraint added in this model's own migration (not
+// expressible in the Prisma schema DSL, the identical reason
+// ClientContact's own partial unique index lives only in its migration.sql
+// — see that model's comment). "Clearing" a value deletes this row
+// entirely (src/lib/custom-fields/values.ts's own clearCustomFieldValue)
+// rather than ever writing a meaningless all-null row, so the CHECK is
+// "= 1", not merely "<= 1": every row that exists has exactly one typed
+// value, no exceptions, which the application layer already guarantees
+// but the database now also refuses to contradict.
+model CustomFieldValue {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  definitionId String                @db.Uuid
+  definition   CustomFieldDefinition @relation(fields: [definitionId], references: [id], onDelete: Cascade)
+
+  entityId String @db.Uuid
+
+  textValue    String?
+  numberValue  Decimal?  @db.Decimal(10, 2)
+  dateValue    DateTime?
+  booleanValue Boolean?
+
+  // SetNull, not Restrict/Cascade — same "this reference may vanish, and
+  // when it does, the record survives with the reference nulled" pattern
+  // Lead.convertedClientId/Task.assigneeId/Activity.actorId/Comment.
+  // authorId already use. In practice this FK path is never exercised in
+  // Phase 1 (no domain function hard-deletes a single option — see
+  // CustomFieldOption's own comment), but the schema stays safe by
+  // construction if a future phase ever adds one.
+  selectedOptionId String?            @db.Uuid
+  selectedOption   CustomFieldOption? @relation("SelectedOption", fields: [selectedOptionId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([definitionId, entityId])
+  @@index([organizationId, entityId])
+  @@index([definitionId])
 }
 
 model Project {
