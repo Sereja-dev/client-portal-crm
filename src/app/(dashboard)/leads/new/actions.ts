@@ -21,16 +21,22 @@ export async function createLeadFormAction(
   _prevState: LeadFormState,
   formData: FormData,
 ): Promise<LeadFormState> {
-  const result = await createLeadAction({
-    name: formData.get("name"),
-    company: formData.get("company"),
-    email: formData.get("email"),
-    phone: formData.get("phone"),
-    source: formData.get("source"),
-    value: formData.get("value"),
-    notes: formData.get("notes"),
-    assignedToUserId: formData.get("assignedToUserId"),
-  });
+  const result = await createLeadAction(
+    {
+      name: formData.get("name"),
+      company: formData.get("company"),
+      email: formData.get("email"),
+      phone: formData.get("phone"),
+      source: formData.get("source"),
+      value: formData.get("value"),
+      notes: formData.get("notes"),
+      assignedToUserId: formData.get("assignedToUserId"),
+    },
+    // Custom Fields Phase 2B — the same FormData this form's own custom
+    // fields section submitted its customField_<definitionId> entries
+    // into, passed straight through for createLeadAction's own parsing.
+    formData,
+  );
 
   if (result.ok) {
     redirect(withToast("/leads", "Lead created"));
@@ -41,6 +47,9 @@ export async function createLeadFormAction(
   }
   if (result.reason === "rate_limited") {
     return { error: RATE_LIMIT_MESSAGE };
+  }
+  if (result.reason === "custom_field_validation") {
+    return { error: null, customFieldErrors: result.customFieldErrors };
   }
   // "invalid_assignee" — the only remaining CreateLeadResult failure reason.
   return { error: null, fieldErrors: { assignedToUserId: "Select a valid team member." } };

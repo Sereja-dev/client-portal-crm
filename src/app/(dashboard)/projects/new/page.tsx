@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
+import { getActiveCustomFieldFormDefinitions } from "@/lib/custom-fields/entity-form";
 import { ProjectForm } from "@/components/projects/project-form";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
@@ -19,6 +20,8 @@ export default async function NewProjectPage() {
     orderBy: { name: "asc" },
     select: { id: true, name: true },
   });
+  // Custom Fields Phase 2B (Section B) — active PROJECT definitions only.
+  const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "PROJECT");
 
   return (
     <div className="mx-auto max-w-xl">
@@ -43,7 +46,7 @@ export default async function NewProjectPage() {
         />
       ) : (
         <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-          <ProjectForm action={createProjectAction} clients={clients} />
+          <ProjectForm action={createProjectAction} clients={clients} customFieldDefinitions={customFieldDefinitions} />
         </div>
       )}
     </div>

@@ -18,6 +18,13 @@ import { assertCanCreateClient, BillingLimitError } from "@/lib/billing/enforcem
 import { findDuplicateOrganizationClientByEmail } from "@/lib/clients/duplicate-email";
 import { createClientContact, resolveFallbackContactName } from "@/lib/clients/contacts";
 import { LEAD_STAGES, isLostLeadStage } from "@/lib/leads/stages";
+import {
+  getActiveCustomFieldFormDefinitions,
+  getCustomFieldFormValues,
+  parseCustomFieldFormValues,
+  validateCustomFieldFormValues,
+  persistCustomFieldValuesInTransaction,
+} from "@/lib/custom-fields/entity-form";
 
 /**
  * Leads / Sales Pipeline Phase 2. No Lead UI exists yet (Phase 3+) — every
@@ -88,7 +95,8 @@ export type CreateLeadResult =
   | { ok: true; leadId: string }
   | { ok: false; reason: "validation"; fieldErrors: LeadFieldErrors }
   | { ok: false; reason: "rate_limited" }
-  | { ok: false; reason: "invalid_assignee" };
+  | { ok: false; reason: "invalid_assignee" }
+  | { ok: false; reason: "custom_field_validation"; customFieldErrors: Record<string, string> };
 
 /**
  * Always creates at stage NEW — no explicit initial-stage input is
@@ -99,8 +107,22 @@ export type CreateLeadResult =
  * stage would undermine them for no real benefit. No entitlement gate —
  * leads are unlimited (approved product decision); only Client creation
  * (via conversion) is ever entitlement-checked.
+ *
+ * Custom Fields Phase 2B — `customFieldFormData` is optional and used
+ * ONLY to extract `customField_<definitionId>` entries (Section J/K);
+ * every other field on this action's own `input` argument is completely
+ * unaffected, preserving this action's own original "plain, already-
+ * typed arguments, not FormData" design intent for its normal Lead
+ * fields (see this file's own header comment) — only the custom-field
+ * slice needs the richer FormData shape, since a definition can be
+ * created/archived/reordered by Staff at any time and this action must
+ * always parse against whatever is active right now, not a fixed shape
+ * baked into LeadWritableInput.
  */
-export async function createLeadAction(input: LeadWritableInput): Promise<CreateLeadResult> {
+export async function createLeadAction(
+  input: LeadWritableInput,
+  customFieldFormData?: FormData,
+): Promise<CreateLeadResult> {
   const { values, fieldErrors } = parseLeadInput(input);
   if (Object.keys(fieldErrors).length > 0) {
     return { ok: false, reason: "validation", fieldErrors };
@@ -121,9 +143,22 @@ export async function createLeadAction(input: LeadWritableInput): Promise<Create
     return { ok: false, reason: "invalid_assignee" };
   }
 
-  // Lead create and its Activity row are one atomic unit — a failed
-  // Activity insert rolls the create back with it, matching
-  // createClientAction/createTaskAction's own exact pattern.
+  // Custom Fields Phase 2B (Section E/J/K) — see createClientAction's
+  // own identical comment. An absent customFieldFormData (no form layer
+  // calling this yet, or a caller with nothing to submit) is treated
+  // exactly like an empty FormData — every definition simply parses to
+  // "no raw value", which is only an error for a required field.
+  const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "LEAD");
+  const rawCustomFieldValues = parseCustomFieldFormValues(customFieldFormData ?? new FormData(), customFieldDefinitions);
+  const customFieldValidation = validateCustomFieldFormValues(customFieldDefinitions, rawCustomFieldValues);
+  if (!customFieldValidation.ok) {
+    return { ok: false, reason: "custom_field_validation", customFieldErrors: customFieldValidation.fieldErrors };
+  }
+
+  // Lead create, its custom field values, and its Activity row are one
+  // atomic unit — a failed Activity insert (or custom field write) rolls
+  // the create back with it, matching createClientAction/
+  // createTaskAction's own exact pattern.
   const lead = await prisma.$transaction(async (tx) => {
     const created = await tx.lead.create({
       data: {
@@ -139,6 +174,15 @@ export async function createLeadAction(input: LeadWritableInput): Promise<Create
         // stage: not set — the schema's own @default(NEW) applies. Never
         // accepted from `input` (see this action's own doc comment).
       },
+    });
+
+    await persistCustomFieldValuesInTransaction(tx, {
+      organizationId,
+      entityType: "LEAD",
+      entityId: created.id,
+      definitions: customFieldDefinitions,
+      rawValues: rawCustomFieldValues,
+      decisions: customFieldValidation.decisions,
     });
 
     await createActivity(tx, {
@@ -166,7 +210,8 @@ export type UpdateLeadResult =
   | { ok: false; reason: "validation"; fieldErrors: LeadFieldErrors }
   | { ok: false; reason: "rate_limited" }
   | { ok: false; reason: "not_found" }
-  | { ok: false; reason: "invalid_assignee" };
+  | { ok: false; reason: "invalid_assignee" }
+  | { ok: false; reason: "custom_field_validation"; customFieldErrors: Record<string, string> };
 
 /**
  * Editable: name, company, email, phone, source, value, notes,
@@ -179,8 +224,14 @@ export type UpdateLeadResult =
  * `input`'s own LeadWritableInput type has no such fields, and the write
  * below only ever assigns from `values`, never from a route param or any
  * other caller-supplied source.
+ *
+ * `customFieldFormData` — see createLeadAction's own identical comment.
  */
-export async function updateLeadAction(leadId: string, input: LeadWritableInput): Promise<UpdateLeadResult> {
+export async function updateLeadAction(
+  leadId: string,
+  input: LeadWritableInput,
+  customFieldFormData?: FormData,
+): Promise<UpdateLeadResult> {
   const { values, fieldErrors } = parseLeadInput(input);
   if (Object.keys(fieldErrors).length > 0) {
     return { ok: false, reason: "validation", fieldErrors };
@@ -195,6 +246,20 @@ export async function updateLeadAction(leadId: string, input: LeadWritableInput)
 
   if (!(await verifyAssigneeInOrganization(values.assignedToUserId, organizationId))) {
     return { ok: false, reason: "invalid_assignee" };
+  }
+
+  // Custom Fields Phase 2B (Section F/H/I/J/K) — see updateClientAction's
+  // own identical comment.
+  const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "LEAD");
+  const existingCustomFieldValues = await getCustomFieldFormValues(organizationId, "LEAD", leadId, customFieldDefinitions);
+  const rawCustomFieldValues = parseCustomFieldFormValues(customFieldFormData ?? new FormData(), customFieldDefinitions);
+  const customFieldValidation = validateCustomFieldFormValues(
+    customFieldDefinitions,
+    rawCustomFieldValues,
+    existingCustomFieldValues,
+  );
+  if (!customFieldValidation.ok) {
+    return { ok: false, reason: "custom_field_validation", customFieldErrors: customFieldValidation.fieldErrors };
   }
 
   const outcome = await prisma.$transaction(async (tx) => {
@@ -223,6 +288,15 @@ export async function updateLeadAction(leadId: string, input: LeadWritableInput)
     if (result.count === 0) {
       return "not_found" as const;
     }
+
+    await persistCustomFieldValuesInTransaction(tx, {
+      organizationId,
+      entityType: "LEAD",
+      entityId: leadId,
+      definitions: customFieldDefinitions,
+      rawValues: rawCustomFieldValues,
+      decisions: customFieldValidation.decisions,
+    });
 
     // Only log a real change — a re-submit of identical values shouldn't
     // add a no-op entry to the log, matching updateClientAction exactly.

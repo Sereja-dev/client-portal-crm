@@ -10,6 +10,12 @@ import { buildClientActivityMetadata } from "@/lib/activity/client-metadata";
 import { assertCanCreateClient, BillingLimitError } from "@/lib/billing/enforcement";
 import { findDuplicateOrganizationClientByEmail } from "@/lib/clients/duplicate-email";
 import { createClientContact, resolveFallbackContactName } from "@/lib/clients/contacts";
+import {
+  getActiveCustomFieldFormDefinitions,
+  parseCustomFieldFormValues,
+  validateCustomFieldFormValues,
+  persistCustomFieldValuesInTransaction,
+} from "@/lib/custom-fields/entity-form";
 import type { ClientFormState } from "@/types";
 
 export async function createClientAction(
@@ -37,10 +43,23 @@ export async function createClientAction(
     };
   }
 
+  // Custom Fields Phase 2B (Section E/J/K) — loaded fresh from the
+  // database (never trusts formData for which definitions exist),
+  // parsed only against those, and fully validated BEFORE the Client is
+  // created: a required custom field left empty (or any other custom
+  // field error) must never create the Client at all.
+  const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "CLIENT");
+  const rawCustomFieldValues = parseCustomFieldFormValues(formData, customFieldDefinitions);
+  const customFieldValidation = validateCustomFieldFormValues(customFieldDefinitions, rawCustomFieldValues);
+  if (!customFieldValidation.ok) {
+    return { error: null, customFieldErrors: customFieldValidation.fieldErrors };
+  }
+
   try {
-    // Client create and its Activity row are one atomic unit — if the
-    // Activity insert fails for any reason, the Client create rolls back
-    // with it rather than leaving an unlogged row behind.
+    // Client create, its custom field values, and its Activity row are
+    // one atomic unit — if any of them fail, everything rolls back
+    // together rather than leaving a Client with half-written custom
+    // fields (Section E).
     await prisma.$transaction(async (tx) => {
       // Billing & Subscriptions Stage 2 — re-checked from inside this same
       // transaction (docs/billing-architecture.md §7's race handling),
@@ -49,6 +68,15 @@ export async function createClientAction(
 
       const client = await tx.client.create({
         data: { ...values, userId: user.id, organizationId },
+      });
+
+      await persistCustomFieldValuesInTransaction(tx, {
+        organizationId,
+        entityType: "CLIENT",
+        entityId: client.id,
+        definitions: customFieldDefinitions,
+        rawValues: rawCustomFieldValues,
+        decisions: customFieldValidation.decisions,
       });
 
       // Multiple Contacts Phase 1 — a Client created with contact-capable

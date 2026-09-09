@@ -11,6 +11,13 @@ import {
   buildProjectStatusChangedMetadata,
   buildProjectUpdatedMetadata,
 } from "@/lib/activity/project-metadata";
+import {
+  getActiveCustomFieldFormDefinitions,
+  getCustomFieldFormValues,
+  parseCustomFieldFormValues,
+  validateCustomFieldFormValues,
+  persistCustomFieldValuesInTransaction,
+} from "@/lib/custom-fields/entity-form";
 import type { ProjectFormState } from "@/types";
 
 export async function updateProjectAction(
@@ -39,6 +46,25 @@ export async function updateProjectAction(
       error: null,
       fieldErrors: { clientId: "Select a valid client." },
     };
+  }
+
+  // Custom Fields Phase 2B (Section F/H/I/J/K) — see updateClientAction's
+  // own identical comment.
+  const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "PROJECT");
+  const existingCustomFieldValues = await getCustomFieldFormValues(
+    organizationId,
+    "PROJECT",
+    projectId,
+    customFieldDefinitions,
+  );
+  const rawCustomFieldValues = parseCustomFieldFormValues(formData, customFieldDefinitions);
+  const customFieldValidation = validateCustomFieldFormValues(
+    customFieldDefinitions,
+    rawCustomFieldValues,
+    existingCustomFieldValues,
+  );
+  if (!customFieldValidation.ok) {
+    return { error: null, customFieldErrors: customFieldValidation.fieldErrors };
   }
 
   // Update and its Activity row(s) are one atomic unit — if any Activity
@@ -70,6 +96,15 @@ export async function updateProjectAction(
     if (result.count === 0) {
       return "not_found" as const;
     }
+
+    await persistCustomFieldValuesInTransaction(tx, {
+      organizationId,
+      entityType: "PROJECT",
+      entityId: projectId,
+      definitions: customFieldDefinitions,
+      rawValues: rawCustomFieldValues,
+      decisions: customFieldValidation.decisions,
+    });
 
     // A pure resubmit of identical values creates no Activity at all.
     // "status" is always split out into its own STATUS_CHANGED event, so

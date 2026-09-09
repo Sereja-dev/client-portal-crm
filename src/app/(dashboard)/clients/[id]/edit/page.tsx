@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
+import { getActiveCustomFieldFormDefinitions, getCustomFieldFormValues } from "@/lib/custom-fields/entity-form";
 import { ClientForm } from "@/components/clients/client-form";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
@@ -28,6 +29,18 @@ export default async function EditClientPage({
 
   const boundUpdateClientAction = updateClientAction.bind(null, client.id);
 
+  // Custom Fields Phase 2B (Section F) — active CLIENT definitions plus
+  // this Client's own current values, prefilling the form. Converted to
+  // a plain object at this Server Component -> Client Component boundary
+  // (Object.fromEntries) since a Map isn't a serializable prop.
+  const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "CLIENT");
+  const customFieldValuesMap = await getCustomFieldFormValues(
+    organizationId,
+    "CLIENT",
+    client.id,
+    customFieldDefinitions,
+  );
+
   return (
     <div className="mx-auto max-w-xl">
       <div className="mb-6 flex items-center justify-between">
@@ -42,6 +55,8 @@ export default async function EditClientPage({
         <ClientForm
           action={boundUpdateClientAction}
           defaultValues={client}
+          customFieldDefinitions={customFieldDefinitions}
+          customFieldValues={Object.fromEntries(customFieldValuesMap)}
           submitLabel="Save changes"
           pendingLabel="Saving…"
         />

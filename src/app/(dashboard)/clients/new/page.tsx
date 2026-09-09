@@ -1,10 +1,17 @@
 import Link from "next/link";
+import { getCurrentUserOrganization } from "@/lib/current-user";
+import { getActiveCustomFieldFormDefinitions } from "@/lib/custom-fields/entity-form";
 import { ClientForm } from "@/components/clients/client-form";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { createClientAction } from "./actions";
 
-export default function NewClientPage() {
+export default async function NewClientPage() {
+  // Custom Fields Phase 2B (Section B) — active CLIENT definitions only;
+  // CustomFieldsFormSection itself renders nothing when this is empty.
+  const { organizationId } = await getCurrentUserOrganization();
+  const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "CLIENT");
+
   return (
     <div className="mx-auto max-w-xl">
       <div className="mb-6 flex items-center justify-between">
@@ -14,7 +21,7 @@ export default function NewClientPage() {
         </Link>
       </div>
       <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-        <ClientForm action={createClientAction} />
+        <ClientForm action={createClientAction} customFieldDefinitions={customFieldDefinitions} />
       </div>
     </div>
   );

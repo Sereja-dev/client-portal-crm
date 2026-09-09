@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
+import { getActiveCustomFieldFormDefinitions, getCustomFieldFormValues } from "@/lib/custom-fields/entity-form";
 import { ProjectForm } from "@/components/projects/project-form";
 import { updateProjectAction } from "./actions";
 import { ProjectAttachmentsSection } from "./attachments-section";
@@ -42,6 +43,15 @@ export default async function EditProjectPage({
   }
 
   const boundUpdateProjectAction = updateProjectAction.bind(null, project.id);
+
+  // Custom Fields Phase 2B (Section F) — see EditClientPage's own identical comment.
+  const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "PROJECT");
+  const customFieldValuesMap = await getCustomFieldFormValues(
+    organizationId,
+    "PROJECT",
+    project.id,
+    customFieldDefinitions,
+  );
   const commentsCursor = parseSearchParam(resolvedSearchParams.commentsCursor) || undefined;
   const isModerator = membership.role === "OWNER" || membership.role === "ADMIN";
 
@@ -66,6 +76,8 @@ export default async function EditProjectPage({
             startDate: toDateInputValue(project.startDate),
             endDate: toDateInputValue(project.endDate),
           }}
+          customFieldDefinitions={customFieldDefinitions}
+          customFieldValues={Object.fromEntries(customFieldValuesMap)}
           submitLabel="Save changes"
           pendingLabel="Saving…"
         />

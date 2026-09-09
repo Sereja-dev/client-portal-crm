@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
+import { getActiveCustomFieldFormDefinitions, getCustomFieldFormValues } from "@/lib/custom-fields/entity-form";
 import { LeadForm } from "@/components/leads/lead-form";
 import { LeadActionsPanel } from "@/components/leads/lead-actions-panel";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
@@ -30,6 +31,10 @@ export default async function EditLeadPage({ params }: { params: Promise<{ id: s
 
   const boundUpdateLeadFormAction = updateLeadFormAction.bind(null, lead.id);
 
+  // Custom Fields Phase 2B (Section F) — see EditClientPage's own identical comment.
+  const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "LEAD");
+  const customFieldValuesMap = await getCustomFieldFormValues(organizationId, "LEAD", lead.id, customFieldDefinitions);
+
   return (
     <div className="mx-auto max-w-xl">
       <div className="mb-6 flex items-center justify-between">
@@ -52,6 +57,8 @@ export default async function EditLeadPage({ params }: { params: Promise<{ id: s
             notes: lead.notes,
             assignedToUserId: lead.assignedToUserId,
           }}
+          customFieldDefinitions={customFieldDefinitions}
+          customFieldValues={Object.fromEntries(customFieldValuesMap)}
           submitLabel="Save changes"
           pendingLabel="Saving…"
         />

@@ -17,16 +17,21 @@ export async function updateLeadFormAction(
   _prevState: LeadFormState,
   formData: FormData,
 ): Promise<LeadFormState> {
-  const result = await updateLeadAction(leadId, {
-    name: formData.get("name"),
-    company: formData.get("company"),
-    email: formData.get("email"),
-    phone: formData.get("phone"),
-    source: formData.get("source"),
-    value: formData.get("value"),
-    notes: formData.get("notes"),
-    assignedToUserId: formData.get("assignedToUserId"),
-  });
+  const result = await updateLeadAction(
+    leadId,
+    {
+      name: formData.get("name"),
+      company: formData.get("company"),
+      email: formData.get("email"),
+      phone: formData.get("phone"),
+      source: formData.get("source"),
+      value: formData.get("value"),
+      notes: formData.get("notes"),
+      assignedToUserId: formData.get("assignedToUserId"),
+    },
+    // Custom Fields Phase 2B — see createLeadFormAction's own identical comment.
+    formData,
+  );
 
   if (result.ok) {
     redirect(withToast("/leads", "Lead updated"));
@@ -40,6 +45,9 @@ export async function updateLeadFormAction(
   }
   if (result.reason === "not_found") {
     return { error: "This lead could not be found." };
+  }
+  if (result.reason === "custom_field_validation") {
+    return { error: null, customFieldErrors: result.customFieldErrors };
   }
   // "invalid_assignee" — the only remaining UpdateLeadResult failure reason.
   return { error: null, fieldErrors: { assignedToUserId: "Select a valid team member." } };

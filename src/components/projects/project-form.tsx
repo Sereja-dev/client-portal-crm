@@ -6,6 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { FormField } from "@/components/ui/form-field";
 import { PROJECT_STATUSES } from "@/lib/validation/project";
+import {
+  CustomFieldsFormSection,
+  type CustomFieldFormDefinitionForUI,
+  type CustomFieldFormValueForUI,
+} from "@/components/custom-fields/custom-fields-form-section";
 import type { ProjectFormState } from "@/types";
 
 const initialState: ProjectFormState = { error: null };
@@ -22,6 +27,8 @@ export function ProjectForm({
   action,
   clients,
   defaultValues,
+  customFieldDefinitions = [],
+  customFieldValues = {},
   submitLabel = "Create project",
   pendingLabel = "Creating…",
 }: {
@@ -31,6 +38,10 @@ export function ProjectForm({
   ) => Promise<ProjectFormState>;
   clients: { id: string; name: string }[];
   defaultValues?: ProjectFormDefaults;
+  /** Custom Fields Phase 2B (Section B) — active PROJECT definitions only. */
+  customFieldDefinitions?: CustomFieldFormDefinitionForUI[];
+  /** Edit only — this Project's own current values, keyed by definitionId. */
+  customFieldValues?: Record<string, CustomFieldFormValueForUI>;
   submitLabel?: string;
   pendingLabel?: string;
 }) {
@@ -127,6 +138,12 @@ export function ProjectForm({
           />
         </FormField>
       </div>
+
+      <CustomFieldsFormSection
+        definitions={customFieldDefinitions}
+        values={customFieldValues}
+        errors={state.customFieldErrors}
+      />
 
       {state.error && (
         <p role="alert" className="text-danger text-sm">

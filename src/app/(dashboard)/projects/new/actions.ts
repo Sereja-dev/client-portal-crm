@@ -8,6 +8,12 @@ import { withToast } from "@/lib/toast-url";
 import { createActivity } from "@/lib/activity/create-activity";
 import { buildProjectMetadata } from "@/lib/activity/project-metadata";
 import { assertCanCreateProject, BillingLimitError } from "@/lib/billing/enforcement";
+import {
+  getActiveCustomFieldFormDefinitions,
+  parseCustomFieldFormValues,
+  validateCustomFieldFormValues,
+  persistCustomFieldValuesInTransaction,
+} from "@/lib/custom-fields/entity-form";
 import type { ProjectFormState } from "@/types";
 
 export async function createProjectAction(
@@ -37,10 +43,20 @@ export async function createProjectAction(
     };
   }
 
+  // Custom Fields Phase 2B (Section E/J/K) — see createClientAction's
+  // own identical comment.
+  const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "PROJECT");
+  const rawCustomFieldValues = parseCustomFieldFormValues(formData, customFieldDefinitions);
+  const customFieldValidation = validateCustomFieldFormValues(customFieldDefinitions, rawCustomFieldValues);
+  if (!customFieldValidation.ok) {
+    return { error: null, customFieldErrors: customFieldValidation.fieldErrors };
+  }
+
   try {
-    // Project create and its Activity row are one atomic unit — if the
-    // Activity insert fails for any reason, the Project create rolls back
-    // with it rather than leaving an unlogged row behind.
+    // Project create, its custom field values, and its Activity row are
+    // one atomic unit — if any of them fail, everything rolls back
+    // together rather than leaving a Project with half-written custom
+    // fields (Section E).
     await prisma.$transaction(async (tx) => {
       // Billing & Subscriptions Stage 2 — re-checked from inside this same
       // transaction (docs/billing-architecture.md §7's race handling),
@@ -59,6 +75,15 @@ export async function createProjectAction(
           ownerId: user.id,
           organizationId,
         },
+      });
+
+      await persistCustomFieldValuesInTransaction(tx, {
+        organizationId,
+        entityType: "PROJECT",
+        entityId: project.id,
+        definitions: customFieldDefinitions,
+        rawValues: rawCustomFieldValues,
+        decisions: customFieldValidation.decisions,
       });
 
       await createActivity(tx, {

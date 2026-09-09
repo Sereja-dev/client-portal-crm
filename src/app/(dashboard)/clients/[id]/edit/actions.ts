@@ -9,6 +9,13 @@ import { createActivity } from "@/lib/activity/create-activity";
 import { diffClientFields, buildClientActivityMetadata } from "@/lib/activity/client-metadata";
 import { findDuplicateOrganizationClientByEmail } from "@/lib/clients/duplicate-email";
 import { syncPrimaryContactEmailFromClientEdit } from "@/lib/clients/contacts";
+import {
+  getActiveCustomFieldFormDefinitions,
+  getCustomFieldFormValues,
+  parseCustomFieldFormValues,
+  validateCustomFieldFormValues,
+  persistCustomFieldValuesInTransaction,
+} from "@/lib/custom-fields/entity-form";
 import type { ClientFormState } from "@/types";
 
 export async function updateClientAction(
@@ -42,6 +49,31 @@ export async function updateClientAction(
     };
   }
 
+  // Custom Fields Phase 2B (Section F/H/I/J/K) — only ACTIVE definitions
+  // are ever loaded/parsed/enforced here; an archived definition's
+  // existing value is simply never touched by this action at all (it's
+  // absent from `customFieldDefinitions`, so parseCustomFieldFormValues
+  // never even looks for its FormData key, and persistCustomFieldValuesInTransaction
+  // only ever iterates the same active list) — Section H's "editing an
+  // entity must NOT silently delete values belonging to archived
+  // definitions" is satisfied structurally, not by an extra check.
+  const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "CLIENT");
+  const existingCustomFieldValues = await getCustomFieldFormValues(
+    organizationId,
+    "CLIENT",
+    clientId,
+    customFieldDefinitions,
+  );
+  const rawCustomFieldValues = parseCustomFieldFormValues(formData, customFieldDefinitions);
+  const customFieldValidation = validateCustomFieldFormValues(
+    customFieldDefinitions,
+    rawCustomFieldValues,
+    existingCustomFieldValues,
+  );
+  if (!customFieldValidation.ok) {
+    return { error: null, customFieldErrors: customFieldValidation.fieldErrors };
+  }
+
   // Update and its (conditional) Activity row are one atomic unit — a
   // failed Activity insert rolls the update back too.
   const outcome = await prisma.$transaction(async (tx) => {
@@ -64,6 +96,15 @@ export async function updateClientAction(
     if (result.count === 0) {
       return "not_found" as const;
     }
+
+    await persistCustomFieldValuesInTransaction(tx, {
+      organizationId,
+      entityType: "CLIENT",
+      entityId: clientId,
+      definitions: customFieldDefinitions,
+      rawValues: rawCustomFieldValues,
+      decisions: customFieldValidation.decisions,
+    });
 
     // Multiple Contacts Phase 1 — "Close Legacy Email Sync Gap." Only
     // when the email genuinely changed (never an unconditional write, so

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
+import { getActiveCustomFieldFormDefinitions } from "@/lib/custom-fields/entity-form";
 import { LeadForm } from "@/components/leads/lead-form";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
@@ -17,6 +18,8 @@ export default async function NewLeadPage() {
     include: { user: { select: { id: true, name: true } } },
   });
   const assignees = memberships.map((m) => ({ id: m.user.id, name: m.user.name }));
+  // Custom Fields Phase 2B (Section B) — active LEAD definitions only.
+  const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "LEAD");
 
   return (
     <div className="mx-auto max-w-xl">
@@ -27,7 +30,7 @@ export default async function NewLeadPage() {
         </Link>
       </div>
       <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-        <LeadForm action={createLeadFormAction} assignees={assignees} />
+        <LeadForm action={createLeadFormAction} assignees={assignees} customFieldDefinitions={customFieldDefinitions} />
       </div>
     </div>
   );

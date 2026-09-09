@@ -15,6 +15,11 @@ import {
   LEAD_PHONE_MAX_LENGTH,
   LEAD_NOTES_MAX_LENGTH,
 } from "@/lib/validation/lead";
+import {
+  CustomFieldsFormSection,
+  type CustomFieldFormDefinitionForUI,
+  type CustomFieldFormValueForUI,
+} from "@/components/custom-fields/custom-fields-form-section";
 import type { LeadFormState } from "@/types";
 
 const initialState: LeadFormState = { error: null };
@@ -44,6 +49,8 @@ export function LeadForm({
   action,
   assignees,
   defaultValues,
+  customFieldDefinitions = [],
+  customFieldValues = {},
   submitLabel = "Create lead",
   pendingLabel = "Creating…",
 }: {
@@ -51,6 +58,10 @@ export function LeadForm({
   /** Active same-organization Staff members only — resolved server-side by the calling page via Membership, never client-supplied. */
   assignees: { id: string; name: string }[];
   defaultValues?: LeadFormDefaults;
+  /** Custom Fields Phase 2B (Section B) — active LEAD definitions only. */
+  customFieldDefinitions?: CustomFieldFormDefinitionForUI[];
+  /** Edit only — this Lead's own current values, keyed by definitionId. */
+  customFieldValues?: Record<string, CustomFieldFormValueForUI>;
   submitLabel?: string;
   pendingLabel?: string;
 }) {
@@ -163,6 +174,12 @@ export function LeadForm({
           aria-describedby={state.fieldErrors?.notes ? "notes-error" : undefined}
         />
       </FormField>
+
+      <CustomFieldsFormSection
+        definitions={customFieldDefinitions}
+        values={customFieldValues}
+        errors={state.customFieldErrors}
+      />
 
       {state.error && (
         <p role="alert" className="text-danger text-sm">

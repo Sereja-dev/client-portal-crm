@@ -22,6 +22,12 @@ export type ClientFormState = {
       string
     >
   >;
+  // Custom Fields Phase 2B — keyed by definitionId (never a fixed field
+  // name, since the active definition set is org-configured), kept
+  // separate from `fieldErrors` above rather than folded into that fixed
+  // union. Shared by ClientFormState/LeadFormState/ProjectFormState —
+  // same shape in all three, each with its own copy of this comment.
+  customFieldErrors?: Record<string, string>;
 };
 
 // Multiple Contacts Phase 2 (Staff UI). Shared by both the Add and Edit
@@ -55,6 +61,8 @@ export type ProjectFormState = {
   fieldErrors?: Partial<
     Record<"name" | "clientId" | "status" | "startDate" | "endDate", string>
   >;
+  // Custom Fields Phase 2B — see ClientFormState's own identical field for the full comment.
+  customFieldErrors?: Record<string, string>;
 };
 
 export type TaskFormState = {
@@ -74,6 +82,8 @@ export type LeadFormState = {
   fieldErrors?: Partial<
     Record<"name" | "company" | "email" | "phone" | "source" | "value" | "notes" | "assignedToUserId", string>
   >;
+  // Custom Fields Phase 2B — see ClientFormState's own identical field for the full comment.
+  customFieldErrors?: Record<string, string>;
 };
 
 // Invoice System Slice 2b (docs/invoicing-architecture.md §5/§14 Slice 2).

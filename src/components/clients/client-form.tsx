@@ -6,6 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { FormField } from "@/components/ui/form-field";
 import { CLIENT_STATUSES, CLIENT_BILLING_MAX_LENGTHS } from "@/lib/validation/client";
+import {
+  CustomFieldsFormSection,
+  type CustomFieldFormDefinitionForUI,
+  type CustomFieldFormValueForUI,
+} from "@/components/custom-fields/custom-fields-form-section";
 import type { ClientFormState } from "@/types";
 
 const initialState: ClientFormState = { error: null };
@@ -28,6 +33,8 @@ type ClientFormDefaults = {
 export function ClientForm({
   action,
   defaultValues,
+  customFieldDefinitions = [],
+  customFieldValues = {},
   submitLabel = "Create client",
   pendingLabel = "Creating…",
 }: {
@@ -36,6 +43,10 @@ export function ClientForm({
     formData: FormData,
   ) => Promise<ClientFormState>;
   defaultValues?: ClientFormDefaults;
+  /** Custom Fields Phase 2B (Section B) — active CLIENT definitions only; empty on an organization with none configured, in which case CustomFieldsFormSection itself renders nothing. */
+  customFieldDefinitions?: CustomFieldFormDefinitionForUI[];
+  /** Edit only — this Client's own current values, keyed by definitionId. Always empty on create. */
+  customFieldValues?: Record<string, CustomFieldFormValueForUI>;
   submitLabel?: string;
   pendingLabel?: string;
 }) {
@@ -196,6 +207,12 @@ export function ClientForm({
           />
         </FormField>
       </fieldset>
+
+      <CustomFieldsFormSection
+        definitions={customFieldDefinitions}
+        values={customFieldValues}
+        errors={state.customFieldErrors}
+      />
 
       {state.error && (
         <p role="alert" className="text-danger text-sm">
