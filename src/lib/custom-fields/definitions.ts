@@ -231,3 +231,63 @@ export async function unarchiveCustomFieldDefinition(
   });
   return { ok: true, definition };
 }
+
+/**
+ * Custom Fields Phase 2A (Staff UI, Section I) — the small, focused
+ * reorder function Phase 1 deliberately left out (foundation only, no
+ * UI to drive it yet). Moves one definition one step up/down among the
+ * ACTIVE definitions for this organization+entityType, by swapping
+ * `position` with whichever active definition is immediately adjacent —
+ * never a bulk reassignment of every row's position, so this stays O(1)
+ * writes regardless of list size. Archived definitions are excluded from
+ * "adjacent" entirely (Section H: they're already hidden from the
+ * ordinary active list this UI reorders), so moving a definition can
+ * never swap it past/with an archived one.
+ *
+ * Race-safety: the read-then-swap runs inside one transaction (via
+ * prisma.$transaction when called with the top-level singleton, or
+ * folded into the caller's own already-open transaction otherwise — the
+ * same `client === prisma` branch every other mutation in this file
+ * already uses), so a concurrent reorder from a second Staff tab can
+ * only ever interleave at the transaction boundary, never mid-swap.
+ * `position` was deliberately left non-unique at the schema level
+ * (Section G — "a simple integer position foundation is enough"), so
+ * this swap needs no temporary "no man's land" value the way a
+ * DB-unique ordered column would.
+ */
+export async function moveCustomFieldDefinition(
+  organizationId: string,
+  entityType: CustomFieldEntityType,
+  definitionId: string,
+  direction: "up" | "down",
+  client: PrismaClientOrTx = prisma,
+): Promise<{ ok: true } | { ok: false; reason: "DEFINITION_NOT_FOUND" | "CANNOT_MOVE" }> {
+  const runMove = async (tx: PrismaClientOrTx) => {
+    const target = await tx.customFieldDefinition.findFirst({
+      where: { id: definitionId, organizationId, entityType, archivedAt: null },
+    });
+    if (!target) {
+      return { ok: false as const, reason: "DEFINITION_NOT_FOUND" as const };
+    }
+
+    const neighbor = await tx.customFieldDefinition.findFirst({
+      where: {
+        organizationId,
+        entityType,
+        archivedAt: null,
+        position: direction === "up" ? { lt: target.position } : { gt: target.position },
+      },
+      orderBy: { position: direction === "up" ? "desc" : "asc" },
+    });
+    if (!neighbor) {
+      // Already first/last — not an error, just nothing to do.
+      return { ok: false as const, reason: "CANNOT_MOVE" as const };
+    }
+
+    await tx.customFieldDefinition.update({ where: { id: target.id }, data: { position: neighbor.position } });
+    await tx.customFieldDefinition.update({ where: { id: neighbor.id }, data: { position: target.position } });
+    return { ok: true as const };
+  };
+
+  return client === prisma ? prisma.$transaction((tx) => runMove(tx)) : runMove(client);
+}

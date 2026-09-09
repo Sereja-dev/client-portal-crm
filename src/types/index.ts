@@ -35,6 +35,21 @@ export type ClientContactFormState = {
   fieldErrors?: Partial<Record<"name" | "email" | "phone" | "role", string>>;
 };
 
+// Custom Fields Phase 2A (Staff UI). CreateDefinitionForm's own shape
+// includes `fieldType` (required, create-only); EditDefinitionForm reuses
+// this same type but its own parser (parseCustomFieldDefinitionUpdateForm)
+// never populates a `fieldType` field error, since fieldType isn't
+// editable there at all.
+export type CustomFieldDefinitionFormState = {
+  error: string | null;
+  fieldErrors?: Partial<Record<"label" | "fieldType", string>>;
+};
+
+export type CustomFieldOptionFormState = {
+  error: string | null;
+  fieldErrors?: Partial<Record<"label", string>>;
+};
+
 export type ProjectFormState = {
   error: string | null;
   fieldErrors?: Partial<

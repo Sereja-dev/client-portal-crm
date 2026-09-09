@@ -233,3 +233,51 @@ export async function unarchiveCustomFieldOption(
   });
   return { ok: true, option };
 }
+
+/**
+ * Custom Fields Phase 2A (Staff UI, Section K) — the same focused,
+ * O(1)-write reorder as moveCustomFieldDefinition (see that function's
+ * own comment for the full swap/race-safety reasoning), scoped to one
+ * definitionId's own active option list instead of an
+ * organization+entityType pair.
+ */
+export async function moveCustomFieldOption(
+  organizationId: string,
+  definitionId: string,
+  optionId: string,
+  direction: "up" | "down",
+  client: PrismaClientOrTx = prisma,
+): Promise<
+  | { ok: true }
+  | { ok: false; reason: "DEFINITION_NOT_FOUND" | "NOT_SELECT_FIELD" | "OPTION_NOT_FOUND" | "CANNOT_MOVE" }
+> {
+  const runMove = async (tx: PrismaClientOrTx) => {
+    const ownership = await assertSelectDefinitionOwnership(tx, organizationId, definitionId);
+    if (!ownership.ok) {
+      return ownership;
+    }
+
+    const target = await tx.customFieldOption.findFirst({ where: { id: optionId, definitionId, archivedAt: null } });
+    if (!target) {
+      return { ok: false as const, reason: "OPTION_NOT_FOUND" as const };
+    }
+
+    const neighbor = await tx.customFieldOption.findFirst({
+      where: {
+        definitionId,
+        archivedAt: null,
+        position: direction === "up" ? { lt: target.position } : { gt: target.position },
+      },
+      orderBy: { position: direction === "up" ? "desc" : "asc" },
+    });
+    if (!neighbor) {
+      return { ok: false as const, reason: "CANNOT_MOVE" as const };
+    }
+
+    await tx.customFieldOption.update({ where: { id: target.id }, data: { position: neighbor.position } });
+    await tx.customFieldOption.update({ where: { id: neighbor.id }, data: { position: target.position } });
+    return { ok: true as const };
+  };
+
+  return client === prisma ? prisma.$transaction((tx) => runMove(tx)) : runMove(client);
+}

@@ -2,35 +2,16 @@ import "server-only";
 import type { CustomFieldEntityType } from "@/generated/prisma/enums";
 import type { PrismaClientOrTx } from "./types";
 import { prisma } from "@/lib/prisma";
+import { slugifyCustomFieldIdentifier } from "./slug";
 
-/**
- * Section F — stable machine identity, derived once from a label at
- * creation time and never auto-changed when the label is edited
- * afterward (see updateCustomFieldDefinition/renameCustomFieldOption's
- * own comments in definitions.ts/options.ts). Lower-case, machine-safe,
- * no arbitrary user-defined SQL-like names: only [a-z0-9_], collapsed and
- * trimmed, exactly the same "reject anything else at the validation
- * layer" discipline src/lib/validation/lead.ts's own parseLeadValue
- * already uses for its own field.
- */
-const MAX_KEY_LENGTH = 64;
-
-export function slugifyCustomFieldIdentifier(label: string): string {
-  const slug = label
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, MAX_KEY_LENGTH)
-    .replace(/_+$/g, "");
-
-  // A label with no machine-safe characters at all (e.g. all emoji/
-  // punctuation) would otherwise derive an empty string, which can never
-  // be a valid key — "field" is the same kind of honest, obviously-
-  // generic fallback ClientContact's own backfill migration uses for its
-  // "no email" case (see that migration's own header comment).
-  return slug.length > 0 ? slug : "field";
-}
+// The pure slugifier lives in its own non-server-only module so Custom
+// Fields Phase 2A's Create dialog can import it client-side for a
+// cosmetic "Internal key" preview — see slug.ts's own doc comment.
+// Re-exported here so every existing import of
+// `slugifyCustomFieldIdentifier` from this file (this module's own
+// callers below, plus test/integration/custom-fields/definitions.test.ts)
+// keeps working unchanged.
+export { slugifyCustomFieldIdentifier } from "./slug";
 
 /**
  * Deterministic collision handling (Section F): base slug, then

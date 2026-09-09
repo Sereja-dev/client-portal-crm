@@ -33,6 +33,14 @@ const SETTINGS_LINKS: readonly SettingsNavLink[] = [
   { href: "/settings/company", label: "Company" },
   { href: "/settings/payment", label: "Payment details", paymentOnly: true },
   { href: "/settings/domain", label: "Domain" },
+  // Custom Fields Phase 2A — organization-wide record configuration,
+  // grouped with Company/Domain above (not the personal-preference pair
+  // below) since it's the same "org-wide config, open to any staff role"
+  // tier Company/Domain already are (see canAccessPaymentDetails's own
+  // doc comment for that tiering) — not role-gated, matching this app's
+  // existing Client-management permission model (see this feature's own
+  // Server Actions for the full reasoning).
+  { href: "/settings/custom-fields", label: "Custom fields" },
   // Phase D: grouped next to Notifications — both are personal,
   // per-identity preferences (not organization-wide config like
   // Company/Payment/Domain/Billing above), and neither is role-gated.
