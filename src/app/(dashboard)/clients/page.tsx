@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
-import { formatStatusLabel } from "@/lib/format";
 import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib/list-params";
+import { listCustomStatusDefinitions } from "@/lib/custom-statuses/definitions";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { deleteClientAction } from "./actions";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -26,7 +26,6 @@ import {
   RecordCardField,
   RecordCardActions,
 } from "@/components/ui/record-list";
-import { CLIENT_STATUSES } from "@/lib/validation/client";
 import {
   parseClientListParams,
   buildClientWhere,
@@ -68,6 +67,24 @@ export default async function ClientsPage({
 
   const where = await buildClientWhere(organizationId, listParams);
   const orderBy = buildClientOrderBy(listParams);
+
+  // Custom Statuses Phase 2B (Section P) — live filter options, not the
+  // hardcoded CLIENT_STATUSES array: every active CLIENT definition
+  // (system+custom, position order), plus the currently-selected one
+  // again if it's since been archived (Section P: "archived status
+  // remains selectable if currently in URL").
+  const allStatusDefinitions = await listCustomStatusDefinitions(organizationId, "CLIENT", { includeArchived: true });
+  const activeStatusDefinitions = allStatusDefinitions.filter((d) => d.archivedAt === null);
+  const selectedArchivedDefinition = allStatusDefinitions.find(
+    (d) => d.archivedAt !== null && d.key === listParams.status,
+  );
+  const statusFilterOptions = [
+    { value: "", label: "All statuses" },
+    ...activeStatusDefinitions.map((d) => ({ value: d.key, label: d.label })),
+    ...(selectedArchivedDefinition
+      ? [{ value: selectedArchivedDefinition.key, label: `${selectedArchivedDefinition.label} (archived)` }]
+      : []),
+  ];
 
   const [clients, total] = await prisma.$transaction([
     prisma.client.findMany({
@@ -111,13 +128,7 @@ export default async function ClientsPage({
             name: "status",
             label: "Status",
             value: listParams.status ?? "",
-            options: [
-              { value: "", label: "All statuses" },
-              ...CLIENT_STATUSES.map((status) => ({
-                value: status,
-                label: formatStatusLabel(status),
-              })),
-            ],
+            options: statusFilterOptions,
           },
         ]}
         sort={{ value: listParams.sortCombined, options: SORT_OPTIONS }}

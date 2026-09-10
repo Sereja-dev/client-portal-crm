@@ -77,10 +77,45 @@ async function goToEdit(page: import("@playwright/test").Page, recordName: strin
 test.describe("Custom Fields — Entity Values UI (Phase 2B)", () => {
   test.beforeAll(async () => {
     fixtures = await seedE2EFixtures();
+    // Custom Statuses Phase 2B (Completion Pass, Section G) —
+    // statusDefinitionId is now required on the Client/Project create
+    // form; seedE2EFixtures()'s own org fixture is deliberately never
+    // bootstrapped with CustomStatusDefinition rows (see bootstrap.ts's
+    // own doc comment — several other specs, e.g.
+    // custom-statuses-settings.spec.ts, rely on that same "starts empty"
+    // premise for their own empty-state coverage). This file is about
+    // custom FIELDS, unrelated to status, so it seeds one real default
+    // definition per entity type itself rather than relying on any
+    // shared bootstrap.
+    await dbQuery("customStatusDefinition", "create", {
+      data: {
+        organizationId: fixtures.orgA.id,
+        entityType: "CLIENT",
+        key: "lead",
+        label: "Lead",
+        color: "NEUTRAL",
+        position: 0,
+        isDefault: true,
+        isSystem: true,
+      },
+    });
+    await dbQuery("customStatusDefinition", "create", {
+      data: {
+        organizationId: fixtures.orgA.id,
+        entityType: "PROJECT",
+        key: "planning",
+        label: "Planning",
+        color: "NEUTRAL",
+        position: 0,
+        isDefault: true,
+        isSystem: true,
+      },
+    });
   });
 
   test.afterAll(async () => {
     await dbQuery("customFieldDefinition", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
+    await dbQuery("customStatusDefinition", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
     await cleanupTestData(fixtures);
   });
 

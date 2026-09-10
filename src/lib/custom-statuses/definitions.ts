@@ -5,6 +5,7 @@ import type { CustomStatusColor, CustomStatusEntityType } from "@/generated/pris
 import { prisma } from "@/lib/prisma";
 import type { PrismaClientOrTx } from "./types";
 import { slugifyCustomStatusIdentifier } from "./slug";
+import { SYSTEM_STATUS_KEYS } from "./constants";
 
 /**
  * Custom Statuses Phase 1 — Definition domain layer (Section F/K/L/S/U).
@@ -266,20 +267,33 @@ export async function unarchiveCustomStatusDefinition(
  * setting the new one, so there is never a moment with zero or two
  * active defaults. The target must already be active (not archived);
  * archived definitions can never become the default. Works for both
- * system and custom definitions (Section K places no isSystem
- * restriction on which definition may be the default — a custom default
- * is a legitimate, intended future capability, and reverting back to a
- * system default like "Lead" must also stay possible).
+ * system and custom definitions for CLIENT/PROJECT (Section K places no
+ * isSystem restriction on which definition may be the default — a
+ * custom default is a legitimate, intended capability, and reverting
+ * back to a system default like "Lead" must also stay possible).
+ *
+ * Phase 2B Completion Pass (Section B/C) — LEAD is the one exception:
+ * its default is permanently locked to the system NEW definition (Lead
+ * creation always starts at NEW, a pre-existing invariant this Settings
+ * surface must never appear to control — see leads/actions.ts's own
+ * createLeadAction comment). Rejected here, at the one real write
+ * choke-point every caller (the Settings Server Action's direct "Set
+ * default" button AND createCustomStatusAction's own makeDefault path)
+ * funnels through — never relying on the UI alone to hide the button
+ * (Section C).
  */
 export async function setDefaultCustomStatusDefinition(
   organizationId: string,
   entityType: CustomStatusEntityType,
   definitionId: string,
   client: PrismaClientOrTx = prisma,
-): Promise<CustomStatusDefinitionMutationResult | { ok: false; reason: "ARCHIVED_DEFINITION" }> {
+): Promise<CustomStatusDefinitionMutationResult | { ok: false; reason: "ARCHIVED_DEFINITION" | "LEAD_DEFAULT_LOCKED" }> {
   const target = await client.customStatusDefinition.findFirst({ where: { id: definitionId, organizationId, entityType } });
   if (!target) {
     return { ok: false, reason: "DEFINITION_NOT_FOUND" };
+  }
+  if (entityType === "LEAD" && !(target.isSystem && target.key === SYSTEM_STATUS_KEYS.LEAD_NEW)) {
+    return { ok: false, reason: "LEAD_DEFAULT_LOCKED" };
   }
   if (target.archivedAt !== null) {
     return { ok: false, reason: "ARCHIVED_DEFINITION" };

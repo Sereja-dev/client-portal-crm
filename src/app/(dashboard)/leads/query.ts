@@ -3,11 +3,11 @@ import { LeadStage } from "@/generated/prisma/enums";
 import {
   parseSearchParam,
   parsePageParam,
-  parseEnumParam,
+  parseStatusKeyParam,
   parseSortParam,
   type RawSearchParams,
 } from "@/lib/list-params";
-import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
+import { resolveStatusDefinitionByKey } from "@/lib/custom-statuses/resolution";
 
 /**
  * Leads / Sales Pipeline Phase 3. Mirrors src/app/(dashboard)/clients/
@@ -24,7 +24,8 @@ export type LeadSortField = (typeof LEAD_SORT_FIELDS)[number];
 
 export type LeadListParams = {
   q: string;
-  stage?: LeadStage;
+  /** Custom Statuses Phase 2B (Section P) — a CustomStatusDefinition key (lower-case), not a fixed LeadStage enum value anymore; see ClientListParams's own identical comment (query.ts, clients/). */
+  stage?: string;
   /** "unassigned" is a real, selectable filter value — distinct from "no filter" (undefined). Any other non-UUID-shaped value is treated as "no filter", same as an invalid stage. */
   assignedToUserId?: string;
   archived: boolean;
@@ -50,7 +51,7 @@ function parseAssigneeParam(value: string | string[] | undefined): string | unde
 
 export function parseLeadListParams(searchParams: RawSearchParams): LeadListParams {
   const q = parseSearchParam(searchParams.q);
-  const stage = parseEnumParam(searchParams.stage, LEAD_STAGE_VALUES);
+  const stage = parseStatusKeyParam(searchParams.stage);
   const assignedToUserId = parseAssigneeParam(searchParams.assignedToUserId);
   const archived = parseSearchParam(searchParams.archived) === "1";
   const { field, dir, combined } = parseSortParam(searchParams.sort, LEAD_SORT_FIELDS, "createdAt:desc");
@@ -65,18 +66,20 @@ export function parseLeadListParams(searchParams: RawSearchParams): LeadListPara
  * anywhere in this module, so a crafted query string can never widen the
  * scope beyond the caller's own organization.
  *
- * Custom Statuses Phase 2A (Section C/D/H) — the `stage` filter is now
- * authoritative via `statusDefinitionId`, not the legacy enum directly:
- * the requested legacy `stage` value is resolved to its matching system
- * CustomStatusDefinition, and the where-clause filters by
- * `statusDefinitionId` (falling back to a null-statusDefinitionId Lead
- * whose legacy `stage` still matches — Section D, for a historical/
- * unbackfilled row). The `?stage=WON`-shaped URL param itself is
- * deliberately unchanged (Section H: "avoid breaking existing URLs... do
- * not overcomplicate") — this only changes what the resulting Prisma
- * query actually filters on, never the public filter's own shape. Async
- * now (one extra, cheap, org-scoped lookup — never per-row, Section S)
- * only when a `stage` filter is actually requested.
+ * Custom Statuses Phase 2B (Section P) — the `stage` filter is resolved
+ * against ANY live CustomStatusDefinition (system or custom, active or
+ * archived — resolveStatusDefinitionByKey) by key, replacing the fixed
+ * LEAD_STAGE_VALUES enum lookup Phase 2A used here. A SYSTEM match still
+ * falls back to a null-statusDefinitionId Lead whose legacy `stage`
+ * matches (Section D, unchanged); a CUSTOM match has no legacy
+ * representation, so only `statusDefinitionId` is filtered. The
+ * `?stage=WON`-shaped legacy URL param keeps working for free — see
+ * resolveStatusDefinitionByKey's own comment — and Pipeline's own
+ * separate `stageView` URL param (view-params.ts) is untouched, staying
+ * LeadStage-keyed (Section H/N). An unknown key fails safe exactly like
+ * the old fixed-enum `parseEnumParam` lookup always did: no filter at
+ * all, never an error and never a silently-empty result set (see this
+ * module's own list-query.test.ts, item 8).
  */
 export async function buildLeadWhere(
   organizationId: string,
@@ -84,10 +87,20 @@ export async function buildLeadWhere(
 ): Promise<Prisma.LeadWhereInput> {
   const stageFilter = stage
     ? await (async (): Promise<Prisma.LeadWhereInput> => {
-        const definition = await resolveSystemStatusDefinition(organizationId, "LEAD", stage.toLowerCase());
-        return definition
-          ? { OR: [{ statusDefinitionId: definition.id }, { statusDefinitionId: null, stage }] }
-          : { stage };
+        // .toLowerCase() defensively re-applied here too — see
+        // buildClientWhere's own identical comment.
+        const definition = await resolveStatusDefinitionByKey(organizationId, "LEAD", stage.toLowerCase());
+        if (!definition) {
+          return {};
+        }
+        return definition.isSystem
+          ? {
+              OR: [
+                { statusDefinitionId: definition.id },
+                { statusDefinitionId: null, stage: definition.key.toUpperCase() as LeadStage },
+              ],
+            }
+          : { statusDefinitionId: definition.id };
       })()
     : {};
 

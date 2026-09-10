@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { prisma } from "@/lib/prisma";
 import { createClientAction } from "@/app/(dashboard)/clients/new/actions";
 import { createClientContact } from "@/lib/clients/contacts";
+import { bootstrapOrganizationStatusDefinitions } from "@/lib/custom-statuses/bootstrap";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { actAs, resetAuthMock } from "../../support/auth-mock";
 import { RedirectSignal } from "../../support/navigation-mock";
@@ -35,8 +36,18 @@ function uniqueName(): string {
   return `${NAME_PREFIX}-${randomUUID().slice(0, 8)}`;
 }
 
+// Custom Statuses Phase 2B (Section R) — statusDefinitionId is now
+// required on the Client form; this suite is about duplicate-email
+// behavior, unrelated to status, so every call defaults to the acting
+// organization's own bootstrapped 'lead' system definition (set below in
+// beforeAll) unless a test explicitly overrides it (see the
+// cross-organization test, which acts as orgB and must pass orgB's own
+// definition id instead).
+let defaultStatusDefinitionId: string;
+
 function buildClientFormData(fields: Record<string, string>): FormData {
   const formData = new FormData();
+  formData.set("statusDefinitionId", defaultStatusDefinitionId);
   for (const [key, value] of Object.entries(fields)) {
     formData.set(key, value);
   }
@@ -56,8 +67,22 @@ async function expectRedirect(promise: Promise<unknown>): Promise<void> {
 describe("createClientAction — duplicate email (Phase 2.2)", () => {
   let fixtures: TestFixtures;
 
+  let orgBLeadDefinitionId: string;
+
   beforeAll(async () => {
     fixtures = await seedTestData();
+    await bootstrapOrganizationStatusDefinitions(prisma, fixtures.orgA.id);
+    await bootstrapOrganizationStatusDefinitions(prisma, fixtures.orgB.id);
+    defaultStatusDefinitionId = (
+      await prisma.customStatusDefinition.findFirstOrThrow({
+        where: { organizationId: fixtures.orgA.id, entityType: "CLIENT", isSystem: true, key: "lead" },
+      })
+    ).id;
+    orgBLeadDefinitionId = (
+      await prisma.customStatusDefinition.findFirstOrThrow({
+        where: { organizationId: fixtures.orgB.id, entityType: "CLIENT", isSystem: true, key: "lead" },
+      })
+    ).id;
   });
 
   afterEach(() => {
@@ -120,7 +145,9 @@ describe("createClientAction — duplicate email (Phase 2.2)", () => {
     const email = `cross-org-${randomUUID().slice(0, 8)}@example.com`;
     actAs(fixtures.orgBOwner, fixtures.orgB.id);
     const orgBName = uniqueName();
-    await expectRedirect(createClientAction({ error: null }, buildClientFormData({ name: orgBName, email })));
+    await expectRedirect(
+      createClientAction({ error: null }, buildClientFormData({ name: orgBName, email, statusDefinitionId: orgBLeadDefinitionId })),
+    );
     resetAuthMock();
 
     actAs(fixtures.owner, fixtures.orgA.id);
@@ -185,6 +212,17 @@ describe("createClientAction — primary ClientContact creation (Multiple Contac
 
   beforeAll(async () => {
     fixtures = await seedTestData();
+    // Custom Statuses Phase 2B (Section R) — this describe block has its
+    // own, separate fixtures (a fresh org pair) from the duplicate-email
+    // suite above, so it needs its own bootstrap + default id too;
+    // reassigns the same shared module-level `defaultStatusDefinitionId`
+    // buildClientFormData reads from.
+    await bootstrapOrganizationStatusDefinitions(prisma, fixtures.orgA.id);
+    defaultStatusDefinitionId = (
+      await prisma.customStatusDefinition.findFirstOrThrow({
+        where: { organizationId: fixtures.orgA.id, entityType: "CLIENT", isSystem: true, key: "lead" },
+      })
+    ).id;
   });
 
   afterEach(() => {

@@ -5,12 +5,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { FormField } from "@/components/ui/form-field";
-import { PROJECT_STATUSES } from "@/lib/validation/project";
 import {
   CustomFieldsFormSection,
   type CustomFieldFormDefinitionForUI,
   type CustomFieldFormValueForUI,
 } from "@/components/custom-fields/custom-fields-form-section";
+import type { StatusSelectOption } from "@/lib/custom-statuses/entity-form";
 import type { ProjectFormState } from "@/types";
 
 const initialState: ProjectFormState = { error: null };
@@ -18,7 +18,6 @@ const initialState: ProjectFormState = { error: null };
 type ProjectFormDefaults = {
   name?: string;
   clientId?: string;
-  status?: string;
   startDate?: string;
   endDate?: string;
 };
@@ -27,6 +26,8 @@ export function ProjectForm({
   action,
   clients,
   defaultValues,
+  statusOptions,
+  currentStatusDefinitionId,
   customFieldDefinitions = [],
   customFieldValues = {},
   submitLabel = "Create project",
@@ -38,6 +39,9 @@ export function ProjectForm({
   ) => Promise<ProjectFormState>;
   clients: { id: string; name: string }[];
   defaultValues?: ProjectFormDefaults;
+  /** Custom Statuses Phase 2B (Section O) — see ClientForm's own identical prop for the full comment. */
+  statusOptions: StatusSelectOption[];
+  currentStatusDefinitionId?: string;
   /** Custom Fields Phase 2B (Section B) — active PROJECT definitions only. */
   customFieldDefinitions?: CustomFieldFormDefinitionForUI[];
   /** Edit only — this Project's own current values, keyed by definitionId. */
@@ -46,6 +50,8 @@ export function ProjectForm({
   pendingLabel?: string;
 }) {
   const [state, formAction, pending] = useActionState(action, initialState);
+  const defaultStatusDefinitionId =
+    currentStatusDefinitionId ?? statusOptions.find((o) => o.isDefault)?.id ?? statusOptions[0]?.id;
 
   return (
     <form action={formAction} className="space-y-4">
@@ -87,17 +93,18 @@ export function ProjectForm({
         </Select>
       </FormField>
 
-      <FormField label="Status" htmlFor="status" error={state.fieldErrors?.status}>
+      <FormField label="Status" htmlFor="statusDefinitionId" error={state.fieldErrors?.statusDefinitionId}>
         <Select
-          id="status"
-          name="status"
-          defaultValue={defaultValues?.status ?? "PLANNING"}
-          aria-invalid={!!state.fieldErrors?.status}
-          aria-describedby={state.fieldErrors?.status ? "status-error" : undefined}
+          id="statusDefinitionId"
+          name="statusDefinitionId"
+          defaultValue={defaultStatusDefinitionId}
+          aria-invalid={!!state.fieldErrors?.statusDefinitionId}
+          aria-describedby={state.fieldErrors?.statusDefinitionId ? "statusDefinitionId-error" : undefined}
         >
-          {PROJECT_STATUSES.map((option) => (
-            <option key={option} value={option}>
-              {option}
+          {statusOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+              {option.archived ? " (archived)" : ""}
             </option>
           ))}
         </Select>

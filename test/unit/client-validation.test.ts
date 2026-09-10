@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { parseClientForm, CLIENT_BILLING_MAX_LENGTHS } from "@/lib/validation/client";
 
+// Custom Statuses Phase 2B (Section R) — statusDefinitionId is now a
+// required field on the Client form; these tests are only about the
+// unrelated billing-identity fields, so every call defaults a
+// syntactically-present (never actually resolved against a real
+// database here — parseClientForm itself doesn't touch the database)
+// value unless a test explicitly overrides it.
 function formData(fields: Record<string, string>): FormData {
   const fd = new FormData();
+  fd.set("statusDefinitionId", "test-status-definition-id");
   for (const [key, value] of Object.entries(fields)) fd.set(key, value);
   return fd;
 }

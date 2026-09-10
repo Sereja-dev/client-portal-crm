@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { getActiveCustomFieldFormDefinitions } from "@/lib/custom-fields/entity-form";
+import { buildStatusSelectOptions } from "@/lib/custom-statuses/entity-form";
 import { ClientForm } from "@/components/clients/client-form";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
@@ -11,6 +12,9 @@ export default async function NewClientPage() {
   // CustomFieldsFormSection itself renders nothing when this is empty.
   const { organizationId } = await getCurrentUserOrganization();
   const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "CLIENT");
+  // Custom Statuses Phase 2B (Section L) — every active CLIENT status
+  // definition; no "current" definition to exempt on create.
+  const statusOptions = await buildStatusSelectOptions(organizationId, "CLIENT", null);
 
   return (
     <div className="mx-auto max-w-xl">
@@ -21,7 +25,7 @@ export default async function NewClientPage() {
         </Link>
       </div>
       <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-        <ClientForm action={createClientAction} customFieldDefinitions={customFieldDefinitions} />
+        <ClientForm action={createClientAction} statusOptions={statusOptions} customFieldDefinitions={customFieldDefinitions} />
       </div>
     </div>
   );

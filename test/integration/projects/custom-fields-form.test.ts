@@ -6,6 +6,7 @@ import { updateProjectAction } from "@/app/(dashboard)/projects/[id]/edit/action
 import { deleteProjectAction } from "@/app/(dashboard)/projects/actions";
 import { createCustomFieldDefinition } from "@/lib/custom-fields/definitions";
 import { upsertCustomFieldValue } from "@/lib/custom-fields/values";
+import { bootstrapOrganizationStatusDefinitions } from "@/lib/custom-statuses/bootstrap";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { actAs, resetAuthMock } from "../../support/auth-mock";
 import { RedirectSignal } from "../../support/navigation-mock";
@@ -31,8 +32,20 @@ function buildFormData(fields: Record<string, string>): FormData {
   return fd;
 }
 
+// Custom Statuses Phase 2B (Section R) — statusDefinitionId is now
+// required on the Project form; this suite is entirely about custom
+// fields, unrelated to status, so every call defaults to orgA's own
+// bootstrapped 'planning' system definition (set in beforeAll below).
+let defaultStatusDefinitionId: string;
+
 function baseProjectFields(clientId: string, overrides: Record<string, string> = {}): Record<string, string> {
-  return { name: `Project-${randomUUID().slice(0, 8)}`, clientId, status: "PLANNING", ...overrides };
+  return {
+    name: `Project-${randomUUID().slice(0, 8)}`,
+    clientId,
+    status: "PLANNING",
+    statusDefinitionId: defaultStatusDefinitionId,
+    ...overrides,
+  };
 }
 
 async function expectRedirect(promise: Promise<unknown>): Promise<void> {
@@ -50,6 +63,12 @@ describe("Custom Fields — Project create/edit form integration", () => {
 
   beforeAll(async () => {
     fixtures = await seedTestData();
+    await bootstrapOrganizationStatusDefinitions(prisma, fixtures.orgA.id);
+    defaultStatusDefinitionId = (
+      await prisma.customStatusDefinition.findFirstOrThrow({
+        where: { organizationId: fixtures.orgA.id, entityType: "PROJECT", isSystem: true, key: "planning" },
+      })
+    ).id;
   });
 
   afterEach(async () => {

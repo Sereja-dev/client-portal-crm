@@ -3,6 +3,8 @@ import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { getActiveCustomFieldFormDefinitions, getCustomFieldFormValues } from "@/lib/custom-fields/entity-form";
+import { buildStatusSelectOptions } from "@/lib/custom-statuses/entity-form";
+import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import { LeadForm } from "@/components/leads/lead-form";
 import { LeadActionsPanel } from "@/components/leads/lead-actions-panel";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
@@ -38,6 +40,16 @@ export default async function EditLeadPage({ params }: { params: Promise<{ id: s
   const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "LEAD");
   const customFieldValuesMap = await getCustomFieldFormValues(organizationId, "LEAD", lead.id, customFieldDefinitions);
 
+  // Custom Statuses Phase 2B (Section M) — see EditClientPage's own
+  // identical comment for the unbackfilled-fixture fallback; the LOST
+  // exclusion itself happens inside LeadActionsPanel (Section M —
+  // CRITICAL), not here.
+  const currentStatusDefinitionId =
+    lead.statusDefinitionId ??
+    (await resolveSystemStatusDefinition(organizationId, "LEAD", lead.stage.toLowerCase()))?.id ??
+    undefined;
+  const statusOptions = await buildStatusSelectOptions(organizationId, "LEAD", currentStatusDefinitionId ?? null);
+
   return (
     <div className="mx-auto max-w-xl">
       <div className="mb-6 flex items-center justify-between">
@@ -69,6 +81,8 @@ export default async function EditLeadPage({ params }: { params: Promise<{ id: s
           leadId={lead.id}
           stage={lead.stage}
           statusDefinition={lead.statusDefinition}
+          statusOptions={statusOptions}
+          currentStatusDefinitionId={currentStatusDefinitionId}
           archivedAt={lead.archivedAt ? lead.archivedAt.toISOString() : null}
           convertedClientId={lead.convertedClientId}
         />

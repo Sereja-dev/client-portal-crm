@@ -60,11 +60,35 @@ async function createLeadViaUI(page: Page, name: string, extra: Record<string, s
   await expect(page).toHaveURL(/\/leads$/);
 }
 
+// Custom Statuses Phase 2B — Completion Pass (Section G): the generic
+// status <select> (lead-actions-panel.tsx) now sources its OPTIONS from
+// this org's own real CustomStatusDefinition rows — with none
+// bootstrapped (seedE2EFixtures()'s own org fixture is never
+// auto-bootstrapped, see bootstrap.ts's own doc comment), that select
+// renders with zero <option>s, making it unusable. Byte-for-byte copy of
+// bootstrap.ts's own LEAD seed values, since this file is about the
+// generic Lead UI, not Custom Statuses itself — reusing the real domain
+// bootstrap function here would need a direct Prisma import this file
+// deliberately doesn't have (see e2e-db-client.ts's own header comment).
+async function bootstrapLeadStatuses(organizationId: string): Promise<void> {
+  await dbQuery("customStatusDefinition", "createMany", {
+    data: [
+      { organizationId, entityType: "LEAD", key: "new", label: "New", color: "NEUTRAL", position: 0, isDefault: true, isSystem: true },
+      { organizationId, entityType: "LEAD", key: "contacted", label: "Contacted", color: "INFO", position: 1, isDefault: false, isSystem: true },
+      { organizationId, entityType: "LEAD", key: "qualified", label: "Qualified", color: "INFO", position: 2, isDefault: false, isSystem: true },
+      { organizationId, entityType: "LEAD", key: "proposal", label: "Proposal", color: "INFO", position: 3, isDefault: false, isSystem: true },
+      { organizationId, entityType: "LEAD", key: "won", label: "Won", color: "SUCCESS", position: 4, isDefault: false, isSystem: true },
+      { organizationId, entityType: "LEAD", key: "lost", label: "Lost", color: "DANGER", position: 5, isDefault: false, isSystem: true },
+    ],
+  });
+}
+
 test.describe("Leads UI", () => {
   let fixtures: TestFixtures;
 
   test.beforeAll(async () => {
     fixtures = await seedE2EFixtures();
+    await bootstrapLeadStatuses(fixtures.orgA.id);
   });
 
   test.afterAll(async () => {
@@ -172,8 +196,8 @@ test.describe("Leads UI", () => {
       const lead = await dbQuery<{ id: string }>("lead", "findFirstOrThrow", { where: { name } });
 
       await page.goto(`/leads/${lead.id}/edit`);
-      await page.getByLabel("Move to stage").selectOption("QUALIFIED");
-      await expect(page.getByText("Stage updated")).toBeVisible();
+      await page.getByLabel("Change status").selectOption({ label: "Qualified" });
+      await expect(page.getByText("Status updated")).toBeVisible();
       await expect(page.getByText("Qualified", { exact: true }).first()).toBeVisible();
 
       await page.getByRole("button", { name: "Mark lost" }).click();
@@ -188,12 +212,12 @@ test.describe("Leads UI", () => {
       expect(afterLost.lostReason).toBe("Budget cut");
 
       // Reactivation via the same generic dropdown clears lostReason.
-      // Waiting on the "Contacted" badge itself here, not the "Stage
+      // Waiting on the "Contacted" badge itself here, not the "Status
       // updated" toast: that toast's text is identical to the QUALIFIED
       // move's toast above, and toasts persist for several seconds, so
       // a stale one could still be visible and satisfy the assertion
       // before this second mutation has actually landed.
-      await page.getByLabel("Move to stage").selectOption("CONTACTED");
+      await page.getByLabel("Change status").selectOption({ label: "Contacted" });
       await expect(page.getByText("Contacted", { exact: true }).first()).toBeVisible();
       const afterReactivate = await dbQuery<{ stage: string; lostReason: string | null }>("lead", "findUniqueOrThrow", {
         where: { id: lead.id },

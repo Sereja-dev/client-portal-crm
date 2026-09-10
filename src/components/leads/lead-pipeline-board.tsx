@@ -1,7 +1,7 @@
 import Link from "next/link";
-import type { LeadStage } from "@/generated/prisma/enums";
 import type { PipelineColumn } from "@/app/(dashboard)/leads/pipeline-query";
 import { buildLeadsHref } from "@/app/(dashboard)/leads/view-params";
+import type { StatusSelectOption } from "@/lib/custom-statuses/entity-form";
 import { LeadPipelineCard } from "@/components/leads/lead-pipeline-card";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 
@@ -26,55 +26,68 @@ export function LeadPipelineBoard({
   columns,
   stageView,
   preservedParams,
+  statusOptions,
 }: {
   columns: PipelineColumn[];
-  stageView: LeadStage;
+  /** A LeadStage value OR a raw CustomStatusDefinition id — see view-params.ts's own parseLeadStageView comment. */
+  stageView: string;
   preservedParams: PreservedParams;
+  /** Custom Statuses Phase 2B (Section AB) — fetched once by leads/page.tsx, threaded down to every card unchanged. */
+  statusOptions: StatusSelectOption[];
 }) {
   return (
     <div className="mt-6">
       <div className="hidden md:block">
-        <DesktopBoard columns={columns} preservedParams={preservedParams} />
+        <DesktopBoard columns={columns} preservedParams={preservedParams} statusOptions={statusOptions} />
       </div>
       <div className="md:hidden">
-        <MobileStageSwitcher columns={columns} stageView={stageView} preservedParams={preservedParams} />
+        <MobileStageSwitcher
+          columns={columns}
+          stageView={stageView}
+          preservedParams={preservedParams}
+          statusOptions={statusOptions}
+        />
       </div>
     </div>
   );
 }
 
 /**
- * Only a SYSTEM column has a real `stage` (List view's own filter is
- * still LeadStage-keyed — Section H) — a genuinely custom column (not
- * reachable in Production yet, Section G) simply gets no truncation link
- * rather than a broken one.
+ * List view's own `?stage=` filter accepts either a legacy LeadStage
+ * value or a live CustomStatusDefinition's own stable `key` (Section P) —
+ * a SYSTEM column's `stage` is preferred (the exact pre-existing URL
+ * shape), a genuinely custom column falls back to its own `key`, so
+ * every column, system or custom, always gets a real truncation link.
  */
-function truncationHref(stage: LeadStage | null, preservedParams: PreservedParams): string | null {
-  return stage ? buildLeadsHref({ view: "list", stage, ...preservedParams }) : null;
+function truncationHref(column: Pick<PipelineColumn, "stage" | "key">, preservedParams: PreservedParams): string {
+  return buildLeadsHref({ view: "list", stage: column.stage ?? column.key, ...preservedParams });
 }
 
-function ColumnCards({ column, preservedParams }: { column: PipelineColumn; preservedParams: PreservedParams }) {
+function ColumnCards({
+  column,
+  preservedParams,
+  statusOptions,
+}: {
+  column: PipelineColumn;
+  preservedParams: PreservedParams;
+  statusOptions: StatusSelectOption[];
+}) {
   if (column.leads.length === 0) {
     return <p className="text-text-muted mt-3 text-sm">No leads</p>;
   }
-  const href = truncationHref(column.stage, preservedParams);
   return (
     <>
       <ul className="mt-3 space-y-2">
         {column.leads.map((lead) => (
-          <LeadPipelineCard key={lead.id} lead={lead} />
+          <LeadPipelineCard key={lead.id} lead={lead} statusOptions={statusOptions} />
         ))}
       </ul>
       {column.truncated && (
         <p className="text-text-muted mt-3 text-xs">
           Showing {column.leads.length} of {column.total}.{" "}
-          {href ? (
-            <Link href={href} className={ACTION_LINK_CLASSES}>
-              See all in List view
-            </Link>
-          ) : (
-            "See List view for the rest."
-          )}
+          <Link href={truncationHref(column, preservedParams)} className={ACTION_LINK_CLASSES}>
+            See all in List view
+          </Link>
         </p>
       )}
     </>
@@ -84,9 +97,11 @@ function ColumnCards({ column, preservedParams }: { column: PipelineColumn; pres
 function DesktopBoard({
   columns,
   preservedParams,
+  statusOptions,
 }: {
   columns: PipelineColumn[];
   preservedParams: PreservedParams;
+  statusOptions: StatusSelectOption[];
 }) {
   return (
     <div className="flex items-start gap-4 overflow-x-auto pb-2">
@@ -108,7 +123,7 @@ function DesktopBoard({
               </span>
               <span className="text-text-muted shrink-0 font-normal">{column.total}</span>
             </h2>
-            <ColumnCards column={column} preservedParams={preservedParams} />
+            <ColumnCards column={column} preservedParams={preservedParams} statusOptions={statusOptions} />
           </section>
         );
       })}
@@ -120,19 +135,20 @@ function MobileStageSwitcher({
   columns,
   stageView,
   preservedParams,
+  statusOptions,
 }: {
   columns: PipelineColumn[];
-  stageView: LeadStage;
+  stageView: string;
   preservedParams: PreservedParams;
+  statusOptions: StatusSelectOption[];
 }) {
-  const activeColumn = columns.find((c) => c.stage === stageView) ?? columns[0];
-
-  // Section G/H — `stageView` (like `?stage=` in List view) stays a
-  // LeadStage-keyed URL param for full backward compatibility; a
-  // genuinely custom column (null `stage`, unreachable in Production
-  // today) simply has no deep-linkable URL of its own yet — Phase 2B's
-  // own assignment UI is where that URL scheme gets redesigned around a
-  // stable definition id instead.
+  // Custom Statuses Phase 2B — Completion Pass (Section G/H): matches
+  // EITHER a legacy LeadStage value (`?stageView=NEW`, still fully
+  // backward-compatible) OR a raw CustomStatusDefinition id (a
+  // genuinely custom column's own `stage` is always null, so it can
+  // only ever be reached this second way) — see view-params.ts's own
+  // parseLeadStageView comment.
+  const activeColumn = columns.find((c) => c.stage === stageView || c.definitionId === stageView) ?? columns[0];
 
   return (
     <div>
@@ -152,7 +168,7 @@ function MobileStageSwitcher({
           return (
             <Link
               key={column.definitionId}
-              href={buildLeadsHref({ view: "pipeline", stageView: column.stage ?? undefined, ...preservedParams })}
+              href={buildLeadsHref({ view: "pipeline", stageView: column.stage ?? column.definitionId, ...preservedParams })}
               aria-current={isActive ? "page" : undefined}
               className={`focus-visible:ring-focus-ring shrink-0 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
                 isActive
@@ -167,7 +183,7 @@ function MobileStageSwitcher({
       </nav>
 
       <section aria-label={`${activeColumn.label} leads`} className="mt-2">
-        <ColumnCards column={activeColumn} preservedParams={preservedParams} />
+        <ColumnCards column={activeColumn} preservedParams={preservedParams} statusOptions={statusOptions} />
       </section>
     </div>
   );

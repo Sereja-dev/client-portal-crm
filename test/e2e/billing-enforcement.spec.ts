@@ -22,6 +22,23 @@ let fixtures: TestFixtures;
 test.beforeAll(async () => {
   fixtures = await seedE2EFixtures();
 
+  // Custom Statuses Phase 2B (Final E2E Fixture Sweep) — see
+  // activity.spec.ts's own identical comment. This test's own client
+  // form submission needs a real, resolvable statusDefinitionId before
+  // it can ever reach the billing-limit check it's actually testing.
+  await dbQuery("customStatusDefinition", "create", {
+    data: {
+      organizationId: fixtures.orgA.id,
+      entityType: "CLIENT",
+      key: "lead",
+      label: "Lead",
+      color: "NEUTRAL",
+      position: 0,
+      isDefault: true,
+      isSystem: true,
+    },
+  });
+
   // A STARTER subscription (maxClients: 10) with exactly 10 clients
   // already at the limit — the owner (fixtures.owner) already counts as
   // the STARTER plan's 1 member, so this deliberately only exercises the
@@ -48,6 +65,7 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await dbQuery("client", "deleteMany", { where: { name: { startsWith: `BILLING-E2E-LimitClient-` } } });
   await dbQuery("subscription", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
+  await dbQuery("customStatusDefinition", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
   await cleanupTestData(fixtures);
 });
 

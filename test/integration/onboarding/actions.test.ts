@@ -7,6 +7,7 @@ import {
 } from "@/lib/onboarding/actions";
 import { getOrganizationOnboardingProgress } from "@/lib/onboarding/progress";
 import { createClientAction } from "@/app/(dashboard)/clients/new/actions";
+import { bootstrapOrganizationStatusDefinitions } from "@/lib/custom-statuses/bootstrap";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { actAs, resetAuthMock } from "../../support/auth-mock";
 import { RedirectSignal } from "../../support/navigation-mock";
@@ -25,6 +26,7 @@ describe("onboarding actions", () => {
 
   beforeAll(async () => {
     fixtures = await seedTestData();
+    await bootstrapOrganizationStatusDefinitions(prisma, fixtures.orgA.id);
   });
 
   afterEach(async () => {
@@ -217,8 +219,15 @@ describe("onboarding actions", () => {
 
       const before = await prisma.organizationOnboardingStep.count({ where: { organizationId: fixtures.orgA.id } });
 
+      // Custom Statuses Phase 2B (Section R) — statusDefinitionId is now
+      // required on the Client form; unrelated to this invariant, so a
+      // real definition is resolved just to make the submission valid.
+      const leadDef = await prisma.customStatusDefinition.findFirstOrThrow({
+        where: { organizationId: fixtures.orgA.id, entityType: "CLIENT", isSystem: true, key: "lead" },
+      });
       const formData = new FormData();
       formData.set("name", `Onboarding Invariant Client ${fixtures.runId}`);
+      formData.set("statusDefinitionId", leadDef.id);
 
       let caught: unknown;
       try {

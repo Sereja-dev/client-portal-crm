@@ -1,6 +1,4 @@
-import { parseEnumParam, type RawSearchParams } from "@/lib/list-params";
-import type { LeadStage } from "@/generated/prisma/enums";
-import { LEAD_STAGE_VALUES } from "./query";
+import { parseEnumParam, parseSearchParam, type RawSearchParams } from "@/lib/list-params";
 
 /**
  * Leads / Sales Pipeline Phase 4 — the List/Pipeline view switch and the
@@ -18,11 +16,25 @@ export function parseLeadView(searchParams: RawSearchParams): LeadView {
   return parseEnumParam(searchParams.view, LEAD_VIEWS) ?? "list";
 }
 
-const DEFAULT_STAGE_VIEW: LeadStage = "NEW";
+const DEFAULT_STAGE_VIEW = "NEW";
 
-/** Which single stage the Pipeline board's mobile switcher currently shows (see lead-pipeline-board.tsx). */
-export function parseLeadStageView(searchParams: RawSearchParams): LeadStage {
-  return parseEnumParam(searchParams.stageView, LEAD_STAGE_VALUES) ?? DEFAULT_STAGE_VIEW;
+/**
+ * Which single column the Pipeline board's mobile switcher currently
+ * shows (see lead-pipeline-board.tsx). Custom Statuses Phase 2B —
+ * Completion Pass (Section G/H): no longer restricted to a fixed
+ * LeadStage enum — a genuinely custom column has no LeadStage of its
+ * own, so `?stageView=` now also accepts a raw CustomStatusDefinition
+ * id, matched by lead-pipeline-board.tsx's own `activeColumn` lookup
+ * against EITHER `column.stage` or `column.definitionId`. A legacy
+ * `?stageView=NEW`-shaped link keeps resolving exactly as before — this
+ * only ADDS a second, alternative match, never removes the first.
+ * Invalid/missing still falls back safely to "NEW", matching this
+ * file's own header comment (never security-relevant either way —
+ * organization scoping happens entirely in pipeline-query.ts).
+ */
+export function parseLeadStageView(searchParams: RawSearchParams): string {
+  const raw = parseSearchParam(searchParams.stageView);
+  return raw || DEFAULT_STAGE_VIEW;
 }
 
 /** Builds a /leads?... href from a plain params object, omitting any falsy value entirely rather than emitting an empty query param. */

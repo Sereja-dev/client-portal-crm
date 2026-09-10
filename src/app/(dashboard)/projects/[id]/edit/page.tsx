@@ -3,6 +3,8 @@ import Link from "next/link";
 import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { getActiveCustomFieldFormDefinitions, getCustomFieldFormValues } from "@/lib/custom-fields/entity-form";
+import { buildStatusSelectOptions } from "@/lib/custom-statuses/entity-form";
+import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import { ProjectForm } from "@/components/projects/project-form";
 import { updateProjectAction } from "./actions";
 import { ProjectAttachmentsSection } from "./attachments-section";
@@ -54,6 +56,12 @@ export default async function EditProjectPage({
   );
   const commentsCursor = parseSearchParam(resolvedSearchParams.commentsCursor) || undefined;
   const isModerator = membership.role === "OWNER" || membership.role === "ADMIN";
+  // Custom Statuses Phase 2B (Section O/D) — see EditClientPage's own identical comment.
+  const currentStatusDefinitionId =
+    project.statusDefinitionId ??
+    (await resolveSystemStatusDefinition(organizationId, "PROJECT", project.status.toLowerCase()))?.id ??
+    undefined;
+  const statusOptions = await buildStatusSelectOptions(organizationId, "PROJECT", currentStatusDefinitionId ?? null);
 
   return (
     <div className="mx-auto max-w-xl">
@@ -72,10 +80,11 @@ export default async function EditProjectPage({
           defaultValues={{
             name: project.name,
             clientId: project.clientId,
-            status: project.status,
             startDate: toDateInputValue(project.startDate),
             endDate: toDateInputValue(project.endDate),
           }}
+          statusOptions={statusOptions}
+          currentStatusDefinitionId={currentStatusDefinitionId}
           customFieldDefinitions={customFieldDefinitions}
           customFieldValues={Object.fromEntries(customFieldValuesMap)}
           submitLabel="Save changes"

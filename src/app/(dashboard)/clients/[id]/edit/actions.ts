@@ -16,7 +16,8 @@ import {
   validateCustomFieldFormValues,
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
-import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
+import { resolveStatusForSave } from "@/lib/custom-statuses/entity-form";
+import type { ClientStatusValue } from "@/lib/validation/client";
 import type { ClientFormState } from "@/types";
 
 export async function updateClientAction(
@@ -89,19 +90,38 @@ export async function updateClientAction(
       return "not_found" as const;
     }
 
-    // Custom Statuses Phase 1 (Section P) — see createClientAction's own
-    // identical comment; re-resolved on every update since `values.status`
-    // may have changed.
-    const statusDefinition = await resolveSystemStatusDefinition(
+    // Custom Statuses Phase 2B (Section L/R) — statusDefinitionId is the
+    // real, Staff-selected status identity, re-resolved and re-verified
+    // on every update (never trusted off FormData directly).
+    // `existing.statusDefinitionId` is passed as the "current" exemption
+    // — an archived status the Client already has is rejected here ONLY
+    // if the Staff member tried to change it to something ELSE that's
+    // also archived; submitting the form unchanged (still pointing at
+    // its own current archived status) is always allowed (Section L:
+    // "allow user to keep it").
+    const statusResult = await resolveStatusForSave(
       organizationId,
       "CLIENT",
-      values.status.toLowerCase(),
+      values.statusDefinitionId,
+      existing.statusDefinitionId,
       tx,
     );
+    if (!statusResult.ok) {
+      return statusResult.reason === "ARCHIVED" ? ("status_archived" as const) : ("status_not_found" as const);
+    }
+
+    // Section H/assignment.ts's own established compatibility rule: a
+    // SYSTEM target keeps the legacy enum in sync; a CUSTOM target
+    // leaves it completely untouched (Prisma `undefined` = no-op) —
+    // whether newly assigned or simply re-submitted unchanged, exactly
+    // like assignClientStatus's own documented behavior.
+    const legacyStatus: ClientStatusValue | undefined = statusResult.isSystem
+      ? (statusResult.key.toUpperCase() as ClientStatusValue)
+      : undefined;
 
     const result = await tx.client.updateMany({
       where: { id: clientId, organizationId },
-      data: { ...values, statusDefinitionId: statusDefinition?.id },
+      data: { ...values, status: legacyStatus, statusDefinitionId: statusResult.definitionId },
     });
 
     if (result.count === 0) {
@@ -131,7 +151,15 @@ export async function updateClientAction(
 
     // Only log a real change — a re-submit of identical values (e.g. an
     // accidental double-save) shouldn't add a no-op entry to the log.
-    const changedFields = diffClientFields(existing, values);
+    // `values.status` from parseClientForm is never real anymore (the
+    // form no longer submits a `status` field at all — see this file's
+    // own comment above) — substituted here with the actual computed
+    // legacy value (falling back to the row's own existing value for a
+    // CUSTOM target, whose legacy column was left untouched) so the diff
+    // and Activity metadata both describe what genuinely changed, never
+    // a false "status changed to LEAD" for every unrelated edit.
+    const valuesForActivity = { ...values, status: legacyStatus ?? existing.status };
+    const changedFields = diffClientFields(existing, valuesForActivity);
     if (changedFields.length > 0) {
       await createActivity(tx, {
         organizationId,
@@ -139,7 +167,7 @@ export async function updateClientAction(
         entityType: "CLIENT",
         entityId: clientId,
         action: "UPDATED",
-        metadata: buildClientActivityMetadata(values, user.name, changedFields),
+        metadata: buildClientActivityMetadata(valuesForActivity, user.name, changedFields),
       });
     }
 
@@ -148,6 +176,15 @@ export async function updateClientAction(
 
   if (outcome === "not_found") {
     return { error: "This client could not be found." };
+  }
+  if (outcome === "status_not_found" || outcome === "status_archived") {
+    return {
+      error: null,
+      fieldErrors: {
+        statusDefinitionId:
+          outcome === "status_archived" ? "This status is archived and can't be assigned." : "Select a valid status.",
+      },
+    };
   }
 
   redirect(withToast("/clients", "Client updated"));

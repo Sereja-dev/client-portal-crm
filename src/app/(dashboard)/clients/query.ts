@@ -2,19 +2,20 @@ import { Prisma } from "@/generated/prisma/client";
 import {
   parseSearchParam,
   parsePageParam,
-  parseEnumParam,
+  parseStatusKeyParam,
   parseSortParam,
   type RawSearchParams,
 } from "@/lib/list-params";
-import { CLIENT_STATUSES } from "@/lib/validation/client";
-import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
+import type { ClientStatusValue } from "@/lib/validation/client";
+import { resolveStatusDefinitionByKey } from "@/lib/custom-statuses/resolution";
 
 export const CLIENT_SORT_FIELDS = ["name", "createdAt"] as const;
 export type ClientSortField = (typeof CLIENT_SORT_FIELDS)[number];
 
 export type ClientListParams = {
   q: string;
-  status?: (typeof CLIENT_STATUSES)[number];
+  /** Custom Statuses Phase 2B (Section P) — a CustomStatusDefinition key (lower-case), not a fixed CLIENT_STATUSES enum value anymore; see parseStatusKeyParam's own comment for the legacy-URL compatibility this gives for free. */
+  status?: string;
   sortField: ClientSortField;
   sortDir: "asc" | "desc";
   sortCombined: string;
@@ -25,7 +26,7 @@ export function parseClientListParams(
   searchParams: RawSearchParams,
 ): ClientListParams {
   const q = parseSearchParam(searchParams.q);
-  const status = parseEnumParam(searchParams.status, CLIENT_STATUSES);
+  const status = parseStatusKeyParam(searchParams.status);
   const { field, dir, combined } = parseSortParam(
     searchParams.sort,
     CLIENT_SORT_FIELDS,
@@ -37,11 +38,16 @@ export function parseClientListParams(
 }
 
 /**
- * Custom Statuses Phase 2A (Section C/D/H) — see leads/query.ts's own
- * identical comment on buildLeadWhere: the `status` filter is now
- * authoritative via `statusDefinitionId`, falling back to a null-
- * statusDefinitionId Client whose legacy `status` still matches (Section
- * D). The `?status=ACTIVE`-shaped URL param itself is unchanged.
+ * Custom Statuses Phase 2B (Section P) — the `status` filter is resolved
+ * against ANY live CustomStatusDefinition (system or custom, active or
+ * archived — resolveStatusDefinitionByKey) by key, replacing the fixed
+ * CLIENT_STATUSES enum lookup Phase 2A used here. A SYSTEM match still
+ * falls back to a null-statusDefinitionId Client whose legacy `status`
+ * matches (Section D, unchanged); a CUSTOM match has no legacy
+ * representation, so only `statusDefinitionId` is filtered. An unknown
+ * key (never a real definition, or a typo) fails safe exactly like the
+ * old fixed-enum `parseEnumParam` lookup always did: treated as no
+ * filter at all, never an error and never a silently-empty result set.
  */
 export async function buildClientWhere(
   organizationId: string,
@@ -49,10 +55,22 @@ export async function buildClientWhere(
 ): Promise<Prisma.ClientWhereInput> {
   const statusFilter = status
     ? await (async (): Promise<Prisma.ClientWhereInput> => {
-        const definition = await resolveSystemStatusDefinition(organizationId, "CLIENT", status.toLowerCase());
-        return definition
-          ? { OR: [{ statusDefinitionId: definition.id }, { statusDefinitionId: null, status }] }
-          : { status };
+        // .toLowerCase() defensively re-applied here too (not only in
+        // parseStatusKeyParam) — a direct caller of buildClientWhere
+        // (bypassing the parser) must not have to know keys are stored
+        // lower-case for its own filter to resolve correctly.
+        const definition = await resolveStatusDefinitionByKey(organizationId, "CLIENT", status.toLowerCase());
+        if (!definition) {
+          return {};
+        }
+        return definition.isSystem
+          ? {
+              OR: [
+                { statusDefinitionId: definition.id },
+                { statusDefinitionId: null, status: definition.key.toUpperCase() as ClientStatusValue },
+              ],
+            }
+          : { statusDefinitionId: definition.id };
       })()
     : {};
 

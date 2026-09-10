@@ -5,12 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { FormField } from "@/components/ui/form-field";
-import { CLIENT_STATUSES, CLIENT_BILLING_MAX_LENGTHS } from "@/lib/validation/client";
+import { CLIENT_BILLING_MAX_LENGTHS } from "@/lib/validation/client";
 import {
   CustomFieldsFormSection,
   type CustomFieldFormDefinitionForUI,
   type CustomFieldFormValueForUI,
 } from "@/components/custom-fields/custom-fields-form-section";
+import type { StatusSelectOption } from "@/lib/custom-statuses/entity-form";
 import type { ClientFormState } from "@/types";
 
 const initialState: ClientFormState = { error: null };
@@ -20,7 +21,6 @@ type ClientFormDefaults = {
   company?: string | null;
   email?: string | null;
   phone?: string | null;
-  status?: string;
   billingLegalName?: string | null;
   taxId?: string | null;
   streetAddress?: string | null;
@@ -33,6 +33,8 @@ type ClientFormDefaults = {
 export function ClientForm({
   action,
   defaultValues,
+  statusOptions,
+  currentStatusDefinitionId,
   customFieldDefinitions = [],
   customFieldValues = {},
   submitLabel = "Create client",
@@ -43,6 +45,17 @@ export function ClientForm({
     formData: FormData,
   ) => Promise<ClientFormState>;
   defaultValues?: ClientFormDefaults;
+  /**
+   * Custom Statuses Phase 2B (Section L) — every active CLIENT status
+   * definition (system + custom, position order), plus — only on edit,
+   * when the Client's own current status is archived — that one
+   * definition appended (see buildStatusSelectOptions's own comment).
+   * Always includes at least the 4 built-in system statuses (every
+   * organization is bootstrapped).
+   */
+  statusOptions: StatusSelectOption[];
+  /** Edit only — this Client's own current statusDefinitionId, used to preselect the `<select>`. Undefined on create (the org's own default is preselected instead — the first `isDefault` option, or simply the first option). */
+  currentStatusDefinitionId?: string;
   /** Custom Fields Phase 2B (Section B) — active CLIENT definitions only; empty on an organization with none configured, in which case CustomFieldsFormSection itself renders nothing. */
   customFieldDefinitions?: CustomFieldFormDefinitionForUI[];
   /** Edit only — this Client's own current values, keyed by definitionId. Always empty on create. */
@@ -50,6 +63,8 @@ export function ClientForm({
   submitLabel?: string;
   pendingLabel?: string;
 }) {
+  const defaultStatusDefinitionId =
+    currentStatusDefinitionId ?? statusOptions.find((o) => o.isDefault)?.id ?? statusOptions[0]?.id;
   const [state, formAction, pending] = useActionState(action, initialState);
 
   return (
@@ -93,17 +108,18 @@ export function ClientForm({
         />
       </FormField>
 
-      <FormField label="Status" htmlFor="status" error={state.fieldErrors?.status}>
+      <FormField label="Status" htmlFor="statusDefinitionId" error={state.fieldErrors?.statusDefinitionId}>
         <Select
-          id="status"
-          name="status"
-          defaultValue={defaultValues?.status ?? "LEAD"}
-          aria-invalid={!!state.fieldErrors?.status}
-          aria-describedby={state.fieldErrors?.status ? "status-error" : undefined}
+          id="statusDefinitionId"
+          name="statusDefinitionId"
+          defaultValue={defaultStatusDefinitionId}
+          aria-invalid={!!state.fieldErrors?.statusDefinitionId}
+          aria-describedby={state.fieldErrors?.statusDefinitionId ? "statusDefinitionId-error" : undefined}
         >
-          {CLIENT_STATUSES.map((option) => (
-            <option key={option} value={option}>
-              {option}
+          {statusOptions.map((option) => (
+            <option key={option.id} value={option.id}>
+              {option.label}
+              {option.archived ? " (archived)" : ""}
             </option>
           ))}
         </Select>

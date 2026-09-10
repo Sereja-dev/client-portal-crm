@@ -13,9 +13,24 @@ let fixtures: TestFixtures;
 
 test.beforeAll(async () => {
   fixtures = await seedE2EFixtures();
+  // Custom Statuses Phase 2B (Final E2E Fixture Sweep) — see
+  // activity.spec.ts's own identical comment.
+  await dbQuery("customStatusDefinition", "create", {
+    data: {
+      organizationId: fixtures.orgA.id,
+      entityType: "CLIENT",
+      key: "lead",
+      label: "Lead",
+      color: "NEUTRAL",
+      position: 0,
+      isDefault: true,
+      isSystem: true,
+    },
+  });
 });
 
 test.afterAll(async () => {
+  await dbQuery("customStatusDefinition", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
   await cleanupTestData(fixtures);
 });
 

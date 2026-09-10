@@ -5,13 +5,15 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { LeadStage, CustomStatusColor } from "@/generated/prisma/enums";
 import {
-  moveLeadStageAction,
+  assignLeadStatusDefinitionAction,
   markLeadLostAction,
   archiveLeadAction,
   unarchiveLeadAction,
   convertLeadToClientAction,
 } from "@/app/(dashboard)/leads/actions";
-import { LEAD_STAGES, isLostLeadStage } from "@/lib/leads/stages";
+import { isLostLeadStage } from "@/lib/leads/stages";
+import type { StatusSelectOption } from "@/lib/custom-statuses/entity-form";
+import { buildLeadStatusSelectOptions } from "@/components/leads/lead-status-options";
 import { LeadStageBadge } from "@/components/leads/lead-stage-badge";
 import { MarkLeadLostDialog, type MarkLeadLostDialogHandle } from "@/components/leads/mark-lead-lost-dialog";
 import { Select } from "@/components/ui/select";
@@ -29,13 +31,6 @@ import { useToast } from "@/components/toast/toast-provider";
 // display string for its already-generic result.
 const RATE_LIMIT_MESSAGE = "Too many requests. Please try again later.";
 
-// NEW/CONTACTED/QUALIFIED/PROPOSAL/WON — LOST is deliberately excluded,
-// mirroring moveLeadStageAction's own MOVABLE_LEAD_STAGES exactly (this
-// dropdown must never offer a value the backend would reject as
-// invalid_stage — see markLeadLostAction's own dedicated dialog below
-// for how a Lead actually becomes LOST).
-const MOVABLE_STAGES = LEAD_STAGES.filter((s) => !isLostLeadStage(s.value));
-
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
 /**
@@ -52,12 +47,17 @@ export function LeadActionsPanel({
   leadId,
   stage,
   statusDefinition,
+  statusOptions,
+  currentStatusDefinitionId,
   archivedAt,
   convertedClientId,
 }: {
   leadId: string;
   stage: LeadStage;
   statusDefinition?: { label: string; color: CustomStatusColor | null } | null;
+  /** Custom Statuses Phase 2B (Section M) — every active LEAD definition, plus this Lead's own current one if archived; see leads/[id]/edit/page.tsx's own comment. */
+  statusOptions: StatusSelectOption[];
+  currentStatusDefinitionId?: string;
   archivedAt: string | null;
   convertedClientId: string | null;
 }) {
@@ -74,20 +74,33 @@ export function LeadActionsPanel({
   const isLost = isLostLeadStage(stage);
   const isArchived = archivedAt !== null;
 
-  function handleStageChange(next: string) {
+  // Section M (CRITICAL) — system LOST is never offered as a NEW target
+  // here; only reachable via the dedicated Mark Lost dialog below.
+  const selectableStatusOptions = buildLeadStatusSelectOptions(statusOptions, currentStatusDefinitionId ?? null);
+
+  function handleStatusChange(definitionId: string) {
     startTransition(async () => {
-      const result = await moveLeadStageAction(leadId, next as LeadStage);
+      const result = await assignLeadStatusDefinitionAction(leadId, definitionId);
       if (result.ok) {
-        showToast("Stage updated");
+        showToast("Status updated");
         router.refresh();
         return;
       }
-      if (result.reason === "converted_locked") {
-        showToast("This lead has already converted — its stage is locked.", "error");
-      } else if (result.reason === "rate_limited") {
-        showToast(RATE_LIMIT_MESSAGE, "error");
-      } else {
-        showToast(GENERIC_ERROR, "error");
+      switch (result.reason) {
+        case "converted_locked":
+          showToast("This lead has already converted — its stage is locked.", "error");
+          break;
+        case "rate_limited":
+          showToast(RATE_LIMIT_MESSAGE, "error");
+          break;
+        case "use_mark_lost_action":
+          showToast('Use "Mark lost" to mark this lead as lost.', "error");
+          break;
+        case "status_archived":
+          showToast("This status is archived and can't be assigned.", "error");
+          break;
+        default:
+          showToast(GENERIC_ERROR, "error");
       }
       router.refresh();
     });
@@ -175,15 +188,15 @@ export function LeadActionsPanel({
         <div className="flex flex-wrap items-center gap-3">
           <div className="w-48">
             <Select
-              aria-label="Move to stage"
-              value={stage}
+              aria-label="Change status"
+              value={currentStatusDefinitionId ?? ""}
               disabled={isPending}
-              onChange={(event) => handleStageChange(event.target.value)}
+              onChange={(event) => handleStatusChange(event.target.value)}
             >
-              {isLost && <option value="LOST">Lost</option>}
-              {MOVABLE_STAGES.map((s) => (
-                <option key={s.value} value={s.value}>
-                  {s.label}
+              {selectableStatusOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                  {option.archived ? " (archived)" : ""}
                 </option>
               ))}
             </Select>

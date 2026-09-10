@@ -10,6 +10,7 @@ import { SearchFilterBar } from "@/components/list/search-filter-bar";
 import { Pagination } from "@/components/list/pagination";
 import { LeadStageBadge } from "@/components/leads/lead-stage-badge";
 import { LeadPipelineBoard } from "@/components/leads/lead-pipeline-board";
+import { buildStatusSelectOptions } from "@/lib/custom-statuses/entity-form";
 import {
   Table,
   TableHead,
@@ -24,7 +25,7 @@ import {
   RecordCardField,
   RecordCardActions,
 } from "@/components/ui/record-list";
-import { LEAD_STAGES } from "@/lib/leads/stages";
+import { listCustomStatusDefinitions } from "@/lib/custom-statuses/definitions";
 import { parseLeadListParams, buildLeadWhere, buildLeadOrderBy, type LeadListParams } from "./query";
 import { fetchLeadPipelineColumns } from "./pipeline-query";
 import { parseLeadView, parseLeadStageView, buildLeadsHref, type LeadView } from "./view-params";
@@ -117,6 +118,12 @@ export default async function LeadsPage({
 
   if (view === "pipeline") {
     const columns = await fetchLeadPipelineColumns(organizationId, listParams);
+    // Custom Statuses Phase 2B (Section AB) — every active LEAD
+    // definition, fetched exactly once for the whole board; every
+    // card's own "current" option (including an archived one) is merged
+    // in locally from data the board already has, never a per-card
+    // database call.
+    const statusOptions = await buildStatusSelectOptions(organizationId, "LEAD", null);
     const stageView = parseLeadStageView(resolvedSearchParams);
     const grandTotal = columns.reduce((sum, c) => sum + c.total, 0);
     const hasActiveParams = Boolean(listParams.q || listParams.assignedToUserId || listParams.archived);
@@ -165,7 +172,7 @@ export default async function LeadsPage({
             }
           />
         ) : (
-          <LeadPipelineBoard columns={columns} stageView={stageView} preservedParams={shared} />
+          <LeadPipelineBoard columns={columns} stageView={stageView} preservedParams={shared} statusOptions={statusOptions} />
         )}
       </div>
     );
@@ -173,6 +180,22 @@ export default async function LeadsPage({
 
   const where = await buildLeadWhere(organizationId, listParams);
   const orderBy = buildLeadOrderBy(listParams);
+
+  // Custom Statuses Phase 2B (Section P) — see clients/page.tsx's own
+  // identical comment; List view's own `?stage=` filter (distinct from
+  // Pipeline's `?stageView=`, which stays LeadStage-keyed — Section H/N).
+  const allStageDefinitions = await listCustomStatusDefinitions(organizationId, "LEAD", { includeArchived: true });
+  const activeStageDefinitions = allStageDefinitions.filter((d) => d.archivedAt === null);
+  const selectedArchivedStageDefinition = allStageDefinitions.find(
+    (d) => d.archivedAt !== null && d.key === listParams.stage,
+  );
+  const stageFilterOptions = [
+    { value: "", label: "All stages" },
+    ...activeStageDefinitions.map((d) => ({ value: d.key, label: d.label })),
+    ...(selectedArchivedStageDefinition
+      ? [{ value: selectedArchivedStageDefinition.key, label: `${selectedArchivedStageDefinition.label} (archived)` }]
+      : []),
+  ];
 
   const [leads, total] = await prisma.$transaction([
     prisma.lead.findMany({
@@ -219,10 +242,7 @@ export default async function LeadsPage({
             name: "stage",
             label: "Stage",
             value: listParams.stage ?? "",
-            options: [
-              { value: "", label: "All stages" },
-              ...LEAD_STAGES.map((s) => ({ value: s.value, label: s.label })),
-            ],
+            options: stageFilterOptions,
           },
           assigneeFilter,
           archivedFilter,

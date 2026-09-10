@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { createClientAction } from "@/app/(dashboard)/clients/new/actions";
 import { updateClientAction } from "@/app/(dashboard)/clients/[id]/edit/actions";
+import { bootstrapOrganizationStatusDefinitions } from "@/lib/custom-statuses/bootstrap";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { actAs, resetAuthMock } from "../../support/auth-mock";
 import { RedirectSignal } from "../../support/navigation-mock";
@@ -20,8 +21,15 @@ import { RedirectSignal } from "../../support/navigation-mock";
 
 const CLIENT_NAME_PREFIX = "Slice1 Billing Client";
 
+// Custom Statuses Phase 2B (Section R) — statusDefinitionId is now
+// required on the Client form; this suite is entirely about billing
+// identity fields, unrelated to status, so every call defaults to orgA's
+// own bootstrapped 'lead' system definition (set in beforeAll below).
+let defaultStatusDefinitionId: string;
+
 function buildClientFormData(fields: Record<string, string>): FormData {
   const formData = new FormData();
+  formData.set("statusDefinitionId", defaultStatusDefinitionId);
   for (const [key, value] of Object.entries(fields)) {
     formData.set(key, value);
   }
@@ -43,6 +51,12 @@ describe("Client billing identity — real create/edit write path", () => {
 
   beforeAll(async () => {
     fixtures = await seedTestData();
+    await bootstrapOrganizationStatusDefinitions(prisma, fixtures.orgA.id);
+    defaultStatusDefinitionId = (
+      await prisma.customStatusDefinition.findFirstOrThrow({
+        where: { organizationId: fixtures.orgA.id, entityType: "CLIENT", isSystem: true, key: "lead" },
+      })
+    ).id;
   });
 
   afterAll(async () => {

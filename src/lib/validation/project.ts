@@ -13,6 +13,8 @@ export type ParsedProjectInput = {
   name: string;
   clientId: string;
   status: ProjectStatusValue;
+  /** Custom Statuses Phase 2B (Section O/R) — see ParsedClientInput's own identical comment for the full "status is now vestigial, statusDefinitionId is authoritative" explanation. */
+  statusDefinitionId: string;
   startDate: Date | null;
   endDate: Date | null;
 };
@@ -30,6 +32,7 @@ export function parseProjectForm(formData: FormData): {
   const name = String(formData.get("name") ?? "").trim();
   const clientId = String(formData.get("clientId") ?? "").trim();
   const status = String(formData.get("status") ?? "PLANNING");
+  const statusDefinitionId = String(formData.get("statusDefinitionId") ?? "").trim();
   const startDateRaw = String(formData.get("startDate") ?? "").trim();
   const endDateRaw = String(formData.get("endDate") ?? "").trim();
 
@@ -46,6 +49,10 @@ export function parseProjectForm(formData: FormData): {
   const isValidStatus = PROJECT_STATUSES.includes(status as ProjectStatusValue);
   if (!isValidStatus) {
     fieldErrors.status = "Select a valid status.";
+  }
+
+  if (!statusDefinitionId) {
+    fieldErrors.statusDefinitionId = "Select a status.";
   }
 
   if (startDateRaw && !parseDate(startDateRaw)) {
@@ -68,6 +75,7 @@ export function parseProjectForm(formData: FormData): {
       name,
       clientId,
       status: isValidStatus ? (status as ProjectStatusValue) : "PLANNING",
+      statusDefinitionId,
       startDate,
       endDate,
     },

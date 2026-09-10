@@ -26,7 +26,9 @@ import {
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
 import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
+import { resolveStatusForSave } from "@/lib/custom-statuses/entity-form";
 import { resolveLeadIsLost } from "@/lib/custom-statuses/semantics";
+import { SYSTEM_STATUS_KEYS } from "@/lib/custom-statuses/constants";
 
 // Select shape used everywhere below a Lead's own real business-semantic
 // LOST check is made (Section F) — the immutable system-identity fields
@@ -438,6 +440,152 @@ export async function moveLeadStageAction(leadId: string, stage: LeadStage): Pro
 
   if (outcome === "not_found") return { ok: false, reason: "not_found" };
   if (outcome === "converted_locked") return { ok: false, reason: "converted_locked" };
+
+  revalidatePath("/leads");
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Generic status-definition assignment (Custom Statuses Phase 2B, Section M — CRITICAL)
+// ---------------------------------------------------------------------------
+
+export type AssignLeadStatusDefinitionResult =
+  | { ok: true }
+  | { ok: false; reason: "rate_limited" }
+  | { ok: false; reason: "not_found" }
+  | { ok: false; reason: "converted_locked" }
+  | { ok: false; reason: "invalid_stage" }
+  | { ok: false; reason: "status_not_found" }
+  | { ok: false; reason: "status_archived" }
+  | { ok: false; reason: "use_mark_lost_action" };
+
+/**
+ * The one generic "assign any status definition" entry point behind the
+ * Section L/M/O-style status selector the Lead edit form/pipeline card
+ * use — deliberately separate from, and never replacing,
+ * moveLeadStageAction above (its ~60+ existing call sites keep working
+ * completely unchanged).
+ *
+ * Section M is explicit and CRITICAL here: a generic status selector
+ * must never silently bypass a business action that carries its own
+ * required side effects. LOST is exactly that case — markLeadLostAction
+ * also collects a required lostReason that a generic selector has no
+ * field for — so the system LOST definition is REJECTED here with its
+ * own typed reason, and the UI directs the user to the existing
+ * dedicated "Mark lost" dialog instead. This is the "exclude/disable and
+ * direct to the existing dedicated action" option the task explicitly
+ * prefers over weakening the semantic rule.
+ *
+ * WON stays reachable here (system, not LOST) — this exactly matches
+ * moveLeadStageAction's own pre-existing behavior, which already allows
+ * moving to WON without converting; only convertLeadToClientAction ever
+ * performs a real conversion. A non-LOST SYSTEM target is delegated
+ * straight to moveLeadStageAction so every one of its already-tested
+ * invariants (converted-lock, wasLost-clears-lostReason, Activity)
+ * applies with zero duplicated logic — at the deliberate cost of
+ * re-resolving {user, organizationId} and re-checking the update rate
+ * limit a second time inside that delegated call, an acceptable
+ * trade-off for reusing fully-tested logic rather than re-implementing
+ * it.
+ *
+ * A CUSTOM target has no LeadStage representation at all, so it's
+ * handled directly here: only statusDefinitionId is written (`stage`
+ * itself is left completely untouched — a custom status layers on top
+ * of, never replaces, the legacy pipeline stage), the same "clear
+ * lostReason only if the Lead was actually LOST before" hygiene rule as
+ * every other stage-changing action applies, and the change is logged
+ * as a generic UPDATED Activity event (changedFields: ["status"])
+ * rather than inventing any new Activity schema/enum (Section X) — the
+ * existing LeadStageChangeMetadata shape has no room for a custom
+ * status's own label/key.
+ */
+export async function assignLeadStatusDefinitionAction(
+  leadId: string,
+  definitionId: string,
+): Promise<AssignLeadStatusDefinitionResult> {
+  const { user, organizationId } = await getCurrentUserOrganization();
+
+  const limitCheck = checkRateLimit(LEAD_UPDATE_LIMIT, user.id);
+  if (limitCheck.limited) {
+    return { ok: false, reason: "rate_limited" };
+  }
+
+  const existing = await prisma.lead.findFirst({
+    where: { id: leadId, organizationId },
+    select: {
+      name: true,
+      stage: true,
+      convertedClientId: true,
+      statusDefinitionId: true,
+      statusDefinition: { select: STATUS_DEFINITION_IDENTITY_SELECT },
+    },
+  });
+  if (!existing) {
+    return { ok: false, reason: "not_found" };
+  }
+  if (existing.convertedClientId) {
+    return { ok: false, reason: "converted_locked" };
+  }
+
+  const statusResult = await resolveStatusForSave(
+    organizationId,
+    "LEAD",
+    definitionId,
+    existing.statusDefinitionId,
+    prisma,
+  );
+  if (!statusResult.ok) {
+    return { ok: false, reason: statusResult.reason === "ARCHIVED" ? "status_archived" : "status_not_found" };
+  }
+
+  if (statusResult.isSystem) {
+    if (statusResult.key === SYSTEM_STATUS_KEYS.LEAD_LOST) {
+      return { ok: false, reason: "use_mark_lost_action" };
+    }
+
+    // Reuse moveLeadStageAction wholesale — see this function's own doc
+    // comment for why. MOVABLE_LEAD_STAGES already excludes LOST, and
+    // every other system LEAD key (new/contacted/qualified/proposal/won)
+    // uppercases to a valid LeadStage.
+    return moveLeadStageAction(leadId, statusResult.key.toUpperCase() as LeadStage);
+  }
+
+  // CUSTOM target — minimal direct write, `stage` untouched.
+  const wasLost = resolveLeadIsLost({ stage: existing.stage, statusDefinition: existing.statusDefinition });
+
+  const outcome = await prisma.$transaction(async (tx) => {
+    const result = await tx.lead.updateMany({
+      where: { id: leadId, organizationId, convertedClientId: null },
+      data: {
+        statusDefinitionId: statusResult.definitionId,
+        // undefined = "leave this column untouched" to Prisma; only ever
+        // explicitly cleared when actually leaving LOST — matches every
+        // other stage-changing action's own identical rule.
+        lostReason: wasLost ? null : undefined,
+      },
+    });
+
+    if (result.count === 0) {
+      // Raced with a concurrent conversion between the read above and
+      // this write.
+      return "converted_locked" as const;
+    }
+
+    await createActivity(tx, {
+      organizationId,
+      actorId: user.id,
+      entityType: "LEAD",
+      entityId: leadId,
+      action: "UPDATED",
+      metadata: buildLeadActivityMetadata({ name: existing.name, stage: existing.stage }, user.name, ["status"]),
+    });
+
+    return "updated" as const;
+  });
+
+  if (outcome === "converted_locked") {
+    return { ok: false, reason: "converted_locked" };
+  }
 
   revalidatePath("/leads");
   return { ok: true };

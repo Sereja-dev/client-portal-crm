@@ -80,3 +80,29 @@ export async function resolveSystemStatusDefinition(
     where: { organizationId, entityType, key: systemKey, isSystem: true },
   });
 }
+
+/**
+ * Custom Statuses Phase 2B (Section P) — resolves ANY definition (system
+ * OR custom, active OR archived) by its own stable `key`, for the one
+ * place a list filter's `?status=` URL param is turned back into a
+ * `statusDefinitionId` to query by. Deliberately matches archived
+ * definitions too — Section P: "archived status remains selectable if
+ * currently in URL", so a link built while a status was still active
+ * must keep working after it's archived. Keys are always stored
+ * lower-case (bootstrap.ts's own seeds, and slugifyCustomStatusIdentifier
+ * for custom ones) — callers are expected to lower-case their own input
+ * before calling this (see each buildXWhere's own comment), which is
+ * also exactly what makes a legacy `?status=ACTIVE`-shaped URL keep
+ * resolving correctly with zero special-casing: "ACTIVE".toLowerCase()
+ * is byte-identical to the system CLIENT_ACTIVE definition's own key.
+ */
+export async function resolveStatusDefinitionByKey(
+  organizationId: string,
+  entityType: CustomStatusEntityType,
+  key: string,
+  client: PrismaClientOrTx = prisma,
+): Promise<CustomStatusDefinition | null> {
+  return client.customStatusDefinition.findFirst({
+    where: { organizationId, entityType, key },
+  });
+}

@@ -5,6 +5,7 @@ import { updatePaymentDetailsAction } from "@/app/(dashboard)/settings/payment/a
 import { updateDomainSettingsAction } from "@/app/(dashboard)/settings/domain/actions";
 import { createClientAction } from "@/app/(dashboard)/clients/new/actions";
 import { getCurrentMembership, getCurrentUserOrganization } from "@/lib/current-user";
+import { bootstrapOrganizationStatusDefinitions } from "@/lib/custom-statuses/bootstrap";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { actAs, resetAuthMock } from "../../support/auth-mock";
 import { RedirectSignal } from "../../support/navigation-mock";
@@ -67,6 +68,7 @@ describe("Session stability after a successful Server Action — Stage 6.2.1", (
 
   beforeAll(async () => {
     fixtures = await seedTestData();
+    await bootstrapOrganizationStatusDefinitions(prisma, fixtures.orgA.id);
   });
 
   afterEach(async () => {
@@ -141,9 +143,16 @@ describe("Session stability after a successful Server Action — Stage 6.2.1", (
     it("behavior is unchanged: a Client is still created, and the user remains authenticated immediately after — the exact pre-existing action production smoke testing found exhibiting this symptom", async () => {
       actAs(fixtures.owner, fixtures.orgA.id);
 
+      // Custom Statuses Phase 2B (Section R) — statusDefinitionId is now
+      // required on the Client form; unrelated to session stability, so
+      // a real definition is resolved just to make the submission valid.
+      const leadDef = await prisma.customStatusDefinition.findFirstOrThrow({
+        where: { organizationId: fixtures.orgA.id, entityType: "CLIENT", isSystem: true, key: "lead" },
+      });
       const formData = new FormData();
       const clientName = `Stability Test Client ${fixtures.runId}`;
       formData.set("name", clientName);
+      formData.set("statusDefinitionId", leadDef.id);
 
       // createClientAction redirects on success (unchanged) — a thrown
       // RedirectSignal to /clients, never /login.

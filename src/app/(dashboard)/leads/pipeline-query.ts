@@ -48,7 +48,19 @@ export type PipelineLead = {
   /** Stringified Decimal — Prisma's Decimal type can't cross the Server -> Client boundary as a prop. */
   value: string | null;
   stage: LeadStage;
-  statusDefinition: { label: string; color: import("@/generated/prisma/enums").CustomStatusColor | null } | null;
+  /**
+   * Custom Statuses Phase 2B (Section M) — `id`/`key`/`isSystem` added
+   * alongside the pre-existing `label`/`color` so LeadPipelineCard can
+   * build its own "current" status option locally (mergeCurrentStatusOption)
+   * with zero extra per-row database access (Section AB).
+   */
+  statusDefinition: {
+    id: string;
+    key: string;
+    label: string;
+    color: import("@/generated/prisma/enums").CustomStatusColor | null;
+    isSystem: boolean;
+  } | null;
   convertedClientId: string | null;
   assignedTo: { id: string; name: string } | null;
   createdAt: Date;
@@ -175,7 +187,7 @@ export async function fetchLeadPipelineColumns(
         take: PIPELINE_STAGE_CARD_BOUND,
         include: {
           assignedTo: { select: { id: true, name: true } },
-          statusDefinition: { select: { label: true, color: true } },
+          statusDefinition: { select: { id: true, key: true, label: true, color: true, isSystem: true } },
         },
       }),
     ),

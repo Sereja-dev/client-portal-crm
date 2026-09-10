@@ -66,12 +66,22 @@ export const SYSTEM_STATUS_DEFINITIONS: Record<CustomStatusEntityType, readonly 
 /**
  * The stable, immutable keys real business logic may check against
  * (Section G: "system semantic identity tied to key, not label"). Only
- * the four keys that actually gate something in this app today —
+ * the five keys that actually gate something in this app today —
  * everything else in SYSTEM_STATUS_DEFINITIONS above is display/filter
  * only, with no code path that needs to resolve it by identity.
+ *
+ * LEAD_NEW added in the Phase 2B Completion Pass (Section B/C) — Lead
+ * creation always starts at system NEW (a pre-existing, stronger
+ * invariant from Leads/Sales Pipeline Phase 2, deliberately never wired
+ * to a Settings-configurable default), so the LEAD default itself is
+ * permanently locked to this one key — setDefaultCustomStatusDefinition
+ * checks against it directly rather than trusting isDefault on the NEW
+ * row alone (Section C: enforce at the domain boundary, not just by
+ * hiding UI).
  */
 export const SYSTEM_STATUS_KEYS = {
   CLIENT_ACTIVE: "active",
+  LEAD_NEW: "new",
   LEAD_WON: "won",
   LEAD_LOST: "lost",
   PROJECT_IN_PROGRESS: "in_progress",

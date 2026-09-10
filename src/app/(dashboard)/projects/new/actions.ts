@@ -14,8 +14,16 @@ import {
   validateCustomFieldFormValues,
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
-import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
+import { resolveStatusForSave } from "@/lib/custom-statuses/entity-form";
+import type { ProjectStatusValue } from "@/lib/validation/project";
 import type { ProjectFormState } from "@/types";
+
+/** Thrown only inside createProjectAction's own transaction, to carry a typed rejection reason out to its catch block — never allowed to escape this function (Section R). */
+class ProjectStatusResolutionError extends Error {
+  constructor(readonly reason: "NOT_FOUND" | "ARCHIVED") {
+    super(`Project status resolution rejected: ${reason}`);
+  }
+}
 
 export async function createProjectAction(
   _prevState: ProjectFormState,
@@ -64,20 +72,24 @@ export async function createProjectAction(
       // immediately before the Project write it guards.
       await assertCanCreateProject(organizationId, tx);
 
-      // Custom Statuses Phase 1 (Section P) — see createClientAction's
-      // own identical comment.
-      const statusDefinition = await resolveSystemStatusDefinition(
-        organizationId,
-        "PROJECT",
-        values.status.toLowerCase(),
-        tx,
-      );
+      // Custom Statuses Phase 2B (Section O/R) — see createClientAction's
+      // own identical comment for the full reasoning (resolve+verify the
+      // Staff-selected definition; SYSTEM writes its own matching legacy
+      // enum; CUSTOM falls back to "PLANNING", the exact pre-existing
+      // schema-level default, never an invented neutral value).
+      const statusResult = await resolveStatusForSave(organizationId, "PROJECT", values.statusDefinitionId, null, tx);
+      if (!statusResult.ok) {
+        throw new ProjectStatusResolutionError(statusResult.reason);
+      }
+      const legacyStatus: ProjectStatusValue = statusResult.isSystem
+        ? (statusResult.key.toUpperCase() as ProjectStatusValue)
+        : "PLANNING";
 
       const project = await tx.project.create({
         data: {
           name: values.name,
-          status: values.status,
-          statusDefinitionId: statusDefinition?.id,
+          status: legacyStatus,
+          statusDefinitionId: statusResult.definitionId,
           startDate: values.startDate,
           endDate: values.endDate,
           clientId: values.clientId,
@@ -109,6 +121,15 @@ export async function createProjectAction(
   } catch (err) {
     if (err instanceof BillingLimitError) {
       return { error: err.message };
+    }
+    if (err instanceof ProjectStatusResolutionError) {
+      return {
+        error: null,
+        fieldErrors: {
+          statusDefinitionId:
+            err.reason === "ARCHIVED" ? "This status is archived and can't be assigned." : "Select a valid status.",
+        },
+      };
     }
     throw err;
   }

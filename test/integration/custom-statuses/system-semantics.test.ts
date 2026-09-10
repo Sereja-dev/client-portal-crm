@@ -78,7 +78,12 @@ describe("Custom Statuses — system semantics via the real Client/Lead/Project 
     actAs(fixtures.owner, fixtures.orgA.id);
     const leadDef = await findDefinition(fixtures.orgA.id, "CLIENT", "lead");
 
-    await expectRedirect(createClientAction({ error: null }, buildFormData({ name: uniqueName("Client"), status: "LEAD" })));
+    await expectRedirect(
+      createClientAction(
+        { error: null },
+        buildFormData({ name: uniqueName("Client"), status: "LEAD", statusDefinitionId: leadDef.id }),
+      ),
+    );
 
     const client = await prisma.client.findFirstOrThrow({ where: { organizationId: fixtures.orgA.id, name: { startsWith: "Client-" } }, orderBy: { createdAt: "desc" } });
     expect(client.status).toBe("LEAD");
@@ -90,7 +95,11 @@ describe("Custom Statuses — system semantics via the real Client/Lead/Project 
     const activeDef = await findDefinition(fixtures.orgA.id, "CLIENT", "active");
 
     await expectRedirect(
-      updateClientAction(fixtures.clientA.id, { error: null }, buildFormData({ name: fixtures.clientA.name, status: "ACTIVE" })),
+      updateClientAction(
+        fixtures.clientA.id,
+        { error: null },
+        buildFormData({ name: fixtures.clientA.name, status: "ACTIVE", statusDefinitionId: activeDef.id }),
+      ),
     );
 
     const client = await prisma.client.findUniqueOrThrow({ where: { id: fixtures.clientA.id } });
@@ -171,7 +180,12 @@ describe("Custom Statuses — system semantics via the real Client/Lead/Project 
     await expectRedirect(
       createProjectAction(
         { error: null },
-        buildFormData({ name: uniqueName("Project"), status: "IN_PROGRESS", clientId: fixtures.clientA.id }),
+        buildFormData({
+          name: uniqueName("Project"),
+          status: "IN_PROGRESS",
+          clientId: fixtures.clientA.id,
+          statusDefinitionId: inProgressDef.id,
+        }),
       ),
     );
 
@@ -191,7 +205,12 @@ describe("Custom Statuses — system semantics via the real Client/Lead/Project 
       updateProjectAction(
         fixtures.project.id,
         { error: null },
-        buildFormData({ name: fixtures.project.name, status: "COMPLETED", clientId: fixtures.clientA.id }),
+        buildFormData({
+          name: fixtures.project.name,
+          status: "COMPLETED",
+          clientId: fixtures.clientA.id,
+          statusDefinitionId: completedDef.id,
+        }),
       ),
     );
 

@@ -16,8 +16,16 @@ import {
   validateCustomFieldFormValues,
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
-import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
+import { resolveStatusForSave } from "@/lib/custom-statuses/entity-form";
+import type { ClientStatusValue } from "@/lib/validation/client";
 import type { ClientFormState } from "@/types";
+
+/** Thrown only inside createClientAction's own transaction, to carry a typed rejection reason out to its catch block — never allowed to escape this function (Section R). */
+class ClientStatusResolutionError extends Error {
+  constructor(readonly reason: "NOT_FOUND" | "ARCHIVED") {
+    super(`Client status resolution rejected: ${reason}`);
+  }
+}
 
 export async function createClientAction(
   _prevState: ClientFormState,
@@ -67,22 +75,41 @@ export async function createClientAction(
       // immediately before the Client write it guards.
       await assertCanCreateClient(organizationId, tx);
 
-      // Custom Statuses Phase 1 (Section P) — keeps the new, backfilled
-      // statusDefinitionId identity in sync with the legacy `status`
-      // enum this action already writes, for every organization that
-      // has been bootstrapped with its system definitions (every
-      // organization, per Section N — this lookup is only ever null if
-      // that invariant is somehow violated, and creation must not be
-      // blocked by that: `?.id` simply leaves the column unset).
-      const statusDefinition = await resolveSystemStatusDefinition(
-        organizationId,
-        "CLIENT",
-        values.status.toLowerCase(),
-        tx,
-      );
+      // Custom Statuses Phase 2B (Section L/R) — statusDefinitionId is
+      // now the real, Staff-selected status identity (never trusted
+      // directly off FormData: re-fetched by {id, organizationId,
+      // entityType}, which also rejects a foreign-org/wrong-entityType/
+      // archived id). A brand-new Client has no "current" definition to
+      // exempt (currentDefinitionId: null), so an archived target is
+      // always rejected here, with no exception.
+      const statusResult = await resolveStatusForSave(organizationId, "CLIENT", values.statusDefinitionId, null, tx);
+      if (!statusResult.ok) {
+        throw new ClientStatusResolutionError(statusResult.reason);
+      }
+
+      // Section H's own documented compatibility rule: a SYSTEM target
+      // writes its own matching legacy enum value (system keys are
+      // always the lowercase of their legacy enum, e.g. "active" ->
+      // "ACTIVE"); a CUSTOM target has no legacy representation at all,
+      // so the legacy NOT NULL column falls back to this exact same
+      // "LEAD" value parseClientForm's own field parser has always
+      // defaulted to when no status was specified — the pre-existing
+      // schema-level default, not an invented neutral value (Section H:
+      // "Do NOT invent a fake neutral enum"). This legacy value is never
+      // read as authoritative by any display/filter/KPI once a real
+      // statusDefinitionId is present (Phase 2A's own read migration).
+      const legacyStatus: ClientStatusValue = statusResult.isSystem
+        ? (statusResult.key.toUpperCase() as ClientStatusValue)
+        : "LEAD";
 
       const client = await tx.client.create({
-        data: { ...values, userId: user.id, organizationId, statusDefinitionId: statusDefinition?.id },
+        data: {
+          ...values,
+          status: legacyStatus,
+          statusDefinitionId: statusResult.definitionId,
+          userId: user.id,
+          organizationId,
+        },
       });
 
       await persistCustomFieldValuesInTransaction(tx, {
@@ -137,6 +164,15 @@ export async function createClientAction(
   } catch (err) {
     if (err instanceof BillingLimitError) {
       return { error: err.message };
+    }
+    if (err instanceof ClientStatusResolutionError) {
+      return {
+        error: null,
+        fieldErrors: {
+          statusDefinitionId:
+            err.reason === "ARCHIVED" ? "This status is archived and can't be assigned." : "Select a valid status.",
+        },
+      };
     }
     throw err;
   }

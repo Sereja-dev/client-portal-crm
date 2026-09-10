@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { getActiveCustomFieldFormDefinitions } from "@/lib/custom-fields/entity-form";
+import { buildStatusSelectOptions } from "@/lib/custom-statuses/entity-form";
 import { ProjectForm } from "@/components/projects/project-form";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
@@ -22,6 +23,8 @@ export default async function NewProjectPage() {
   });
   // Custom Fields Phase 2B (Section B) — active PROJECT definitions only.
   const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "PROJECT");
+  // Custom Statuses Phase 2B (Section O) — every active PROJECT status definition.
+  const statusOptions = await buildStatusSelectOptions(organizationId, "PROJECT", null);
 
   return (
     <div className="mx-auto max-w-xl">
@@ -46,7 +49,12 @@ export default async function NewProjectPage() {
         />
       ) : (
         <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-          <ProjectForm action={createProjectAction} clients={clients} customFieldDefinitions={customFieldDefinitions} />
+          <ProjectForm
+            action={createProjectAction}
+            clients={clients}
+            statusOptions={statusOptions}
+            customFieldDefinitions={customFieldDefinitions}
+          />
         </div>
       )}
     </div>

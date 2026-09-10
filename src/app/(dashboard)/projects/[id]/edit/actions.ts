@@ -18,7 +18,8 @@ import {
   validateCustomFieldFormValues,
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
-import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
+import { resolveStatusForSave } from "@/lib/custom-statuses/entity-form";
+import type { ProjectStatusValue } from "@/lib/validation/project";
 import type { ProjectFormState } from "@/types";
 
 export async function updateProjectAction(
@@ -83,21 +84,28 @@ export async function updateProjectAction(
       return "not_found" as const;
     }
 
-    // Custom Statuses Phase 1 (Section P) — see updateClientAction's own
-    // identical comment.
-    const statusDefinition = await resolveSystemStatusDefinition(
+    // Custom Statuses Phase 2B (Section O/R) — see updateClientAction's
+    // own identical comment.
+    const statusResult = await resolveStatusForSave(
       organizationId,
       "PROJECT",
-      values.status.toLowerCase(),
+      values.statusDefinitionId,
+      existing.statusDefinitionId,
       tx,
     );
+    if (!statusResult.ok) {
+      return statusResult.reason === "ARCHIVED" ? ("status_archived" as const) : ("status_not_found" as const);
+    }
+    const legacyStatus: ProjectStatusValue | undefined = statusResult.isSystem
+      ? (statusResult.key.toUpperCase() as ProjectStatusValue)
+      : undefined;
 
     const result = await tx.project.updateMany({
       where: { id: projectId, organizationId },
       data: {
         name: values.name,
-        status: values.status,
-        statusDefinitionId: statusDefinition?.id,
+        status: legacyStatus,
+        statusDefinitionId: statusResult.definitionId,
         startDate: values.startDate,
         endDate: values.endDate,
         clientId: values.clientId,
@@ -120,8 +128,14 @@ export async function updateProjectAction(
     // A pure resubmit of identical values creates no Activity at all.
     // "status" is always split out into its own STATUS_CHANGED event, so
     // it's never listed in an UPDATED event's changedFields even when both
-    // fire together.
-    const changedFields = diffProjectFields(existing, values);
+    // fire together. `values.status` from parseProjectForm is never real
+    // anymore (the form no longer submits a `status` field — see this
+    // file's own comment above) — substituted with the actual computed
+    // legacy value (falling back to the row's own existing value for a
+    // CUSTOM target, whose legacy column was left untouched), so the
+    // diff and Activity metadata both describe what genuinely changed.
+    const valuesForActivity = { ...values, status: legacyStatus ?? existing.status };
+    const changedFields = diffProjectFields(existing, valuesForActivity);
     const statusChanged = changedFields.includes("status");
     const otherChangedFields = changedFields.filter((field) => field !== "status");
 
@@ -133,10 +147,10 @@ export async function updateProjectAction(
         entityId: projectId,
         action: "STATUS_CHANGED",
         metadata: buildProjectStatusChangedMetadata(
-          values,
+          valuesForActivity,
           client.name,
           existing.status,
-          values.status,
+          valuesForActivity.status,
           user.name,
         ),
       });
@@ -149,7 +163,7 @@ export async function updateProjectAction(
         entityType: "PROJECT",
         entityId: projectId,
         action: "UPDATED",
-        metadata: buildProjectUpdatedMetadata(values, client.name, otherChangedFields, user.name),
+        metadata: buildProjectUpdatedMetadata(valuesForActivity, client.name, otherChangedFields, user.name),
       });
     }
 
@@ -158,6 +172,15 @@ export async function updateProjectAction(
 
   if (outcome === "not_found") {
     return { error: "This project could not be found." };
+  }
+  if (outcome === "status_not_found" || outcome === "status_archived") {
+    return {
+      error: null,
+      fieldErrors: {
+        statusDefinitionId:
+          outcome === "status_archived" ? "This status is archived and can't be assigned." : "Select a valid status.",
+      },
+    };
   }
 
   redirect(withToast("/projects", "Project updated"));

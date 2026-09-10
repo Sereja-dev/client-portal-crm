@@ -122,8 +122,14 @@ describe("Leads list query (org scoping, filters, safety)", () => {
   });
 
   it("8. an invalid stage query param fails safely — falls back to no filter, never an error or empty scope", async () => {
+    // Custom Statuses Phase 2B (Section P): `stage` is no longer
+    // validated against a fixed enum at parse time (it's now a
+    // CustomStatusDefinition key, resolved live against the database) —
+    // parseLeadListParams only lower-cases it, so a garbage value simply
+    // fails to resolve to any real definition inside buildLeadWhere,
+    // exactly like the old fixed-enum lookup always did.
     const params = parseLeadListParams({ stage: "NOT_A_REAL_STAGE" });
-    expect(params.stage).toBeUndefined();
+    expect(params.stage).toBe("not_a_real_stage");
     const where = await buildLeadWhere(fixtures.orgA.id, params);
     const results = await prisma.lead.findMany({ where });
     // Behaves exactly like no stage filter at all — still returns every

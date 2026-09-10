@@ -268,7 +268,17 @@ describe("Custom Statuses Phase 2A — read & semantics migration", () => {
       const column = columns.find((c) => c.definitionId === created.definition.id)!;
       expect(column.label).toBe("Renderable Archived");
       const cardLead = column.leads.find((l) => l.id === lead.id)!;
-      expect(cardLead.statusDefinition).toEqual({ label: "Renderable Archived", color: "WARNING" });
+      // Custom Statuses Phase 2B (Section M) — id/key/isSystem were added
+      // to this select alongside label/color so LeadPipelineCard can
+      // build its own status-select option locally (mergeCurrentStatusOption)
+      // with zero extra per-row query.
+      expect(cardLead.statusDefinition).toEqual({
+        id: created.definition.id,
+        key: created.definition.key,
+        label: "Renderable Archived",
+        color: "WARNING",
+        isSystem: false,
+      });
     });
   });
 

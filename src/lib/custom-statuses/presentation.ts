@@ -20,7 +20,11 @@ export type StatusDefinitionPresentation = {
   color: CustomStatusColor | null;
 };
 
-const COLOR_TO_TONE: Record<CustomStatusColor, StatusTone> = {
+// Exported (Custom Statuses Phase 2B, Section T) — the settings UI's own
+// color swatch/badge preview needs this same mapping for a definition on
+// its own (no legacy value to fall back to there), rather than a second,
+// parallel copy of the same six-entry map.
+export const COLOR_TO_TONE: Record<CustomStatusColor, StatusTone> = {
   NEUTRAL: "neutral",
   INFO: "info",
   WARNING: "warning",

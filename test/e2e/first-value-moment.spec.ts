@@ -52,7 +52,16 @@ async function gotoAndSettle(page: Page, url: string): Promise<void> {
 
 type FreshOrg = { org: { id: string }; owner: { id: string; email: string } };
 
-/** A brand-new organization with zero business data — mirrors onboarding-ui.spec.ts's own createFreshOrg. */
+/**
+ * A brand-new organization with zero business data — mirrors
+ * onboarding-ui.spec.ts's own createFreshOrg. Custom Statuses Phase 2B
+ * (Final E2E Fixture Sweep) — also bootstraps one real default
+ * CLIENT+PROJECT system status definition each: a raw `dbQuery`-created
+ * organization is never auto-bootstrapped the way a real one always is
+ * (see bootstrap.ts's own doc comment), and several tests in this file
+ * submit a real Client/Project create form through this org, which now
+ * requires a real, resolvable statusDefinitionId to succeed at all.
+ */
 async function createFreshOrg(runId: string, label: string): Promise<FreshOrg> {
   const org = await dbQuery<{ id: string }>("organization", "create", {
     data: { name: `Fresh ${label}`, slug: testSlug(`first-value-${label}`, runId) },
@@ -61,11 +70,42 @@ async function createFreshOrg(runId: string, label: string): Promise<FreshOrg> {
     data: { id: randomUUID(), email: testEmail(`first-value-${label}-owner`, TEST_EMAIL_DOMAIN, runId), name: "Owner" },
   });
   await dbQuery("membership", "create", { data: { userId: owner.id, organizationId: org.id, role: "OWNER" } });
+  await dbQuery("customStatusDefinition", "create", {
+    data: {
+      organizationId: org.id,
+      entityType: "CLIENT",
+      key: "lead",
+      label: "Lead",
+      color: "NEUTRAL",
+      position: 0,
+      isDefault: true,
+      isSystem: true,
+    },
+  });
+  await dbQuery("customStatusDefinition", "create", {
+    data: {
+      organizationId: org.id,
+      entityType: "PROJECT",
+      key: "planning",
+      label: "Planning",
+      color: "NEUTRAL",
+      position: 0,
+      isDefault: true,
+      isSystem: true,
+    },
+  });
   return { org, owner };
 }
 
-/** Organization delete cascades Membership; the User row is separate. */
+/**
+ * Organization delete cascades Membership; the User row is separate.
+ * CustomStatusDefinition rows are deleted explicitly first — every call
+ * site already deletes its own Client/Project/Task rows before calling
+ * this (they reference these definitions via statusDefinitionId), so
+ * this is always safe to run last, right before the Organization itself.
+ */
 async function cleanupFreshOrg({ org, owner }: FreshOrg): Promise<void> {
+  await dbQuery("customStatusDefinition", "deleteMany", { where: { organizationId: org.id } });
   await dbQuery("organization", "delete", { where: { id: org.id } });
   await dbQuery("user", "delete", { where: { id: owner.id } });
 }

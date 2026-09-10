@@ -3,10 +3,12 @@
 import { useRef, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import type { LeadStage } from "@/generated/prisma/enums";
-import { moveLeadStageAction, markLeadLostAction } from "@/app/(dashboard)/leads/actions";
+import { assignLeadStatusDefinitionAction, markLeadLostAction } from "@/app/(dashboard)/leads/actions";
 import type { PipelineLead } from "@/app/(dashboard)/leads/pipeline-query";
-import { LEAD_STAGES, isLostLeadStage } from "@/lib/leads/stages";
+import { isLostLeadStage } from "@/lib/leads/stages";
+import type { StatusSelectOption } from "@/lib/custom-statuses/select-options";
+import { mergeCurrentStatusOption } from "@/lib/custom-statuses/select-options";
+import { buildLeadStatusSelectOptions } from "@/components/leads/lead-status-options";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { MarkLeadLostDialog, type MarkLeadLostDialogHandle } from "@/components/leads/mark-lead-lost-dialog";
 import { Select } from "@/components/ui/select";
@@ -22,21 +24,31 @@ import { useToast } from "@/components/toast/toast-provider";
 // that must never end up in a Client Component's own bundle.
 const RATE_LIMIT_MESSAGE = "Too many requests. Please try again later.";
 
-const MOVABLE_STAGES = LEAD_STAGES.filter((s) => !isLostLeadStage(s.value));
-
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
 /**
  * One Lead's card inside the Pipeline board (src/components/leads/
- * lead-pipeline-board.tsx). Deliberately reuses moveLeadStageAction /
+ * lead-pipeline-board.tsx). Deliberately reuses assignLeadStatusDefinitionAction /
  * markLeadLostAction / MarkLeadLostDialog directly — the exact same
- * calls LeadActionsPanel's own edit-page stage controls already make, no
- * parallel business logic. No drag-and-drop anywhere: stage movement is
- * always this explicit "Move to" <select>, matching the edit page's own
- * control for the same reason (never offering a value the backend would
- * reject as invalid_stage; LOST has its own dedicated Mark Lost flow).
+ * calls LeadActionsPanel's own edit-page status controls already make,
+ * no parallel business logic. No drag-and-drop anywhere: stage movement
+ * is always this explicit "Move to" <select>, matching the edit page's
+ * own control for the same reason (never offering a value the backend
+ * would reject; LOST has its own dedicated Mark Lost flow — Section M).
+ *
+ * Custom Statuses Phase 2B (Section AB) — `statusOptions` is the shared,
+ * active LEAD options list fetched ONCE per page load (leads/page.tsx),
+ * never re-queried per card; this card only ever merges in its OWN
+ * already-fetched `lead.statusDefinition` locally (mergeCurrentStatusOption),
+ * with zero extra database access per row.
  */
-export function LeadPipelineCard({ lead }: { lead: PipelineLead }) {
+export function LeadPipelineCard({
+  lead,
+  statusOptions,
+}: {
+  lead: PipelineLead;
+  statusOptions: StatusSelectOption[];
+}) {
   const router = useRouter();
   const { showToast } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -45,20 +57,40 @@ export function LeadPipelineCard({ lead }: { lead: PipelineLead }) {
   const isConverted = lead.convertedClientId !== null;
   const isLost = isLostLeadStage(lead.stage);
 
-  function handleStageChange(next: string) {
+  // Section D fallback (unreachable in Production — every real Lead is
+  // fully backfilled): an unbackfilled row has no statusDefinition at
+  // all, so its current option is derived from the shared active list by
+  // matching its own legacy `stage`, exactly like every other Phase 2A
+  // fallback in this app.
+  const currentOption: StatusSelectOption | null = lead.statusDefinition
+    ? { ...lead.statusDefinition, isDefault: false, archived: false }
+    : (statusOptions.find((o) => o.isSystem && o.key === lead.stage.toLowerCase()) ?? null);
+  const mergedOptions = mergeCurrentStatusOption(statusOptions, currentOption);
+  const selectableStatusOptions = buildLeadStatusSelectOptions(mergedOptions, currentOption?.id ?? null);
+
+  function handleStatusChange(definitionId: string) {
     startTransition(async () => {
-      const result = await moveLeadStageAction(lead.id, next as LeadStage);
+      const result = await assignLeadStatusDefinitionAction(lead.id, definitionId);
       if (result.ok) {
-        showToast("Stage updated");
+        showToast("Status updated");
         router.refresh();
         return;
       }
-      if (result.reason === "converted_locked") {
-        showToast("This lead has already converted — its stage is locked.", "error");
-      } else if (result.reason === "rate_limited") {
-        showToast(RATE_LIMIT_MESSAGE, "error");
-      } else {
-        showToast(GENERIC_ERROR, "error");
+      switch (result.reason) {
+        case "converted_locked":
+          showToast("This lead has already converted — its stage is locked.", "error");
+          break;
+        case "rate_limited":
+          showToast(RATE_LIMIT_MESSAGE, "error");
+          break;
+        case "use_mark_lost_action":
+          showToast('Use "Mark lost" to mark this lead as lost.', "error");
+          break;
+        case "status_archived":
+          showToast("This status is archived and can't be assigned.", "error");
+          break;
+        default:
+          showToast(GENERIC_ERROR, "error");
       }
       router.refresh();
     });
@@ -132,10 +164,10 @@ export function LeadPipelineCard({ lead }: { lead: PipelineLead }) {
       ) : (
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Select
-            aria-label={`Move ${lead.name} to stage`}
-            value={lead.stage}
+            aria-label={`Change ${lead.name}'s status`}
+            value={currentOption?.id ?? ""}
             disabled={isPending}
-            onChange={(event) => handleStageChange(event.target.value)}
+            onChange={(event) => handleStatusChange(event.target.value)}
             // flex-1/min-w-0 only — layout utilities, never a property
             // formControlClasses already sets itself (padding/text-size/
             // width), matching this app's own documented rule against
@@ -144,10 +176,10 @@ export function LeadPipelineCard({ lead }: { lead: PipelineLead }) {
             // production bug that rule exists to prevent).
             className="min-w-0 flex-1"
           >
-            {isLost && <option value="LOST">Lost</option>}
-            {MOVABLE_STAGES.map((s) => (
-              <option key={s.value} value={s.value}>
-                {s.label}
+            {selectableStatusOptions.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label}
+                {option.archived ? " (archived)" : ""}
               </option>
             ))}
           </Select>

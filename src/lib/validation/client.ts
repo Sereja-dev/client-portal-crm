@@ -27,6 +27,18 @@ export type ParsedClientInput = {
   email: string | null;
   phone: string | null;
   status: ClientStatusValue;
+  /**
+   * Custom Statuses Phase 2B (Section L/R) — the real, authoritative
+   * status identity the form's own `<select>` now submits (system or
+   * custom CustomStatusDefinition id). `status` above is retained
+   * unchanged (still parsed, still defaults to "LEAD" when absent — it
+   * always is now, ClientForm no longer submits it) purely so this
+   * type's existing shape/callers don't need to change; the real legacy
+   * enum value written to the database is computed server-side in the
+   * Server Action from the resolved definition, never from this field
+   * directly (see createClientAction/updateClientAction's own comments).
+   */
+  statusDefinitionId: string;
   billingLegalName: string | null;
   taxId: string | null;
   streetAddress: string | null;
@@ -51,6 +63,7 @@ export function parseClientForm(formData: FormData): {
   const email = String(formData.get("email") ?? "").trim();
   const phone = String(formData.get("phone") ?? "").trim();
   const status = String(formData.get("status") ?? "LEAD");
+  const statusDefinitionId = String(formData.get("statusDefinitionId") ?? "").trim();
 
   const billingLegalName = trimmedOrNull(formData.get("billingLegalName"));
   const taxId = trimmedOrNull(formData.get("taxId"));
@@ -73,6 +86,10 @@ export function parseClientForm(formData: FormData): {
   const isValidStatus = CLIENT_STATUSES.includes(status as ClientStatusValue);
   if (!isValidStatus) {
     fieldErrors.status = "Select a valid status.";
+  }
+
+  if (!statusDefinitionId) {
+    fieldErrors.statusDefinitionId = "Select a status.";
   }
 
   // Optional billing fields: no required-ness check (null is always
@@ -107,6 +124,7 @@ export function parseClientForm(formData: FormData): {
       email: email || null,
       phone: phone || null,
       status: isValidStatus ? (status as ClientStatusValue) : "LEAD",
+      statusDefinitionId,
       billingLegalName,
       taxId,
       streetAddress,

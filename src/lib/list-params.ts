@@ -26,6 +26,19 @@ export function parseEnumParam<T extends string>(
 }
 
 /**
+ * Custom Statuses Phase 2B (Section P) — a `?status=`/`?stage=`-shaped
+ * list filter param, no longer constrained to a fixed enum: lower-cased
+ * so it can be resolved against a live CustomStatusDefinition's own key
+ * (resolveStatusDefinitionByKey), which also transparently keeps a
+ * legacy uppercase system value (`?status=ACTIVE`) working with zero
+ * special-casing — see that function's own comment.
+ */
+export function parseStatusKeyParam(value: string | string[] | undefined): string | undefined {
+  const v = firstValue(value).trim().toLowerCase();
+  return v || undefined;
+}
+
+/**
  * Sort params are encoded as a single "field:direction" value (e.g.
  * "createdAt:desc") so the whole sort choice is one <select>, not two.
  */

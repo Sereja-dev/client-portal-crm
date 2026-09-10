@@ -41,6 +41,11 @@ const SETTINGS_LINKS: readonly SettingsNavLink[] = [
   // existing Client-management permission model (see this feature's own
   // Server Actions for the full reasoning).
   { href: "/settings/custom-fields", label: "Custom fields" },
+  // Custom Statuses Phase 2B — same "org-wide config, open to any staff
+  // role" tier as Custom Fields immediately above (see that entry's own
+  // comment); not role-gated, matching the identical permission model
+  // (see this feature's own Server Actions for the full reasoning).
+  { href: "/settings/custom-statuses", label: "Custom statuses" },
   // Phase D: grouped next to Notifications — both are personal,
   // per-identity preferences (not organization-wide config like
   // Company/Payment/Domain/Billing above), and neither is role-gated.

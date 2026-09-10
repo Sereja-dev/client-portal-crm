@@ -7,6 +7,7 @@ import { createCustomFieldDefinition } from "@/lib/custom-fields/definitions";
 import { createCustomFieldOption, archiveCustomFieldOption } from "@/lib/custom-fields/options";
 import { upsertCustomFieldValue } from "@/lib/custom-fields/values";
 import { createActivity } from "@/lib/activity/create-activity";
+import { bootstrapOrganizationStatusDefinitions } from "@/lib/custom-statuses/bootstrap";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { actAs, resetAuthMock } from "../../support/auth-mock";
 import { RedirectSignal } from "../../support/navigation-mock";
@@ -48,8 +49,14 @@ function buildFormData(fields: Record<string, string>): FormData {
   return fd;
 }
 
+// Custom Statuses Phase 2B (Section R) — statusDefinitionId is now
+// required on the Client form; this suite is entirely about custom
+// fields, unrelated to status, so every call defaults to orgA's own
+// bootstrapped 'active' system definition (set in beforeAll below).
+let defaultStatusDefinitionId: string;
+
 function baseClientFields(overrides: Record<string, string> = {}): Record<string, string> {
-  return { name: `Client-${randomUUID().slice(0, 8)}`, status: "ACTIVE", ...overrides };
+  return { name: `Client-${randomUUID().slice(0, 8)}`, status: "ACTIVE", statusDefinitionId: defaultStatusDefinitionId, ...overrides };
 }
 
 async function makeClient(organizationId: string, userId: string) {
@@ -71,6 +78,12 @@ describe("Custom Fields — Client create/edit form integration", () => {
 
   beforeAll(async () => {
     fixtures = await seedTestData();
+    await bootstrapOrganizationStatusDefinitions(prisma, fixtures.orgA.id);
+    defaultStatusDefinitionId = (
+      await prisma.customStatusDefinition.findFirstOrThrow({
+        where: { organizationId: fixtures.orgA.id, entityType: "CLIENT", isSystem: true, key: "active" },
+      })
+    ).id;
   });
 
   afterEach(async () => {

@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
-import { formatStatusLabel } from "@/lib/format";
 import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib/list-params";
+import { listCustomStatusDefinitions } from "@/lib/custom-statuses/definitions";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { deleteProjectAction } from "./actions";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -26,7 +26,6 @@ import {
   RecordCardField,
   RecordCardActions,
 } from "@/components/ui/record-list";
-import { PROJECT_STATUSES } from "@/lib/validation/project";
 import {
   parseProjectListParams,
   buildProjectWhere,
@@ -66,6 +65,21 @@ export default async function ProjectsPage({
 
   const where = await buildProjectWhere(organizationId, listParams);
   const orderBy = buildProjectOrderBy(listParams);
+
+  // Custom Statuses Phase 2B (Section P) — see clients/page.tsx's own
+  // identical comment.
+  const allStatusDefinitions = await listCustomStatusDefinitions(organizationId, "PROJECT", { includeArchived: true });
+  const activeStatusDefinitions = allStatusDefinitions.filter((d) => d.archivedAt === null);
+  const selectedArchivedDefinition = allStatusDefinitions.find(
+    (d) => d.archivedAt !== null && d.key === listParams.status,
+  );
+  const statusFilterOptions = [
+    { value: "", label: "All statuses" },
+    ...activeStatusDefinitions.map((d) => ({ value: d.key, label: d.label })),
+    ...(selectedArchivedDefinition
+      ? [{ value: selectedArchivedDefinition.key, label: `${selectedArchivedDefinition.label} (archived)` }]
+      : []),
+  ];
 
   const [clientCount, [projects, total]] = await Promise.all([
     prisma.client.count({ where: { organizationId } }),
@@ -115,13 +129,7 @@ export default async function ProjectsPage({
               name: "status",
               label: "Status",
               value: listParams.status ?? "",
-              options: [
-                { value: "", label: "All statuses" },
-                ...PROJECT_STATUSES.map((status) => ({
-                  value: status,
-                  label: formatStatusLabel(status),
-                })),
-              ],
+              options: statusFilterOptions,
             },
           ]}
           sort={{ value: listParams.sortCombined, options: SORT_OPTIONS }}

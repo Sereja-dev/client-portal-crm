@@ -3,6 +3,8 @@ import Link from "next/link";
 import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { getActiveCustomFieldFormDefinitions, getCustomFieldFormValues } from "@/lib/custom-fields/entity-form";
+import { buildStatusSelectOptions } from "@/lib/custom-statuses/entity-form";
+import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import { ClientForm } from "@/components/clients/client-form";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
@@ -40,6 +42,15 @@ export default async function EditClientPage({
     client.id,
     customFieldDefinitions,
   );
+  // Custom Statuses Phase 2B (Section L/D) — a real Production Client
+  // always has a non-null statusDefinitionId (Phase 1's own backfill +
+  // every create path since); this fallback only ever matters for a
+  // historical/unbackfilled test fixture, so the edit form still
+  // preselects the Client's own genuinely-current status (via its legacy
+  // enum) rather than silently defaulting to the organization's default.
+  const currentStatusDefinitionId =
+    client.statusDefinitionId ?? (await resolveSystemStatusDefinition(organizationId, "CLIENT", client.status.toLowerCase()))?.id ?? undefined;
+  const statusOptions = await buildStatusSelectOptions(organizationId, "CLIENT", currentStatusDefinitionId ?? null);
 
   return (
     <div className="mx-auto max-w-xl">
@@ -55,6 +66,8 @@ export default async function EditClientPage({
         <ClientForm
           action={boundUpdateClientAction}
           defaultValues={client}
+          statusOptions={statusOptions}
+          currentStatusDefinitionId={currentStatusDefinitionId}
           customFieldDefinitions={customFieldDefinitions}
           customFieldValues={Object.fromEntries(customFieldValuesMap)}
           submitLabel="Save changes"

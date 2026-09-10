@@ -12,6 +12,7 @@ export type ClientFormState = {
       | "company"
       | "phone"
       | "status"
+      | "statusDefinitionId"
       | "billingLegalName"
       | "taxId"
       | "streetAddress"
@@ -56,10 +57,21 @@ export type CustomFieldOptionFormState = {
   fieldErrors?: Partial<Record<"label", string>>;
 };
 
+// Custom Statuses Phase 2B (Staff UI). Mirrors CustomFieldDefinitionFormState's
+// own exact shape — `color` is a select, never invalid on its own terms
+// (a fixed CustomStatusColor enum with a sensible default, Section F), so
+// it's deliberately absent from this union, matching
+// ClientContactFormState's own "only list fields that can actually
+// produce a validation error" precedent.
+export type CustomStatusDefinitionFormState = {
+  error: string | null;
+  fieldErrors?: Partial<Record<"label", string>>;
+};
+
 export type ProjectFormState = {
   error: string | null;
   fieldErrors?: Partial<
-    Record<"name" | "clientId" | "status" | "startDate" | "endDate", string>
+    Record<"name" | "clientId" | "status" | "statusDefinitionId" | "startDate" | "endDate", string>
   >;
   // Custom Fields Phase 2B — see ClientFormState's own identical field for the full comment.
   customFieldErrors?: Record<string, string>;

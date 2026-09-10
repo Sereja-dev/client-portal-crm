@@ -2,19 +2,20 @@ import { Prisma } from "@/generated/prisma/client";
 import {
   parseSearchParam,
   parsePageParam,
-  parseEnumParam,
+  parseStatusKeyParam,
   parseSortParam,
   type RawSearchParams,
 } from "@/lib/list-params";
-import { PROJECT_STATUSES } from "@/lib/validation/project";
-import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
+import type { ProjectStatusValue } from "@/lib/validation/project";
+import { resolveStatusDefinitionByKey } from "@/lib/custom-statuses/resolution";
 
 export const PROJECT_SORT_FIELDS = ["name", "createdAt"] as const;
 export type ProjectSortField = (typeof PROJECT_SORT_FIELDS)[number];
 
 export type ProjectListParams = {
   q: string;
-  status?: (typeof PROJECT_STATUSES)[number];
+  /** Custom Statuses Phase 2B (Section P) — see ClientListParams's own identical comment. */
+  status?: string;
   sortField: ProjectSortField;
   sortDir: "asc" | "desc";
   sortCombined: string;
@@ -25,7 +26,7 @@ export function parseProjectListParams(
   searchParams: RawSearchParams,
 ): ProjectListParams {
   const q = parseSearchParam(searchParams.q);
-  const status = parseEnumParam(searchParams.status, PROJECT_STATUSES);
+  const status = parseStatusKeyParam(searchParams.status);
   const { field, dir, combined } = parseSortParam(
     searchParams.sort,
     PROJECT_SORT_FIELDS,
@@ -37,11 +38,10 @@ export function parseProjectListParams(
 }
 
 /**
- * Custom Statuses Phase 2A (Section C/D/H) — see leads/query.ts's own
- * identical comment on buildLeadWhere: the `status` filter is now
- * authoritative via `statusDefinitionId`, falling back to a null-
- * statusDefinitionId Project whose legacy `status` still matches (Section
- * D). The `?status=IN_PROGRESS`-shaped URL param itself is unchanged.
+ * Custom Statuses Phase 2B (Section P) — see buildClientWhere's own
+ * identical comment; the `?status=IN_PROGRESS`-shaped legacy URL keeps
+ * working for free via resolveStatusDefinitionByKey's own lower-case-key
+ * matching.
  */
 export async function buildProjectWhere(
   organizationId: string,
@@ -49,10 +49,20 @@ export async function buildProjectWhere(
 ): Promise<Prisma.ProjectWhereInput> {
   const statusFilter = status
     ? await (async (): Promise<Prisma.ProjectWhereInput> => {
-        const definition = await resolveSystemStatusDefinition(organizationId, "PROJECT", status.toLowerCase());
-        return definition
-          ? { OR: [{ statusDefinitionId: definition.id }, { statusDefinitionId: null, status }] }
-          : { status };
+        // .toLowerCase() defensively re-applied here too — see
+        // buildClientWhere's own identical comment.
+        const definition = await resolveStatusDefinitionByKey(organizationId, "PROJECT", status.toLowerCase());
+        if (!definition) {
+          return {};
+        }
+        return definition.isSystem
+          ? {
+              OR: [
+                { statusDefinitionId: definition.id },
+                { statusDefinitionId: null, status: definition.key.toUpperCase() as ProjectStatusValue },
+              ],
+            }
+          : { statusDefinitionId: definition.id };
       })()
     : {};
 
