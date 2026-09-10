@@ -1,4 +1,3 @@
-import "server-only";
 import type { CustomStatusDefinition } from "@/generated/prisma/client";
 import type { CustomStatusEntityType } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
@@ -8,6 +7,19 @@ import type { PrismaClientOrTx } from "./types";
  * Custom Statuses Phase 1 — resolution helpers (Section R/V). These are
  * pure reads, never mutations; every entity-assignment function in
  * assignment.ts is built on top of these.
+ *
+ * Custom Statuses Phase 2A: deliberately does NOT `import "server-only"`,
+ * unlike definitions.ts/assignment.ts/bootstrap.ts — this module is now
+ * imported by src/app/(dashboard)/dashboard/query.ts's own
+ * getDashboardAnalytics() (Section K), which is in turn imported by
+ * src/lib/ai/tools/organization-summary.ts, whose own unit tests (and
+ * the whole AI tool registry's own test/unit/ai/registry.test.ts) run in
+ * a plain Node environment with no Next.js Server Component boundary —
+ * exactly src/lib/custom-statuses/bootstrap.ts's own established
+ * precedent (see that file's own doc comment) for "a module reachable
+ * from a legitimate broader context must not force every existing
+ * caller's unit tests to also mock 'server-only'." This module has no
+ * secret and does no mutation — a pure, safely-reusable read.
  */
 
 /** The one active default definition for an organization+entityType (Section K). Never null in ordinary operation once an organization has been bootstrapped (bootstrap.ts always seeds exactly one default per entityType, and archiveCustomStatusDefinition refuses to archive the current default) — still typed nullable to fail closed rather than throw if that invariant is ever somehow violated. */

@@ -4,6 +4,7 @@ import { getCurrentPortalUser } from "@/lib/current-portal-user";
 import { getPortalProject } from "@/lib/client-portal/queries";
 import { getPortalProjectAttachments } from "@/lib/client-portal/attachments";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { resolveStatusPresentation } from "@/lib/custom-statuses/presentation";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { PortalAttachmentsList } from "@/components/client-portal/portal-attachments-list";
@@ -29,6 +30,7 @@ export default async function PortalProjectDetailPage({
   // only re-applies the entityType/entityId/organizationId boundary on
   // the Attachment table, it does not re-verify Project ownership.
   const attachments = await getPortalProjectAttachments(project);
+  const presentation = resolveStatusPresentation(project.statusDefinition, project.status);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -41,7 +43,7 @@ export default async function PortalProjectDetailPage({
           <h1 className="text-text-primary text-xl font-semibold tracking-tight">
             {project.name}
           </h1>
-          <StatusBadge status={project.status} />
+          <StatusBadge status={project.status} label={presentation.label} tone={presentation.tone} />
         </div>
 
         {project.description && (

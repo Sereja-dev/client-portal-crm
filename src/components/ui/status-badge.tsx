@@ -140,8 +140,15 @@ export const STATUS_TONES: Record<string, StatusTone> = {
   CONVERTED: "success",
 };
 
-export function StatusBadge({ status, label }: { status: string; label?: string }) {
-  const tone = STATUS_TONES[status] ?? "neutral";
+// Custom Statuses Phase 2A (Section P) — `tone` is an optional override
+// for a caller that already resolved presentation from a
+// CustomStatusDefinition (see src/lib/custom-statuses/presentation.ts's
+// own resolveStatusPresentation): when supplied, it wins outright and
+// `status` is used only as this badge's own DOM/test hook, never for a
+// second STATUS_TONES lookup. Omitted, this is byte-identical to before —
+// every pre-existing caller that only ever passed `status`/`label`.
+export function StatusBadge({ status, label, tone: toneOverride }: { status: string; label?: string; tone?: StatusTone }) {
+  const tone = toneOverride ?? STATUS_TONES[status] ?? "neutral";
   return (
     <span
       className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${TONE_CLASSES[tone]}`}

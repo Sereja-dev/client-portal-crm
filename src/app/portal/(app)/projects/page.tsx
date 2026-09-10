@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getCurrentPortalUser } from "@/lib/current-portal-user";
 import { getPortalProjects } from "@/lib/client-portal/queries";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { resolveStatusPresentation } from "@/lib/custom-statuses/presentation";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
   Table,
@@ -40,7 +41,9 @@ export default async function PortalProjectsPage() {
             </tr>
           </TableHead>
           <TableBody>
-            {projects.map((project) => (
+            {projects.map((project) => {
+              const presentation = resolveStatusPresentation(project.statusDefinition, project.status);
+              return (
               <TableRow key={project.id}>
                 <TableCell emphasis>
                   <Link
@@ -52,7 +55,7 @@ export default async function PortalProjectsPage() {
                 </TableCell>
                 <TableCell>{client.name}</TableCell>
                 <TableCell>
-                  <StatusBadge status={project.status} />
+                  <StatusBadge status={project.status} label={presentation.label} tone={presentation.tone} />
                 </TableCell>
                 <TableCell>
                   {project.startDate ? project.startDate.toLocaleDateString() : "—"}
@@ -61,7 +64,8 @@ export default async function PortalProjectsPage() {
                   {project.endDate ? project.endDate.toLocaleDateString() : "—"}
                 </TableCell>
               </TableRow>
-            ))}
+              );
+            })}
           </TableBody>
         </Table>
       )}

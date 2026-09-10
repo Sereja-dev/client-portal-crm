@@ -1,6 +1,9 @@
 import { prisma } from "@/lib/prisma";
-import type { ProjectStatus, InvoiceStatus, QuoteStatus } from "@/generated/prisma/enums";
+import { Prisma } from "@/generated/prisma/client";
+import type { ProjectStatus, InvoiceStatus, QuoteStatus, CustomStatusColor } from "@/generated/prisma/enums";
 import { classifyInvoiceArchival } from "@/lib/invoices/pdf/classify-archival";
+import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
+import { SYSTEM_STATUS_KEYS } from "@/lib/custom-statuses/constants";
 
 // Same definition the staff Dashboard KPI already uses for "active
 // projects" (src/app/(dashboard)/dashboard/query.ts) — kept identical so
@@ -43,6 +46,8 @@ export type PortalProjectSummary = {
   id: string;
   name: string;
   status: ProjectStatus;
+  /** Custom Statuses Phase 2A (Section C/R) — only label+color are ever selected, nothing else about the definition leaks to a Portal identity. */
+  statusDefinition: { label: string; color: CustomStatusColor | null } | null;
   startDate: Date | null;
   endDate: Date | null;
 };
@@ -110,6 +115,7 @@ const PROJECT_SUMMARY_SELECT = {
   id: true,
   name: true,
   status: true,
+  statusDefinition: { select: { label: true, color: true } },
   startDate: true,
   endDate: true,
 } as const;
@@ -159,9 +165,22 @@ export async function getPortalOverview(
   clientId: string,
   organizationId: string,
 ): Promise<PortalOverview> {
+  // Custom Statuses Phase 2A (Section L) — same rule as the staff
+  // Dashboard KPI (src/app/(dashboard)/dashboard/query.ts): the one real
+  // system IN_PROGRESS definition only, never a custom status whose own
+  // legacy compatibility value happens to still read IN_PROGRESS.
+  const inProgressDefinition = await resolveSystemStatusDefinition(
+    organizationId,
+    "PROJECT",
+    SYSTEM_STATUS_KEYS.PROJECT_IN_PROGRESS,
+  );
+  const activeProjectsWhere: Prisma.ProjectWhereInput = inProgressDefinition
+    ? { clientId, OR: [{ statusDefinitionId: inProgressDefinition.id }, { statusDefinitionId: null, status: ACTIVE_PROJECT_STATUS }] }
+    : { clientId, status: ACTIVE_PROJECT_STATUS };
+
   const [activeProjectsCount, openInvoicesAgg, recentProjects, recentInvoices] =
     await Promise.all([
-      prisma.project.count({ where: { clientId, status: ACTIVE_PROJECT_STATUS } }),
+      prisma.project.count({ where: activeProjectsWhere }),
       prisma.invoice.aggregate({
         where: { clientId, organizationId, status: { in: [...OPEN_INVOICE_STATUSES] } },
         _count: { _all: true },
@@ -224,6 +243,7 @@ export async function getPortalProject(
     id: project.id,
     name: project.name,
     status: project.status,
+    statusDefinition: project.statusDefinition,
     startDate: project.startDate,
     endDate: project.endDate,
     description: project.description,

@@ -7,6 +7,7 @@ import {
   parseSortParam,
   type RawSearchParams,
 } from "@/lib/list-params";
+import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 
 /**
  * Leads / Sales Pipeline Phase 3. Mirrors src/app/(dashboard)/clients/
@@ -63,29 +64,60 @@ export function parseLeadListParams(searchParams: RawSearchParams): LeadListPara
  * (getCurrentUserOrganization()) — never read from params here or
  * anywhere in this module, so a crafted query string can never widen the
  * scope beyond the caller's own organization.
+ *
+ * Custom Statuses Phase 2A (Section C/D/H) — the `stage` filter is now
+ * authoritative via `statusDefinitionId`, not the legacy enum directly:
+ * the requested legacy `stage` value is resolved to its matching system
+ * CustomStatusDefinition, and the where-clause filters by
+ * `statusDefinitionId` (falling back to a null-statusDefinitionId Lead
+ * whose legacy `stage` still matches — Section D, for a historical/
+ * unbackfilled row). The `?stage=WON`-shaped URL param itself is
+ * deliberately unchanged (Section H: "avoid breaking existing URLs... do
+ * not overcomplicate") — this only changes what the resulting Prisma
+ * query actually filters on, never the public filter's own shape. Async
+ * now (one extra, cheap, org-scoped lookup — never per-row, Section S)
+ * only when a `stage` filter is actually requested.
  */
-export function buildLeadWhere(
+export async function buildLeadWhere(
   organizationId: string,
   { q, stage, assignedToUserId, archived }: Pick<LeadListParams, "q" | "stage" | "assignedToUserId" | "archived">,
-): Prisma.LeadWhereInput {
+): Promise<Prisma.LeadWhereInput> {
+  const stageFilter = stage
+    ? await (async (): Promise<Prisma.LeadWhereInput> => {
+        const definition = await resolveSystemStatusDefinition(organizationId, "LEAD", stage.toLowerCase());
+        return definition
+          ? { OR: [{ statusDefinitionId: definition.id }, { statusDefinitionId: null, stage }] }
+          : { stage };
+      })()
+    : {};
+
+  const searchFilter: Prisma.LeadWhereInput = q
+    ? {
+        OR: [
+          { name: { contains: q, mode: "insensitive" as const } },
+          { company: { contains: q, mode: "insensitive" as const } },
+          { email: { contains: q, mode: "insensitive" as const } },
+        ],
+      }
+    : {};
+
   return {
     organizationId,
     archivedAt: archived ? { not: null } : null,
-    ...(stage ? { stage } : {}),
+    // AND, not two separate top-level `OR` spreads — stageFilter and
+    // searchFilter can each independently be `{ OR: [...] }`, and a
+    // plain object spread of two `OR` keys would silently keep only the
+    // last one, discarding the other's filter entirely (found by this
+    // module's own pre-existing pipeline-query.ts test suite, which
+    // shares this exact composition bug — see that file's own identical
+    // fix comment). Nesting each in its own AND element keeps both
+    // scoped and independently combined.
+    AND: [stageFilter, searchFilter],
     ...(assignedToUserId === "unassigned"
       ? { assignedToUserId: null }
       : assignedToUserId
         ? { assignedToUserId }
         : {}),
-    ...(q
-      ? {
-          OR: [
-            { name: { contains: q, mode: "insensitive" as const } },
-            { company: { contains: q, mode: "insensitive" as const } },
-            { email: { contains: q, mode: "insensitive" as const } },
-          ],
-        }
-      : {}),
   };
 }
 

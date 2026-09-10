@@ -5,6 +5,7 @@ import { fetchLeadPipelineColumns, PIPELINE_STAGE_CARD_BOUND } from "@/app/(dash
 import { parseLeadListParams } from "@/app/(dashboard)/leads/query";
 import type { RawSearchParams } from "@/lib/list-params";
 import { LEAD_STAGES } from "@/lib/leads/stages";
+import { bootstrapOrganizationStatusDefinitions } from "@/lib/custom-statuses/bootstrap";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 
 /**
@@ -14,6 +15,14 @@ import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures
  * a converted lead appears in WON) and #10 (foreign-org lead absent),
  * plus #11-13 (search/assignee filter reuse) and the truncation contract
  * pipeline-query.ts's own doc comment describes.
+ *
+ * Custom Statuses Phase 2A — fetchLeadPipelineColumns' own columns now
+ * come from the organization's real LEAD CustomStatusDefinitions
+ * (Section G), not the hardcoded LEAD_STAGES array directly, so
+ * fixtures.orgA (seedTestData's own raw `prisma.organization.create`,
+ * never bootstrapped) must be explicitly bootstrapped here — every real
+ * organization already is (Phase 1's own bootstrap-on-create + migration
+ * backfill), this fixture is the one place that isn't automatic.
  */
 
 const NAME_PREFIX = "Lead-PipelineQuery";
@@ -37,6 +46,7 @@ describe("Lead pipeline board query (org scoping, stage grouping, filters, trunc
 
   beforeAll(async () => {
     fixtures = await seedTestData();
+    await bootstrapOrganizationStatusDefinitions(prisma, fixtures.orgA.id);
 
     const client = await prisma.client.create({
       data: {
@@ -174,6 +184,7 @@ describe("Lead pipeline board query — truncation never lies about completeness
 
   beforeAll(async () => {
     fixtures = await seedTestData();
+    await bootstrapOrganizationStatusDefinitions(prisma, fixtures.orgA.id);
     const overflow = PIPELINE_STAGE_CARD_BOUND + 5;
     await prisma.lead.createMany({
       data: Array.from({ length: overflow }, (_, i) => ({

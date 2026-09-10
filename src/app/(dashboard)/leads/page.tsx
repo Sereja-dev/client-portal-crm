@@ -171,7 +171,7 @@ export default async function LeadsPage({
     );
   }
 
-  const where = buildLeadWhere(organizationId, listParams);
+  const where = await buildLeadWhere(organizationId, listParams);
   const orderBy = buildLeadOrderBy(listParams);
 
   const [leads, total] = await prisma.$transaction([
@@ -180,7 +180,10 @@ export default async function LeadsPage({
       orderBy,
       skip: getOffset(listParams.page),
       take: PAGE_SIZE,
-      include: { assignedTo: { select: { id: true, name: true } } },
+      include: {
+        assignedTo: { select: { id: true, name: true } },
+        statusDefinition: { select: { label: true, color: true } },
+      },
     }),
     prisma.lead.count({ where }),
   ]);
@@ -272,7 +275,7 @@ export default async function LeadsPage({
                     <TableCell emphasis>{lead.name}</TableCell>
                     <TableCell>{lead.company ?? "—"}</TableCell>
                     <TableCell>
-                      <LeadStageBadge stage={lead.stage} />
+                      <LeadStageBadge stage={lead.stage} definition={lead.statusDefinition} />
                     </TableCell>
                     <TableCell>{lead.source ? formatStatusLabel(lead.source) : "—"}</TableCell>
                     <TableCell>{lead.value ? formatCurrency(Number(lead.value)) : "—"}</TableCell>
@@ -298,7 +301,7 @@ export default async function LeadsPage({
               <RecordCard key={lead.id}>
                 <RecordCardField label="Name" value={lead.name} emphasis />
                 <RecordCardField label="Company" value={lead.company ?? "—"} />
-                <RecordCardField label="Stage" value={<LeadStageBadge stage={lead.stage} />} />
+                <RecordCardField label="Stage" value={<LeadStageBadge stage={lead.stage} definition={lead.statusDefinition} />} />
                 <RecordCardField label="Source" value={lead.source ? formatStatusLabel(lead.source) : "—"} />
                 <RecordCardField label="Value" value={lead.value ? formatCurrency(Number(lead.value)) : "—"} />
                 <RecordCardField label="Assignee" value={lead.assignedTo?.name ?? "Unassigned"} />

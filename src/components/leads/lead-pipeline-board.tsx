@@ -43,14 +43,21 @@ export function LeadPipelineBoard({
   );
 }
 
-function truncationHref(stage: LeadStage, preservedParams: PreservedParams): string {
-  return buildLeadsHref({ view: "list", stage, ...preservedParams });
+/**
+ * Only a SYSTEM column has a real `stage` (List view's own filter is
+ * still LeadStage-keyed — Section H) — a genuinely custom column (not
+ * reachable in Production yet, Section G) simply gets no truncation link
+ * rather than a broken one.
+ */
+function truncationHref(stage: LeadStage | null, preservedParams: PreservedParams): string | null {
+  return stage ? buildLeadsHref({ view: "list", stage, ...preservedParams }) : null;
 }
 
 function ColumnCards({ column, preservedParams }: { column: PipelineColumn; preservedParams: PreservedParams }) {
   if (column.leads.length === 0) {
     return <p className="text-text-muted mt-3 text-sm">No leads</p>;
   }
+  const href = truncationHref(column.stage, preservedParams);
   return (
     <>
       <ul className="mt-3 space-y-2">
@@ -61,9 +68,13 @@ function ColumnCards({ column, preservedParams }: { column: PipelineColumn; pres
       {column.truncated && (
         <p className="text-text-muted mt-3 text-xs">
           Showing {column.leads.length} of {column.total}.{" "}
-          <Link href={truncationHref(column.stage, preservedParams)} className={ACTION_LINK_CLASSES}>
-            See all in List view
-          </Link>
+          {href ? (
+            <Link href={href} className={ACTION_LINK_CLASSES}>
+              See all in List view
+            </Link>
+          ) : (
+            "See List view for the rest."
+          )}
         </p>
       )}
     </>
@@ -80,15 +91,21 @@ function DesktopBoard({
   return (
     <div className="flex items-start gap-4 overflow-x-auto pb-2">
       {columns.map((column) => {
-        const headingId = `pipeline-column-${column.stage}`;
+        const headingId = `pipeline-column-${column.definitionId}`;
         return (
           <section
-            key={column.stage}
+            key={column.definitionId}
             aria-labelledby={headingId}
             className="border-border-default bg-surface-recessed w-72 min-w-0 shrink-0 rounded-lg border p-3"
           >
             <h2 id={headingId} className="text-text-primary flex items-center justify-between text-sm font-semibold">
-              <span className="min-w-0 truncate">{column.label}</span>
+              <span className="min-w-0 truncate">
+                {column.label}
+                {/* Section Q — an archived status definition only ever
+                    gets its own column when a Lead still uses it; marked
+                    subtly, never hidden (no Lead disappears). */}
+                {column.archived && <span className="text-text-muted ml-1.5 font-normal">(archived)</span>}
+              </span>
               <span className="text-text-muted shrink-0 font-normal">{column.total}</span>
             </h2>
             <ColumnCards column={column} preservedParams={preservedParams} />
@@ -110,6 +127,13 @@ function MobileStageSwitcher({
 }) {
   const activeColumn = columns.find((c) => c.stage === stageView) ?? columns[0];
 
+  // Section G/H — `stageView` (like `?stage=` in List view) stays a
+  // LeadStage-keyed URL param for full backward compatibility; a
+  // genuinely custom column (null `stage`, unreachable in Production
+  // today) simply has no deep-linkable URL of its own yet — Phase 2B's
+  // own assignment UI is where that URL scheme gets redesigned around a
+  // stable definition id instead.
+
   return (
     <div>
       {/*
@@ -124,11 +148,11 @@ function MobileStageSwitcher({
       */}
       <nav aria-label="Pipeline stage" className="flex gap-2 overflow-x-auto pb-2">
         {columns.map((column) => {
-          const isActive = column.stage === activeColumn.stage;
+          const isActive = column.definitionId === activeColumn.definitionId;
           return (
             <Link
-              key={column.stage}
-              href={buildLeadsHref({ view: "pipeline", stageView: column.stage, ...preservedParams })}
+              key={column.definitionId}
+              href={buildLeadsHref({ view: "pipeline", stageView: column.stage ?? undefined, ...preservedParams })}
               aria-current={isActive ? "page" : undefined}
               className={`focus-visible:ring-focus-ring shrink-0 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
                 isActive

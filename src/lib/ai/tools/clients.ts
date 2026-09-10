@@ -1,3 +1,4 @@
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { CLIENT_STATUSES } from "@/lib/validation/client";
 import { escapeLikePattern } from "@/lib/search/normalize-query";
@@ -5,6 +6,8 @@ import { isPlainObject, hasOnlyAllowedKeys, isValidOptionalQuery, isValidOptiona
 import { assertExactKeys, assertExactKeysList } from "./output-projection";
 import { toolError, toolOk, type AiToolResult } from "./result";
 import { SEARCH_CLIENTS_LIMIT } from "./limits";
+import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
+import { resolveStatusPresentation } from "@/lib/custom-statuses/presentation";
 
 /**
  * AI Assistant Batch 1B.1 — Tool 2 (searchClients) and Tool 3
@@ -37,6 +40,36 @@ export type ClientSearchOutput = AiToolResult<ClientSearchData>;
 
 const SEARCH_TOOL_NAME = "searchClients";
 
+/**
+ * Custom Statuses Phase 2A Completion Pass (Section B) — mirrors
+ * src/app/(dashboard)/clients/query.ts's own buildClientWhere: the
+ * requested legacy `status` value is resolved to its matching system
+ * CustomStatusDefinition and the where-clause filters by
+ * statusDefinitionId, falling back to a null-statusDefinitionId Client
+ * whose legacy status still matches (an unbackfilled test/seed row —
+ * every real Production row is fully backfilled). A Client whose real
+ * status is a genuinely CUSTOM definition can never satisfy this filter,
+ * even if its own legacy `status` column still holds a stale value that
+ * happens to equal the requested one. The tool's own input schema stays
+ * enum-only (Section D — no custom-status exposure), so `status` here is
+ * always one of CLIENT_STATUSES.
+ */
+async function buildStatusFilter(
+  organizationId: string,
+  status: string | undefined,
+): Promise<Prisma.ClientWhereInput> {
+  if (!status) return {};
+  const definition = await resolveSystemStatusDefinition(organizationId, "CLIENT", status.toLowerCase());
+  return definition
+    ? {
+        OR: [
+          { statusDefinitionId: definition.id },
+          { statusDefinitionId: null, status: status as (typeof CLIENT_STATUSES)[number] },
+        ],
+      }
+    : { status: status as (typeof CLIENT_STATUSES)[number] };
+}
+
 function validateSearchInput(rawInput: unknown): { query?: string; status?: string } | null {
   const input = rawInput === undefined || rawInput === null ? {} : rawInput;
   if (!isPlainObject(input) || !hasOnlyAllowedKeys(input, SEARCH_INPUT_KEYS)) return null;
@@ -53,26 +86,47 @@ export async function executeSearchClients(organizationId: string, rawInput: unk
 
   try {
     const trimmedQuery = validated.query?.trim();
+    const statusFilter = await buildStatusFilter(organizationId, validated.status);
+    // AND, not a spread-`OR` — statusFilter and the search filter below
+    // can each independently be `{ OR: [...] }`; a plain object spread
+    // of two `OR` keys would silently keep only the last one (the exact
+    // bug src/app/(dashboard)/leads/query.ts's own buildLeadWhere found
+    // and fixed during Phase 2A — same shape here).
+    const searchFilter: Prisma.ClientWhereInput = trimmedQuery
+      ? {
+          OR: [
+            { name: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } },
+            { company: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } },
+          ],
+        }
+      : {};
+
     const rows = await prisma.client.findMany({
-      where: {
-        organizationId,
-        ...(validated.status ? { status: validated.status as (typeof CLIENT_STATUSES)[number] } : {}),
-        ...(trimmedQuery
-          ? {
-              OR: [
-                { name: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } },
-                { company: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } },
-              ],
-            }
-          : {}),
+      where: { organizationId, AND: [statusFilter, searchFilter] },
+      select: {
+        id: true,
+        name: true,
+        company: true,
+        status: true,
+        statusDefinition: { select: { label: true, color: true } },
       },
-      select: { id: true, name: true, company: true, status: true },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: SEARCH_CLIENTS_LIMIT,
     });
 
     const results = assertExactKeysList(
-      rows.map((row): ClientSearchItem => ({ ref: row.id, name: row.name, company: row.company, status: row.status })),
+      rows.map(
+        (row): ClientSearchItem => ({
+          ref: row.id,
+          name: row.name,
+          company: row.company,
+          // Custom Statuses Phase 2A Completion Pass — the definition's
+          // own current label when one exists (correct even for a
+          // genuinely custom status), never the raw/possibly-stale
+          // legacy enum string.
+          status: resolveStatusPresentation(row.statusDefinition, row.status).label,
+        }),
+      ),
       SEARCH_ITEM_KEYS,
       SEARCH_TOOL_NAME,
     ) as ClientSearchItem[];
@@ -140,6 +194,7 @@ export async function executeGetClientDetail(organizationId: string, rawInput: u
         name: true,
         company: true,
         status: true,
+        statusDefinition: { select: { label: true, color: true } },
         createdAt: true,
         _count: { select: { projects: true, invoices: true } },
       },
@@ -153,7 +208,9 @@ export async function executeGetClientDetail(organizationId: string, rawInput: u
       {
         name: row.name,
         company: row.company,
-        status: row.status,
+        // Custom Statuses Phase 2A Completion Pass — see
+        // executeSearchClients's own identical comment.
+        status: resolveStatusPresentation(row.statusDefinition, row.status).label,
         createdAt: row.createdAt.toISOString(),
         projectCount: row._count.projects,
         invoiceCount: row._count.invoices,

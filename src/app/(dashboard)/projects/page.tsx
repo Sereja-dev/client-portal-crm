@@ -6,6 +6,7 @@ import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib
 import { DeleteButton } from "@/components/ui/delete-button";
 import { deleteProjectAction } from "./actions";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { resolveStatusPresentation } from "@/lib/custom-statuses/presentation";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PencilIcon } from "@/components/ui/icons";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
@@ -47,6 +48,13 @@ const SORT_OPTIONS = [
   { value: "name:desc", label: "Name (Z–A)" },
 ];
 
+// Custom Statuses Phase 2A (Section C/P) — see clients/page.tsx's own
+// identical ClientStatusBadge helper.
+function ProjectStatusBadge({ project }: { project: { status: string; statusDefinition: { label: string; color: import("@/generated/prisma/enums").CustomStatusColor | null } | null } }) {
+  const presentation = resolveStatusPresentation(project.statusDefinition, project.status);
+  return <StatusBadge status={project.status} label={presentation.label} tone={presentation.tone} />;
+}
+
 export default async function ProjectsPage({
   searchParams,
 }: {
@@ -56,7 +64,7 @@ export default async function ProjectsPage({
   const resolvedSearchParams = await searchParams;
   const listParams = parseProjectListParams(resolvedSearchParams);
 
-  const where = buildProjectWhere(organizationId, listParams);
+  const where = await buildProjectWhere(organizationId, listParams);
   const orderBy = buildProjectOrderBy(listParams);
 
   const [clientCount, [projects, total]] = await Promise.all([
@@ -67,7 +75,10 @@ export default async function ProjectsPage({
         orderBy,
         skip: getOffset(listParams.page),
         take: PAGE_SIZE,
-        include: { client: { select: { name: true } } },
+        include: {
+          client: { select: { name: true } },
+          statusDefinition: { select: { label: true, color: true } },
+        },
       }),
       prisma.project.count({ where }),
     ]),
@@ -171,7 +182,7 @@ export default async function ProjectsPage({
                     <TableCell emphasis>{project.name}</TableCell>
                     <TableCell>{project.client.name}</TableCell>
                     <TableCell>
-                      <StatusBadge status={project.status} />
+                      <ProjectStatusBadge project={project} />
                     </TableCell>
                     <TableCell>
                       {project.startDate
@@ -214,7 +225,7 @@ export default async function ProjectsPage({
               <RecordCard key={project.id}>
                 <RecordCardField label="Name" value={project.name} emphasis />
                 <RecordCardField label="Client" value={project.client.name} />
-                <RecordCardField label="Status" value={<StatusBadge status={project.status} />} />
+                <RecordCardField label="Status" value={<ProjectStatusBadge project={project} />} />
                 <RecordCardField
                   label="Start date"
                   value={project.startDate ? project.startDate.toLocaleDateString() : "—"}

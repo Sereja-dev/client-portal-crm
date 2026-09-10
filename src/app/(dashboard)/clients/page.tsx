@@ -6,6 +6,7 @@ import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib
 import { DeleteButton } from "@/components/ui/delete-button";
 import { deleteClientAction } from "./actions";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { resolveStatusPresentation } from "@/lib/custom-statuses/presentation";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PencilIcon } from "@/components/ui/icons";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
@@ -47,6 +48,15 @@ const SORT_OPTIONS = [
   { value: "name:desc", label: "Name (Z–A)" },
 ];
 
+// Custom Statuses Phase 2A (Section C/P) — one shared render helper for
+// both the table and mobile-card badge below, so the definition-first
+// presentation resolution (resolveStatusPresentation) lives in exactly
+// one place.
+function ClientStatusBadge({ client }: { client: { status: string; statusDefinition: { label: string; color: import("@/generated/prisma/enums").CustomStatusColor | null } | null } }) {
+  const presentation = resolveStatusPresentation(client.statusDefinition, client.status);
+  return <StatusBadge status={client.status} label={presentation.label} tone={presentation.tone} />;
+}
+
 export default async function ClientsPage({
   searchParams,
 }: {
@@ -56,7 +66,7 @@ export default async function ClientsPage({
   const resolvedSearchParams = await searchParams;
   const listParams = parseClientListParams(resolvedSearchParams);
 
-  const where = buildClientWhere(organizationId, listParams);
+  const where = await buildClientWhere(organizationId, listParams);
   const orderBy = buildClientOrderBy(listParams);
 
   const [clients, total] = await prisma.$transaction([
@@ -65,6 +75,7 @@ export default async function ClientsPage({
       orderBy,
       skip: getOffset(listParams.page),
       take: PAGE_SIZE,
+      include: { statusDefinition: { select: { label: true, color: true } } },
     }),
     prisma.client.count({ where }),
   ]);
@@ -164,7 +175,7 @@ export default async function ClientsPage({
                     <TableCell>{client.email ?? "—"}</TableCell>
                     <TableCell>{client.phone ?? "—"}</TableCell>
                     <TableCell>
-                      <StatusBadge status={client.status} />
+                      <ClientStatusBadge client={client} />
                     </TableCell>
                     <TableCell>{client.createdAt.toLocaleDateString()}</TableCell>
                     <TableCell align="right">
@@ -199,7 +210,7 @@ export default async function ClientsPage({
                 <RecordCardField label="Company" value={client.company ?? "—"} />
                 <RecordCardField label="Email" value={client.email ?? "—"} />
                 <RecordCardField label="Phone" value={client.phone ?? "—"} />
-                <RecordCardField label="Status" value={<StatusBadge status={client.status} />} />
+                <RecordCardField label="Status" value={<ClientStatusBadge client={client} />} />
                 <RecordCardField label="Created" value={client.createdAt.toLocaleDateString()} />
                 <RecordCardActions>
                   <Link

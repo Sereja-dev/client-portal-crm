@@ -5,6 +5,7 @@ import { getOrganizationDetail } from "@/lib/platform-admin/queries/organization
 import { formatAuditActionLabel, formatAuditReasonLabel } from "@/lib/platform-admin/audit-event-labels";
 import { formatFileSize } from "@/lib/format";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { resolveStatusPresentation } from "@/lib/custom-statuses/presentation";
 import { EmptyState } from "@/components/ui/empty-state";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
@@ -38,6 +39,24 @@ function formatDateTime(date: Date): string {
 
 function formatLimit(value: number | null): string {
   return value === null ? "Unlimited" : String(value);
+}
+
+/**
+ * Custom Statuses Phase 2A Completion Pass (Section C) — the Client and
+ * Project preview lists share this one presentation adapter, mirroring
+ * ClientStatusBadge/ProjectStatusBadge in the tenant-facing list pages
+ * (src/app/(dashboard)/{clients,projects}/page.tsx): the definition's own
+ * label/color win when the relation exists (correct even for a genuinely
+ * custom status with a stale legacy enum), falling back to the legacy
+ * enum only when it doesn't (an unbackfilled row).
+ */
+function EntityPreviewStatusBadge({
+  entity,
+}: {
+  entity: { status: string; statusDefinition: { label: string; color: import("@/generated/prisma/enums").CustomStatusColor | null } | null };
+}) {
+  const presentation = resolveStatusPresentation(entity.statusDefinition, entity.status);
+  return <StatusBadge status={entity.status} label={presentation.label} tone={presentation.tone} />;
 }
 
 export default async function PlatformAdminOrganizationDetailPage({
@@ -290,7 +309,7 @@ export default async function PlatformAdminOrganizationDetailPage({
                 <li key={client.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
                   <p className="text-text-primary text-sm">{client.name}</p>
                   <div className="flex shrink-0 items-center gap-3">
-                    <StatusBadge status={client.status} />
+                    <EntityPreviewStatusBadge entity={client} />
                     <time dateTime={client.createdAt.toISOString()} className="text-text-muted text-xs">
                       {formatDate(client.createdAt)}
                     </time>
@@ -315,7 +334,7 @@ export default async function PlatformAdminOrganizationDetailPage({
                 <li key={project.id} className="flex items-center justify-between gap-3 py-3 first:pt-0 last:pb-0">
                   <p className="text-text-primary text-sm">{project.name}</p>
                   <div className="flex shrink-0 items-center gap-3">
-                    <StatusBadge status={project.status} />
+                    <EntityPreviewStatusBadge entity={project} />
                     <time dateTime={project.createdAt.toISOString()} className="text-text-muted text-xs">
                       {formatDate(project.createdAt)}
                     </time>

@@ -63,7 +63,7 @@ describe("Leads list query (org scoping, filters, safety)", () => {
   });
 
   it("1. only returns leads scoped to the caller's own organization", async () => {
-    const where = buildLeadWhere(fixtures.orgA.id, parseLeadListParams({}));
+    const where = await buildLeadWhere(fixtures.orgA.id, parseLeadListParams({}));
     const results = await prisma.lead.findMany({ where });
     const ids = results.map((r) => r.id);
     expect(ids).toContain(leadA1);
@@ -71,13 +71,13 @@ describe("Leads list query (org scoping, filters, safety)", () => {
   });
 
   it("2. archived leads are excluded by default", async () => {
-    const where = buildLeadWhere(fixtures.orgA.id, parseLeadListParams({}));
+    const where = await buildLeadWhere(fixtures.orgA.id, parseLeadListParams({}));
     const results = await prisma.lead.findMany({ where });
     expect(results.map((r) => r.id)).not.toContain(leadA2Archived);
   });
 
   it("the archived=1 filter shows only archived leads", async () => {
-    const where = buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ archived: "1" }));
+    const where = await buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ archived: "1" }));
     const results = await prisma.lead.findMany({ where });
     const ids = results.map((r) => r.id);
     expect(ids).toContain(leadA2Archived);
@@ -85,7 +85,7 @@ describe("Leads list query (org scoping, filters, safety)", () => {
   });
 
   it("3. the stage filter narrows results", async () => {
-    const where = buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ stage: "QUALIFIED" }));
+    const where = await buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ stage: "QUALIFIED" }));
     const results = await prisma.lead.findMany({ where });
     const ids = results.map((r) => r.id);
     expect(ids).toContain(leadA1);
@@ -93,30 +93,30 @@ describe("Leads list query (org scoping, filters, safety)", () => {
   });
 
   it("4. the assignee filter narrows results, and 'unassigned' is a real distinct filter value", async () => {
-    const assignedWhere = buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ assignedToUserId: fixtures.owner.id }));
+    const assignedWhere = await buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ assignedToUserId: fixtures.owner.id }));
     const assignedResults = await prisma.lead.findMany({ where: assignedWhere });
     expect(assignedResults.map((r) => r.id)).toContain(leadA1);
 
-    const unassignedWhere = buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ assignedToUserId: "unassigned" }));
+    const unassignedWhere = await buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ assignedToUserId: "unassigned" }));
     const unassignedResults = await prisma.lead.findMany({ where: unassignedWhere });
     expect(unassignedResults.map((r) => r.id)).not.toContain(leadA1);
   });
 
   it("5. search matches name", async () => {
     const lead = await prisma.lead.findUniqueOrThrow({ where: { id: leadA1 } });
-    const where = buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ q: lead.name }));
+    const where = await buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ q: lead.name }));
     const results = await prisma.lead.findMany({ where });
     expect(results.map((r) => r.id)).toContain(leadA1);
   });
 
   it("6. search matches company", async () => {
-    const where = buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ q: "Acme" }));
+    const where = await buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ q: "Acme" }));
     const results = await prisma.lead.findMany({ where });
     expect(results.map((r) => r.id)).toContain(leadA1);
   });
 
   it("7. search matches email", async () => {
-    const where = buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ q: "prospect@example" }));
+    const where = await buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ q: "prospect@example" }));
     const results = await prisma.lead.findMany({ where });
     expect(results.map((r) => r.id)).toContain(leadA1);
   });
@@ -124,7 +124,7 @@ describe("Leads list query (org scoping, filters, safety)", () => {
   it("8. an invalid stage query param fails safely — falls back to no filter, never an error or empty scope", async () => {
     const params = parseLeadListParams({ stage: "NOT_A_REAL_STAGE" });
     expect(params.stage).toBeUndefined();
-    const where = buildLeadWhere(fixtures.orgA.id, params);
+    const where = await buildLeadWhere(fixtures.orgA.id, params);
     const results = await prisma.lead.findMany({ where });
     // Behaves exactly like no stage filter at all — still returns every
     // active org lead, never throws, never silently returns nothing.
@@ -132,7 +132,7 @@ describe("Leads list query (org scoping, filters, safety)", () => {
   });
 
   it("9. an assignee param naming a real user in a DIFFERENT organization cannot leak or widen scope — just returns nothing (the org scope alone already excludes it)", async () => {
-    const where = buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ assignedToUserId: fixtures.orgBOwner.id }));
+    const where = await buildLeadWhere(fixtures.orgA.id, parseLeadListParams({ assignedToUserId: fixtures.orgBOwner.id }));
     const results = await prisma.lead.findMany({ where });
     expect(results).toHaveLength(0);
   });

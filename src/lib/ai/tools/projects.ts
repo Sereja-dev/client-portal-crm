@@ -1,3 +1,4 @@
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { PROJECT_STATUSES } from "@/lib/validation/project";
 import { escapeLikePattern } from "@/lib/search/normalize-query";
@@ -5,6 +6,8 @@ import { isPlainObject, hasOnlyAllowedKeys, isValidOptionalQuery, isValidOptiona
 import { assertExactKeysList } from "./output-projection";
 import { toolError, toolOk, type AiToolResult } from "./result";
 import { SEARCH_PROJECTS_LIMIT } from "./limits";
+import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
+import { resolveStatusPresentation } from "@/lib/custom-statuses/presentation";
 
 /**
  * AI Assistant Batch 1B.1 — Tool 4: searchProjects.
@@ -38,6 +41,27 @@ export type ProjectSearchOutput = AiToolResult<ProjectSearchData>;
 
 const TOOL_NAME = "searchProjects";
 
+/**
+ * Custom Statuses Phase 2A Completion Pass (Section B) — mirrors
+ * clients.ts's own identical buildStatusFilter (see that file's own
+ * comment for the full reasoning).
+ */
+async function buildStatusFilter(
+  organizationId: string,
+  status: string | undefined,
+): Promise<Prisma.ProjectWhereInput> {
+  if (!status) return {};
+  const definition = await resolveSystemStatusDefinition(organizationId, "PROJECT", status.toLowerCase());
+  return definition
+    ? {
+        OR: [
+          { statusDefinitionId: definition.id },
+          { statusDefinitionId: null, status: status as (typeof PROJECT_STATUSES)[number] },
+        ],
+      }
+    : { status: status as (typeof PROJECT_STATUSES)[number] };
+}
+
 function validateInput(rawInput: unknown): { query?: string; status?: string; clientRef?: string } | null {
   const input = rawInput === undefined || rawInput === null ? {} : rawInput;
   if (!isPlainObject(input) || !hasOnlyAllowedKeys(input, SEARCH_INPUT_KEYS)) return null;
@@ -59,27 +83,45 @@ export async function executeSearchProjects(organizationId: string, rawInput: un
 
   try {
     const trimmedQuery = validated.query?.trim();
+    const statusFilter = await buildStatusFilter(organizationId, validated.status);
+    // AND, not a spread-`OR` — see clients.ts's own identical comment.
+    const searchFilter: Prisma.ProjectWhereInput = trimmedQuery
+      ? {
+          OR: [
+            { name: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } },
+            { client: { name: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } } },
+          ],
+        }
+      : {};
+
     const rows = await prisma.project.findMany({
       where: {
         organizationId,
-        ...(validated.status ? { status: validated.status as (typeof PROJECT_STATUSES)[number] } : {}),
+        AND: [statusFilter, searchFilter],
         ...(validated.clientRef ? { clientId: validated.clientRef } : {}),
-        ...(trimmedQuery
-          ? {
-              OR: [
-                { name: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } },
-                { client: { name: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } } },
-              ],
-            }
-          : {}),
       },
-      select: { id: true, name: true, status: true, client: { select: { name: true } } },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        statusDefinition: { select: { label: true, color: true } },
+        client: { select: { name: true } },
+      },
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
       take: SEARCH_PROJECTS_LIMIT,
     });
 
     const results = assertExactKeysList(
-      rows.map((row): ProjectSearchItem => ({ ref: row.id, name: row.name, status: row.status, clientName: row.client.name })),
+      rows.map(
+        (row): ProjectSearchItem => ({
+          ref: row.id,
+          name: row.name,
+          // Custom Statuses Phase 2A Completion Pass — see clients.ts's
+          // own identical comment.
+          status: resolveStatusPresentation(row.statusDefinition, row.status).label,
+          clientName: row.client.name,
+        }),
+      ),
       SEARCH_ITEM_KEYS,
       TOOL_NAME,
     ) as ProjectSearchItem[];

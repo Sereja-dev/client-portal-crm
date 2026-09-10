@@ -9,6 +9,7 @@ import { toOnboardingProgressView, type OnboardingProgressView } from "@/lib/pla
 import { formatActivity, type ActivityDisplayModel } from "@/lib/activity/format-activity";
 import { classifyOrganizationLifecycle, type OrganizationLifecycleStatus } from "./organizations";
 import type { SubscriptionStateInput } from "@/lib/billing/access-mode";
+import type { CustomStatusColor } from "@/generated/prisma/enums";
 
 const RECENT_ACTIVITY_TAKE = 15;
 const PREVIEW_TAKE = 10;
@@ -45,6 +46,14 @@ export type OrganizationEntityPreview = {
   id: string;
   name: string;
   status: string;
+  /**
+   * Custom Statuses Phase 2A Completion Pass (Section C) — only
+   * label+color are ever selected; resolveStatusPresentation() is the
+   * one place this page turns it (plus the legacy `status` above) into
+   * an actual badge. Shared by both Client and Project previews below,
+   * exactly like `status` already was.
+   */
+  statusDefinition: { label: string; color: CustomStatusColor | null } | null;
   createdAt: Date;
 };
 
@@ -219,14 +228,26 @@ export async function getOrganizationDetail(organizationId: string, now: Date): 
       where: { organizationId },
       orderBy: { createdAt: "desc" },
       take: PREVIEW_TAKE,
-      select: { id: true, name: true, status: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        statusDefinition: { select: { label: true, color: true } },
+        createdAt: true,
+      },
     }),
     prisma.project.count({ where: { organizationId } }),
     prisma.client.findMany({
       where: { organizationId },
       orderBy: { createdAt: "desc" },
       take: PREVIEW_TAKE,
-      select: { id: true, name: true, status: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        statusDefinition: { select: { label: true, color: true } },
+        createdAt: true,
+      },
     }),
     prisma.client.count({ where: { organizationId } }),
     prisma.task.count({ where: { organizationId } }),

@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import type { LeadStage } from "@/generated/prisma/enums";
+import type { LeadStage, CustomStatusColor } from "@/generated/prisma/enums";
 import {
   moveLeadStageAction,
   markLeadLostAction,
@@ -51,11 +51,13 @@ const GENERIC_ERROR = "Something went wrong. Please try again.";
 export function LeadActionsPanel({
   leadId,
   stage,
+  statusDefinition,
   archivedAt,
   convertedClientId,
 }: {
   leadId: string;
   stage: LeadStage;
+  statusDefinition?: { label: string; color: CustomStatusColor | null } | null;
   archivedAt: string | null;
   convertedClientId: string | null;
 }) {
@@ -162,7 +164,7 @@ export function LeadActionsPanel({
     <div className="border-border-default space-y-4 border-t pt-4">
       <div className="flex items-center justify-between">
         <span className="text-text-secondary text-sm font-medium">Stage</span>
-        <LeadStageBadge stage={stage} />
+        <LeadStageBadge stage={stage} definition={statusDefinition} />
       </div>
 
       {isConverted ? (

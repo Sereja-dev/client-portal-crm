@@ -26,6 +26,13 @@ import {
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
 import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
+import { resolveLeadIsLost } from "@/lib/custom-statuses/semantics";
+
+// Select shape used everywhere below a Lead's own real business-semantic
+// LOST check is made (Section F) — the immutable system-identity fields
+// resolveLeadIsLost needs, nothing more (Section R: only fetch what's
+// needed).
+const STATUS_DEFINITION_IDENTITY_SELECT = { isSystem: true, entityType: true, key: true } as const;
 
 /**
  * Leads / Sales Pipeline Phase 2. No Lead UI exists yet (Phase 3+) — every
@@ -378,7 +385,10 @@ export async function moveLeadStageAction(leadId: string, stage: LeadStage): Pro
   }
 
   const outcome = await prisma.$transaction(async (tx) => {
-    const existing = await tx.lead.findFirst({ where: { id: leadId, organizationId } });
+    const existing = await tx.lead.findFirst({
+      where: { id: leadId, organizationId },
+      include: { statusDefinition: { select: STATUS_DEFINITION_IDENTITY_SELECT } },
+    });
     if (!existing) {
       return "not_found" as const;
     }
@@ -386,7 +396,12 @@ export async function moveLeadStageAction(leadId: string, stage: LeadStage): Pro
       return "converted_locked" as const;
     }
 
-    const wasLost = isLostLeadStage(existing.stage);
+    // Custom Statuses Phase 2A (Section F) — authoritative via the
+    // Lead's own statusDefinition (immune to a stale legacy `stage`
+    // ever being mistaken for LOST once a real definition is assigned);
+    // falls back to the legacy enum only for a still-unbackfilled row
+    // (Section D).
+    const wasLost = resolveLeadIsLost(existing);
 
     // Custom Statuses Phase 1 (Section P) — kept in sync with the new
     // `stage` this action writes below.
@@ -650,14 +665,19 @@ export async function convertLeadToClientAction(
   // transaction below re-derives every one of these from scratch against
   // its own consistent view, specifically to close the TOCTOU window
   // between this read and that write (Section K.7's own requirement).
-  const preCheck = await prisma.lead.findFirst({ where: { id: leadId, organizationId, archivedAt: null } });
+  const preCheck = await prisma.lead.findFirst({
+    where: { id: leadId, organizationId, archivedAt: null },
+    include: { statusDefinition: { select: STATUS_DEFINITION_IDENTITY_SELECT } },
+  });
   if (!preCheck) {
     return { ok: false, reason: "not_found" };
   }
   if (preCheck.convertedClientId) {
     return { ok: false, reason: "already_converted" };
   }
-  if (isLostLeadStage(preCheck.stage)) {
+  // Custom Statuses Phase 2A (Section F) — see moveLeadStageAction's own
+  // identical comment.
+  if (resolveLeadIsLost(preCheck)) {
     return { ok: false, reason: "lost" };
   }
 
@@ -677,14 +697,19 @@ export async function convertLeadToClientAction(
       // Re-fetch and re-check every rejection condition under this
       // transaction's own consistent view — never trust the pre-check
       // above for the actual decision.
-      const lead = await tx.lead.findFirst({ where: { id: leadId, organizationId, archivedAt: null } });
+      const lead = await tx.lead.findFirst({
+        where: { id: leadId, organizationId, archivedAt: null },
+        include: { statusDefinition: { select: STATUS_DEFINITION_IDENTITY_SELECT } },
+      });
       if (!lead) {
         throw new LeadConversionError("not_found");
       }
       if (lead.convertedClientId) {
         throw new LeadConversionError("already_converted");
       }
-      if (isLostLeadStage(lead.stage)) {
+      // Custom Statuses Phase 2A (Section F) — see moveLeadStageAction's
+      // own identical comment.
+      if (resolveLeadIsLost(lead)) {
         throw new LeadConversionError("lost");
       }
 

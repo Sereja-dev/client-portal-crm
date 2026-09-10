@@ -3,6 +3,7 @@ import { getCurrentPortalUser } from "@/lib/current-portal-user";
 import { getPortalOverview } from "@/lib/client-portal/queries";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { resolveStatusPresentation } from "@/lib/custom-statuses/presentation";
 import { PortalWelcomeBanner } from "@/components/portal/portal-welcome-banner";
 import { isPortalWelcomeEligible } from "@/components/portal/portal-welcome-eligibility";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
@@ -70,14 +71,17 @@ export default async function PortalOverviewPage() {
             <p className="text-text-muted text-sm">No projects yet.</p>
           ) : (
             <ul className="space-y-3">
-              {overview.recentProjects.map((project) => (
+              {overview.recentProjects.map((project) => {
+                const presentation = resolveStatusPresentation(project.statusDefinition, project.status);
+                return (
                 <li key={project.id} className="flex items-center justify-between gap-3">
                   <Link href={`/portal/projects/${project.id}`} className={itemLinkClass}>
                     {project.name}
                   </Link>
-                  <StatusBadge status={project.status} />
+                  <StatusBadge status={project.status} label={presentation.label} tone={presentation.tone} />
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </section>

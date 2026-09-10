@@ -16,7 +16,10 @@ export default async function EditLeadPage({ params }: { params: Promise<{ id: s
   // Scoped by id + organizationId together — a foreign org's lead id
   // simply doesn't match, indistinguishable from a nonexistent one,
   // matching every other entity edit route in this app exactly.
-  const lead = await prisma.lead.findFirst({ where: { id, organizationId } });
+  const lead = await prisma.lead.findFirst({
+    where: { id, organizationId },
+    include: { statusDefinition: { select: { label: true, color: true } } },
+  });
 
   if (!lead) {
     notFound();
@@ -65,6 +68,7 @@ export default async function EditLeadPage({ params }: { params: Promise<{ id: s
         <LeadActionsPanel
           leadId={lead.id}
           stage={lead.stage}
+          statusDefinition={lead.statusDefinition}
           archivedAt={lead.archivedAt ? lead.archivedAt.toISOString() : null}
           convertedClientId={lead.convertedClientId}
         />

@@ -1,9 +1,12 @@
+import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { formatActivity, type ActivityDisplayModel } from "@/lib/activity/format-activity";
 import { InvoiceStatus, TaskStatus, ProjectStatus } from "@/generated/prisma/enums";
 import type { DashboardPeriod } from "@/lib/dashboard/period";
 import { getDashboardPeriodRange, type DashboardBucketUnit } from "@/lib/dashboard/period";
 import { bucketRevenue, type RevenueResult } from "@/lib/dashboard/revenue";
+import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
+import { SYSTEM_STATUS_KEYS } from "@/lib/custom-statuses/constants";
 
 // PAID and CANCELLED are excluded; everything else (DRAFT, SENT, OVERDUE)
 // still represents money the client owes. Kept here as its own copy — this
@@ -116,6 +119,28 @@ export async function getDashboardAnalytics({
 }): Promise<DashboardAnalytics> {
   const periodRange = getDashboardPeriodRange(period, now);
 
+  // Custom Statuses Phase 2A (Section K) — the "active projects" KPI is
+  // specifically the built-in IN_PROGRESS semantic status, not "any
+  // project a Staff member might informally consider active" (Phase 1's
+  // own audit confirmed this is the one real Project semantic
+  // dependency). Resolved once per dashboard load (never per-row —
+  // Section S), then filtered by statusDefinitionId, falling back to the
+  // legacy `status` enum only for a still-unbackfilled row (Section D).
+  // A custom Project status can never satisfy this count, even if its
+  // own legacy compatibility value happens to still read IN_PROGRESS
+  // from before a hypothetical reassignment (Section J).
+  const inProgressDefinition = await resolveSystemStatusDefinition(
+    organizationId,
+    "PROJECT",
+    SYSTEM_STATUS_KEYS.PROJECT_IN_PROGRESS,
+  );
+  const activeProjectsWhere: Prisma.ProjectWhereInput = inProgressDefinition
+    ? {
+        organizationId,
+        OR: [{ statusDefinitionId: inProgressDefinition.id }, { statusDefinitionId: null, status: "IN_PROGRESS" }],
+      }
+    : { organizationId, status: "IN_PROGRESS" };
+
   const [
     totalClients,
     activeProjects,
@@ -133,7 +158,7 @@ export async function getDashboardAnalytics({
     recentInvoicesRows,
   ] = await Promise.all([
     prisma.client.count({ where: { organizationId } }),
-    prisma.project.count({ where: { organizationId, status: "IN_PROGRESS" } }),
+    prisma.project.count({ where: activeProjectsWhere }),
     prisma.task.count({ where: { project: { organizationId }, status: { not: "DONE" } } }),
     prisma.task.count({
       where: { project: { organizationId }, status: { not: "DONE" }, dueDate: { lt: now } },
