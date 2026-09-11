@@ -3157,11 +3157,13 @@ model RecurringInvoice {
   @@index([organizationId])
   @@index([organizationId, status])
   @@index([organizationId, clientId])
-  // No nextIssueDate index in Phase 1 — no due-list domain function reads
-  // it yet (this phase is domain-only, invoked directly by tests; the
-  // cron-driven due-list scan that would need this index is explicitly
-  // deferred to Phase 2). Add it alongside that function, not speculatively
-  // now.
+  // Recurring Invoices Phase 2B-1 — added alongside listDueRecurringInvoices(),
+  // the first (and only) domain function that actually scans across
+  // organizations by status+nextIssueDate (the cron/manual due-batch job).
+  // Equality column (status) leads, range column (nextIssueDate) trails —
+  // the standard composite-index shape for `status = 'ACTIVE' AND
+  // nextIssueDate <= today`.
+  @@index([status, nextIssueDate])
 }
 
 // Template line items — the same business input shape as InvoiceLineItem

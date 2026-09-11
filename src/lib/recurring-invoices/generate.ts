@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import type { PrismaClientOrTx } from "./types";
-import { computeNextIssueDate } from "./date-math";
+import { computeNextIssueDate, utcDateOnly } from "./date-math";
 import { composeInvoiceNumberCandidate } from "./numbering";
 import { calculateInvoiceTotals } from "@/lib/invoices/calculations";
 import { mapInvoiceWriteError } from "@/lib/invoices/write-conflict-mapper";
@@ -75,8 +75,7 @@ function isUniqueConstraintViolation(err: unknown): boolean {
  * this date math living in the UI layer. Pure, no I/O.
  */
 export function isRecurringInvoiceDueToday(nextIssueDate: Date, now: Date): boolean {
-  const todayUtcMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  return nextIssueDate.getTime() <= todayUtcMidnight.getTime();
+  return nextIssueDate.getTime() <= utcDateOnly(now).getTime();
 }
 
 /**

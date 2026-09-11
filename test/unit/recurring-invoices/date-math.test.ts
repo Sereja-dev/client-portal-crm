@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeNextIssueDate, daysInMonth, deriveAnchorDay } from "@/lib/recurring-invoices/date-math";
+import { computeNextIssueDate, daysInMonth, deriveAnchorDay, utcDateOnly } from "@/lib/recurring-invoices/date-math";
 
 /**
  * Recurring Invoices Phase 1 — the finalized month-end/anchor date math
@@ -106,5 +106,15 @@ describe("deriveAnchorDay", () => {
   it("reads the UTC day-of-month", () => {
     expect(deriveAnchorDay(utc(2027, 3, 31))).toBe(31);
     expect(deriveAnchorDay(utc(2027, 3, 1))).toBe(1);
+  });
+});
+
+describe("utcDateOnly (Phase 2B-1)", () => {
+  it("strips any time-of-day component off an injected now", () => {
+    const withTime = new Date(Date.UTC(2027, 8, 11, 23, 59, 59, 999));
+    expect(utcDateOnly(withTime).getTime()).toBe(utc(2027, 9, 11).getTime());
+  });
+  it("is a no-op for an already-UTC-midnight value", () => {
+    expect(utcDateOnly(utc(2027, 9, 11)).getTime()).toBe(utc(2027, 9, 11).getTime());
   });
 });

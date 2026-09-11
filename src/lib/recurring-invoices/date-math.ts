@@ -77,3 +77,16 @@ export function computeNextIssueDate(current: Date, frequency: RecurrenceFrequen
 export function deriveAnchorDay(firstIssueDate: Date): number {
   return firstIssueDate.getUTCDate();
 }
+
+/**
+ * Phase 2B-1 addition — purely additive. Strips the time-of-day component
+ * off an injected `now`, returning the same UTC-midnight-of-calendar-date
+ * representation every date-only value in this app uses. Exported so both
+ * the due-batch job's own query filter and generate.ts's own
+ * isRecurringInvoiceDueToday() (Phase 2A) share one implementation of
+ * "today," rather than two independently-maintained copies of this exact
+ * one-line computation.
+ */
+export function utcDateOnly(now: Date): Date {
+  return utcMidnight(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate());
+}
