@@ -199,6 +199,15 @@ enum ActivityEntityType {
   // changedFields — see createClientRequestActivityMetadata's own
   // comment) — no new ActivityAction is added here.
   CLIENT_REQUEST
+
+  // Time Tracking Phase 1 (schema foundation only). Additive enum value
+  // only — same FALLBACK-rendering safety net as LEAD/QUOTE/CLIENT_REQUEST
+  // above. CREATED/UPDATED already cover every event this phase's own
+  // domain layer writes (entry created, meaningful field changed via
+  // UPDATED + changedFields) — no new ActivityAction is added here.
+  // Archive/unarchive deliberately writes no Activity row at all (same
+  // choice Client Requests' own archiveClientRequest already made).
+  TIME_ENTRY
 }
 
 enum ActivityAction {
@@ -413,6 +422,14 @@ model User {
   // assignedLeads/LeadAssignee above.
   assignedClientRequests ClientRequest[]        @relation("ClientRequestAssignee")
   clientRequestMessages  ClientRequestMessage[] @relation("ClientRequestMessageStaffAuthor")
+
+  // Time Tracking Phase 1 (schema foundation only). SetNull — a real
+  // hard-delete path for User doesn't exist today, but this mirrors
+  // every other actor/owner FK's own precedent (Activity.actorId,
+  // Task.assigneeId, ClientRequest.assignedToId): historical time must
+  // survive regardless. Named relation ("TimeEntryUser") since it's the
+  // owning user, not an "assignee" in the Task/Lead/ClientRequest sense.
+  timeEntries TimeEntry[] @relation("TimeEntryUser")
 }
 
 // Multi-tenant scaffolding (schema-only for now; not yet wired into app
@@ -515,6 +532,10 @@ model Organization {
   // above.
   clientRequests        ClientRequest[]
   clientRequestMessages ClientRequestMessage[]
+
+  // Time Tracking Phase 1 — see TimeEntry's own doc comment. Same
+  // direct-tenant-scoping shape as leads/customFieldDefinitions above.
+  timeEntries TimeEntry[]
 }
 
 // Platform Admin Organization Suspension, PR 1. Deliberately separate
@@ -1311,6 +1332,12 @@ model Project {
   // array view of that.
   clientRequests ClientRequest[]
 
+  // Time Tracking Phase 1 (schema foundation only). SetNull at the
+  // TimeEntry side — a Project's own deletion must never destroy logged
+  // time, only unlink it (see TimeEntry's own doc comment); this
+  // back-relation is just the array view of that.
+  timeEntries TimeEntry[]
+
   @@index([status])
   @@index([ownerId])
   @@index([organizationId])
@@ -1336,6 +1363,12 @@ model Task {
 
   organizationId String?       @db.Uuid
   organization   Organization? @relation(fields: [organizationId], references: [id], onDelete: SetNull)
+
+  // Time Tracking Phase 1 (schema foundation only). SetNull at the
+  // TimeEntry side — a Task's own deletion must never destroy logged
+  // time, only unlink it; this back-relation is just the array view of
+  // that.
+  timeEntries TimeEntry[]
 
   @@index([status])
   @@index([dueDate])
@@ -2651,6 +2684,105 @@ model ClientRequestMessage {
   @@index([requestId])
   @@index([organizationId])
   @@index([createdAt])
+}
+
+// Time Tracking, Phase 1 (foundation only — see the approved Time
+// Tracking Phase 1 spec, itself following a dedicated read-only
+// architecture/readiness assessment). No Staff/Portal UI, no running
+// timer, no billing-rate snapshot, and no Invoice relation in this phase
+// — see src/lib/time-entries/entries.ts for what actually exists yet.
+//
+// Direct-tenant-scoping shape (organizationId required + Cascade), the
+// same convention every model added since Leads/Quotes/Custom Fields/
+// Custom Statuses/Lead Capture Forms/Client Requests already uses.
+//
+// userId/projectId are both nullable at the database level for the same
+// reason — historical preservation once their own owning row is deleted
+// (a real hard-delete path exists for neither User nor Project today,
+// but Task.assigneeId/ClientRequest.assignedToId/Invoice.projectId all
+// already carry this exact same "nullable now, in case that ever
+// changes" precedent) — but the domain layer's own createTimeEntry
+// always REQUIRES both a valid target member and a valid Project; the
+// database's own nullability is never a loophole a caller can use to
+// create an ownerless or project-less entry, only the FK's own
+// after-the-fact SetNull behavior can ever produce one.
+model TimeEntry {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Nullable + SetNull — see this model's own doc comment above. Named
+  // relation ("TimeEntryUser") since this is the entry's owning member,
+  // not an "assignee" in the Task/Lead/ClientRequest sense. The domain
+  // layer independently re-verifies a real Membership in this same
+  // organizationId at every create/update/reassign — never trusted from
+  // this column's own mere presence.
+  userId String? @db.Uuid
+  user   User?   @relation("TimeEntryUser", fields: [userId], references: [id], onDelete: SetNull)
+
+  // Nullable + SetNull — see this model's own doc comment above.
+  // Required at create time by the domain layer (never by this column),
+  // and independently re-verified to belong to this same organizationId
+  // on every create/update.
+  projectId String?  @db.Uuid
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  // Optional always — a TimeEntry never requires a Task, only a Project.
+  // SetNull, same reasoning as projectId. The domain layer enforces that
+  // a supplied Task belongs to BOTH this same organizationId AND this
+  // exact entry's own projectId — Prisma has no multi-column conditional
+  // FK to express that constraint declaratively (same limitation
+  // ClientRequest.projectId's own comment already documents).
+  taskId String? @db.Uuid
+  task   Task?   @relation(fields: [taskId], references: [id], onDelete: SetNull)
+
+  // The calendar day the work happened — reuses the existing strict
+  // date-only/UTC-midnight convention (src/lib/invoices/date-only.ts's
+  // parseDateOnly/formatDateOnly, already fully generic — not
+  // Invoice-specific despite its current file location), never raw
+  // `new Date(userInput)` parsing. Always persisted as 00:00:00.000 UTC
+  // on the named calendar date.
+  workDate DateTime
+
+  // Integer minutes only — deliberately not a Decimal-hours column (no
+  // precedent anywhere in this schema for clock-time/duration
+  // granularity to follow, and an integer avoids both a new Decimal-
+  // precision decision and floating-point rounding surprises on
+  // aggregation). Domain-validated 1..1440 (a single entry can never
+  // exceed one full calendar day) — the schema itself has no CHECK
+  // constraint for this; see src/lib/validation/time-entry.ts.
+  durationMinutes Int
+
+  description String?
+
+  // Simple business classification only — see this model's own doc
+  // comment: no rate, no computed money, no Invoice linkage in this
+  // phase. Default true: most logged work is billable by default in the
+  // freelance/agency context this product targets.
+  billable Boolean @default(true)
+
+  // Soft-archive only, same convention as Lead.archivedAt/
+  // ClientRequest.archivedAt — null = active. No hard-delete domain
+  // action exists (or is planned) for TimeEntry.
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Only the filter/sort dimensions an actual Phase 1 query pattern
+  // uses (see src/lib/time-entries/entries.ts's own listTimeEntries) —
+  // no @@index([taskId]): nothing in this phase queries "all time
+  // entries for a given task" as its own primary access pattern (a
+  // Task's own time, if ever needed, is a small enough set to filter
+  // in-memory from the Project-scoped result — adding a speculative
+  // index for a query this phase doesn't perform is exactly the kind of
+  // premature optimization the architecture review's own §J explicitly
+  // rejected).
+  @@index([organizationId])
+  @@index([organizationId, userId])
+  @@index([organizationId, projectId])
+  @@index([organizationId, workDate])
 }
 
 // Quotes / Estimates Phase 1 (schema foundation only -- see the approved
