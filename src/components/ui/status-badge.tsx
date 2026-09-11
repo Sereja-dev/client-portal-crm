@@ -138,6 +138,24 @@ export const STATUS_TONES: Record<string, StatusTone> = {
   APPROVED: "success",
   DECLINED: "danger",
   CONVERTED: "success",
+
+  // Client Requests / Tickets Phase 2A — ClientRequestStatus's own three
+  // values not already covered above (IN_PROGRESS is shared with Project/
+  // Task's own identical-meaning value). OPEN mirrors PENDING's own
+  // "needs attention" warning tone; WAITING_ON_CLIENT is a normal,
+  // non-urgent holding state (neutral); RESOLVED mirrors DONE/COMPLETED's
+  // own positive-outcome success tone; CLOSED mirrors ARCHIVED/EXPIRED's
+  // own "wound down, no longer active" muted tone — never CANCELLED's own
+  // danger tone, since closing a ticket isn't a negative outcome.
+  OPEN: "warning",
+  WAITING_ON_CLIENT: "neutral",
+  RESOLVED: "success",
+  CLOSED: "muted",
+
+  // ClientRequestPriority's own NORMAL value (LOW/HIGH/URGENT already
+  // shared with TaskPriority above) — mirrors MEDIUM's own "ordinary, no
+  // special attention" info tone at the equivalent tier.
+  NORMAL: "info",
 };
 
 // Custom Statuses Phase 2A (Section P) — `tone` is an optional override

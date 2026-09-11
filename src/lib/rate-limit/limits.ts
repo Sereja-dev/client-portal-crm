@@ -298,3 +298,19 @@ export const PORTAL_QUOTE_DECISION_LIMIT: RateLimitConfig = { scope: "portal-quo
 // visitor to retry a typo'd submission a few times, tight enough that a
 // scripted loop can't meaningfully spam an organization's pipeline.
 export const LEAD_CAPTURE_SUBMIT_LIMIT: RateLimitConfig = { scope: "lead-capture-submit", limit: 10, windowMs: HOUR_MS };
+
+// Client Requests / Tickets Phase 2A — Portal request creation, per
+// authenticated PortalUser. Same reasoning/ceiling as
+// LEAD_CREATE_LIMIT/TASK_CREATE_LIMIT's own identical comment: a real
+// client filing support requests one at a time never approaches this,
+// a scripted loop is bounded well before it could meaningfully spam an
+// organization's queue.
+export const CLIENT_REQUEST_CREATE_LIMIT: RateLimitConfig = { scope: "client-request-create", limit: 100, windowMs: HOUR_MS };
+
+// Client Requests / Tickets Phase 2A — adding a message, shared by both
+// the Staff and Portal composer actions (each keyed by its own actor's
+// user id, so a busy Staff member and a chatty client never share a
+// bucket). Same ceiling as COMMENT_CREATE_LIMIT's own identical
+// "generous for real back-and-forth, tight against a scripted loop"
+// reasoning.
+export const CLIENT_REQUEST_MESSAGE_LIMIT: RateLimitConfig = { scope: "client-request-message", limit: 60, windowMs: HOUR_MS };

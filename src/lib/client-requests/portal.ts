@@ -18,6 +18,11 @@ import { parseClientRequestCreateInput, PORTAL_SELECTABLE_CLIENT_REQUEST_PRIORIT
  * narrower (by Client, not just by Organization).
  */
 
+/** Phase 2A: display data only (a Project's own name is never a secret) — needed so the Portal list/detail UI can show "project if linked" without a second round trip. Purely additive. */
+const REQUEST_PROJECT_INCLUDE = { project: { select: { id: true, name: true } } } as const;
+
+export type ClientRequestWithProject = ClientRequest & { project: { id: string; name: string } | null };
+
 export type PortalClientRequestContext = {
   organizationId: string;
   clientId: string;
@@ -106,15 +111,27 @@ export async function createPortalClientRequest(
   return { ok: true, request };
 }
 
-/** Active (non-archived) requests for this Client, newest first. Archived requests are Staff-only housekeeping state — never surfaced in a Portal list, though a direct getPortalClientRequest lookup still resolves one (see that function's own comment). */
-export async function listPortalClientRequests(clientId: string, client: PrismaClientOrTx = prisma): Promise<ClientRequest[]> {
+/** Active (non-archived) requests for this Client, newest first. Archived requests are Staff-only housekeeping state — never surfaced in a Portal list. */
+export async function listPortalClientRequests(clientId: string, client: PrismaClientOrTx = prisma): Promise<ClientRequestWithProject[]> {
   return client.clientRequest.findMany({
     where: { clientId, archivedAt: null },
     orderBy: [{ createdAt: "desc" }],
+    include: REQUEST_PROJECT_INCLUDE,
   });
 }
 
-/** Scoped by clientId only — a request belonging to another Client is indistinguishable from a nonexistent one. Returns an archived request too (same get-vs-list asymmetry as getCustomStatusDefinition/getLeadCaptureForm): a Portal user following a link to their own already-archived ticket should still be able to open it, even though it's excluded from listPortalClientRequests' own default view. */
-export async function getPortalClientRequest(clientId: string, requestId: string, client: PrismaClientOrTx = prisma): Promise<ClientRequest | null> {
-  return client.clientRequest.findFirst({ where: { id: requestId, clientId } });
+/**
+ * Scoped by clientId AND excludes archived — Phase 2A (Staff + Portal UI)
+ * §"ARCHIVE": "Portal behavior for archived request must be explicit:
+ * preferably hidden from list and inaccessible." An archived request is
+ * now indistinguishable from a nonexistent one for Portal, the exact
+ * same treatment a foreign-Client request already gets — never a
+ * separate "this was archived" message that would confirm the request
+ * once existed. (This is a deliberate Phase 2A tightening of this
+ * function's own original Phase 1 behavior, which allowed a direct link
+ * to still resolve one — superseded by this phase's own explicit
+ * product decision.)
+ */
+export async function getPortalClientRequest(clientId: string, requestId: string, client: PrismaClientOrTx = prisma): Promise<ClientRequestWithProject | null> {
+  return client.clientRequest.findFirst({ where: { id: requestId, clientId, archivedAt: null }, include: REQUEST_PROJECT_INCLUDE });
 }

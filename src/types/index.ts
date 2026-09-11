@@ -234,3 +234,19 @@ export type DomainSettingsFormState = {
   fieldErrors?: Partial<Record<"customDomain", string>>;
   message?: string | null;
 };
+
+// Client Requests / Tickets Phase 2A. Shared by both the Portal create
+// form and the (never-built-in-this-phase, but same shape for
+// consistency) Staff equivalent.
+export type ClientRequestCreateFormState = {
+  error: string | null;
+  fieldErrors?: Partial<Record<"title" | "description" | "priority" | "projectId", string>>;
+};
+
+// Shared by the Portal and Staff message composers — a message body is
+// never invalid on any field OTHER than itself, so this is deliberately
+// just a single generic error, not a fieldErrors map (mirrors
+// CommentActionState's own shape for the same reason).
+export type ClientRequestMessageFormState = {
+  error: string | null;
+};

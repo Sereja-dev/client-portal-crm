@@ -1,5 +1,6 @@
 import "server-only";
 import type { ClientRequest } from "@/generated/prisma/client";
+import type { ClientRequestPriority } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import type { PrismaClientOrTx } from "./types";
 import { createActivity } from "@/lib/activity/create-activity";
@@ -40,19 +41,51 @@ export type ClientRequestActor = { id: string; name: string };
 
 export type ClientRequestMutationResult = { ok: true; request: ClientRequest } | { ok: false; reason: "REQUEST_NOT_FOUND" };
 
+/**
+ * Phase 2A: list/get below now also join client.name/assignedTo.name/
+ * project.name/portalUser.name — display data only (names are never
+ * secrets), needed so the Staff list/detail UI can show real identities
+ * without N+1 round trips. Purely additive: every existing scalar field
+ * these functions already returned is untouched, and this changes
+ * nothing about scoping/authorization.
+ */
+const REQUEST_DISPLAY_INCLUDE = {
+  client: { select: { id: true, name: true } },
+  assignedTo: { select: { id: true, name: true } },
+  project: { select: { id: true, name: true } },
+  portalUser: { select: { id: true, name: true } },
+} as const;
+
+export type ClientRequestWithDisplay = ClientRequest & {
+  client: { id: string; name: string };
+  assignedTo: { id: string; name: string } | null;
+  project: { id: string; name: string } | null;
+  portalUser: { id: string; name: string } | null;
+};
+
+/** Phase 2A adds `priority`/`assignedToId` filters alongside the existing `clientId`/`status` ones, for the Staff list page's own simple filter bar. */
 export async function listOrganizationClientRequests(
   organizationId: string,
-  options: { includeArchived?: boolean; clientId?: string; status?: ClientRequestStatusValue } = {},
+  options: {
+    includeArchived?: boolean;
+    clientId?: string;
+    status?: ClientRequestStatusValue;
+    priority?: ClientRequestPriority;
+    assignedToId?: string;
+  } = {},
   client: PrismaClientOrTx = prisma,
-): Promise<ClientRequest[]> {
+): Promise<ClientRequestWithDisplay[]> {
   return client.clientRequest.findMany({
     where: {
       organizationId,
       ...(options.includeArchived ? {} : { archivedAt: null }),
       ...(options.clientId ? { clientId: options.clientId } : {}),
       ...(options.status ? { status: options.status } : {}),
+      ...(options.priority ? { priority: options.priority } : {}),
+      ...(options.assignedToId ? { assignedToId: options.assignedToId } : {}),
     },
     orderBy: [{ createdAt: "desc" }],
+    include: REQUEST_DISPLAY_INCLUDE,
   });
 }
 
@@ -60,8 +93,8 @@ export async function getOrganizationClientRequest(
   organizationId: string,
   requestId: string,
   client: PrismaClientOrTx = prisma,
-): Promise<ClientRequest | null> {
-  return client.clientRequest.findFirst({ where: { id: requestId, organizationId } });
+): Promise<ClientRequestWithDisplay | null> {
+  return client.clientRequest.findFirst({ where: { id: requestId, organizationId }, include: REQUEST_DISPLAY_INCLUDE });
 }
 
 /**

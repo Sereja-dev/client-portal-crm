@@ -79,6 +79,12 @@ export async function addStaffClientRequestMessage(
  * same defense-in-depth boundary check as the Staff side (Section:
  * "PortalUser must belong to Client"), never assumed just because the
  * caller says so.
+ *
+ * Excludes an archived request (Phase 2A §"ARCHIVE": "Portal behavior
+ * for archived request must be explicit: ... inaccessible") — same
+ * treatment as getPortalClientRequest's own identical Phase 2A
+ * tightening, and for the same reason: an archived request is
+ * indistinguishable from a nonexistent one for Portal.
  */
 export async function addPortalClientRequestMessage(
   clientId: string,
@@ -88,7 +94,7 @@ export async function addPortalClientRequestMessage(
   client: PrismaClientOrTx = prisma,
 ): Promise<AddClientRequestMessageResult> {
   const request = await client.clientRequest.findFirst({
-    where: { id: requestId, clientId },
+    where: { id: requestId, clientId, archivedAt: null },
     select: { id: true, organizationId: true },
   });
   if (!request) {
@@ -119,16 +125,34 @@ export async function addPortalClientRequestMessage(
   return { ok: true, message };
 }
 
+/**
+ * Phase 2A: both listing functions now also join each message's own
+ * staffUser.name/portalUser.name — display data only (a name is never a
+ * secret), needed so the conversation UI can show a real author identity
+ * without a second round trip. Still returns `[]` for a request with no
+ * messages and `null` for a foreign one — this join changes nothing
+ * about scoping/authorization.
+ */
+const MESSAGE_AUTHOR_INCLUDE = {
+  staffUser: { select: { name: true } },
+  portalUser: { select: { name: true } },
+} as const;
+
+export type ClientRequestMessageWithAuthor = ClientRequestMessage & {
+  staffUser: { name: string } | null;
+  portalUser: { name: string } | null;
+};
+
 /** Staff-scoped listing — null if `requestId` doesn't belong to `organizationId`, indistinguishable from a nonexistent request. */
 export async function listClientRequestMessagesForOrganization(
   organizationId: string,
   requestId: string,
   client: PrismaClientOrTx = prisma,
-): Promise<ClientRequestMessage[] | null> {
+): Promise<ClientRequestMessageWithAuthor[] | null> {
   const request = await client.clientRequest.findFirst({ where: { id: requestId, organizationId }, select: { id: true } });
   if (!request) return null;
 
-  return client.clientRequestMessage.findMany({ where: { requestId }, orderBy: [{ createdAt: "asc" }] });
+  return client.clientRequestMessage.findMany({ where: { requestId }, orderBy: [{ createdAt: "asc" }], include: MESSAGE_AUTHOR_INCLUDE });
 }
 
 /** Portal-scoped listing — null if `requestId` doesn't belong to `clientId`, indistinguishable from a nonexistent request. */
@@ -136,9 +160,9 @@ export async function listClientRequestMessagesForClient(
   clientId: string,
   requestId: string,
   client: PrismaClientOrTx = prisma,
-): Promise<ClientRequestMessage[] | null> {
+): Promise<ClientRequestMessageWithAuthor[] | null> {
   const request = await client.clientRequest.findFirst({ where: { id: requestId, clientId }, select: { id: true } });
   if (!request) return null;
 
-  return client.clientRequestMessage.findMany({ where: { requestId }, orderBy: [{ createdAt: "asc" }] });
+  return client.clientRequestMessage.findMany({ where: { requestId }, orderBy: [{ createdAt: "asc" }], include: MESSAGE_AUTHOR_INCLUDE });
 }
