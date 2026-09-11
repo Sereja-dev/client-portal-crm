@@ -92,6 +92,14 @@ export type CustomFieldValueCompatibilityResult =
   | { ok: true; normalizedValue: string | number | boolean }
   | { ok: false; error: string };
 
+/** UTC "YYYY-MM-DD" — the exact round-trippable shape normalizeDateValue's own DATE_ONLY_PATTERN parses back out. */
+function toDateOnlyString(date: Date): string {
+  const year = String(date.getUTCFullYear()).padStart(4, "0");
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 /**
  * Checks a proposed action value against the target CustomFieldDefinition's
  * own fieldType, reusing this codebase's existing pure per-type
@@ -129,7 +137,14 @@ export async function checkCustomFieldValueCompatibility(
       const result = normalizeDateValue(rawValue);
       if (!result.ok) return { ok: false, error: result.error };
       if (result.value === null) return { ok: false, error: "value must not be empty." };
-      return { ok: true, normalizedValue: result.value.toISOString() };
+      // Stored (and later re-validated — Phase 2 execution calls this
+      // function again at run time, see execute-run.ts) in the exact
+      // "YYYY-MM-DD" shape normalizeDateValue's own DATE_ONLY_PATTERN
+      // requires on re-parse — never `.toISOString()`'s full
+      // date-time-with-Z form, which normalizeDateValue would reject
+      // outright on a second pass, making every stored DATE action value
+      // permanently unusable.
+      return { ok: true, normalizedValue: toDateOnlyString(result.value) };
     }
     case "CHECKBOX": {
       const result = normalizeCheckboxValue(rawValue);

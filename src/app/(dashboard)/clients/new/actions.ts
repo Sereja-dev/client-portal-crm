@@ -6,6 +6,7 @@ import { getCurrentUserOrganization } from "@/lib/current-user";
 import { parseClientForm } from "@/lib/validation/client";
 import { withToast } from "@/lib/toast-url";
 import { createActivity } from "@/lib/activity/create-activity";
+import { dispatchWorkflowAutomations } from "@/lib/workflow-automations/dispatch";
 import { buildClientActivityMetadata } from "@/lib/activity/client-metadata";
 import { assertCanCreateClient, BillingLimitError } from "@/lib/billing/enforcement";
 import { findDuplicateOrganizationClientByEmail } from "@/lib/clients/duplicate-email";
@@ -63,6 +64,8 @@ export async function createClientAction(
   if (!customFieldValidation.ok) {
     return { error: null, customFieldErrors: customFieldValidation.fieldErrors };
   }
+
+  let clientActivity: Awaited<ReturnType<typeof createActivity>> | undefined;
 
   try {
     // Client create, its custom field values, and its Activity row are
@@ -152,7 +155,7 @@ export async function createClientAction(
         }
       }
 
-      await createActivity(tx, {
+      clientActivity = await createActivity(tx, {
         organizationId,
         actorId: user.id,
         entityType: "CLIENT",
@@ -175,6 +178,15 @@ export async function createClientAction(
       };
     }
     throw err;
+  }
+
+  // Post-commit, best-effort — see dispatchWorkflowAutomations's own
+  // non-throwing contract. clientActivity is always set here: the only
+  // paths that reach this line without it are early `return`s above the
+  // transaction (validation/duplicate-email) or a caught error that
+  // itself returned — none of which fall through to this line.
+  if (clientActivity) {
+    await dispatchWorkflowAutomations(clientActivity);
   }
 
   redirect(withToast("/clients", "Client created"));

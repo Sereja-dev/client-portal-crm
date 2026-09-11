@@ -158,3 +158,35 @@ export function resolveWorkflowTrigger(
 export function listSupportedWorkflowTriggers(): readonly WorkflowTriggerDefinition[] {
   return TRIGGER_DEFINITIONS;
 }
+
+/**
+ * Workflow Automations Phase 2 — the (strict subset of the) trigger
+ * allowlist above that dispatch.ts is actually wired to execute.
+ *
+ * All four TRIGGER_DEFINITIONS above remain valid to *configure* an
+ * automation against (Phase 1's createWorkflowAutomation/
+ * updateWorkflowAutomation are untouched) — an automation can still be
+ * created with an INVOICE.STATUS_CHANGED or CLIENT_REQUEST.STATUS_CHANGED
+ * trigger today, exactly as Phase 1 shipped. What changes in Phase 2 is
+ * only which of those configured automations can ever actually *run*:
+ * only LEAD.STATUS_CHANGED and CLIENT.CREATED have a
+ * customReferenceEntityType (see WorkflowTriggerDefinition's own
+ * comment) and can therefore carry a non-empty, valid V1 action list —
+ * INVOICE/CLIENT_REQUEST automations are structurally limited to zero
+ * actions by Phase 1's own actions.ts, so wiring execution for them
+ * would only ever produce an empty no-op run. Rather than let that
+ * happen implicitly, dispatchWorkflowAutomations checks membership here
+ * *before* doing anything else — a deliberate, explicit, structural
+ * guarantee (independent of which call sites happen to exist) that
+ * INVOICE.STATUS_CHANGED/CLIENT_REQUEST.STATUS_CHANGED never execute in
+ * this phase, matching the Phase 2 spec's own explicit instruction not
+ * to wire them "until they have a legitimate V1 action type."
+ */
+const EXECUTABLE_TRIGGER_KEYS: ReadonlySet<string> = new Set([
+  triggerKey("LEAD", "STATUS_CHANGED"),
+  triggerKey("CLIENT", "CREATED"),
+]);
+
+export function isExecutableWorkflowTrigger(entityType: ActivityEntityType, action: ActivityAction): boolean {
+  return EXECUTABLE_TRIGGER_KEYS.has(triggerKey(entityType, action));
+}

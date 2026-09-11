@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { checkRateLimit, LEAD_CREATE_LIMIT, LEAD_UPDATE_LIMIT } from "@/lib/rate-limit";
 import { createActivity } from "@/lib/activity/create-activity";
+import { dispatchWorkflowAutomations } from "@/lib/workflow-automations/dispatch";
 import { buildLeadActivityMetadata, buildLeadStageChangeMetadata, diffLeadFields } from "@/lib/activity/lead-metadata";
 import { buildClientActivityMetadata } from "@/lib/activity/client-metadata";
 import {
@@ -426,7 +427,7 @@ export async function moveLeadStageAction(leadId: string, stage: LeadStage): Pro
       return "converted_locked" as const;
     }
 
-    await createActivity(tx, {
+    const activity = await createActivity(tx, {
       organizationId,
       actorId: user.id,
       entityType: "LEAD",
@@ -435,11 +436,16 @@ export async function moveLeadStageAction(leadId: string, stage: LeadStage): Pro
       metadata: buildLeadStageChangeMetadata(existing.stage, stage),
     });
 
-    return "updated" as const;
+    return { status: "updated" as const, activity };
   });
 
   if (outcome === "not_found") return { ok: false, reason: "not_found" };
   if (outcome === "converted_locked") return { ok: false, reason: "converted_locked" };
+
+  // Post-commit, best-effort — see dispatchWorkflowAutomations's own
+  // non-throwing contract; never rolls back or blocks this already-
+  // successful stage change if automation execution fails.
+  await dispatchWorkflowAutomations(outcome.activity);
 
   revalidatePath("/leads");
   return { ok: true };
@@ -638,7 +644,7 @@ export async function markLeadLostAction(leadId: string, lostReason?: string | n
       return "converted_locked" as const;
     }
 
-    await createActivity(tx, {
+    const activity = await createActivity(tx, {
       organizationId,
       actorId: user.id,
       entityType: "LEAD",
@@ -651,11 +657,15 @@ export async function markLeadLostAction(leadId: string, lostReason?: string | n
       metadata: buildLeadStageChangeMetadata(existing.stage, "LOST"),
     });
 
-    return "updated" as const;
+    return { status: "updated" as const, activity };
   });
 
   if (outcome === "not_found") return { ok: false, reason: "not_found" };
   if (outcome === "converted_locked") return { ok: false, reason: "converted_locked" };
+
+  // Post-commit, best-effort — see dispatchWorkflowAutomations's own
+  // non-throwing contract.
+  await dispatchWorkflowAutomations(outcome.activity);
 
   revalidatePath("/leads");
   return { ok: true };
@@ -841,7 +851,7 @@ export async function convertLeadToClientAction(
   }
 
   try {
-    const clientId = await prisma.$transaction(async (tx) => {
+    const conversionResult = await prisma.$transaction(async (tx) => {
       // Re-fetch and re-check every rejection condition under this
       // transaction's own consistent view — never trust the pre-check
       // above for the actual decision.
@@ -935,7 +945,7 @@ export async function convertLeadToClientAction(
       // conversion-created Client gets the identical event, so its own
       // Activity timeline reads the same regardless of how it came to
       // exist.
-      await createActivity(tx, {
+      const clientActivity = await createActivity(tx, {
         organizationId,
         actorId: user.id,
         entityType: "CLIENT",
@@ -998,11 +1008,19 @@ export async function convertLeadToClientAction(
         metadata: buildLeadActivityMetadata({ name: lead.name, stage: "WON" }, user.name),
       });
 
-      return client.id;
+      return { clientId: client.id, clientActivity };
     });
 
+    // Post-commit, best-effort — dispatched only for the CLIENT.CREATED
+    // activity (the LEAD.CONVERTED activity above is not in Phase 2's
+    // executable trigger set — see triggers.ts's own
+    // isExecutableWorkflowTrigger comment; dispatching it would be a
+    // harmless no-op regardless, but there is no reason to call it
+    // twice for one conversion).
+    await dispatchWorkflowAutomations(conversionResult.clientActivity);
+
     revalidatePath("/leads");
-    return { ok: true, clientId };
+    return { ok: true, clientId: conversionResult.clientId };
   } catch (err) {
     if (err instanceof LeadConversionError) {
       if (err.reason === "requires_duplicate_confirmation") {

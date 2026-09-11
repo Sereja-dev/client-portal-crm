@@ -1750,6 +1750,11 @@ model Activity {
 
   notifications Notification[]
 
+  // Workflow Automations Phase 2 -- see WorkflowAutomationRun's own doc
+  // comment. Same shape as notifications above -- a plain, unnamed
+  // back-relation for a child ledger table pointing at this row.
+  workflowAutomationRuns WorkflowAutomationRun[]
+
   // General organization timeline: ORDER BY createdAt DESC, id DESC.
   @@index([organizationId, createdAt, id])
   // Entity-specific timeline (a later stage) — scoped by org first so a
@@ -3356,4 +3361,78 @@ model WorkflowAutomation {
   // isEnabled: true next, matching this column order.
   @@index([organizationId, archivedAt])
   @@index([organizationId, triggerEntityType, triggerAction, archivedAt, isEnabled])
+
+  // Workflow Automations Phase 2 -- see WorkflowAutomationRun's own doc
+  // comment.
+  runs WorkflowAutomationRun[]
+}
+
+enum WorkflowAutomationRunStatus {
+  SUCCEEDED
+  FAILED
+}
+
+// Workflow Automations Phase 2 -- the execution ledger. Deliberately not
+// modeled on RecurringInvoiceOccurrence's own claim/reclaim/lease state
+// machine: that machinery exists to protect a *polled batch job* racing
+// itself across overlapping cron invocations against a backlog of due
+// rows. Execution here is a single, synchronous, request-bound dispatch
+// (src/lib/workflow-automations/dispatch.ts) triggered exactly once by a
+// real Staff mutation -- there is no batch, no backlog, no polling
+// worker to protect against, so no PENDING/RUNNING state, no lease, no
+// claim token, and no attemptCount/retry counter exist here. A run is
+// either SUCCEEDED (every action in it committed atomically) or FAILED
+// (none of them did -- see execute-run.ts's own header comment for the
+// two-transaction "attempt, and only if it fails, separately record
+// that it failed" pattern this status pair reflects) -- there is no
+// third "in progress" state a synchronous, millisecond-scale, DB-only
+// execution ever needs to durably represent.
+//
+// No per-action child table either: every action in one run executes
+// atomically in one transaction (Section H of the Phase 2 execution
+// audit) -- a run is never partially applied, so failedActionIndex below
+// is purely diagnostic, never a resume cursor.
+model WorkflowAutomationRun {
+  id String @id @default(uuid()) @db.Uuid
+
+  workflowAutomationId String             @db.Uuid
+  workflowAutomation   WorkflowAutomation @relation(fields: [workflowAutomationId], references: [id], onDelete: Cascade)
+
+  // The Activity that caused this run. Required -- a run only ever
+  // exists for a real dispatch attempt; a condition mismatch produces no
+  // row at all (see evaluate-conditions.ts). Cascade: Activity is never
+  // hard-deleted anywhere in this app today, so this is defensive,
+  // matching Activity's own existing Notification[] relation shape
+  // rather than inventing a new one.
+  activityId String   @db.Uuid
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  status WorkflowAutomationRunStatus
+
+  // Set only on FAILED -- a short, safe, non-raw-error reason code, same
+  // convention as RecurringInvoiceOccurrence.failureReason/
+  // NotificationDelivery.failureCode. Never a raw DB/driver error
+  // string.
+  failureReason String?
+  // Which 0-based action index failed, when determinable (a stale
+  // condition-config failure caught before any action ran leaves this
+  // null). Diagnostic only -- see this model's own header comment.
+  failedActionIndex Int?
+
+  createdAt DateTime @default(now())
+
+  // The entire idempotency AND concurrency guarantee (Section 5/8 of the
+  // Phase 2 execution audit): at most one run per (automation, Activity),
+  // ever. Two racing dispatch attempts both try to write this row as the
+  // very last statement of their own transaction; the database allows
+  // exactly one of them to commit it, and the loser's whole transaction
+  // -- including any tentatively-applied action writes -- rolls back
+  // with it. This is the sole concurrency boundary; no claim/lease
+  // exists alongside it.
+  @@unique([workflowAutomationId, activityId])
+  // Ordered "recent runs for this automation" lookup -- the @@unique
+  // above already covers an exact (workflowAutomationId, activityId)
+  // point lookup via its own leftmost-column prefix, but not an ordered
+  // scan by recency.
+  @@index([workflowAutomationId, createdAt])
 }
