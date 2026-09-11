@@ -484,6 +484,11 @@ model Organization {
   suspendedAt DateTime?
 
   platformAdminAuditEvents PlatformAdminAuditEvent[]
+
+  // Public Lead Capture Forms Phase 1 — see LeadCaptureForm's own doc
+  // comment. Same direct-tenant-scoping shape as leads/customFieldDefinitions
+  // above.
+  leadCaptureForms LeadCaptureForm[]
 }
 
 // Platform Admin Organization Suspension, PR 1. Deliberately separate
@@ -2373,6 +2378,60 @@ model Lead {
   // single column would be a pure duplicate.
   @@index([createdAt])
   @@index([statusDefinitionId])
+}
+
+// Public Lead Capture Forms, Phase 1 (foundation). An organization-owned
+// configuration model letting staff expose a public, unauthenticated form
+// that creates Leads — same direct-tenant-scoping shape as
+// CustomFieldDefinition/CustomStatusDefinition above. Deliberately does
+// NOT add a back-relation from Lead (no leadCaptureFormId column there):
+// a submitted Lead's provenance is fully captured by source = WEBSITE,
+// and not touching the Lead model at all keeps this phase's footprint
+// strictly additive.
+model LeadCaptureForm {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Staff-facing only — never rendered on the public form.
+  name String
+
+  // The public, unauthenticated identifier — a random opaque value (same
+  // randomUUID() convention as Invitation.token/the portal-access token
+  // in src/app/(dashboard)/clients/[id]/edit/portal-access-actions.ts),
+  // never the row's own `id` and never derived from organizationId, so a
+  // valid token carries no guessable link back to which organization (or
+  // which other form) owns it.
+  publicToken String @unique
+
+  title          String
+  description    String?
+  successMessage String?
+
+  isActive Boolean @default(true)
+
+  // Per-field { visible, required, order, label } for exactly the V1
+  // built-in field set (name/company/email/phone/message) — see
+  // src/lib/lead-capture-forms/fields.ts for the fixed key set and the
+  // shape stored here. A JSON column, not a child table: matches
+  // Activity.metadata/Notification.metadata's own "Json @default("{}")"
+  // convention, and a fixed 5-key object is deliberately not the generic
+  // drag-and-drop field engine this phase explicitly excludes.
+  fieldsConfig Json @default("{}")
+
+  // Soft-archive only, same convention as Lead.archivedAt/
+  // CustomFieldDefinition.archivedAt — null = active. Distinct from
+  // isActive: archivedAt is the permanent retire switch, isActive is the
+  // day-to-day publish/unpublish toggle a still-active (non-archived)
+  // form can be flipped through repeatedly.
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([organizationId, archivedAt])
 }
 
 // Quotes / Estimates Phase 1 (schema foundation only -- see the approved

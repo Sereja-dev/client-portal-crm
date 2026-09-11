@@ -287,3 +287,14 @@ export const QUOTE_UPDATE_LIMIT: RateLimitConfig = { scope: "quote-update", limi
 // legitimate multi-Quote review session while still bounding a scripted
 // loop tightly.
 export const PORTAL_QUOTE_DECISION_LIMIT: RateLimitConfig = { scope: "portal-quote-decision", limit: 20, windowMs: HOUR_MS };
+
+// Public Lead Capture Forms, Phase 1 — per IP, the same "genuinely
+// unauthenticated entry point" reasoning as SIGNUP_LIMIT/LOGIN_LIMIT
+// above (PASSWORD_RESET_REQUEST_LIMIT's own comment). Deliberately
+// conservative: this form has no CAPTCHA yet (honeypot + rate limiting
+// only — see this phase's own spec), and unlike signup/login this
+// endpoint has no account-existence signal to protect, only a write
+// (Lead creation) to bound. 10/hour is generous enough for a genuine
+// visitor to retry a typo'd submission a few times, tight enough that a
+// scripted loop can't meaningfully spam an organization's pipeline.
+export const LEAD_CAPTURE_SUBMIT_LIMIT: RateLimitConfig = { scope: "lead-capture-submit", limit: 10, windowMs: HOUR_MS };
