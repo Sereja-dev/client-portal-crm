@@ -219,6 +219,19 @@ enum ActivityEntityType {
   // deliberately write no Activity row at all (same "avoid noisy
   // logging" choice TIME_ENTRY's own archive/unarchive already made).
   RECURRING_INVOICE
+
+  // Workflow Automations Phase 1 (config/domain foundation only — see
+  // WorkflowAutomation's own doc comment). Additive enum value only —
+  // same FALLBACK-rendering safety net as every prior addition above.
+  // CREATED/UPDATED already cover every event this phase's own domain
+  // layer writes (automation created, name/trigger/conditions/actions
+  // edited or enabled/disabled/archived via UPDATED + changedFields) —
+  // no new ActivityAction is added here. This records changes to
+  // automation *configuration* only; no automation *execution* exists
+  // yet (createActivity() itself is not wired to evaluate or dispatch
+  // any WorkflowAutomation row in this phase — see create-activity.ts's
+  // own header comment, untouched by this addition).
+  WORKFLOW_AUTOMATION
 }
 
 enum ActivityAction {
@@ -441,6 +454,13 @@ model User {
   // survive regardless. Named relation ("TimeEntryUser") since it's the
   // owning user, not an "assignee" in the Task/Lead/ClientRequest sense.
   timeEntries TimeEntry[] @relation("TimeEntryUser")
+
+  // Workflow Automations Phase 1 (config/domain foundation only -- see
+  // WorkflowAutomation's own doc comment). Same "author" relation shape
+  // as createdQuotes/QuoteCreatedBy above -- Restrict, so a User who has
+  // authored automation configuration can never be hard-deleted while
+  // any of it still exists.
+  createdWorkflowAutomations WorkflowAutomation[] @relation("WorkflowAutomationCreatedBy")
 }
 
 // Multi-tenant scaffolding (schema-only for now; not yet wired into app
@@ -552,6 +572,11 @@ model Organization {
   // Time Tracking Phase 1 — see TimeEntry's own doc comment. Same
   // direct-tenant-scoping shape as leads/customFieldDefinitions above.
   timeEntries TimeEntry[]
+
+  // Workflow Automations Phase 1 -- see WorkflowAutomation's own doc
+  // comment. Same direct-tenant-scoping shape as leads/
+  // customFieldDefinitions above.
+  workflowAutomations WorkflowAutomation[]
 }
 
 // Platform Admin Organization Suspension, PR 1. Deliberately separate
@@ -3251,4 +3276,84 @@ model RecurringInvoiceOccurrence {
   // status/claimedAt index in Phase 1 -- no cron/batch scan reads
   // reclaimable rows by it yet (deferred to Phase 2 alongside the actual
   // cron route); add it there, not speculatively now.
+}
+
+// Workflow Automations Phase 1 -- config/domain foundation only. No code
+// dispatches or executes any of this yet: createActivity() is not wired to
+// it (see src/lib/activity/create-activity.ts's own header comment), and
+// there is no run/execution history table alongside this one -- the
+// audit's own proposed WorkflowAutomationRun model is deliberately
+// deferred, not added here, because whether an action executes inside the
+// same transaction as the business mutation it reacts to (in which case a
+// persisted FAILED run row would roll back with everything else it was
+// supposed to durably record) is an unresolved execution-architecture
+// question that this phase does not answer. Add that table alongside
+// whichever execution phase actually resolves it.
+//
+// triggerEntityType/triggerAction deliberately reuse ActivityEntityType/
+// ActivityAction directly -- the same enums Activity.entityType/
+// Activity.action already use -- rather than a new narrower enum, because
+// a future dispatcher must match this row directly against a real
+// Activity's own entityType+action. Unlike CustomFieldEntityType/
+// CustomStatusEntityType (each their own deliberately-narrow enum, scoped
+// to only the entities that feature supports), the V1 trigger allowlist
+// here is a *policy* restriction, not a type-level one: only a small,
+// explicit subset of (triggerEntityType, triggerAction) pairs is actually
+// accepted, enforced entirely by the domain layer's own Zod schema (see
+// src/lib/workflow-automations/triggers.ts) -- the database column itself
+// stays as permissive as Activity's own two columns.
+model WorkflowAutomation {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name String
+
+  // Distinct from archivedAt below, same "isActive vs archivedAt" split
+  // LeadCaptureForm.isActive/archivedAt already established: this is the
+  // ordinary on/off toggle a Staff member flips at will; archivedAt is the
+  // separate, permanent retire switch.
+  isEnabled Boolean @default(true)
+
+  triggerEntityType ActivityEntityType
+  triggerAction     ActivityAction
+
+  // Ordered condition list -- see WorkflowAutomationCondition's own Zod
+  // schema in src/lib/workflow-automations/conditions.ts for the strict
+  // server-side shape actually enforced on write. Never a free-form
+  // expression language. Same "Json @default, strict schema enforced in
+  // the domain layer rather than the database" convention as Activity.
+  // metadata/Notification.metadata/LeadCaptureForm.fieldsConfig.
+  conditions Json @default("[]")
+
+  // Ordered action list -- see WorkflowAutomationAction's own Zod schema
+  // in src/lib/workflow-automations/actions.ts. No action in this list is
+  // ever executed by this phase.
+  actions Json @default("[]")
+
+  // Authorship, not assignment -- same "a User who authored real records
+  // can't be hard-deleted out from under them" reasoning Quote's own
+  // createdByUserId/QuoteCreatedBy already established (Restrict, not
+  // SetNull).
+  createdByUserId String @db.Uuid
+  createdByUser   User   @relation("WorkflowAutomationCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Soft-archive only, same convention as Lead.archivedAt/
+  // CustomFieldDefinition.archivedAt/CustomStatusDefinition.archivedAt --
+  // null = active, never hard-deleted.
+  archivedAt DateTime?
+
+  // Organization-scoped listing (active-only list is this column's own
+  // leftmost prefix). Composite trigger-lookup index for the future
+  // dispatcher (Phase 2+): given an Activity's own organizationId +
+  // entityType + action, find every enabled, non-archived automation that
+  // might match -- isEnabled trails archivedAt in this composite since a
+  // real dispatch scan filters archivedAt: null unconditionally and
+  // isEnabled: true next, matching this column order.
+  @@index([organizationId, archivedAt])
+  @@index([organizationId, triggerEntityType, triggerAction, archivedAt, isEnabled])
 }
