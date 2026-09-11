@@ -156,6 +156,12 @@ export const STATUS_TONES: Record<string, StatusTone> = {
   // shared with TaskPriority above) — mirrors MEDIUM's own "ordinary, no
   // special attention" info tone at the equivalent tier.
   NORMAL: "info",
+
+  // Recurring Invoices Phase 2A — RecurringInvoiceStatus's own PAUSED
+  // value (ACTIVE/ARCHIVED already shared with ClientStatus's identical-
+  // meaning values above). Mirrors ON_HOLD's own "temporarily inactive,
+  // not a terminal/negative outcome" warning tone at the equivalent tier.
+  PAUSED: "warning",
 };
 
 // Custom Statuses Phase 2A (Section P) — `tone` is an optional override

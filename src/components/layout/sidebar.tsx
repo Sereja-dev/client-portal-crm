@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { siteConfig } from "@/config/site";
+import type { Role } from "@/generated/prisma/enums";
 
-const links = [
+const BASE_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
   { href: "/leads", label: "Leads" },
   { href: "/clients", label: "Clients" },
@@ -14,6 +15,19 @@ const links = [
   { href: "/requests", label: "Requests" },
   { href: "/quotes", label: "Quotes" },
   { href: "/invoices", label: "Invoices" },
+];
+
+// Recurring Invoices Phase 2A — OWNER/ADMIN-only, same "the whole feature
+// is privileged-only, not just its write paths" rule the Phase 1 domain
+// layer already enforces (getRecurringInvoice/listRecurringInvoices are
+// FORBIDDEN for a MEMBER too). This is a UI convenience only — every
+// Recurring Invoices route/Server Action independently re-verifies the
+// actual role server-side regardless of whether this link is rendered; a
+// MEMBER navigating to /recurring-invoices directly still gets denied by
+// the page itself, never by relying on this link being hidden.
+const RECURRING_INVOICES_LINK = { href: "/recurring-invoices", label: "Recurring Invoices" };
+
+const TRAILING_LINKS = [
   { href: "/team", label: "Team" },
   { href: "/activity", label: "Activity" },
   { href: "/analytics", label: "Analytics" },
@@ -25,8 +39,22 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function Sidebar({ disablePrefetch = false }: { disablePrefetch?: boolean }) {
+/**
+ * Exported as a pure function for direct unit testing (items 41/42) — the
+ * Sidebar component itself calls next/navigation's usePathname(), which
+ * throws under renderToStaticMarkup (same "no DOM/component-interaction
+ * harness" limitation StaffRequestControls' own render.test.tsx already
+ * documents), so the actual role-gating decision lives here instead,
+ * independent of the component that consumes it.
+ */
+export function buildSidebarLinks(role: Role): { href: string; label: string }[] {
+  const isPrivileged = role === "OWNER" || role === "ADMIN";
+  return [...BASE_LINKS, ...(isPrivileged ? [RECURRING_INVOICES_LINK] : []), ...TRAILING_LINKS];
+}
+
+export function Sidebar({ disablePrefetch = false, role }: { disablePrefetch?: boolean; role: Role }) {
   const pathname = usePathname();
+  const links = buildSidebarLinks(role);
 
   return (
     <nav

@@ -66,6 +66,20 @@ function isUniqueConstraintViolation(err: unknown): boolean {
 }
 
 /**
+ * Phase 2A addition (Staff UI manual generation button) — purely additive,
+ * no existing behavior changed. Exported so the Staff UI's own "is this
+ * schedule due today" eligibility check (both the server-rendered
+ * button's visibility and the manual Server Action's own pre-check) reuses
+ * the exact same UTC-midnight comparison isValidOccurrenceDate() already
+ * uses internally, rather than a second, independently-maintained copy of
+ * this date math living in the UI layer. Pure, no I/O.
+ */
+export function isRecurringInvoiceDueToday(nextIssueDate: Date, now: Date): boolean {
+  const todayUtcMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  return nextIssueDate.getTime() <= todayUtcMidnight.getTime();
+}
+
+/**
  * occurrenceDate must be a genuine date-only value (UTC midnight, same
  * persisted convention as every other date-only column in this app) and
  * may never name a calendar date after `now`'s own — an occurrence is
@@ -84,8 +98,7 @@ function isValidOccurrenceDate(occurrenceDate: Date, now: Date): boolean {
   ) {
     return false;
   }
-  const todayUtcMidnight = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  return occurrenceDate.getTime() <= todayUtcMidnight.getTime();
+  return isRecurringInvoiceDueToday(occurrenceDate, now);
 }
 
 // ---------------------------------------------------------------------------

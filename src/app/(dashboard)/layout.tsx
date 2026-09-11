@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getVerifiedAuthUser } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentUserOrganization, getOrganizationSwitcherItems } from "@/lib/current-user";
+import { getCurrentMembership, getOrganizationSwitcherItems } from "@/lib/current-user";
 import { getRecentNotifications, getUnreadNotificationCount } from "@/lib/notifications/queries";
 import { getDisabledInAppTypes } from "@/lib/notifications/preferences";
 import { formatNotification } from "@/lib/notifications/format-notification";
@@ -59,8 +59,13 @@ export default async function DashboardLayout({
 
   // organizationId/recipientId (user.id) here are the only ones the
   // notification queries below ever use — both server-resolved, never from
-  // client input.
-  const { user: currentUser, organizationId } = await getCurrentUserOrganization();
+  // client input. getCurrentMembership() (a strict superset of
+  // getCurrentUserOrganization()) is used instead of that — Recurring
+  // Invoices Phase 2A needs membership.role here too, to decide whether
+  // Sidebar renders the "Recurring Invoices" link (a UI convenience gate
+  // only; every actual Recurring Invoices route/action still independently
+  // re-verifies OWNER/ADMIN server-side regardless of what this renders).
+  const { user: currentUser, organizationId, membership } = await getCurrentMembership();
 
   // A small (at most 6 rows), separately-fetched preference lookup — kept
   // out of the Promise.all below so it can be threaded into both
@@ -123,7 +128,7 @@ export default async function DashboardLayout({
         Organization, and this component only ever reads the prop below.
       */}
       <ThemePreferenceReconciler mode={dbThemeModeToRuntimeMode(currentUser.themeMode)} />
-      <Sidebar disablePrefetch={TEST_MODE} />
+      <Sidebar disablePrefetch={TEST_MODE} role={membership.role} />
       {/*
         min-w-0: at the md breakpoint this becomes a flex row item next to
         the now-fixed-width Sidebar. Flex items default to `min-width:

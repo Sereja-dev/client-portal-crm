@@ -262,3 +262,36 @@ export type TimeEntryFormState = {
   error: string | null;
   fieldErrors?: Partial<Record<"userId" | "projectId" | "taskId" | "workDate" | "durationMinutes" | "description", string>>;
 };
+
+// Recurring Invoices Phase 2A (Staff UI). Shared by createRecurringInvoiceAction
+// and updateRecurringInvoiceAction — the key set matches
+// src/lib/validation/recurring-invoice.ts's own RecurringInvoiceFieldErrors
+// exactly (not imported directly — this file stays free of a src/lib
+// dependency, same "own inline key union" convention TimeEntryFormState/
+// InvoiceFormState already use), plus "frequency"/"firstIssueDate" for the
+// two create-only fields the domain layer also validates by format before
+// ever reaching resolveRecurringInvoiceTarget.
+export type RecurringInvoiceFormState = {
+  error: string | null;
+  fieldErrors?: Partial<
+    Record<
+      | "name"
+      | "clientId"
+      | "projectId"
+      | "frequency"
+      | "firstIssueDate"
+      | "invoiceNumberPrefix"
+      | "startingSequence"
+      | "dueDateOffsetDays"
+      | "currency"
+      | "discountType"
+      | "discountValue"
+      | "taxRatePercent"
+      | "taxLabel"
+      | "notes"
+      | "internalNotes"
+      | "lineItems",
+      string
+    >
+  >;
+};
