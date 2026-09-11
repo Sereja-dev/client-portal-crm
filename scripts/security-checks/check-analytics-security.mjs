@@ -222,7 +222,25 @@ function blockAttributes(cleanedBody) {
 
 const portalUserBlock = extractModelBlock(schemaSource, "PortalUser");
 const portalUserFields = portalUserBlock ? fieldNames(stripLineComments(portalUserBlock.body)) : [];
-const PORTAL_USER_ALLOWED_FIELDS = ["id", "clientId", "client", "email", "name", "themeMode", "lastLoginAt", "createdAt", "updatedAt"];
+// Client Requests / Tickets Phase 1 added clientRequests/clientRequestMessages
+// — ordinary back-relation array fields for an unrelated support-ticket
+// feature, not a login-history/event-log field (this check's own actual
+// concern, per its own message below). Neither exposes anything about a
+// PortalUser's own login/access history; both are plain FK back-relations,
+// the exact same shape PortalUser.client already had before this phase.
+const PORTAL_USER_ALLOWED_FIELDS = [
+  "id",
+  "clientId",
+  "client",
+  "email",
+  "name",
+  "themeMode",
+  "lastLoginAt",
+  "createdAt",
+  "updatedAt",
+  "clientRequests",
+  "clientRequestMessages",
+];
 ok = report(
   "PortalUser has exactly the approved field set, including exactly one login-tracking field (lastLoginAt) and no login-history/event field",
   portalUserBlock !== null &&

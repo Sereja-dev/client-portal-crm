@@ -185,6 +185,20 @@ enum ActivityEntityType {
   // Quotes need (see Quote's own doc comment); no new ActivityAction is
   // added here.
   QUOTE
+
+  // Client Requests / Tickets Phase 1 (schema foundation only). Additive
+  // enum value only — re-verified safe the same way LEAD/QUOTE were
+  // above: format-activity.ts's buildModel() is still a plain if-chain
+  // ending in FALLBACK, so this renders as a neutral "Activity recorded"
+  // line until a later phase adds a dedicated formatter (LEAD/QUOTE
+  // Activity rows have shipped for phases now and still render via
+  // FALLBACK today — the same deliberate incremental rollout, not a
+  // gap introduced here). Existing CREATED/STATUS_CHANGED/UPDATED already
+  // cover every event this phase's own domain layer writes (request
+  // created, status changed, assignment changed via UPDATED +
+  // changedFields — see createClientRequestActivityMetadata's own
+  // comment) — no new ActivityAction is added here.
+  CLIENT_REQUEST
 }
 
 enum ActivityAction {
@@ -393,6 +407,12 @@ model User {
   // own createdByUser field), so a User who has created Quotes can never
   // be hard-deleted while any of them still exist.
   createdQuotes Quote[] @relation("QuoteCreatedBy")
+
+  // Client Requests / Tickets Phase 1 (schema foundation only). Same
+  // "assignee" role/naming convention as assignedTasks/TaskAssignee and
+  // assignedLeads/LeadAssignee above.
+  assignedClientRequests ClientRequest[]        @relation("ClientRequestAssignee")
+  clientRequestMessages  ClientRequestMessage[] @relation("ClientRequestMessageStaffAuthor")
 }
 
 // Multi-tenant scaffolding (schema-only for now; not yet wired into app
@@ -489,6 +509,12 @@ model Organization {
   // comment. Same direct-tenant-scoping shape as leads/customFieldDefinitions
   // above.
   leadCaptureForms LeadCaptureForm[]
+
+  // Client Requests / Tickets Phase 1 — see ClientRequest's own doc
+  // comment. Same direct-tenant-scoping shape as leads/customFieldDefinitions
+  // above.
+  clientRequests        ClientRequest[]
+  clientRequestMessages ClientRequestMessage[]
 }
 
 // Platform Admin Organization Suspension, PR 1. Deliberately separate
@@ -844,6 +870,12 @@ model Client {
   // different, application-level duplicate-email policy via
   // findDuplicateOrganizationClientByEmail (src/lib/clients/duplicate-
   // email.ts). No replacement constraint of any scope was added.
+
+  // Client Requests / Tickets Phase 1 (schema foundation only). Same
+  // direct-child-of-Client shape as `contacts` above — Cascade at the
+  // ClientRequest side, not here.
+  clientRequests ClientRequest[]
+
   @@index([status])
   @@index([userId])
   @@index([organizationId])
@@ -1272,6 +1304,12 @@ model Project {
 
   tasks    Task[]
   invoices Invoice[]
+
+  // Client Requests / Tickets Phase 1 (schema foundation only). Optional
+  // link only — a ClientRequest never requires a Project — so SetNull at
+  // the ClientRequest side, not Cascade; this back-relation is just the
+  // array view of that.
+  clientRequests ClientRequest[]
 
   @@index([status])
   @@index([ownerId])
@@ -1984,6 +2022,16 @@ model PortalUser {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Client Requests / Tickets Phase 1 (schema foundation only). SetNull
+  // at both ClientRequest.portalUserId and ClientRequestMessage.portalUserId
+  // — a real hard-delete path exists for PortalUser (see
+  // portal-access-actions.ts's own "remove portal user" action), and
+  // removing one must never be blocked by, or destroy, the requests/
+  // messages they filed — same "history survives, becomes authorless"
+  // precedent as Activity.actorId/Comment.authorId.
+  clientRequests        ClientRequest[]
+  clientRequestMessages ClientRequestMessage[]
+
   @@index([clientId])
   @@index([email])
   @@index([lastLoginAt])
@@ -2432,6 +2480,177 @@ model LeadCaptureForm {
 
   @@index([organizationId])
   @@index([organizationId, archivedAt])
+}
+
+// Client Requests / Tickets, Phase 1 (foundation only). Deliberately
+// small and fixed for V1 — a status transition, not a workflow engine;
+// never integrated with Custom Statuses (see CustomStatusDefinition's
+// own doc comment — that system is Lead/Client/Project only, and a
+// ticket's own lifecycle needs no per-organization customization in this
+// phase). OPEN is the only status a new request can start at; every
+// other transition is a Staff-driven update (see
+// src/lib/client-requests/staff.ts).
+enum ClientRequestStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_ON_CLIENT
+  RESOLVED
+  CLOSED
+}
+
+// Deliberately NOT the same value set as TaskPriority (LOW/MEDIUM/HIGH/
+// URGENT) — NORMAL, not MEDIUM, per this phase's own approved spec.
+// Default NORMAL, never LOW — an unset priority should read as "ordinary
+// request," not "deprioritized."
+enum ClientRequestPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+// Exactly one of ClientRequestMessage's own staffUserId/portalUserId is
+// ever set, matching this discriminator — enforced by the domain layer
+// (src/lib/client-requests/messages.ts is the only code path that ever
+// constructs a row here: addStaffClientRequestMessage always writes
+// {authorType: STAFF, staffUserId: <this User's id>, portalUserId: null},
+// addPortalClientRequestMessage always writes the mirror image), not a
+// database CHECK constraint — see ClientRequestMessage's own doc comment
+// for why a CHECK here would actively conflict with SetNull-on-delete for
+// a real, exercised PortalUser hard-delete path.
+enum ClientRequestMessageAuthorType {
+  STAFF
+  PORTAL
+}
+
+// Client Requests / Tickets, Phase 1 (foundation only — see the approved
+// Client Requests / Tickets Phase 1 spec). No Staff/Portal UI, no email
+// threading, no attachments, no SLA/automation rules, and no Custom
+// Statuses integration in this phase — see this feature's own domain
+// modules (src/lib/client-requests/staff.ts, .../portal.ts,
+// .../messages.ts) for what actually exists yet.
+//
+// Direct-tenant-scoping shape (organizationId required + Cascade), the
+// same convention every model added since Leads/Quotes/Custom Fields/
+// Custom Statuses/Lead Capture Forms already uses — never the legacy
+// nullable-organizationId/SetNull pattern Client/Project/Task still
+// carry from before Organization multi-tenancy existed.
+model ClientRequest {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Every request belongs to exactly one Client — Cascade, not Restrict:
+  // a ClientRequest is a subordinate CRM record (same shape as
+  // ClientContact), never a protected financial record like Invoice/
+  // Quote, so it must never block deleting a Client.
+  clientId String @db.Uuid
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  // Null for a request Staff creates on a Client's behalf (no Portal
+  // author — see this feature's own "Staff-created tickets" deferral
+  // note in src/lib/client-requests/staff.ts). SetNull: a real hard-
+  // delete path exists for PortalUser (portal-access-actions.ts's own
+  // "remove portal user" action) — removing one must never be blocked
+  // by, or destroy, the requests they filed, matching Activity.actorId's
+  // own "history survives, becomes authorless" precedent.
+  portalUserId String?     @db.Uuid
+  portalUser   PortalUser? @relation(fields: [portalUserId], references: [id], onDelete: SetNull)
+
+  // Optional — a request never requires a Project. SetNull, not Cascade/
+  // Restrict: deleting a Project must never destroy or be blocked by the
+  // requests once linked to it, only unlink them. The domain layer (never
+  // the database) enforces that a linked Project always belongs to both
+  // this same organizationId AND this same clientId — Prisma has no
+  // multi-column conditional FK to express that constraint declaratively.
+  projectId String?  @db.Uuid
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  title       String
+  description String
+
+  status   ClientRequestStatus   @default(OPEN)
+  priority ClientRequestPriority @default(NORMAL)
+
+  // SetNull — same "assignee" shape as Lead.assignedToUserId/
+  // Task.assigneeId. The domain layer enforces the assignee holds a real
+  // Membership in this same organizationId (never trusted from input).
+  assignedToId String? @db.Uuid
+  assignedTo   User?   @relation("ClientRequestAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  // Set when status transitions to RESOLVED (see
+  // src/lib/client-requests/staff.ts's own updateClientRequestStatus) —
+  // never set for CLOSED on its own, and cleared if a resolved request is
+  // later reopened to a non-terminal status. A resolved request remains
+  // reopenable in V1 (moving status away from RESOLVED is a normal,
+  // allowed transition, not blocked) — CLOSED is the only administrative/
+  // terminal state this phase treats as final in spirit, though nothing
+  // in the schema itself enforces that (see the domain layer for the
+  // actual transition rules).
+  resolvedAt DateTime?
+
+  // Soft-archive only, same convention as Lead.archivedAt/
+  // LeadCaptureForm.archivedAt — null = active.
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages ClientRequestMessage[]
+
+  @@index([organizationId])
+  @@index([organizationId, clientId])
+  @@index([organizationId, status])
+  @@index([assignedToId])
+  @@index([createdAt])
+}
+
+// Client Requests / Tickets, Phase 1 (foundation only). Immutable V1
+// messages — no edit, no delete, no attachments (see this model's own
+// doc comment above on ClientRequest for the full phase scope). Plain
+// text only, the same "never Markdown/HTML, rendering safety comes from
+// never trusting it as markup, not from anything this schema does"
+// convention Comment.body already established — body validation itself
+// reuses src/lib/comments/validate-body.ts's existing
+// validateCommentBody/COMMENT_BODY_MAX_LENGTH as-is (see
+// src/lib/client-requests/messages.ts), not a second, parallel copy.
+model ClientRequestMessage {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  requestId String        @db.Uuid
+  request   ClientRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  authorType ClientRequestMessageAuthorType
+
+  // Exactly one of staffUserId/portalUserId is ever non-null, matching
+  // authorType — enforced by the domain layer, not a database CHECK
+  // constraint. A CHECK requiring "authorType = PORTAL implies
+  // portalUserId IS NOT NULL" would conflict with portalUserId's own
+  // onDelete: SetNull the moment a real PortalUser hard-delete actually
+  // ran (the FK's SetNull action would itself violate that CHECK
+  // mid-transaction) — so this stays an application-level invariant
+  // instead, the same choice this phase's own ClientRequestMessageAuthorType
+  // doc comment explains. Both fields independently going null over time
+  // (either author identity deleted) degrades a message to "authorless
+  // historical row," never a data-integrity error — same precedent as
+  // Comment.authorId/Activity.actorId.
+  staffUserId String? @db.Uuid
+  staffUser   User?   @relation("ClientRequestMessageStaffAuthor", fields: [staffUserId], references: [id], onDelete: SetNull)
+
+  portalUserId String?     @db.Uuid
+  portalUser   PortalUser? @relation(fields: [portalUserId], references: [id], onDelete: SetNull)
+
+  body String
+
+  createdAt DateTime @default(now())
+
+  @@index([requestId])
+  @@index([organizationId])
+  @@index([createdAt])
 }
 
 // Quotes / Estimates Phase 1 (schema foundation only -- see the approved
