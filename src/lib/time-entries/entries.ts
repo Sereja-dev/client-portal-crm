@@ -42,6 +42,27 @@ export type TimeEntryActor = { id: string; name: string; role: Role };
 
 export type TimeEntryMutationResult = { ok: true; entry: TimeEntry } | { ok: false; reason: "ENTRY_NOT_FOUND" };
 
+/**
+ * Phase 2A (Staff UI): getTimeEntry/listTimeEntries below now also join
+ * user.name/project.name/task.title — display data only (names are
+ * never secrets), needed so the Staff list/detail UI can show real
+ * identities without N+1 round trips. Purely additive: every existing
+ * scalar field these functions already returned is untouched, and this
+ * changes nothing about scoping/authorization — same precedent as
+ * Client Requests' own REQUEST_DISPLAY_INCLUDE addition in its Phase 2A.
+ */
+const TIME_ENTRY_DISPLAY_INCLUDE = {
+  user: { select: { id: true, name: true } },
+  project: { select: { id: true, name: true } },
+  task: { select: { id: true, title: true } },
+} as const;
+
+export type TimeEntryWithDisplay = TimeEntry & {
+  user: { id: string; name: string } | null;
+  project: { id: string; name: string } | null;
+  task: { id: string; title: string } | null;
+};
+
 function isPrivileged(role: Role): boolean {
   return role === "OWNER" || role === "ADMIN";
 }
@@ -355,8 +376,8 @@ export async function updateTimeEntry(
 // Read
 // ---------------------------------------------------------------------------
 
-export async function getTimeEntry(organizationId: string, entryId: string, client: PrismaClientOrTx = prisma): Promise<TimeEntry | null> {
-  return client.timeEntry.findFirst({ where: { id: entryId, organizationId } });
+export async function getTimeEntry(organizationId: string, entryId: string, client: PrismaClientOrTx = prisma): Promise<TimeEntryWithDisplay | null> {
+  return client.timeEntry.findFirst({ where: { id: entryId, organizationId }, include: TIME_ENTRY_DISPLAY_INCLUDE });
 }
 
 export type ListTimeEntriesOptions = {
@@ -381,7 +402,7 @@ export async function listTimeEntries(
   organizationId: string,
   options: ListTimeEntriesOptions = {},
   client: PrismaClientOrTx = prisma,
-): Promise<TimeEntry[]> {
+): Promise<TimeEntryWithDisplay[]> {
   return client.timeEntry.findMany({
     where: {
       organizationId,
@@ -402,6 +423,7 @@ export async function listTimeEntries(
     // "createdAt/id" tie-break shape as every other newest-first list in
     // this app (e.g. Activity's own @@index([organizationId, createdAt, id])).
     orderBy: [{ workDate: "desc" }, { createdAt: "desc" }, { id: "desc" }],
+    include: TIME_ENTRY_DISPLAY_INCLUDE,
   });
 }
 

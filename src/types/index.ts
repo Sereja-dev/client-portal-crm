@@ -250,3 +250,15 @@ export type ClientRequestCreateFormState = {
 export type ClientRequestMessageFormState = {
   error: string | null;
 };
+
+// Time Tracking Phase 2A (Staff UI). Shared by createTimeEntryAction and
+// updateTimeEntryAction — one fieldErrors shape covering every
+// TimeEntryForm field, including "durationMinutes" for the combined
+// Hours+Minutes pair (see combineDurationInput's own doc comment: the UI
+// splits duration into two inputs, but any resulting error — whether
+// from the hours/minutes combination step itself or from the domain
+// layer's own 1..1440 check — is shown as one message under that pair).
+export type TimeEntryFormState = {
+  error: string | null;
+  fieldErrors?: Partial<Record<"userId" | "projectId" | "taskId" | "workDate" | "durationMinutes" | "description", string>>;
+};
