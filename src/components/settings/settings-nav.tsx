@@ -46,6 +46,11 @@ const SETTINGS_LINKS: readonly SettingsNavLink[] = [
   // comment); not role-gated, matching the identical permission model
   // (see this feature's own Server Actions for the full reasoning).
   { href: "/settings/custom-statuses", label: "Custom statuses" },
+  // Public Lead Capture Forms Phase 2A — same "org-wide config, open to
+  // any staff role" tier as Custom Fields/Custom Statuses immediately
+  // above; not role-gated, matching the identical permission model (see
+  // this feature's own Server Actions for the full reasoning).
+  { href: "/settings/lead-capture-forms", label: "Lead capture forms" },
   // Phase D: grouped next to Notifications — both are personal,
   // per-identity preferences (not organization-wide config like
   // Company/Payment/Domain/Billing above), and neither is role-gated.

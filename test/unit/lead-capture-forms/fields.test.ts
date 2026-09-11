@@ -101,4 +101,17 @@ describe("validateLeadCaptureFormFieldsConfigInput", () => {
     const result = validateLeadCaptureFormFieldsConfigInput({ phone: { label: "   " } });
     expect(result).toEqual({ ok: true, config: { phone: { visible: true, required: false, order: 3, label: null } } });
   });
+
+  it("Phase 2A: rejects a hidden field marked required — explicitly, or via omitted visible defaulting true+required true is fine, only visible:false+required:true is rejected", () => {
+    const explicit = validateLeadCaptureFormFieldsConfigInput({ email: { visible: false, required: true } });
+    expect(explicit.ok).toBe(false);
+    if (explicit.ok) throw new Error("expected failure");
+    expect(explicit.error).toContain("email");
+
+    const visibleAndRequired = validateLeadCaptureFormFieldsConfigInput({ email: { visible: true, required: true } });
+    expect(visibleAndRequired.ok).toBe(true);
+
+    const hiddenAndOptional = validateLeadCaptureFormFieldsConfigInput({ email: { visible: false, required: false } });
+    expect(hiddenAndOptional.ok).toBe(true);
+  });
 });

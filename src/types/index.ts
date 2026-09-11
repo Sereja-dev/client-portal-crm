@@ -68,6 +68,19 @@ export type CustomStatusDefinitionFormState = {
   fieldErrors?: Partial<Record<"label", string>>;
 };
 
+// Public Lead Capture Forms Phase 2A (Staff UI). Mirrors
+// CustomStatusDefinitionFormState's own exact shape. `fieldsConfig` has no
+// per-sub-field error of its own — the whole per-field table is one
+// client-side-validated unit (see FieldsConfigEditor), so a rejection from
+// the domain layer's own validateLeadCaptureFormFieldsConfigInput (a
+// genuinely unexpected case, since the UI itself prevents every invalid
+// combination it knows about before submit) surfaces as the generic
+// `error` string, not a field-level one.
+export type LeadCaptureFormMetadataFormState = {
+  error: string | null;
+  fieldErrors?: Partial<Record<"name" | "title" | "description" | "successMessage", string>>;
+};
+
 export type ProjectFormState = {
   error: string | null;
   fieldErrors?: Partial<

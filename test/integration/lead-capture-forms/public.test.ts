@@ -188,15 +188,34 @@ describe("Lead Capture Forms — public read + submission", () => {
   });
 
   it("required-field enforcement never applies to a hidden field, regardless of its stored `required` flag", async () => {
-    const created = await createLeadCaptureForm(fixtures.orgA.id, {
+    const created = await createLeadCaptureForm(fixtures.orgA.id, { name: "Form", title: "Title" });
+    if (!created.ok) throw new Error("expected ok");
+    // Phase 2A tightened createLeadCaptureForm/updateLeadCaptureForm's own
+    // validateLeadCaptureFormFieldsConfigInput to reject a hidden+required
+    // field at the staff-facing boundary (see fields.ts's own comment) —
+    // this bypasses that boundary entirely (same raw-write technique as
+    // this file's own "name is always required" test below) specifically
+    // to prove the public submission path's own defense in depth still
+    // holds even against a row that predates that rule, or was
+    // hand-edited directly.
+    await prisma.leadCaptureForm.update({
+      where: { id: created.form.id },
+      data: { fieldsConfig: { phone: { visible: false, required: true, order: 3, label: null } } },
+    });
+
+    const result = await submitPublicLeadCaptureForm(created.form.publicToken, { name: "Jane" });
+    expect(result.ok).toBe(true);
+  });
+
+  it("Phase 2A: createLeadCaptureForm rejects a hidden field marked required, before anything is stored", async () => {
+    const result = await createLeadCaptureForm(fixtures.orgA.id, {
       name: "Form",
       title: "Title",
       fieldsConfig: { phone: { visible: false, required: true, order: 3, label: null } },
     });
-    if (!created.ok) throw new Error("expected ok");
-
-    const result = await submitPublicLeadCaptureForm(created.form.publicToken, { name: "Jane" });
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error("expected failure");
+    expect(result.reason).toBe("INVALID_FIELDS_CONFIG");
   });
 
   it("name is always required, even if a form's own stored config somehow marked it optional/hidden", async () => {

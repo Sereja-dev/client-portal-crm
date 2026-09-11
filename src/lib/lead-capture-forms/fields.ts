@@ -1,5 +1,3 @@
-import "server-only";
-
 /**
  * Public Lead Capture Forms, Phase 1 (foundation). The V1 field set is
  * deliberately small and fixed — visible/required/order/label-override
@@ -8,6 +6,19 @@ import "server-only";
  * (both explicitly out of scope for this phase — see the approved Phase 1
  * spec). A later phase can extend this list; nothing here assumes it
  * never will.
+ *
+ * Phase 2A (Staff UI) — deliberately NOT `import "server-only"`, unlike
+ * forms.ts/public.ts/types.ts in this same directory: this module is pure
+ * (no Prisma, no secret, no DB access at all — only plain data shaping
+ * and validation), and is now imported directly by a "use client"
+ * component (FieldsConfigEditor) so its own field-config editing UI can
+ * share the exact same defaulting/resolution logic the server uses,
+ * rather than re-implementing a second copy. Same reasoning and the same
+ * fix as custom-statuses/select-options.ts's own split out of
+ * entity-form.ts — see that file's own doc comment for the fuller story
+ * of why a "use client" component importing a runtime binding from a
+ * module that also has `import "server-only"` at module scope breaks the
+ * client bundle.
  */
 export const LEAD_CAPTURE_FORM_FIELD_KEYS = ["name", "company", "email", "phone", "message"] as const;
 
@@ -154,9 +165,24 @@ export function validateLeadCaptureFormFieldsConfigInput(
     }
 
     const defaults = defaultLeadCaptureFormFieldsConfig()[key];
+    const resolvedVisible = visible ?? defaults.visible;
+    const resolvedRequired = required ?? defaults.required;
+
+    // Phase 2A (Staff UI) — a hidden field can never be required: nothing
+    // renders for a visitor to fill in, so "required" would be an inert,
+    // confusing configuration to let a staff member save at all. The
+    // public submission path (parsePublicLeadCaptureSubmission) already
+    // only ever enforces `required` for a field that's also `visible`,
+    // so this couldn't have caused an incorrect rejection there — this
+    // is purely about not letting the *stored* config describe a
+    // combination that could never mean anything.
+    if (resolvedRequired && !resolvedVisible) {
+      return { ok: false, error: `Field "${key}": a hidden field can't be required.` };
+    }
+
     config[key] = {
-      visible: visible ?? defaults.visible,
-      required: required ?? defaults.required,
+      visible: resolvedVisible,
+      required: resolvedRequired,
       order: order ?? defaults.order,
       label: label !== undefined ? label : defaults.label,
     };
