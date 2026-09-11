@@ -191,6 +191,11 @@ describe("20260922090000_make_invoice_project_optional — live database behavio
             "Invoice_dueDate_idx",
             "Invoice_projectId_idx",
             "Invoice_organizationId_idx",
+            // Recurring Invoices Phase 1 (migration
+            // 20260930090000_add_recurring_invoices_foundation) — a new
+            // index for the new recurringInvoiceId FK column, unrelated to
+            // this migration's own project-optional change.
+            "Invoice_recurringInvoiceId_idx",
           ].sort(),
         );
       } finally {

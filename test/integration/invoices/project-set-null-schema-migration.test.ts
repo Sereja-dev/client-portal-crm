@@ -165,6 +165,11 @@ describe("20260923090000_set_invoice_project_fk_set_null — live database behav
             "Invoice_dueDate_idx",
             "Invoice_projectId_idx",
             "Invoice_organizationId_idx",
+            // Recurring Invoices Phase 1 (migration
+            // 20260930090000_add_recurring_invoices_foundation) — a new
+            // index for the new recurringInvoiceId FK column, unrelated to
+            // this migration's own project-optional/SetNull change.
+            "Invoice_recurringInvoiceId_idx",
           ].sort(),
         );
       } finally {

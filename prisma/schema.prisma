@@ -208,6 +208,17 @@ enum ActivityEntityType {
   // Archive/unarchive deliberately writes no Activity row at all (same
   // choice Client Requests' own archiveClientRequest already made).
   TIME_ENTRY
+
+  // Recurring Invoices Phase 1 (domain foundation only). Additive enum
+  // value only — same FALLBACK-rendering safety net as every prior
+  // addition above. CREATED/UPDATED/STATUS_CHANGED already cover every
+  // event this phase's own domain layer writes (schedule created,
+  // template edited via UPDATED + changedFields, pause/resume/archive
+  // via STATUS_CHANGED) — no new ActivityAction is added here. Claim/
+  // reclaim, skipped generation, and occurrence-ledger bookkeeping
+  // deliberately write no Activity row at all (same "avoid noisy
+  // logging" choice TIME_ENTRY's own archive/unarchive already made).
+  RECURRING_INVOICE
 }
 
 enum ActivityAction {
@@ -453,6 +464,11 @@ model Organization {
   invoices    Invoice[]
   attachments Attachment[]
   comments    Comment[]
+
+  // Recurring Invoices Phase 1 (domain foundation only — see
+  // RecurringInvoice's own doc comment). Plain, unnamed relation, same
+  // shape as every other direct-tenant-scoped array above.
+  recurringInvoices RecurringInvoice[]
 
   // Leads / Sales Pipeline Phase 1 (schema foundation only — see Lead's own
   // doc comment for the full story). organizationId is required here (not
@@ -830,6 +846,12 @@ model Client {
 
   projects Project[]
   invoices Invoice[]
+
+  // Recurring Invoices Phase 1 (schema foundation only). Restrict, not
+  // SetNull — mirrors Invoice.clientId exactly (see RecurringInvoice's
+  // own doc comment): a Client is never hard-deleted anywhere in this
+  // app today, so this FK is a defensive invariant, not an active guard.
+  recurringInvoices RecurringInvoice[]
 
   // Client Portal — a separate identity space from staff User/Membership
   // (see PortalUser/ClientInvitation below), scoped to exactly this Client.
@@ -1326,6 +1348,13 @@ model Project {
   tasks    Task[]
   invoices Invoice[]
 
+  // Recurring Invoices Phase 1 (schema foundation only). Optional link,
+  // SetNull — mirrors Invoice.projectId exactly: a Project may be
+  // deleted while a RecurringInvoice still references it; the schedule
+  // survives with projectId reset to null (see RecurringInvoice's own
+  // doc comment).
+  recurringInvoices RecurringInvoice[]
+
   // Client Requests / Tickets Phase 1 (schema foundation only). Optional
   // link only — a ClientRequest never requires a Project — so SetNull at
   // the ClientRequest side, not Cascade; this back-relation is just the
@@ -1474,6 +1503,25 @@ model Invoice {
   // phase.
   convertedFromQuote Quote? @relation("QuoteConvertedInvoice")
 
+  // Recurring Invoices Phase 1 (docs: readiness assessment + three
+  // correctness corrections in this repo's own PR history). SetNull, not
+  // Restrict/Cascade — a generated Invoice is an ordinary, independent
+  // DRAFT Invoice the instant it's created (§ "GENERATED INVOICE
+  // DETAILS"): it can be edited/deleted through the exact same existing
+  // Invoice actions as any manually-created Invoice, and a RecurringInvoice
+  // being archived must never cascade-delete real historical Invoice rows.
+  // This is purely an origin pointer, never a live coupling — see
+  // RecurringInvoice's own doc comment for the full story.
+  recurringInvoiceId String?           @db.Uuid
+  recurringInvoice   RecurringInvoice? @relation(fields: [recurringInvoiceId], references: [id], onDelete: SetNull)
+
+  // The occurrence ledger row that generated this Invoice, if any — the
+  // inverse side of RecurringInvoiceOccurrence.invoiceId's own @unique
+  // (a 1:1, not 1:many, exactly like convertedFromQuote above). Never
+  // read by any Phase 1 code path; exists so the relation is navigable
+  // from either direction.
+  generatedFromOccurrence RecurringInvoiceOccurrence?
+
   // Invoice System Official Slice 5c (docs/invoicing-architecture.md
   // §4.5/§12.5) — Invoice-number uniqueness is organization-wide, not
   // per-Client. Replaces the prior [clientId, invoiceNumber] tuple; see
@@ -1484,6 +1532,7 @@ model Invoice {
   @@index([dueDate])
   @@index([projectId])
   @@index([organizationId])
+  @@index([recurringInvoiceId])
 }
 
 // Invoice System Slice 1 (docs/invoicing-architecture.md §4.2). Schema
@@ -2979,4 +3028,225 @@ model QuoteItem {
   updatedAt DateTime @updatedAt
 
   @@unique([quoteId, position])
+}
+
+// -----------------------------------------------------------------------
+// Recurring Invoices Phase 1 (domain foundation only — no cron route, no
+// Staff UI, no Portal changes). Follows the completed readiness assessment
+// plus its three subsequent correctness corrections (this repo's own PR
+// history). RecurringInvoice owns its own template fields rather than
+// referencing/cloning a live Invoice — an Invoice is mutable/deletable
+// while DRAFT and an immutable historical record once issued, neither of
+// which is a safe thing for a long-lived template to point at (see
+// RecurringInvoice's own field-level comments for the full reasoning).
+// -----------------------------------------------------------------------
+
+enum RecurrenceFrequency {
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+enum RecurringInvoiceStatus {
+  /** Eligible for future generation. */
+  ACTIVE
+  /** No generation while paused; nextIssueDate is preserved untouched, so resuming continues exactly where it left off. */
+  PAUSED
+  /** Terminal in V1 — no un-archive path (matches Client Requests' own Phase 2A archive asymmetry). */
+  ARCHIVED
+}
+
+enum RecurringInvoiceOccurrenceStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+model RecurringInvoice {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  // Required, Restrict — mirrors Invoice.clientId exactly. Client has no
+  // hard-delete action anywhere in this app today, so this FK is a
+  // defensive invariant, not an active guard in practice.
+  clientId String @db.Uuid
+  client   Client @relation(fields: [clientId], references: [id], onDelete: Restrict)
+
+  // Optional, SetNull — mirrors Invoice.projectId exactly. A deleted
+  // Project silently nulls this column; the schedule survives and keeps
+  // generating Client-only Invoices going forward. No auto-pause on
+  // delete/archive in Phase 1 (deliberate — see the readiness assessment's
+  // own answer to "what happens if Client or Project is archived").
+  projectId String?  @db.Uuid
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  // Staff-facing label only ("Monthly retainer — Acme Co") — never shown
+  // to the Portal, never copied onto a generated Invoice.
+  name String?
+
+  status RecurringInvoiceStatus @default(ACTIVE)
+
+  frequency RecurrenceFrequency
+
+  // 1..31 (validated in the domain/validation layer, no DB CHECK — same
+  // discipline as every other bounded-range field in this schema, e.g.
+  // Invoice.taxRatePercent). Initialized once, from the original
+  // first-issue date's day-of-month, and NEVER recomputed from a
+  // subsequently clamped nextIssueDate (see computeNextIssueDate's own
+  // doc comment for why that would silently lose the original anchor —
+  // Jan 31 -> Feb 28 -> Mar 28 instead of the required Mar 31). Ignored
+  // for WEEKLY (still populated, from the same start date, for schema
+  // simplicity — never read by the WEEKLY advancement branch).
+  anchorDay Int
+
+  // Date-only semantics (UTC midnight on a calendar date), reusing
+  // src/lib/invoices/date-only.ts exactly like every other date-only
+  // column in this app — never a time-of-day scheduling concept. This is
+  // the sole schedule state a generation attempt reads/advances; no
+  // separate "anchor date" column exists (redundant once anchorDay + this
+  // column are both present — see the readiness assessment's own answer
+  // to "what should nextIssueDate mean").
+  nextIssueDate DateTime
+
+  // Numbering — Phase 1 owns its own bounded, non-templating convention
+  // (see the finalized design's own "smallest clear template convention"
+  // decision): a candidate invoice number is always exactly
+  // `invoiceNumberPrefix + nextSequence` (plain string concatenation, no
+  // token/formatting language, no zero-padding). There is no global
+  // invoice-number allocator anywhere else in this app — this is a
+  // per-schedule counter only, and never alters ordinary manual invoice
+  // numbering in any way.
+  invoiceNumberPrefix String
+  nextSequence        Int    @default(1)
+
+  // null = generated Invoice.dueDate is null. Otherwise, generated
+  // dueDate = occurrenceDate + this many days (plain date-only
+  // arithmetic — no payment-terms subsystem exists or is introduced
+  // here).
+  dueDateOffsetDays Int?
+
+  // Template fields below are RecurringInvoice's own independent copies —
+  // never a reference to a live Invoice row (see this block's own header
+  // comment). Every one of these is recomputed/copied fresh onto each
+  // generated Invoice by the generation engine, using the exact same
+  // calculateInvoiceTotals() utility ordinary Invoice creation already
+  // uses — never a stale precomputed total stored here.
+  currency       String
+  discountType   InvoiceDiscountType @default(NONE)
+  discountValue  Decimal?            @db.Decimal(10, 2)
+  taxRatePercent Decimal?            @db.Decimal(5, 2)
+  taxLabel       InvoiceTaxLabel     @default(TAX)
+
+  // Client-facing notes, copied verbatim onto each generated Invoice.
+  notes String?
+  // Staff-only, copied verbatim onto each generated Invoice — never
+  // rendered to the PDF, never emailed, never shown to any Portal
+  // identity (same contract as Invoice.internalNotes).
+  internalNotes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lineItems   RecurringInvoiceLineItem[]
+  occurrences RecurringInvoiceOccurrence[]
+  invoices    Invoice[]
+
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, clientId])
+  // No nextIssueDate index in Phase 1 — no due-list domain function reads
+  // it yet (this phase is domain-only, invoked directly by tests; the
+  // cron-driven due-list scan that would need this index is explicitly
+  // deferred to Phase 2). Add it alongside that function, not speculatively
+  // now.
+}
+
+// Template line items — the same business input shape as InvoiceLineItem
+// minus lineTotal: a template row's total is always derived fresh from
+// quantity * unitPrice via calculateInvoiceTotals() at generation time,
+// exactly like the live Invoice create action already does for a fresh
+// itemized Invoice, so storing a second, independently-stale copy here
+// would serve no purpose (see this block's own header comment).
+model RecurringInvoiceLineItem {
+  id                 String           @id @default(uuid()) @db.Uuid
+  recurringInvoiceId String           @db.Uuid
+  recurringInvoice   RecurringInvoice @relation(fields: [recurringInvoiceId], references: [id], onDelete: Cascade)
+
+  description String
+  quantity    Decimal @db.Decimal(10, 3)
+  unitPrice   Decimal @db.Decimal(10, 2)
+  position    Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([recurringInvoiceId, position])
+}
+
+// The idempotency ledger — one row per (schedule, calendar occurrence),
+// claimed via a conditional UPDATE and never trusted via read-then-write
+// (see the finalized concurrency design's own "claim token ownership"
+// section for the complete state machine this schema supports). No
+// separate occurrence-level numbering cursor exists (deliberately — see
+// the finalized numbering-exhaustion design: forward progress is tracked
+// on RecurringInvoice.nextSequence itself, not duplicated per occurrence).
+model RecurringInvoiceOccurrence {
+  id                 String           @id @default(uuid()) @db.Uuid
+  recurringInvoiceId String           @db.Uuid
+  recurringInvoice   RecurringInvoice @relation(fields: [recurringInvoiceId], references: [id], onDelete: Cascade)
+
+  // Date-only (UTC midnight) — the specific calendar occurrence this row
+  // claims, e.g. the value nextIssueDate held at the moment this occurrence
+  // was first claimed. Immutable after creation.
+  occurrenceDate DateTime
+
+  status RecurringInvoiceOccurrenceStatus @default(PENDING)
+
+  // Claim/lease fields — a 10-minute lease, consistent with this app's
+  // existing stale-lock precedent (retryNotificationDeliveries' own
+  // STALE_LOCK_MS / reconcileInvoicePdfArchiveObjects' own
+  // CLEANUP_LEASE_MS). Both null until first claimed.
+  claimedAt  DateTime?
+  claimToken String?
+
+  // Counts claims/reclaims only (Transaction A) — never incremented by a
+  // generation attempt or a failure write (Transaction B/C never touch
+  // this column). See generate.ts's own header comment for the full
+  // claim/reclaim state machine.
+  attemptCount Int @default(0)
+
+  // Set only on COMPLETED. SetNull, not Restrict — a generated Invoice
+  // starts DRAFT and is deletable through the ordinary Invoice delete
+  // action exactly like any manually-created DRAFT Invoice (Phase 1 never
+  // alters that); this occurrence row must remain a historically
+  // meaningful record of "generation happened here" even after that
+  // Invoice is later deleted, so the FK must not block or cascade that
+  // delete. @unique — a 1:1, never two occurrences pointing at the same
+  // Invoice.
+  invoiceId String?  @unique @db.Uuid
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  // Set only on FAILED; a short, safe, non-raw-error-message reason code
+  // — never a raw DB/driver error string (see generate.ts's own
+  // normalizeFailureReason()).
+  failureReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The one authoritative idempotency guarantee: at most one row per
+  // (schedule, calendar occurrence), ever — this is what makes "has this
+  // occurrence already been claimed/generated" a single conditional
+  // write, never a race-prone read-then-decide.
+  @@unique([recurringInvoiceId, occurrenceDate])
+  // No separate @@index([recurringInvoiceId]) -- the composite @@unique
+  // above already serves as one via its own leftmost-column prefix, same
+  // reasoning as Quote's own convertedInvoiceId comment just above.
+  // invoiceId's own @unique above already covers that lookup too. No
+  // status/claimedAt index in Phase 1 -- no cron/batch scan reads
+  // reclaimable rows by it yet (deferred to Phase 2 alongside the actual
+  // cron route); add it there, not speculatively now.
 }
