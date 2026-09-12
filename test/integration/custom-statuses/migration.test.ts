@@ -39,6 +39,20 @@ const REAL_MIGRATION_DIR = join(__dirname, "../../../prisma/migrations", MIGRATI
 const MOVED_ASIDE_DIR = join(tmpdir(), `${MIGRATION_DIR_NAME}_TEMP_MOVED_FOR_TEST`);
 const REPO_ROOT = join(__dirname, "../../..");
 
+// Later migrations whose own SQL references a type this migration defines
+// (`CustomStatusColor`) and which must therefore be moved aside *together*
+// with this one — otherwise deployAllMigrationsExceptThisOne() below would
+// still try to apply them against a database where that type was never
+// created, and fail. Tags V1 Phase 1's own migration reuses
+// CustomStatusColor for Tag.color (see Tag's schema doc comment) rather
+// than defining a redundant, identical enum, so it is the first entry
+// here.
+const DEPENDENT_MIGRATION_DIR_NAMES = ["20261001140000_add_tags_foundation"];
+const DEPENDENT_MIGRATION_DIRS = DEPENDENT_MIGRATION_DIR_NAMES.map((name) => ({
+  real: join(__dirname, "../../../prisma/migrations", name),
+  movedAside: join(tmpdir(), `${name}_TEMP_MOVED_FOR_TEST`),
+}));
+
 const migrationSql = readFileSync(join(REAL_MIGRATION_DIR, "migration.sql"), "utf-8");
 
 const execFileAsync = promisify(execFile);
@@ -51,6 +65,9 @@ afterEach(async () => {
     activeCleanup = undefined;
   }
   await rm(MOVED_ASIDE_DIR, { recursive: true, force: true });
+  for (const { movedAside } of DEPENDENT_MIGRATION_DIRS) {
+    await rm(movedAside, { recursive: true, force: true });
+  }
 });
 
 async function waitForSocketReady(port: number): Promise<void> {
@@ -80,15 +97,21 @@ async function startIsolatedDatabase(port: number): Promise<{ databaseUrl: strin
   return { databaseUrl, pglite, socketServer };
 }
 
-/** Applies every migration except this one (moves this migration's real directory aside for the duration of the deploy call only). */
+/** Applies every migration except this one and its own DEPENDENT_MIGRATION_DIRS (moves each real directory aside for the duration of the deploy call only). */
 async function deployAllMigrationsExceptThisOne(databaseUrl: string): Promise<void> {
   await rename(REAL_MIGRATION_DIR, MOVED_ASIDE_DIR);
+  for (const { real, movedAside } of DEPENDENT_MIGRATION_DIRS) {
+    await rename(real, movedAside);
+  }
   try {
     await execFileAsync("npx", ["prisma", "migrate", "deploy"], {
       cwd: REPO_ROOT,
       env: { ...process.env, DATABASE_URL: databaseUrl, DIRECT_URL: databaseUrl },
     });
   } finally {
+    for (const { real, movedAside } of DEPENDENT_MIGRATION_DIRS) {
+      await rename(movedAside, real);
+    }
     await rename(MOVED_ASIDE_DIR, REAL_MIGRATION_DIR);
   }
 }

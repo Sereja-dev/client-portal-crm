@@ -577,6 +577,11 @@ model Organization {
   // comment. Same direct-tenant-scoping shape as leads/
   // customFieldDefinitions above.
   workflowAutomations WorkflowAutomation[]
+
+  // Tags V1 Phase 1 -- see Tag's own doc comment. Same direct-tenant-
+  // scoping shape as leads/customFieldDefinitions above.
+  tags           Tag[]
+  tagAssignments TagAssignment[]
 }
 
 // Platform Admin Organization Suspension, PR 1. Deliberately separate
@@ -3435,4 +3440,117 @@ model WorkflowAutomationRun {
   // point lookup via its own leftmost-column prefix, but not an ordered
   // scan by recency.
   @@index([workflowAutomationId, createdAt])
+}
+
+// Tags V1 Phase 1 -- the two entity types a Tag may be attached to.
+// Deliberately its own narrow enum, not a reuse of ActivityEntityType/
+// CustomFieldEntityType/CustomStatusEntityType -- same "each feature
+// declares its own policy-scoped allowlist" convention those three
+// already established (they overlap in values but are never the same
+// enum). V1 supports exactly CLIENT and LEAD; extending this later is a
+// deliberate, additive enum change, not implied by anything here.
+enum TagEntityType {
+  CLIENT
+  LEAD
+}
+
+// Tags V1 Phase 1 -- an organization-owned, free-form label a Staff
+// member can attach to a Client or a Lead. Unlike CustomStatusDefinition/
+// CustomFieldDefinition (deliberately entity-type-scoped vocabularies —
+// a "Lead status" and "Client status" are conceptually different things),
+// a Tag itself carries no entityType at all: the same Tag ("VIP",
+// "Follow-up") means the same thing whichever entity it's attached to —
+// entity-type-scoping lives entirely on TagAssignment below, not here.
+//
+// `color` reuses CustomStatusColor directly rather than inventing a
+// second, parallel palette -- the same constrained six-tone set
+// StatusBadge's own STATUS_TONES lookup already renders, so a Tag's
+// color always composites correctly against both this app's themes with
+// zero new design work.
+model Tag {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  name String
+
+  // Deterministic (trim + lowercase) server-derived form of `name` --
+  // the real, DB-enforced duplicate-prevention key below. Recomputed
+  // whenever `name` changes; never independently editable, and never
+  // itself displayed anywhere (display always reads `name`).
+  normalizedName String
+
+  color CustomStatusColor?
+
+  // Soft-archive only, same convention as Lead.archivedAt/
+  // CustomStatusDefinition.archivedAt/CustomFieldDefinition.archivedAt/
+  // WorkflowAutomation.archivedAt -- null = active, never hard-deleted.
+  // An archived Tag's own existing TagAssignment rows are left
+  // completely untouched (Section F of this feature's own audit) -- only
+  // new assignment is blocked going forward.
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments TagAssignment[]
+
+  // The authoritative, concurrency-safe duplicate guarantee -- a plain
+  // application-level pre-check alone could still race two concurrent
+  // requests into two same-name Tags; this constraint is what actually
+  // prevents that, never merely a secondary backstop to an app-level
+  // check.
+  @@unique([organizationId, normalizedName])
+  @@index([organizationId, archivedAt])
+}
+
+// Tags V1 Phase 1 -- the join row. Deliberately shaped like
+// CustomFieldValue, not CommentMention: entityId is NOT a real foreign
+// key (a Tag must attach to either a Client or a Lead -- two different
+// models, so no single real FK column could reference both), same
+// "polymorphic, no real FK" precedent Activity.entityId/
+// Attachment.entityId/CustomFieldValue.entityId already establish, for
+// the identical reason (the referenced Client/Lead row must remain
+// deletable without this table blocking or cascading unexpectedly).
+//
+// organizationId is denormalized here even though it is also reachable
+// via tag.organizationId -- same reasoning CustomFieldValue.organizationId
+// already established: without this column on the assignment row
+// itself, tenant isolation would depend entirely on the application
+// never forgetting to join back through tag; with it, every query can
+// filter organizationId directly, and src/lib/tags/assignments.ts's own
+// assignTag() independently re-verifies both the tag AND the target
+// entity belong to this exact organizationId before ever writing a row
+// (never inferred from one another).
+model TagAssignment {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  tagId String @db.Uuid
+  tag   Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  entityType TagEntityType
+  entityId   String        @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  // The entire duplicate-assignment guarantee -- deliberately
+  // [tagId, entityType, entityId], not merely [tagId, entityId]: entityId
+  // alone is only unique *within* one entityType (a Client and a Lead
+  // could in principle ever collide on the same raw UUID value across
+  // two different tables -- astronomically unlikely with real UUIDs, but
+  // this constraint does not rely on that never happening). Same
+  // CommentMention precedent (@@unique([commentId, userId])) applied
+  // here with the extra discriminator entityType requires.
+  @@unique([tagId, entityType, entityId])
+  // "All tags currently on this entity" -- the reverse lookup a Client/
+  // Lead's own detail page needs. tagId's own reverse direction ("all
+  // entities with this tag") is already served by @@unique's own
+  // leftmost-column prefix -- no separate @@index([tagId]) needed, same
+  // "no duplicate index" discipline CommentMention's own comment
+  // documents.
+  @@index([organizationId, entityType, entityId])
 }
