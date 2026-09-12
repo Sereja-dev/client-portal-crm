@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/select";
 import { FormField } from "@/components/ui/form-field";
 import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
 import { COLOR_OPTIONS } from "@/components/custom-statuses/color-options";
+import { callActionWithStaleRecovery } from "@/lib/action-error";
 import type { TagFormState } from "@/types";
 
 const initialState: TagFormState = { error: null };
@@ -51,7 +52,7 @@ function CreateTagDialog({
   const [color, setColor] = useState<string>(COLOR_OPTIONS[0].value);
 
   const [state, formAction, pending] = useActionState(async (prevState: TagFormState, formData: FormData) => {
-    const result = await action(prevState, formData);
+    const result = await callActionWithStaleRecovery(() => action(prevState, formData));
     if (result.error === null && !result.fieldErrors) {
       setName("");
       setColor(COLOR_OPTIONS[0].value);

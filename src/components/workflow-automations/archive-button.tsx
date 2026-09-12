@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/toast/toast-provider";
+import { isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/action-error";
 
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
@@ -30,14 +31,23 @@ export function WorkflowAutomationArchiveButton({
 
   function runArchive() {
     startTransition(async () => {
-      const result = await archiveAction(automationId);
-      if (result.ok) {
-        showToast("Automation archived");
+      // A stale-deployment Server Action failure (see src/lib/action-error.ts's
+      // own doc comment) throws before ever reaching a normal {ok:false}
+      // return — without this catch, that would surface as an uncaught
+      // exception in this transition (the nearest error boundary), not a
+      // toast.
+      try {
+        const result = await archiveAction(automationId);
+        if (result.ok) {
+          showToast("Automation archived");
+          router.refresh();
+          return;
+        }
+        showToast(result.reason === "FORBIDDEN" ? "You don't have permission to do that." : GENERIC_ERROR, "error");
         router.refresh();
-        return;
+      } catch (err) {
+        showToast(isStaleServerActionError(err) ? STALE_ACTION_MESSAGE : GENERIC_ERROR, "error");
       }
-      showToast(result.reason === "FORBIDDEN" ? "You don't have permission to do that." : GENERIC_ERROR, "error");
-      router.refresh();
     });
   }
 

@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { FormField } from "@/components/ui/form-field";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { callActionWithStaleRecovery } from "@/lib/action-error";
 import type { CompanyProfileFormState } from "@/types";
 import type { CompanyProfileData } from "@/lib/organization-setup/company-profile";
 
@@ -44,7 +45,11 @@ export function CompanyProfileForm({
   currencies: readonly string[];
   timezones: readonly string[];
 }) {
-  const [state, formAction, pending] = useActionState(updateCompanyProfileAction, initialState);
+  const [state, formAction, pending] = useActionState(
+    (prevState: CompanyProfileFormState, formData: FormData) =>
+      callActionWithStaleRecovery(() => updateCompanyProfileAction(prevState, formData)),
+    initialState,
+  );
 
   return (
     <form action={formAction} className={`mt-6 space-y-8 p-6 ${CARD_SURFACE_CLASSES}`}>

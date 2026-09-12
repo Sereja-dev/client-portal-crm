@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { FormField } from "@/components/ui/form-field";
+import { callActionWithStaleRecovery } from "@/lib/action-error";
 import type { WorkflowAutomationFormState } from "@/types";
 
 /**
@@ -108,7 +109,10 @@ export function WorkflowAutomationForm({
   submitLabel?: string;
   pendingLabel?: string;
 }) {
-  const [state, formAction, pending] = useActionState(action, initialState);
+  const [state, formAction, pending] = useActionState(
+    (prevState: WorkflowAutomationFormState, formData: FormData) => callActionWithStaleRecovery(() => action(prevState, formData)),
+    initialState,
+  );
 
   const fixedTrigger =
     mode === "edit" && defaultValues

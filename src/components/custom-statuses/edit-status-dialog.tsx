@@ -8,6 +8,7 @@ import { FormField } from "@/components/ui/form-field";
 import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
 import { COLOR_OPTIONS } from "./color-options";
 import { SetDefaultButton } from "./status-row-actions";
+import { callActionWithStaleRecovery } from "@/lib/action-error";
 import type { CustomStatusColor } from "@/generated/prisma/enums";
 import type { CustomStatusDefinitionFormState } from "@/types";
 
@@ -102,7 +103,7 @@ function EditStatusDialog({
 }) {
   const titleId = useId();
   const [state, formAction, pending] = useActionState(async (prevState: CustomStatusDefinitionFormState, formData: FormData) => {
-    const result = await action(prevState, formData);
+    const result = await callActionWithStaleRecovery(() => action(prevState, formData));
     if (result.error === null && !result.fieldErrors) {
       dialogRef.current?.close();
     }

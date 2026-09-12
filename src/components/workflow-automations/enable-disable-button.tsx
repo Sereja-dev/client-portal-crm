@@ -4,6 +4,7 @@ import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/components/toast/toast-provider";
+import { isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/action-error";
 
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
@@ -31,14 +32,20 @@ export function EnableDisableButton({
 
   function runToggle() {
     startTransition(async () => {
-      const result = await toggleAction(automationId, !isEnabled);
-      if (result.ok) {
-        showToast(isEnabled ? "Automation disabled" : "Automation enabled");
+      // See archive-button.tsx's own identical comment — a stale-deployment
+      // Server Action failure throws before reaching a normal {ok:false}.
+      try {
+        const result = await toggleAction(automationId, !isEnabled);
+        if (result.ok) {
+          showToast(isEnabled ? "Automation disabled" : "Automation enabled");
+          router.refresh();
+          return;
+        }
+        showToast(result.reason === "FORBIDDEN" ? "You don't have permission to do that." : GENERIC_ERROR, "error");
         router.refresh();
-        return;
+      } catch (err) {
+        showToast(isStaleServerActionError(err) ? STALE_ACTION_MESSAGE : GENERIC_ERROR, "error");
       }
-      showToast(result.reason === "FORBIDDEN" ? "You don't have permission to do that." : GENERIC_ERROR, "error");
-      router.refresh();
     });
   }
 

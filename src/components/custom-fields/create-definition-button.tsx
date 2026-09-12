@@ -9,6 +9,7 @@ import { FormField, FormLabel } from "@/components/ui/form-field";
 import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
 import { slugifyCustomFieldIdentifier } from "@/lib/custom-fields/slug";
 import { CUSTOM_FIELD_LABEL_MAX_LENGTH, FIELD_TYPE_LABELS } from "@/lib/validation/custom-field";
+import { callActionWithStaleRecovery } from "@/lib/action-error";
 import type { CustomFieldType } from "@/generated/prisma/enums";
 import type { CustomFieldDefinitionFormState } from "@/types";
 
@@ -75,7 +76,7 @@ function CreateDefinitionDialog({
   const [optionLabels, setOptionLabels] = useState<string[]>([""]);
 
   const [state, formAction, pending] = useActionState(async (prevState: CustomFieldDefinitionFormState, formData: FormData) => {
-    const result = await action(prevState, formData);
+    const result = await callActionWithStaleRecovery(() => action(prevState, formData));
     if (result.error === null && !result.fieldErrors) {
       setLabel("");
       setFieldType("");

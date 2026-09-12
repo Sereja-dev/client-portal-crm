@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useToast } from "@/components/toast/toast-provider";
 import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ui/confirm-dialog";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
+import { isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/action-error";
 import { FIELD_TYPE_LABELS } from "@/lib/validation/custom-field";
 import type { CustomFieldType } from "@/generated/prisma/enums";
 
@@ -49,8 +50,8 @@ export function ArchiveDefinitionButton({
     try {
       await action();
       showToast(`${label} archived`);
-    } catch {
-      showToast(`Failed to archive ${label}.`, "error");
+    } catch (err) {
+      showToast(isStaleServerActionError(err) ? STALE_ACTION_MESSAGE : `Failed to archive ${label}.`, "error");
     } finally {
       setPending(false);
     }
@@ -101,8 +102,8 @@ export function UnarchiveDefinitionButton({
     try {
       await action();
       showToast(`${label} restored to active custom fields`);
-    } catch {
-      showToast(`Failed to restore ${label}.`, "error");
+    } catch (err) {
+      showToast(isStaleServerActionError(err) ? STALE_ACTION_MESSAGE : `Failed to restore ${label}.`, "error");
     } finally {
       setPending(false);
     }
@@ -149,8 +150,8 @@ export function MoveDefinitionButtons({
     setPending(direction);
     try {
       await action();
-    } catch {
-      showToast(`Failed to move ${label}.`, "error");
+    } catch (err) {
+      showToast(isStaleServerActionError(err) ? STALE_ACTION_MESSAGE : `Failed to move ${label}.`, "error");
     } finally {
       setPending(null);
     }

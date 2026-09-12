@@ -7,6 +7,7 @@ import { Select } from "@/components/ui/select";
 import { FormField } from "@/components/ui/form-field";
 import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
 import { COLOR_OPTIONS } from "@/components/custom-statuses/color-options";
+import { callActionWithStaleRecovery } from "@/lib/action-error";
 import type { CustomStatusColor } from "@/generated/prisma/enums";
 import type { TagFormState } from "@/types";
 
@@ -58,7 +59,7 @@ function EditTagDialog({
 }) {
   const titleId = useId();
   const [state, formAction, pending] = useActionState(async (prevState: TagFormState, formData: FormData) => {
-    const result = await action(prevState, formData);
+    const result = await callActionWithStaleRecovery(() => action(prevState, formData));
     if (result.error === null && !result.fieldErrors) {
       dialogRef.current?.close();
     }

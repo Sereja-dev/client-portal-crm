@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { useToast } from "@/components/toast/toast-provider";
 import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ui/confirm-dialog";
+import { isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/action-error";
 
 /**
  * Tags V2 (Settings → Tags). Row-level action for one Tag definition —
@@ -29,7 +30,10 @@ export function ArchiveTagButton({
       await action();
       showToast(`${name} archived`);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : `Failed to archive ${name}.`, "error");
+      showToast(
+        isStaleServerActionError(err) ? STALE_ACTION_MESSAGE : err instanceof Error ? err.message : `Failed to archive ${name}.`,
+        "error",
+      );
     } finally {
       setPending(false);
     }

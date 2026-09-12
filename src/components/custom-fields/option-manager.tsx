@@ -5,6 +5,7 @@ import { useToast } from "@/components/toast/toast-provider";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CUSTOM_FIELD_LABEL_MAX_LENGTH } from "@/lib/validation/custom-field";
+import { callActionWithStaleRecovery, isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/action-error";
 import type { CustomFieldOptionFormState } from "@/types";
 
 export type OptionRow = {
@@ -119,8 +120,8 @@ function OptionListItem({
         await option.unarchiveAction();
         showToast(`${option.label} restored`);
       }
-    } catch {
-      showToast(`Failed to update ${option.label}.`, "error");
+    } catch (err) {
+      showToast(isStaleServerActionError(err) ? STALE_ACTION_MESSAGE : `Failed to update ${option.label}.`, "error");
     } finally {
       setPending(false);
     }
@@ -130,8 +131,8 @@ function OptionListItem({
     setPending(true);
     try {
       await action();
-    } catch {
-      showToast(`Failed to move ${option.label}.`, "error");
+    } catch (err) {
+      showToast(isStaleServerActionError(err) ? STALE_ACTION_MESSAGE : `Failed to move ${option.label}.`, "error");
     } finally {
       setPending(false);
     }
@@ -207,7 +208,7 @@ function OptionListItem({
 
 function RenameOptionForm({ option, onDone }: { option: OptionRow; onDone: () => void }) {
   const [state, formAction, pending] = useActionState(async (prevState: CustomFieldOptionFormState, formData: FormData) => {
-    const result = await option.renameAction(prevState, formData);
+    const result = await callActionWithStaleRecovery(() => option.renameAction(prevState, formData));
     if (result.error === null && !result.fieldErrors) {
       onDone();
     }
@@ -259,7 +260,7 @@ function AddOptionForm({
   ) => Promise<CustomFieldOptionFormState>;
 }) {
   const [state, formAction, pending] = useActionState(async (prevState: CustomFieldOptionFormState, formData: FormData) => {
-    const result = await action(prevState, formData);
+    const result = await callActionWithStaleRecovery(() => action(prevState, formData));
     if (result.error === null && !result.fieldErrors && formRef.current) {
       formRef.current.reset();
     }

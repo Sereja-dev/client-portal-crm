@@ -9,6 +9,7 @@ import { FormField } from "@/components/ui/form-field";
 import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
 import { slugifyCustomStatusIdentifier } from "@/lib/custom-statuses/slug";
 import { COLOR_OPTIONS } from "./color-options";
+import { callActionWithStaleRecovery } from "@/lib/action-error";
 import type { CustomStatusDefinitionFormState } from "@/types";
 
 const initialState: CustomStatusDefinitionFormState = { error: null };
@@ -74,7 +75,7 @@ function CreateStatusDialog({
   const [color, setColor] = useState<string>(COLOR_OPTIONS[0].value);
 
   const [state, formAction, pending] = useActionState(async (prevState: CustomStatusDefinitionFormState, formData: FormData) => {
-    const result = await action(prevState, formData);
+    const result = await callActionWithStaleRecovery(() => action(prevState, formData));
     if (result.error === null && !result.fieldErrors) {
       setStatusLabel("");
       setColor(COLOR_OPTIONS[0].value);

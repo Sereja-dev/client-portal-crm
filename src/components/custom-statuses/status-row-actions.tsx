@@ -6,6 +6,7 @@ import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ui/confirm
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { COLOR_TO_TONE } from "@/lib/custom-statuses/presentation";
+import { isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/action-error";
 import type { CustomStatusColor } from "@/generated/prisma/enums";
 
 /**
@@ -64,7 +65,10 @@ export function SetDefaultButton({
       await action();
       showToast(`${label} is now the default`);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : `Failed to set ${label} as default.`, "error");
+      showToast(
+        isStaleServerActionError(err) ? STALE_ACTION_MESSAGE : err instanceof Error ? err.message : `Failed to set ${label} as default.`,
+        "error",
+      );
     } finally {
       setPending(false);
     }
@@ -100,7 +104,10 @@ export function ArchiveCustomStatusButton({
       await action();
       showToast(`${label} archived`);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : `Failed to archive ${label}.`, "error");
+      showToast(
+        isStaleServerActionError(err) ? STALE_ACTION_MESSAGE : err instanceof Error ? err.message : `Failed to archive ${label}.`,
+        "error",
+      );
     } finally {
       setPending(false);
     }
@@ -151,7 +158,10 @@ export function UnarchiveCustomStatusButton({
       await action();
       showToast(`${label} restored to active statuses`);
     } catch (err) {
-      showToast(err instanceof Error ? err.message : `Failed to restore ${label}.`, "error");
+      showToast(
+        isStaleServerActionError(err) ? STALE_ACTION_MESSAGE : err instanceof Error ? err.message : `Failed to restore ${label}.`,
+        "error",
+      );
     } finally {
       setPending(false);
     }
@@ -190,8 +200,8 @@ export function MoveCustomStatusButtons({
     setPending(direction);
     try {
       await action();
-    } catch {
-      showToast(`Failed to move ${label}.`, "error");
+    } catch (err) {
+      showToast(isStaleServerActionError(err) ? STALE_ACTION_MESSAGE : `Failed to move ${label}.`, "error");
     } finally {
       setPending(null);
     }
