@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { getActiveCustomFieldFormDefinitions, getCustomFieldFormValues } from "@/lib/custom-fields/entity-form";
+import { getActiveTagFormOptions, getTagFormAssignments } from "@/lib/tags/entity-form";
 import { buildStatusSelectOptions } from "@/lib/custom-statuses/entity-form";
 import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import { LeadForm } from "@/components/leads/lead-form";
@@ -50,6 +51,12 @@ export default async function EditLeadPage({ params }: { params: Promise<{ id: s
     undefined;
   const statusOptions = await buildStatusSelectOptions(organizationId, "LEAD", currentStatusDefinitionId ?? null);
 
+  // Tags V2 (Section 3) — every ACTIVE org tag, plus this Lead's own
+  // current assignments split into the active picker's pre-checked set
+  // and the archived, display-only set.
+  const tagOptions = await getActiveTagFormOptions(organizationId);
+  const tagAssignments = await getTagFormAssignments(organizationId, "LEAD", lead.id);
+
   return (
     <div className="mx-auto max-w-xl">
       <div className="mb-6 flex items-center justify-between">
@@ -74,6 +81,9 @@ export default async function EditLeadPage({ params }: { params: Promise<{ id: s
           }}
           customFieldDefinitions={customFieldDefinitions}
           customFieldValues={Object.fromEntries(customFieldValuesMap)}
+          tagOptions={tagOptions}
+          selectedTagIds={tagAssignments.activeTagIds}
+          archivedAssignedTags={tagAssignments.archivedAssigned}
           submitLabel="Save changes"
           pendingLabel="Saving…"
         />

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { getActiveCustomFieldFormDefinitions, getCustomFieldFormValues } from "@/lib/custom-fields/entity-form";
+import { getActiveTagFormOptions, getTagFormAssignments } from "@/lib/tags/entity-form";
 import { buildStatusSelectOptions } from "@/lib/custom-statuses/entity-form";
 import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import { ClientForm } from "@/components/clients/client-form";
@@ -52,6 +53,12 @@ export default async function EditClientPage({
     client.statusDefinitionId ?? (await resolveSystemStatusDefinition(organizationId, "CLIENT", client.status.toLowerCase()))?.id ?? undefined;
   const statusOptions = await buildStatusSelectOptions(organizationId, "CLIENT", currentStatusDefinitionId ?? null);
 
+  // Tags V2 (Section 3) — every ACTIVE org tag, plus this Client's own
+  // current assignments split into the active picker's pre-checked set
+  // and the archived, display-only set.
+  const tagOptions = await getActiveTagFormOptions(organizationId);
+  const tagAssignments = await getTagFormAssignments(organizationId, "CLIENT", client.id);
+
   return (
     <div className="mx-auto max-w-xl">
       <div className="mb-6 flex items-center justify-between">
@@ -70,6 +77,9 @@ export default async function EditClientPage({
           currentStatusDefinitionId={currentStatusDefinitionId}
           customFieldDefinitions={customFieldDefinitions}
           customFieldValues={Object.fromEntries(customFieldValuesMap)}
+          tagOptions={tagOptions}
+          selectedTagIds={tagAssignments.activeTagIds}
+          archivedAssignedTags={tagAssignments.archivedAssigned}
           submitLabel="Save changes"
           pendingLabel="Saving…"
         />

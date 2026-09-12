@@ -17,6 +17,11 @@ import {
   validateCustomFieldFormValues,
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
+import {
+  getActiveTagFormOptions,
+  parseTagFormSelection,
+  persistTagAssignmentsInTransaction,
+} from "@/lib/tags/entity-form";
 import { resolveStatusForSave } from "@/lib/custom-statuses/entity-form";
 import type { ClientStatusValue } from "@/lib/validation/client";
 import type { ClientFormState } from "@/types";
@@ -64,6 +69,13 @@ export async function createClientAction(
   if (!customFieldValidation.ok) {
     return { error: null, customFieldErrors: customFieldValidation.fieldErrors };
   }
+
+  // Tags V2 (Section 3/6) — every submitted `tagIds` value is filtered
+  // down to only ids among this organization's own ACTIVE tags, loaded
+  // fresh right here (never trusts the FormData for which tags exist or
+  // are still active) — see parseTagFormSelection's own comment.
+  const tagOptions = await getActiveTagFormOptions(organizationId);
+  const submittedTagIds = parseTagFormSelection(formData, tagOptions);
 
   let clientActivity: Awaited<ReturnType<typeof createActivity>> | undefined;
 
@@ -122,6 +134,16 @@ export async function createClientAction(
         definitions: customFieldDefinitions,
         rawValues: rawCustomFieldValues,
         decisions: customFieldValidation.decisions,
+      });
+
+      // Tags V2 (Section 3) — a brand-new Client has no pre-existing
+      // assignments to diff against.
+      await persistTagAssignmentsInTransaction(tx, {
+        organizationId,
+        entityType: "CLIENT",
+        entityId: client.id,
+        existingActiveTagIds: [],
+        submittedTagIds,
       });
 
       // Multiple Contacts Phase 1 — a Client created with contact-capable

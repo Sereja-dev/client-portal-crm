@@ -16,6 +16,12 @@ import {
   validateCustomFieldFormValues,
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
+import {
+  getActiveTagFormOptions,
+  getTagFormAssignments,
+  parseTagFormSelection,
+  persistTagAssignmentsInTransaction,
+} from "@/lib/tags/entity-form";
 import { resolveStatusForSave } from "@/lib/custom-statuses/entity-form";
 import type { ClientStatusValue } from "@/lib/validation/client";
 import type { ClientFormState } from "@/types";
@@ -76,6 +82,16 @@ export async function updateClientAction(
     return { error: null, customFieldErrors: customFieldValidation.fieldErrors };
   }
 
+  // Tags V2 (Section 3/6) — see createClientAction's own identical
+  // comment. `existingTagAssignments.activeTagIds` is this Client's own
+  // "before" set, diffed against `submittedTagIds` inside the
+  // transaction below — its own `archivedAssigned` set is never touched
+  // by this action at all (Section 3: "avoid silently dropping archived
+  // historical assignments").
+  const tagOptions = await getActiveTagFormOptions(organizationId);
+  const submittedTagIds = parseTagFormSelection(formData, tagOptions);
+  const existingTagAssignments = await getTagFormAssignments(organizationId, "CLIENT", clientId);
+
   // Update and its (conditional) Activity row are one atomic unit — a
   // failed Activity insert rolls the update back too.
   const outcome = await prisma.$transaction(async (tx) => {
@@ -135,6 +151,16 @@ export async function updateClientAction(
       definitions: customFieldDefinitions,
       rawValues: rawCustomFieldValues,
       decisions: customFieldValidation.decisions,
+    });
+
+    // Tags V2 (Section 3) — adds newly-selected tags, removes
+    // deselected active ones; never touches an archived assignment.
+    await persistTagAssignmentsInTransaction(tx, {
+      organizationId,
+      entityType: "CLIENT",
+      entityId: clientId,
+      existingActiveTagIds: existingTagAssignments.activeTagIds,
+      submittedTagIds,
     });
 
     // Multiple Contacts Phase 1 — "Close Legacy Email Sync Gap." Only

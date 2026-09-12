@@ -11,6 +11,11 @@ import {
   type CustomFieldFormDefinitionForUI,
   type CustomFieldFormValueForUI,
 } from "@/components/custom-fields/custom-fields-form-section";
+import {
+  TagsFormSection,
+  type TagFormOptionForUI,
+  type ArchivedAssignedTagForUI,
+} from "@/components/tags/tags-form-section";
 import type { StatusSelectOption } from "@/lib/custom-statuses/entity-form";
 import type { ClientFormState } from "@/types";
 
@@ -37,6 +42,9 @@ export function ClientForm({
   currentStatusDefinitionId,
   customFieldDefinitions = [],
   customFieldValues = {},
+  tagOptions = [],
+  selectedTagIds = [],
+  archivedAssignedTags = [],
   submitLabel = "Create client",
   pendingLabel = "Creating…",
 }: {
@@ -60,6 +68,12 @@ export function ClientForm({
   customFieldDefinitions?: CustomFieldFormDefinitionForUI[];
   /** Edit only — this Client's own current values, keyed by definitionId. Always empty on create. */
   customFieldValues?: Record<string, CustomFieldFormValueForUI>;
+  /** Tags V2 (Section 3) — every ACTIVE org tag; empty on an organization with none configured, in which case TagsFormSection itself renders nothing (unless archivedAssignedTags has something to show). */
+  tagOptions?: TagFormOptionForUI[];
+  /** Edit only — this Client's own currently-assigned ACTIVE tag ids. Always empty on create. */
+  selectedTagIds?: string[];
+  /** Edit only — this Client's own currently-assigned tags whose definition has since been archived (display-only). Always empty on create. */
+  archivedAssignedTags?: ArchivedAssignedTagForUI[];
   submitLabel?: string;
   pendingLabel?: string;
 }) {
@@ -229,6 +243,8 @@ export function ClientForm({
         values={customFieldValues}
         errors={state.customFieldErrors}
       />
+
+      <TagsFormSection options={tagOptions} selectedTagIds={selectedTagIds} archivedAssigned={archivedAssignedTags} />
 
       {state.error && (
         <p role="alert" className="text-danger text-sm">

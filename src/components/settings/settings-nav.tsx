@@ -29,6 +29,8 @@ type SettingsNavLink = {
   paymentOnly?: boolean;
   /** Workflow Automations V1 — OWNER/ADMIN-only, mirroring the Phase 1 domain layer's own gate (createWorkflowAutomation/listWorkflowAutomations etc. all return FORBIDDEN for a MEMBER). Hiding this link is discoverability only — every page under /settings/workflow-automations independently re-verifies the same role via getCurrentMembership(), matching paymentOnly's own "the link is not the security boundary" precedent. */
   workflowAutomationsOnly?: boolean;
+  /** Tags V2 — OWNER/ADMIN-only, mirroring workflowAutomationsOnly's own identical gate and identical "hiding the link is discoverability only" precedent: /settings/tags' own page and Server Actions independently re-verify the same role. Tag *assignment* on Clients/Leads is a separate, unrelated, open-to-any-role concern (see src/lib/tags/assignments.ts) — this only gates the *definitions* management page. */
+  tagsOnly?: boolean;
 };
 
 const SETTINGS_LINKS: readonly SettingsNavLink[] = [
@@ -57,6 +59,9 @@ const SETTINGS_LINKS: readonly SettingsNavLink[] = [
   // entries above, but OWNER/ADMIN-only (see workflowAutomationsOnly's
   // own comment) rather than open to any staff role like its neighbors.
   { href: "/settings/workflow-automations", label: "Workflow automations", workflowAutomationsOnly: true },
+  // Tags V2 — grouped next to Workflow Automations, the other OWNER/
+  // ADMIN-only org-wide config entry (see tagsOnly's own comment).
+  { href: "/settings/tags", label: "Tags", tagsOnly: true },
   // Phase D: grouped next to Notifications — both are personal,
   // per-identity preferences (not organization-wide config like
   // Company/Payment/Domain/Billing above), and neither is role-gated.
@@ -72,14 +77,16 @@ function isActive(pathname: string, href: string): boolean {
 export function SettingsNav({
   canAccessPayment,
   canManageWorkflowAutomations,
+  canManageTags,
 }: {
   canAccessPayment: boolean;
   canManageWorkflowAutomations: boolean;
+  canManageTags: boolean;
 }) {
   const pathname = usePathname();
-  const links = SETTINGS_LINKS.filter((link) => !link.paymentOnly || canAccessPayment).filter(
-    (link) => !link.workflowAutomationsOnly || canManageWorkflowAutomations,
-  );
+  const links = SETTINGS_LINKS.filter((link) => !link.paymentOnly || canAccessPayment)
+    .filter((link) => !link.workflowAutomationsOnly || canManageWorkflowAutomations)
+    .filter((link) => !link.tagsOnly || canManageTags);
 
   return (
     <nav

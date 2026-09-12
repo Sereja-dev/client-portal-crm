@@ -26,6 +26,9 @@ import {
   RecordCardActions,
 } from "@/components/ui/record-list";
 import { listCustomStatusDefinitions } from "@/lib/custom-statuses/definitions";
+import { listTags } from "@/lib/tags/definitions";
+import { getTagsForEntities } from "@/lib/tags/list-query";
+import { TagChipList } from "@/components/tags/tag-chip-list";
 import { parseLeadListParams, buildLeadWhere, buildLeadOrderBy, type LeadListParams } from "./query";
 import { fetchLeadPipelineColumns } from "./pipeline-query";
 import { parseLeadView, parseLeadStageView, buildLeadsHref, type LeadView } from "./view-params";
@@ -211,9 +214,13 @@ export default async function LeadsPage({
     prisma.lead.count({ where }),
   ]);
 
+  // Tags V2 (Section 4/5) — see clients/page.tsx's own identical comment.
+  const allTags = await listTags(organizationId);
+  const tagsByLeadId = await getTagsForEntities(organizationId, "LEAD", leads.map((l) => l.id));
+
   const totalPages = getTotalPages(total);
   const hasActiveParams = Boolean(
-    listParams.q || listParams.stage || listParams.assignedToUserId || listParams.archived,
+    listParams.q || listParams.stage || listParams.assignedToUserId || listParams.tagId || listParams.archived,
   );
 
   return (
@@ -245,6 +252,15 @@ export default async function LeadsPage({
             options: stageFilterOptions,
           },
           assigneeFilter,
+          {
+            name: "tag",
+            label: "Tag",
+            value: listParams.tagId ?? "",
+            options: [
+              { value: "", label: "All tags" },
+              ...allTags.map((tag) => ({ value: tag.id, label: tag.name })),
+            ],
+          },
           archivedFilter,
         ]}
         sort={{ value: listParams.sortCombined, options: SORT_OPTIONS }}
@@ -285,6 +301,7 @@ export default async function LeadsPage({
                   <TableHeaderCell>Source</TableHeaderCell>
                   <TableHeaderCell>Value</TableHeaderCell>
                   <TableHeaderCell>Assignee</TableHeaderCell>
+                  <TableHeaderCell>Tags</TableHeaderCell>
                   <TableHeaderCell>Created</TableHeaderCell>
                   <TableHeaderCell align="right">Actions</TableHeaderCell>
                 </tr>
@@ -300,6 +317,9 @@ export default async function LeadsPage({
                     <TableCell>{lead.source ? formatStatusLabel(lead.source) : "—"}</TableCell>
                     <TableCell>{lead.value ? formatCurrency(Number(lead.value)) : "—"}</TableCell>
                     <TableCell>{lead.assignedTo?.name ?? "Unassigned"}</TableCell>
+                    <TableCell>
+                      <TagChipList tags={tagsByLeadId.get(lead.id) ?? []} />
+                    </TableCell>
                     <TableCell>{lead.createdAt.toLocaleDateString()}</TableCell>
                     <TableCell align="right">
                       <Link
@@ -325,6 +345,7 @@ export default async function LeadsPage({
                 <RecordCardField label="Source" value={lead.source ? formatStatusLabel(lead.source) : "—"} />
                 <RecordCardField label="Value" value={lead.value ? formatCurrency(Number(lead.value)) : "—"} />
                 <RecordCardField label="Assignee" value={lead.assignedTo?.name ?? "Unassigned"} />
+                <RecordCardField label="Tags" value={<TagChipList tags={tagsByLeadId.get(lead.id) ?? []} />} />
                 <RecordCardField label="Created" value={lead.createdAt.toLocaleDateString()} />
                 <RecordCardActions>
                   <Link
@@ -345,6 +366,7 @@ export default async function LeadsPage({
               ...(listParams.q ? { q: listParams.q } : {}),
               ...(listParams.stage ? { stage: listParams.stage } : {}),
               ...(listParams.assignedToUserId ? { assignedToUserId: listParams.assignedToUserId } : {}),
+              ...(listParams.tagId ? { tag: listParams.tagId } : {}),
               ...(listParams.archived ? { archived: "1" } : {}),
               sort: listParams.sortCombined,
             }}

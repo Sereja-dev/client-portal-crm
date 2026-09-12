@@ -36,10 +36,17 @@ export default async function SettingsLayout({
   // this exact two-role check has no dedicated organization-setup/
   // authorization.ts entry of its own yet (unlike canAccessPaymentDetails).
   const canManageWorkflowAutomations = membership.role === "OWNER" || membership.role === "ADMIN";
+  // Tags V2 — same OWNER/ADMIN gate as Workflow Automations immediately
+  // above (mirrors src/lib/tags/definitions.ts's own isPrivileged()).
+  const canManageTags = membership.role === "OWNER" || membership.role === "ADMIN";
 
   return (
     <div>
-      <SettingsNav canAccessPayment={canAccessPayment} canManageWorkflowAutomations={canManageWorkflowAutomations} />
+      <SettingsNav
+        canAccessPayment={canAccessPayment}
+        canManageWorkflowAutomations={canManageWorkflowAutomations}
+        canManageTags={canManageTags}
+      />
       {children}
     </div>
   );

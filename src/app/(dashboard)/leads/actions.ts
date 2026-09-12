@@ -26,6 +26,12 @@ import {
   validateCustomFieldFormValues,
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
+import {
+  getActiveTagFormOptions,
+  getTagFormAssignments,
+  parseTagFormSelection,
+  persistTagAssignmentsInTransaction,
+} from "@/lib/tags/entity-form";
 import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import { resolveStatusForSave } from "@/lib/custom-statuses/entity-form";
 import { resolveLeadIsLost } from "@/lib/custom-statuses/semantics";
@@ -166,6 +172,14 @@ export async function createLeadAction(
     return { ok: false, reason: "custom_field_validation", customFieldErrors: customFieldValidation.fieldErrors };
   }
 
+  // Tags V2 (Section 3/6) — `customFieldFormData` (despite its name) is
+  // the whole submitted FormData, reused here to also extract this
+  // form's `tagIds` entries — see LeadForm's own single embedded <form>
+  // and createClientAction's own identical `tagOptions`/
+  // `parseTagFormSelection` pairing.
+  const tagOptions = await getActiveTagFormOptions(organizationId);
+  const submittedTagIds = parseTagFormSelection(customFieldFormData ?? new FormData(), tagOptions);
+
   // Lead create, its custom field values, and its Activity row are one
   // atomic unit — a failed Activity insert (or custom field write) rolls
   // the create back with it, matching createClientAction/
@@ -202,6 +216,16 @@ export async function createLeadAction(
       definitions: customFieldDefinitions,
       rawValues: rawCustomFieldValues,
       decisions: customFieldValidation.decisions,
+    });
+
+    // Tags V2 (Section 3) — a brand-new Lead has no pre-existing
+    // assignments to diff against.
+    await persistTagAssignmentsInTransaction(tx, {
+      organizationId,
+      entityType: "LEAD",
+      entityId: created.id,
+      existingActiveTagIds: [],
+      submittedTagIds,
     });
 
     await createActivity(tx, {
@@ -281,6 +305,14 @@ export async function updateLeadAction(
     return { ok: false, reason: "custom_field_validation", customFieldErrors: customFieldValidation.fieldErrors };
   }
 
+  // Tags V2 (Section 3/6) — see createLeadAction's own identical
+  // comment. `existingTagAssignments.activeTagIds` is this Lead's own
+  // "before" set, diffed against `submittedTagIds` inside the
+  // transaction below; its own `archivedAssigned` set is never touched.
+  const tagOptions = await getActiveTagFormOptions(organizationId);
+  const submittedTagIds = parseTagFormSelection(customFieldFormData ?? new FormData(), tagOptions);
+  const existingTagAssignments = await getTagFormAssignments(organizationId, "LEAD", leadId);
+
   const outcome = await prisma.$transaction(async (tx) => {
     // Scoped by id + organizationId together — a foreign org's lead id
     // simply doesn't match, indistinguishable from a nonexistent one.
@@ -315,6 +347,16 @@ export async function updateLeadAction(
       definitions: customFieldDefinitions,
       rawValues: rawCustomFieldValues,
       decisions: customFieldValidation.decisions,
+    });
+
+    // Tags V2 (Section 3) — adds newly-selected tags, removes
+    // deselected active ones; never touches an archived assignment.
+    await persistTagAssignmentsInTransaction(tx, {
+      organizationId,
+      entityType: "LEAD",
+      entityId: leadId,
+      existingActiveTagIds: existingTagAssignments.activeTagIds,
+      submittedTagIds,
     });
 
     // Only log a real change — a re-submit of identical values shouldn't

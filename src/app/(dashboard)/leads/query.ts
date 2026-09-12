@@ -8,6 +8,7 @@ import {
   type RawSearchParams,
 } from "@/lib/list-params";
 import { resolveStatusDefinitionByKey } from "@/lib/custom-statuses/resolution";
+import { resolveTagAssignedEntityIds } from "@/lib/tags/list-query";
 
 /**
  * Leads / Sales Pipeline Phase 3. Mirrors src/app/(dashboard)/clients/
@@ -28,6 +29,8 @@ export type LeadListParams = {
   stage?: string;
   /** "unassigned" is a real, selectable filter value — distinct from "no filter" (undefined). Any other non-UUID-shaped value is treated as "no filter", same as an invalid stage. */
   assignedToUserId?: string;
+  /** Tags V2 (Section 5) — a Tag id, from `?tag=`. Any value that isn't a real UUID is treated as "no filter", same as assignedToUserId's own non-UUID case. */
+  tagId?: string;
   archived: boolean;
   sortField: LeadSortField;
   sortDir: "asc" | "desc";
@@ -49,15 +52,23 @@ function parseAssigneeParam(value: string | string[] | undefined): string | unde
   return UUID_PATTERN.test(raw) ? raw : undefined;
 }
 
+/** Tags V2 (Section 5) — same non-UUID-falls-back-safely shape as parseAssigneeParam immediately above, minus the "unassigned" special case (a Tag filter has no equivalent concept). */
+function parseTagIdParam(value: string | string[] | undefined): string | undefined {
+  const raw = parseSearchParam(value);
+  if (!raw) return undefined;
+  return UUID_PATTERN.test(raw) ? raw : undefined;
+}
+
 export function parseLeadListParams(searchParams: RawSearchParams): LeadListParams {
   const q = parseSearchParam(searchParams.q);
   const stage = parseStatusKeyParam(searchParams.stage);
   const assignedToUserId = parseAssigneeParam(searchParams.assignedToUserId);
+  const tagId = parseTagIdParam(searchParams.tag);
   const archived = parseSearchParam(searchParams.archived) === "1";
   const { field, dir, combined } = parseSortParam(searchParams.sort, LEAD_SORT_FIELDS, "createdAt:desc");
   const page = parsePageParam(searchParams.page);
 
-  return { q, stage, assignedToUserId, archived, sortField: field, sortDir: dir, sortCombined: combined, page };
+  return { q, stage, assignedToUserId, tagId, archived, sortField: field, sortDir: dir, sortCombined: combined, page };
 }
 
 /**
@@ -83,7 +94,10 @@ export function parseLeadListParams(searchParams: RawSearchParams): LeadListPara
  */
 export async function buildLeadWhere(
   organizationId: string,
-  { q, stage, assignedToUserId, archived }: Pick<LeadListParams, "q" | "stage" | "assignedToUserId" | "archived">,
+  { q, stage, assignedToUserId, tagId, archived }: Pick<
+    LeadListParams,
+    "q" | "stage" | "assignedToUserId" | "tagId" | "archived"
+  >,
 ): Promise<Prisma.LeadWhereInput> {
   const stageFilter = stage
     ? await (async (): Promise<Prisma.LeadWhereInput> => {
@@ -114,6 +128,12 @@ export async function buildLeadWhere(
       }
     : {};
 
+  // Tags V2 (Section 5) — see clients/query.ts's own buildClientWhere
+  // for the full "why" of this two-step fold-in.
+  const tagFilter: Prisma.LeadWhereInput = tagId
+    ? { id: { in: await resolveTagAssignedEntityIds(organizationId, "LEAD", tagId) } }
+    : {};
+
   return {
     organizationId,
     archivedAt: archived ? { not: null } : null,
@@ -131,6 +151,7 @@ export async function buildLeadWhere(
       : assignedToUserId
         ? { assignedToUserId }
         : {}),
+    ...tagFilter,
   };
 }
 

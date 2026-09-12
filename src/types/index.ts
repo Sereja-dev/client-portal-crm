@@ -68,6 +68,14 @@ export type CustomStatusDefinitionFormState = {
   fieldErrors?: Partial<Record<"label", string>>;
 };
 
+// Tags V2 (Staff UI). Mirrors CustomStatusDefinitionFormState's own exact
+// shape — `color` is a select, never invalid on its own terms, so it's
+// deliberately absent here too.
+export type TagFormState = {
+  error: string | null;
+  fieldErrors?: Partial<Record<"name", string>>;
+};
+
 // Public Lead Capture Forms Phase 2A (Staff UI). Mirrors
 // CustomStatusDefinitionFormState's own exact shape. `fieldsConfig` has no
 // per-sub-field error of its own — the whole per-field table is one

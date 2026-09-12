@@ -3,6 +3,9 @@ import { getCurrentUserOrganization } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib/list-params";
 import { listCustomStatusDefinitions } from "@/lib/custom-statuses/definitions";
+import { listTags } from "@/lib/tags/definitions";
+import { getTagsForEntities } from "@/lib/tags/list-query";
+import { TagChipList } from "@/components/tags/tag-chip-list";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { deleteClientAction } from "./actions";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -97,8 +100,14 @@ export default async function ClientsPage({
     prisma.client.count({ where }),
   ]);
 
+  // Tags V2 (Section 4/5) — every active tag, for the filter's own option
+  // list (archived tags are never offered — Section 5), plus this page's
+  // own current tag assignments, bulk-fetched in one call.
+  const allTags = await listTags(organizationId);
+  const tagsByClientId = await getTagsForEntities(organizationId, "CLIENT", clients.map((c) => c.id));
+
   const totalPages = getTotalPages(total);
-  const hasActiveParams = Boolean(listParams.q || listParams.status);
+  const hasActiveParams = Boolean(listParams.q || listParams.status || listParams.tagId);
 
   return (
     <div>
@@ -129,6 +138,15 @@ export default async function ClientsPage({
             label: "Status",
             value: listParams.status ?? "",
             options: statusFilterOptions,
+          },
+          {
+            name: "tag",
+            label: "Tag",
+            value: listParams.tagId ?? "",
+            options: [
+              { value: "", label: "All tags" },
+              ...allTags.map((tag) => ({ value: tag.id, label: tag.name })),
+            ],
           },
         ]}
         sort={{ value: listParams.sortCombined, options: SORT_OPTIONS }}
@@ -174,6 +192,7 @@ export default async function ClientsPage({
                   <TableHeaderCell>Email</TableHeaderCell>
                   <TableHeaderCell>Phone</TableHeaderCell>
                   <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell>Tags</TableHeaderCell>
                   <TableHeaderCell>Created</TableHeaderCell>
                   <TableHeaderCell align="right">Actions</TableHeaderCell>
                 </tr>
@@ -187,6 +206,9 @@ export default async function ClientsPage({
                     <TableCell>{client.phone ?? "—"}</TableCell>
                     <TableCell>
                       <ClientStatusBadge client={client} />
+                    </TableCell>
+                    <TableCell>
+                      <TagChipList tags={tagsByClientId.get(client.id) ?? []} />
                     </TableCell>
                     <TableCell>{client.createdAt.toLocaleDateString()}</TableCell>
                     <TableCell align="right">
@@ -222,6 +244,7 @@ export default async function ClientsPage({
                 <RecordCardField label="Email" value={client.email ?? "—"} />
                 <RecordCardField label="Phone" value={client.phone ?? "—"} />
                 <RecordCardField label="Status" value={<ClientStatusBadge client={client} />} />
+                <RecordCardField label="Tags" value={<TagChipList tags={tagsByClientId.get(client.id) ?? []} />} />
                 <RecordCardField label="Created" value={client.createdAt.toLocaleDateString()} />
                 <RecordCardActions>
                   <Link
@@ -249,6 +272,7 @@ export default async function ClientsPage({
             params={{
               ...(listParams.q ? { q: listParams.q } : {}),
               ...(listParams.status ? { status: listParams.status } : {}),
+              ...(listParams.tagId ? { tag: listParams.tagId } : {}),
               sort: listParams.sortCombined,
             }}
             page={listParams.page}
