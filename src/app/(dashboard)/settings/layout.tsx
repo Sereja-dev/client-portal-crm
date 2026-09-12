@@ -30,10 +30,16 @@ export default async function SettingsLayout({
 }) {
   const { membership } = await getCurrentMembership();
   const canAccessPayment = canAccessPaymentDetails(membership.role);
+  // Workflow Automations V1 — same OWNER/ADMIN gate the domain layer
+  // itself enforces (isPrivileged() in src/lib/workflow-automations/
+  // automations.ts) — inlined here rather than via a shared helper since
+  // this exact two-role check has no dedicated organization-setup/
+  // authorization.ts entry of its own yet (unlike canAccessPaymentDetails).
+  const canManageWorkflowAutomations = membership.role === "OWNER" || membership.role === "ADMIN";
 
   return (
     <div>
-      <SettingsNav canAccessPayment={canAccessPayment} />
+      <SettingsNav canAccessPayment={canAccessPayment} canManageWorkflowAutomations={canManageWorkflowAutomations} />
       {children}
     </div>
   );

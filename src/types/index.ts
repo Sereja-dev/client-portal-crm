@@ -295,3 +295,15 @@ export type RecurringInvoiceFormState = {
     >
   >;
 };
+
+// Workflow Automations V1 — Staff Authoring UI. Shared by createWorkflowAutomationAction
+// and updateWorkflowAutomationAction. Deliberately a single generic error,
+// not a fieldErrors map — createWorkflowAutomation/updateWorkflowAutomation
+// (src/lib/workflow-automations/automations.ts) already return one
+// consolidated VALIDATION message covering name/trigger/conditions/actions
+// together (mirrors ClientRequestMessageFormState's own identical "one
+// error, no per-field map" shape, for the same reason: the domain layer
+// itself has no per-field error model to surface here).
+export type WorkflowAutomationFormState = {
+  error: string | null;
+};

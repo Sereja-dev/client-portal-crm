@@ -27,6 +27,8 @@ type SettingsNavLink = {
   label: string;
   /** Only ever hidden for Payment Details — every other link here is open to any staff role, exactly matching each page's own existing "any member may view" behavior. */
   paymentOnly?: boolean;
+  /** Workflow Automations V1 — OWNER/ADMIN-only, mirroring the Phase 1 domain layer's own gate (createWorkflowAutomation/listWorkflowAutomations etc. all return FORBIDDEN for a MEMBER). Hiding this link is discoverability only — every page under /settings/workflow-automations independently re-verifies the same role via getCurrentMembership(), matching paymentOnly's own "the link is not the security boundary" precedent. */
+  workflowAutomationsOnly?: boolean;
 };
 
 const SETTINGS_LINKS: readonly SettingsNavLink[] = [
@@ -51,6 +53,10 @@ const SETTINGS_LINKS: readonly SettingsNavLink[] = [
   // above; not role-gated, matching the identical permission model (see
   // this feature's own Server Actions for the full reasoning).
   { href: "/settings/lead-capture-forms", label: "Lead capture forms" },
+  // Workflow Automations V1 — grouped with the other org-wide config
+  // entries above, but OWNER/ADMIN-only (see workflowAutomationsOnly's
+  // own comment) rather than open to any staff role like its neighbors.
+  { href: "/settings/workflow-automations", label: "Workflow automations", workflowAutomationsOnly: true },
   // Phase D: grouped next to Notifications — both are personal,
   // per-identity preferences (not organization-wide config like
   // Company/Payment/Domain/Billing above), and neither is role-gated.
@@ -63,9 +69,17 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function SettingsNav({ canAccessPayment }: { canAccessPayment: boolean }) {
+export function SettingsNav({
+  canAccessPayment,
+  canManageWorkflowAutomations,
+}: {
+  canAccessPayment: boolean;
+  canManageWorkflowAutomations: boolean;
+}) {
   const pathname = usePathname();
-  const links = SETTINGS_LINKS.filter((link) => !link.paymentOnly || canAccessPayment);
+  const links = SETTINGS_LINKS.filter((link) => !link.paymentOnly || canAccessPayment).filter(
+    (link) => !link.workflowAutomationsOnly || canManageWorkflowAutomations,
+  );
 
   return (
     <nav
