@@ -19,6 +19,7 @@ import { assertCanCreateClient, BillingLimitError } from "@/lib/billing/enforcem
 import { findDuplicateOrganizationClientByEmail } from "@/lib/clients/duplicate-email";
 import { createClientContact, resolveFallbackContactName } from "@/lib/clients/contacts";
 import { LEAD_STAGES, isLostLeadStage } from "@/lib/leads/stages";
+import { createLeadCore } from "@/lib/leads/create-core";
 import {
   getActiveCustomFieldFormDefinitions,
   getCustomFieldFormValues,
@@ -180,33 +181,20 @@ export async function createLeadAction(
   const tagOptions = await getActiveTagFormOptions(organizationId);
   const submittedTagIds = parseTagFormSelection(customFieldFormData ?? new FormData(), tagOptions);
 
-  // Lead create, its custom field values, and its Activity row are one
+  // Lead create (via the shared createLeadCore — see that module's own
+  // doc comment for why this is factored out: import reuses the exact
+  // same invariant-preserving core, just with Activity creation
+  // suppressed), its custom field values, and its Activity row are one
   // atomic unit — a failed Activity insert (or custom field write) rolls
   // the create back with it, matching createClientAction/
   // createTaskAction's own exact pattern.
   const lead = await prisma.$transaction(async (tx) => {
-    // Custom Statuses Phase 1 (Section P) — the created Lead always
-    // starts at the schema's own default NEW stage (see the comment
-    // below), so its statusDefinitionId is resolved to the matching
-    // system definition's key up front, same "leave unset if somehow
-    // not found" fail-open rule as createClientAction's own comment.
-    const statusDefinition = await resolveSystemStatusDefinition(organizationId, "LEAD", "new", tx);
-
-    const created = await tx.lead.create({
-      data: {
-        organizationId,
-        name: values.name,
-        company: values.company,
-        email: values.email,
-        phone: values.phone,
-        source: values.source,
-        value: values.value,
-        notes: values.notes,
-        assignedToUserId: values.assignedToUserId,
-        statusDefinitionId: statusDefinition?.id,
-        // stage: not set — the schema's own @default(NEW) applies. Never
-        // accepted from `input` (see this action's own doc comment).
-      },
+    const { lead: created } = await createLeadCore(tx, {
+      organizationId,
+      userId: user.id,
+      actorName: user.name,
+      context: "interactive",
+      input: values,
     });
 
     await persistCustomFieldValuesInTransaction(tx, {
@@ -226,15 +214,6 @@ export async function createLeadAction(
       entityId: created.id,
       existingActiveTagIds: [],
       submittedTagIds,
-    });
-
-    await createActivity(tx, {
-      organizationId,
-      actorId: user.id,
-      entityType: "LEAD",
-      entityId: created.id,
-      action: "CREATED",
-      metadata: buildLeadActivityMetadata(created, user.name),
     });
 
     return created;

@@ -11,6 +11,7 @@ export type ClientFormState = {
       | "email"
       | "company"
       | "phone"
+      | "notes"
       | "status"
       | "statusDefinitionId"
       | "billingLegalName"

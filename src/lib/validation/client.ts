@@ -3,7 +3,10 @@ import type { ClientFormState } from "@/types";
 export const CLIENT_STATUSES = ["LEAD", "ACTIVE", "INACTIVE", "ARCHIVED"] as const;
 export type ClientStatusValue = (typeof CLIENT_STATUSES)[number];
 
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// CSV Import Phase 2 — exported so src/lib/import/row-validation.ts can
+// validate an imported row's email with the exact same rule, rather than
+// forking a second pattern.
+export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // Invoice System Slice 1 (docs/invoicing-architecture.md §4.4) — optional
 // Client billing-identity fields, used by a future invoice PDF's "Bill To"
@@ -20,6 +23,17 @@ export const CLIENT_BILLING_MAX_LENGTHS = {
   postalCode: 32,
   country: 100,
 } as const;
+
+// CSV Import Phase 2 — Client.notes exists on the schema but has no
+// interactive form/UI at all today (create or edit); this validator is
+// its first real caller. Same cap this app's own established "large
+// freeform text field" convention already uses elsewhere (Lead.notes'
+// own LEAD_NOTES_MAX_LENGTH, Invoice notes, Comment body) — reused
+// rather than inventing a fourth distinct cap for the same kind of
+// field. Since the interactive ClientForm never submits a "notes" key
+// at all, this is a fully inert addition for that path (always parses
+// to null) and only ever meaningfully activates for CSV import.
+export const CLIENT_NOTES_MAX_LENGTH = 10_000;
 
 export type ParsedClientInput = {
   name: string;
@@ -39,6 +53,7 @@ export type ParsedClientInput = {
    * directly (see createClientAction/updateClientAction's own comments).
    */
   statusDefinitionId: string;
+  notes: string | null;
   billingLegalName: string | null;
   taxId: string | null;
   streetAddress: string | null;
@@ -49,31 +64,66 @@ export type ParsedClientInput = {
 };
 
 /** Trims, then treats an empty result as absent — matches src/lib/validation/company-profile.ts's own trimmedOrNull convention for optional fields. */
-function trimmedOrNull(value: FormDataEntryValue | null): string | null {
+function trimmedOrNull(value: string | null | undefined): string | null {
   const trimmed = String(value ?? "").trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 
-export function parseClientForm(formData: FormData): {
-  values: ParsedClientInput;
-  fieldErrors: NonNullable<ClientFormState["fieldErrors"]>;
+// CSV Import Phase 2 — every field a caller may supply for the base
+// Client fields (name/company/email/phone/billing-identity block),
+// deliberately excluding status/statusDefinitionId: those are a
+// per-caller concern (parseClientForm's own interactive-form-only
+// requiredness rule below), never part of CSV import's Phase 2 field
+// set at all (see the approved architecture: "For Phase 2, use the
+// existing default/current create semantics... do not import arbitrary
+// Client status from CSV").
+export type ClientBaseInput = {
+  name: unknown;
+  company?: unknown;
+  email?: unknown;
+  phone?: unknown;
+  notes?: unknown;
+  billingLegalName?: unknown;
+  taxId?: unknown;
+  streetAddress?: unknown;
+  city?: unknown;
+  state?: unknown;
+  postalCode?: unknown;
+  country?: unknown;
+};
+
+export type ParsedClientBaseInput = Omit<ParsedClientInput, "status" | "statusDefinitionId">;
+
+export type ClientBaseFieldErrors = Partial<Record<keyof ParsedClientBaseInput, string>>;
+
+/**
+ * The one shared base-field parser/validator — every rule here (name
+ * required, email format, every billing-field max length) applies
+ * identically whether the caller is the interactive ClientForm (via
+ * parseClientForm below, which layers its own form-only status/
+ * statusDefinitionId requiredness on top) or CSV import (via
+ * src/lib/import/row-validation.ts, which never touches status at all).
+ * Extracted from parseClientForm's own original body — no behavior
+ * change for the interactive path, just a narrower, reusable core.
+ */
+export function parseClientBaseInput(input: ClientBaseInput): {
+  values: ParsedClientBaseInput;
+  fieldErrors: ClientBaseFieldErrors;
 } {
-  const name = String(formData.get("name") ?? "").trim();
-  const company = String(formData.get("company") ?? "").trim();
-  const email = String(formData.get("email") ?? "").trim();
-  const phone = String(formData.get("phone") ?? "").trim();
-  const status = String(formData.get("status") ?? "LEAD");
-  const statusDefinitionId = String(formData.get("statusDefinitionId") ?? "").trim();
+  const name = String(input.name ?? "").trim();
+  const company = trimmedOrNull(input.company as string | null | undefined);
+  const email = trimmedOrNull(input.email as string | null | undefined);
+  const phone = trimmedOrNull(input.phone as string | null | undefined);
+  const notes = trimmedOrNull(input.notes as string | null | undefined);
+  const billingLegalName = trimmedOrNull(input.billingLegalName as string | null | undefined);
+  const taxId = trimmedOrNull(input.taxId as string | null | undefined);
+  const streetAddress = trimmedOrNull(input.streetAddress as string | null | undefined);
+  const city = trimmedOrNull(input.city as string | null | undefined);
+  const state = trimmedOrNull(input.state as string | null | undefined);
+  const postalCode = trimmedOrNull(input.postalCode as string | null | undefined);
+  const country = trimmedOrNull(input.country as string | null | undefined);
 
-  const billingLegalName = trimmedOrNull(formData.get("billingLegalName"));
-  const taxId = trimmedOrNull(formData.get("taxId"));
-  const streetAddress = trimmedOrNull(formData.get("streetAddress"));
-  const city = trimmedOrNull(formData.get("city"));
-  const state = trimmedOrNull(formData.get("state"));
-  const postalCode = trimmedOrNull(formData.get("postalCode"));
-  const country = trimmedOrNull(formData.get("country"));
-
-  const fieldErrors: NonNullable<ClientFormState["fieldErrors"]> = {};
+  const fieldErrors: ClientBaseFieldErrors = {};
 
   if (!name) {
     fieldErrors.name = "Name is required.";
@@ -83,13 +133,8 @@ export function parseClientForm(formData: FormData): {
     fieldErrors.email = "Enter a valid email address.";
   }
 
-  const isValidStatus = CLIENT_STATUSES.includes(status as ClientStatusValue);
-  if (!isValidStatus) {
-    fieldErrors.status = "Select a valid status.";
-  }
-
-  if (!statusDefinitionId) {
-    fieldErrors.statusDefinitionId = "Select a status.";
+  if (notes && notes.length > CLIENT_NOTES_MAX_LENGTH) {
+    fieldErrors.notes = `Must be ${CLIENT_NOTES_MAX_LENGTH} characters or fewer.`;
   }
 
   // Optional billing fields: no required-ness check (null is always
@@ -123,8 +168,7 @@ export function parseClientForm(formData: FormData): {
       company: company || null,
       email: email || null,
       phone: phone || null,
-      status: isValidStatus ? (status as ClientStatusValue) : "LEAD",
-      statusDefinitionId,
+      notes,
       billingLegalName,
       taxId,
       streetAddress,
@@ -132,6 +176,49 @@ export function parseClientForm(formData: FormData): {
       state,
       postalCode,
       country,
+    },
+    fieldErrors,
+  };
+}
+
+export function parseClientForm(formData: FormData): {
+  values: ParsedClientInput;
+  fieldErrors: NonNullable<ClientFormState["fieldErrors"]>;
+} {
+  const status = String(formData.get("status") ?? "LEAD");
+  const statusDefinitionId = String(formData.get("statusDefinitionId") ?? "").trim();
+
+  const { values: base, fieldErrors: baseFieldErrors } = parseClientBaseInput({
+    name: formData.get("name"),
+    company: formData.get("company"),
+    email: formData.get("email"),
+    phone: formData.get("phone"),
+    notes: formData.get("notes"),
+    billingLegalName: formData.get("billingLegalName"),
+    taxId: formData.get("taxId"),
+    streetAddress: formData.get("streetAddress"),
+    city: formData.get("city"),
+    state: formData.get("state"),
+    postalCode: formData.get("postalCode"),
+    country: formData.get("country"),
+  });
+
+  const fieldErrors: NonNullable<ClientFormState["fieldErrors"]> = { ...baseFieldErrors };
+
+  const isValidStatus = CLIENT_STATUSES.includes(status as ClientStatusValue);
+  if (!isValidStatus) {
+    fieldErrors.status = "Select a valid status.";
+  }
+
+  if (!statusDefinitionId) {
+    fieldErrors.statusDefinitionId = "Select a status.";
+  }
+
+  return {
+    values: {
+      ...base,
+      status: isValidStatus ? (status as ClientStatusValue) : "LEAD",
+      statusDefinitionId,
     },
     fieldErrors,
   };

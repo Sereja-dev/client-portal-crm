@@ -28,6 +28,7 @@
     "@react-pdf/renderer": "4.6.1",
     "@supabase/ssr": "^0.12.4",
     "@supabase/supabase-js": "^2.111.0",
+    "csv-parse": "^7.0.2",
     "next": "16.3.2",
     "openai": "^7.10.0",
     "pg": "^8.22.0",

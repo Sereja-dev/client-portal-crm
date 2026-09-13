@@ -466,6 +466,12 @@ model User {
   // Same "author" relation shape as authoredComments/CommentAuthor above --
   // SetNull, so a note survives its own author's User row being deleted.
   authoredTimelineNotes TimelineNote[] @relation("TimelineNoteAuthor")
+
+  // CSV Import Phase 2 -- see ImportJob's own doc comment. Same "actor"
+  // relation shape as authoredTimelineNotes/TimelineNoteAuthor above --
+  // SetNull, so an import's audit row survives its own actor's User row
+  // being deleted.
+  importJobs ImportJob[] @relation("ImportJobActor")
 }
 
 // Multi-tenant scaffolding (schema-only for now; not yet wired into app
@@ -591,6 +597,10 @@ model Organization {
   // Communication Timeline Phase 1 -- see TimelineNote's own doc comment.
   // Same direct-tenant-scoping shape as leads/customFieldDefinitions above.
   timelineNotes TimelineNote[]
+
+  // CSV Import Phase 2 -- see ImportJob's own doc comment. Same direct-
+  // tenant-scoping shape as leads/customFieldDefinitions above.
+  importJobs ImportJob[]
 }
 
 // Platform Admin Organization Suspension, PR 1. Deliberately separate
@@ -3093,11 +3103,17 @@ enum RecurrenceFrequency {
 }
 
 enum RecurringInvoiceStatus {
-  /** Eligible for future generation. */
+  /**
+   * Eligible for future generation.
+   */
   ACTIVE
-  /** No generation while paused; nextIssueDate is preserved untouched, so resuming continues exactly where it left off. */
+  /**
+   * No generation while paused; nextIssueDate is preserved untouched, so resuming continues exactly where it left off.
+   */
   PAUSED
-  /** Terminal in V1 — no un-archive path (matches Client Requests' own Phase 2A archive asymmetry). */
+  /**
+   * Terminal in V1 — no un-archive path (matches Client Requests' own Phase 2A archive asymmetry).
+   */
   ARCHIVED
 }
 
@@ -3185,7 +3201,7 @@ model RecurringInvoice {
   taxLabel       InvoiceTaxLabel     @default(TAX)
 
   // Client-facing notes, copied verbatim onto each generated Invoice.
-  notes String?
+  notes         String?
   // Staff-only, copied verbatim onto each generated Invoice — never
   // rendered to the PDF, never emailed, never shown to any Portal
   // identity (same contract as Invoice.internalNotes).
@@ -3282,12 +3298,6 @@ model RecurringInvoiceOccurrence {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  // The one authoritative idempotency guarantee: at most one row per
-  // (schedule, calendar occurrence), ever — this is what makes "has this
-  // occurrence already been claimed/generated" a single conditional
-  // write, never a race-prone read-then-decide.
-  @@unique([recurringInvoiceId, occurrenceDate])
   // No separate @@index([recurringInvoiceId]) -- the composite @@unique
   // above already serves as one via its own leftmost-column prefix, same
   // reasoning as Quote's own convertedInvoiceId comment just above.
@@ -3295,6 +3305,12 @@ model RecurringInvoiceOccurrence {
   // status/claimedAt index in Phase 1 -- no cron/batch scan reads
   // reclaimable rows by it yet (deferred to Phase 2 alongside the actual
   // cron route); add it there, not speculatively now.
+
+  // The one authoritative idempotency guarantee: at most one row per
+  // (schedule, calendar occurrence), ever — this is what makes "has this
+  // occurrence already been claimed/generated" a single conditional
+  // write, never a race-prone read-then-decide.
+  @@unique([recurringInvoiceId, occurrenceDate])
 }
 
 // Workflow Automations Phase 1 -- config/domain foundation only. No code
@@ -3366,6 +3382,10 @@ model WorkflowAutomation {
   // null = active, never hard-deleted.
   archivedAt DateTime?
 
+  // Workflow Automations Phase 2 -- see WorkflowAutomationRun's own doc
+  // comment.
+  runs WorkflowAutomationRun[]
+
   // Organization-scoped listing (active-only list is this column's own
   // leftmost prefix). Composite trigger-lookup index for the future
   // dispatcher (Phase 2+): given an Activity's own organizationId +
@@ -3375,10 +3395,6 @@ model WorkflowAutomation {
   // isEnabled: true next, matching this column order.
   @@index([organizationId, archivedAt])
   @@index([organizationId, triggerEntityType, triggerAction, archivedAt, isEnabled])
-
-  // Workflow Automations Phase 2 -- see WorkflowAutomationRun's own doc
-  // comment.
-  runs WorkflowAutomationRun[]
 }
 
 enum WorkflowAutomationRunStatus {
@@ -3427,7 +3443,7 @@ model WorkflowAutomationRun {
   // convention as RecurringInvoiceOccurrence.failureReason/
   // NotificationDelivery.failureCode. Never a raw DB/driver error
   // string.
-  failureReason String?
+  failureReason     String?
   // Which 0-based action index failed, when determinable (a stale
   // condition-config failure caught before any action ran leaves this
   // null). Diagnostic only -- see this model's own header comment.
@@ -3641,4 +3657,109 @@ model TimelineNote {
   // Identical shape to Activity's own "Entity-specific timeline (a later
   // stage)" index.
   @@index([organizationId, entityType, entityId, createdAt, id])
+}
+
+// CSV Import Phase 2 (Client + Lead base-field import). Each feature owns
+// its own narrow entity-type enum (see TimelineNoteEntityType's own doc
+// comment for why one single shared entity-type enum is deliberately
+// avoided) -- v1 supports exactly CLIENT and LEAD, matching this phase's
+// own locked product scope.
+enum ImportEntityType {
+  CLIENT
+  LEAD
+}
+
+// Minimal, useful lifecycle for a bounded, synchronous (no queue/worker)
+// import run: PENDING while the file is uploaded and its mapping is
+// still being confirmed via the dry-run preview; PROCESSING only for the
+// short synchronous window the actual execute-time write batch runs in
+// -- also this row's own transactional replay guard, see ImportJob's own
+// doc comment; COMPLETED once every row has been processed (imported/
+// skipped/failed all accounted for, even if every single row failed);
+// FAILED only for an unrecoverable, execution-level failure (never a
+// single bad row -- that outcome is still COMPLETED, with the row
+// counted under failedCount instead).
+enum ImportJobStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+// CSV Import Phase 2 -- auditability + result-summary anchor for the
+// whole Client/Lead CSV import flow (see the completed architecture
+// audit). Deliberately no ImportJobRow child table: a bounded JSON
+// summary (rowResultsJson) is simpler and safer for this v1's own
+// bounded row-count ceiling (see MAX_IMPORT_ROWS in
+// src/lib/import/constants.ts) than a full relational per-row ledger
+// would be, without losing the ability to show row-level errors on the
+// completed result page.
+//
+// This row is also the security anchor for the whole multi-step wizard:
+// the original uploaded CSV is held here (rawContent, cleared once the
+// job reaches a terminal status -- see below), never trusted back from
+// the browser at confirm time ("do NOT trust client-side preview data
+// during confirm" -- the approved architecture's own explicit
+// requirement). The server-validated column mapping is persisted here
+// too (mappingJson), so the execute step never re-accepts a mapping
+// from the client either -- only this row's own opaque id.
+//
+// status is also this row's own transactional replay guard: execute
+// only ever transitions PENDING -> PROCESSING via a single conditional
+// `updateMany` (WHERE id = ? AND organizationId = ? AND status =
+// 'PENDING'); a concurrent second attempt (a double-click, a replayed
+// request) always loses that race and is rejected, never re-imports.
+model ImportJob {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Nullable + SetNull, identical reasoning to Activity.actorId/
+  // TimelineNote.authorId above: no action deletes a User today, but this
+  // audit row shouldn't vanish (or block the delete) just because of who
+  // ran the import.
+  actorId String? @db.Uuid
+  actor   User?   @relation("ImportJobActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  entityType ImportEntityType
+  filename   String
+  status     ImportJobStatus  @default(PENDING)
+
+  totalRows     Int @default(0)
+  importedCount Int @default(0)
+  skippedCount  Int @default(0)
+  failedCount   Int @default(0)
+
+  // The server-validated column mapping (CSV column index -> Aqenra
+  // field key), persisted once accepted at the preview step -- see this
+  // model's own doc comment above. Null until preview has run once.
+  mappingJson Json?
+
+  // The original uploaded file's content, held only long enough to
+  // support the preview -> execute round-trip without ever trusting a
+  // client-resubmitted copy. Bounded by this feature's own
+  // MAX_IMPORT_FILE_SIZE_BYTES (10 MB, same precedent as attachments).
+  // Always cleared (set to null) once this job reaches a terminal status
+  // (COMPLETED or FAILED) -- never retained indefinitely.
+  rawContent String?
+
+  // Bounded row-level result detail for the completed summary page (row
+  // number + outcome + a short, safe, user-facing reason -- never a raw
+  // Prisma/SQL error). Capped at a fixed maximum entry count independent
+  // of totalRows (see MAX_IMPORT_ROW_RESULTS) -- the aggregate counts
+  // above are always exact even when this detail list is truncated.
+  rowResultsJson Json?
+
+  // Distinct from `status` above: a short, safe, user-facing summary of
+  // *why* an unrecoverable FAILED status happened (never a raw
+  // stack/SQL error). Null for PENDING/PROCESSING/COMPLETED.
+  failureReason String?
+
+  createdAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  // Recent-jobs list for an organization, newest first.
+  @@index([organizationId, createdAt])
+  @@index([actorId])
 }

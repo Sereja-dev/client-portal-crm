@@ -3,6 +3,7 @@ import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatStatusLabel } from "@/lib/format";
 import { canExportData } from "@/lib/export/authorization";
+import { canImportData } from "@/lib/import/authorization";
 import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib/list-params";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PencilIcon } from "@/components/ui/icons";
@@ -106,6 +107,7 @@ export default async function LeadsPage({
   // subset of List's — an unset stage/tag simply never appears in the
   // query string either way).
   const canExport = canExportData(membership.role);
+  const canImport = canImportData(membership.role);
   const exportFilterParams = {
     ...(listParams.q ? { q: listParams.q } : {}),
     ...(listParams.stage ? { stage: listParams.stage } : {}),
@@ -165,8 +167,13 @@ export default async function LeadsPage({
               {grandTotal} {grandTotal === 1 ? "lead" : "leads"}
             </p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <ViewToggle view={view} listParams={listParams} />
+            {canImport && (
+              <Link href="/leads/import" className={SECONDARY_LINK_CLASSES}>
+                Import CSV
+              </Link>
+            )}
             {canExport && (
               <a href={exportHref} className={SECONDARY_LINK_CLASSES}>
                 Export CSV
@@ -261,8 +268,13 @@ export default async function LeadsPage({
             {total} {total === 1 ? "lead" : "leads"}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <ViewToggle view={view} listParams={listParams} />
+          {canImport && (
+            <Link href="/leads/import" className={SECONDARY_LINK_CLASSES}>
+              Import CSV
+            </Link>
+          )}
           {canExport && (
             <a href={exportHref} className={SECONDARY_LINK_CLASSES}>
               Export CSV

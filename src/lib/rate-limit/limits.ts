@@ -326,3 +326,15 @@ export const CLIENT_REQUEST_MESSAGE_LIMIT: RateLimitConfig = { scope: "client-re
 // src/lib/export/authorization.ts).
 export const CLIENT_EXPORT_LIMIT: RateLimitConfig = { scope: "client-export", limit: 20, windowMs: HOUR_MS };
 export const LEAD_EXPORT_LIMIT: RateLimitConfig = { scope: "lead-export", limit: 20, windowMs: HOUR_MS };
+
+// CSV Import Phase 2 — bulk data import, per authenticated staff user id.
+// Deliberately its own coarse-grained limit on the EXECUTE step only
+// (never reused for LEAD_CREATE_LIMIT/CLIENT_CREATE_LIMIT-style
+// per-record limiting — an import batch can legitimately create
+// thousands of rows in one execution, which per-record limits were
+// never sized for and must never throttle). Tighter than
+// CLIENT_EXPORT_LIMIT/LEAD_EXPORT_LIMIT: an import execution can create
+// real, permanent data (up to MAX_IMPORT_ROWS rows) rather than only
+// reading it out, a meaningfully higher blast radius for the same
+// OWNER/ADMIN-gated action.
+export const IMPORT_EXECUTE_LIMIT: RateLimitConfig = { scope: "import-execute", limit: 10, windowMs: HOUR_MS };

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { canExportData } from "@/lib/export/authorization";
+import { canImportData } from "@/lib/import/authorization";
 import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib/list-params";
 import { listCustomStatusDefinitions } from "@/lib/custom-statuses/definitions";
 import { listTags } from "@/lib/tags/definitions";
@@ -141,7 +142,12 @@ export default async function ClientsPage({
             {total} {total === 1 ? "client" : "clients"}
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {canImportData(membership.role) && (
+            <Link href="/clients/import" className={SECONDARY_LINK_CLASSES}>
+              Import CSV
+            </Link>
+          )}
           {canExportData(membership.role) && (
             <a href={exportHref} className={SECONDARY_LINK_CLASSES}>
               Export CSV
