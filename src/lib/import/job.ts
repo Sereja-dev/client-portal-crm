@@ -105,10 +105,59 @@ export async function completeImportJob(
   });
 }
 
-/** Only for an unrecoverable, execution-level failure — never a single bad row (that outcome is still completeImportJob, with the row counted under failedCount). `reason` must already be a short, safe, user-facing summary — never a raw stack/SQL error (Section 15/18). */
-export async function failImportJob(importJobId: string, reason: string): Promise<void> {
+/**
+ * Whatever imported/skipped/failed counts and row-result detail the
+ * execute loop had already genuinely accumulated — via real, already-
+ * committed per-row transactions and validated rejections — at the
+ * moment a catastrophic, unrecoverable error stopped it. Optional: the
+ * two execution-level failure paths that can occur *before* any row is
+ * ever processed (the stored file can't be re-read; the stored mapping
+ * is no longer valid) correctly have nothing to report, so they omit
+ * this and the job's counts simply stay at their schema default of 0 —
+ * which is accurate for those paths, not a workaround.
+ */
+export type PartialImportProgress = {
+  importedCount: number;
+  skippedCount: number;
+  failedCount: number;
+  rowResults: ImportRowResultEntry[];
+};
+
+/**
+ * Only for an unrecoverable, execution-level failure — never a single
+ * bad row (that outcome is still completeImportJob, with the row
+ * counted under failedCount). `reason` must already be a short, safe,
+ * user-facing summary — never a raw stack/SQL error (Section 15/18).
+ *
+ * CSV Import partial-failure fix: `progress`, when the caller already
+ * has it, persists exactly what genuinely happened before execution
+ * stopped — the same counts/rowResultsJson shape completeImportJob
+ * itself writes, just under status FAILED instead of COMPLETED. Rows
+ * 1..N that already committed as real Client/Lead rows before a
+ * catastrophic row N+1 must never be silently reported as "0 imported"
+ * — that was the exact defect this parameter exists to close. Bounded
+ * the same way completeImportJob already bounds it (MAX_IMPORT_ROW_RESULTS)
+ * — this fix does not change that established compact-storage model.
+ */
+export async function failImportJob(importJobId: string, reason: string, progress?: PartialImportProgress): Promise<void> {
   await prisma.importJob.update({
     where: { id: importJobId },
-    data: { status: "FAILED", failureReason: reason, completedAt: new Date(), rawContent: null },
+    data: {
+      status: "FAILED",
+      failureReason: reason,
+      completedAt: new Date(),
+      // Never retained past a terminal state, on this path exactly like
+      // completeImportJob's own identical rule — even a partially-
+      // successful FAILED run must not keep holding the raw file.
+      rawContent: null,
+      ...(progress
+        ? {
+            importedCount: progress.importedCount,
+            skippedCount: progress.skippedCount,
+            failedCount: progress.failedCount,
+            rowResultsJson: progress.rowResults.slice(0, MAX_IMPORT_ROW_RESULTS) as unknown as Prisma.InputJsonValue,
+          }
+        : {}),
+    },
   });
 }

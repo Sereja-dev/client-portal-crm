@@ -226,13 +226,38 @@ export async function previewImportAction(
 export type ExecuteImportResult =
   | {
       ok: true;
+      status: "COMPLETED";
       totalRows: number;
       importedCount: number;
       skippedCount: number;
       failedCount: number;
       rowDetails: ImportRowResultEntry[];
     }
-  | { ok: false; reason: "forbidden" | "not_found" | "already_processed" | "rate_limited" | "execution_failed" };
+  | { ok: false; reason: "forbidden" | "not_found" | "already_processed" | "rate_limited" }
+  | {
+      // CSV Import partial-failure fix — a catastrophic, unrecoverable
+      // execution-level failure still carries a full, truthful summary of
+      // whatever was genuinely accumulated before it stopped (imported
+      // rows are real, already-committed Client/Lead rows — never
+      // silently reported as if nothing happened). `status: "FAILED"`
+      // mirrors ImportJob.status exactly, so the wizard can render this
+      // through the same Summary view a COMPLETED run uses, just with a
+      // clear FAILED banner layered on top — never stranding the user on
+      // the Preview step with only a generic, unhelpful error banner.
+      // Deliberately NOT the raw ImportJob row (no rawContent/mappingJson,
+      // no internal error message/stack) — only this bounded, explicit
+      // view model.
+      ok: false;
+      reason: "execution_failed";
+      status: "FAILED";
+      totalRows: number;
+      importedCount: number;
+      skippedCount: number;
+      failedCount: number;
+      rowDetails: ImportRowResultEntry[];
+      /** Always a short, safe, user-facing summary — never a raw stack/SQL error. */
+      failureReason: string;
+    };
 
 export async function executeImportAction(importJobId: string, entityType: ImportEntityType): Promise<ExecuteImportResult> {
   const { user, organizationId, membership } = await getCurrentMembership();
@@ -274,26 +299,59 @@ export async function executeImportAction(importJobId: string, entityType: Impor
     return { ok: false, reason: "already_processed" };
   }
 
+  // CSV Import partial-failure fix — declared OUTSIDE the try block (not
+  // inside it, as before) so the catch block below can still see
+  // whatever was genuinely accumulated up to the moment a catastrophic
+  // error stopped execution, instead of discarding it. `job.totalRows`
+  // (the total captured at upload time) is the safe fallback for the
+  // rare case a catastrophic failure happens before the file can even
+  // be re-parsed — genuinely nothing was processed at that point, so 0
+  // counts and an empty row list are accurate, not a placeholder.
+  const rowResults: ImportRowResultEntry[] = [];
+  let importedCount = 0;
+  let skippedCount = 0;
+  let failedCount = 0;
+  let totalRowsProcessed = job.totalRows;
+
   try {
     const parsed = parseImportCsv(job.rawContent);
     if (!parsed.ok) {
-      await failImportJob(importJobId, "The stored file could not be re-read.");
-      return { ok: false, reason: "execution_failed" };
+      const failureReason = "The stored file could not be re-read.";
+      await failImportJob(importJobId, failureReason, { importedCount, skippedCount, failedCount, rowResults });
+      return {
+        ok: false,
+        reason: "execution_failed",
+        status: "FAILED",
+        totalRows: totalRowsProcessed,
+        importedCount,
+        skippedCount,
+        failedCount,
+        rowDetails: rowResults,
+        failureReason,
+      };
     }
+    totalRowsProcessed = parsed.result.rows.length;
 
     const fields = fieldsForEntity(entityType);
     const mapping = job.mappingJson as unknown as WireMappingEntry[];
     const mappingValidation = validateImportMapping(mapping, fields, parsed.result.headers.length);
     if (!mappingValidation.ok) {
-      await failImportJob(importJobId, "The stored column mapping is no longer valid for this file.");
-      return { ok: false, reason: "execution_failed" };
+      const failureReason = "The stored column mapping is no longer valid for this file.";
+      await failImportJob(importJobId, failureReason, { importedCount, skippedCount, failedCount, rowResults });
+      return {
+        ok: false,
+        reason: "execution_failed",
+        status: "FAILED",
+        totalRows: totalRowsProcessed,
+        importedCount,
+        skippedCount,
+        failedCount,
+        rowDetails: rowResults,
+        failureReason,
+      };
     }
 
     const rows = parsed.result.rows;
-    const rowResults: ImportRowResultEntry[] = [];
-    let importedCount = 0;
-    let skippedCount = 0;
-    let failedCount = 0;
     const seenEmails = new Set<string>();
 
     // Bounded batches (Section 13) — never one giant transaction holding
@@ -387,6 +445,7 @@ export async function executeImportAction(importJobId: string, entityType: Impor
 
     return {
       ok: true,
+      status: "COMPLETED",
       totalRows: rows.length,
       importedCount,
       skippedCount,
@@ -396,9 +455,28 @@ export async function executeImportAction(importJobId: string, entityType: Impor
   } catch {
     // Unrecoverable, execution-level failure (Section 15) — a safe,
     // generic diagnostic only, never a raw stack/SQL error surfaced to
-    // the UI.
-    await failImportJob(importJobId, "An unexpected error stopped this import partway through.");
-    return { ok: false, reason: "execution_failed" };
+    // the UI. CSV Import partial-failure fix: `importedCount`/
+    // `skippedCount`/`failedCount`/`rowResults` at this point are
+    // whatever the loop above genuinely accumulated before this row's
+    // own error propagated past its per-row catch (see that catch's own
+    // comment on why only known, expected rejection types are ever
+    // absorbed there) — every earlier row already committed as a real,
+    // independent transaction and stays committed; this failure path
+    // must report that truthfully, not as "0 imported," which is what
+    // the original defect this fix closes actually did.
+    const failureReason = "The import stopped because of an unexpected error partway through.";
+    await failImportJob(importJobId, failureReason, { importedCount, skippedCount, failedCount, rowResults });
+    return {
+      ok: false,
+      reason: "execution_failed",
+      status: "FAILED",
+      totalRows: totalRowsProcessed,
+      importedCount,
+      skippedCount,
+      failedCount,
+      rowDetails: rowResults.slice(0, MAX_IMPORT_ROW_RESULTS),
+      failureReason,
+    };
   }
 }
 

@@ -61,7 +61,15 @@ function previewErrorMessage(result: Extract<PreviewImportResult, { ok: false }>
   }
 }
 
-function executeErrorMessage(result: Extract<ExecuteImportResult, { ok: false }>): string {
+// The execution_failed variant is deliberately excluded here — it always
+// carries a full partial summary and is routed straight to the Summary
+// step (see handleConfirm below), never shown as a bare error banner.
+type SimpleExecuteError = Extract<
+  ExecuteImportResult,
+  { ok: false; reason: "forbidden" | "not_found" | "already_processed" | "rate_limited" }
+>;
+
+function executeErrorMessage(result: SimpleExecuteError): string {
   switch (result.reason) {
     case "forbidden":
       return "You don't have permission to import data.";
@@ -71,9 +79,22 @@ function executeErrorMessage(result: Extract<ExecuteImportResult, { ok: false }>
       return "This import has already been run.";
     case "rate_limited":
       return "You've started too many imports recently. Try again later.";
-    case "execution_failed":
-      return "This import couldn't be completed. No records were changed by this attempt beyond what's shown below.";
   }
+}
+
+// Both a COMPLETED run and a FAILED-with-partial-progress run carry the
+// same shape (status/totalRows/counts/rowDetails) — the Summary step
+// renders either through this one shared type, never stranding a
+// catastrophic-failure user on the Preview step with only a generic
+// banner (the defect this fix closes).
+type ExecutionSummary = Extract<ExecuteImportResult, { status: "COMPLETED" | "FAILED" }>;
+
+function partialFailureMessage(summary: Extract<ExecutionSummary, { status: "FAILED" }>): string {
+  if (summary.importedCount > 0) {
+    const noun = summary.importedCount === 1 ? "record" : "records";
+    return `The import stopped because of an unexpected error after importing ${summary.importedCount.toLocaleString()} ${noun}. Some rows may already have been imported — review the results below before starting a new import.`;
+  }
+  return "The import stopped because of an unexpected error before any records were imported. Review the results below before starting a new import.";
 }
 
 export function ImportWizard({
@@ -96,7 +117,7 @@ export function ImportWizard({
   const [totalRows, setTotalRows] = useState(0);
   const [mapping, setMapping] = useState<Record<number, string>>({});
   const [preview, setPreview] = useState<PreviewImportResult & { ok: true } | null>(null);
-  const [summary, setSummary] = useState<(ExecuteImportResult & { ok: true }) | null>(null);
+  const [summary, setSummary] = useState<ExecutionSummary | null>(null);
 
   async function handleUpload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -153,12 +174,21 @@ export function ImportWizard({
     setPending(true);
     try {
       const result = await executeImportAction(importJobId, entityType);
-      if (!result.ok) {
-        setError(executeErrorMessage(result));
+      if (result.ok) {
+        setSummary(result);
+        setStep("summary");
         return;
       }
-      setSummary(result);
-      setStep("summary");
+      if (result.reason === "execution_failed") {
+        // Truthful partial-failure summary (never a bare "something went
+        // wrong" banner that leaves whatever already-imported records
+        // invisible) — render the same Summary step a COMPLETED run
+        // uses, with its own FAILED banner layered on top.
+        setSummary(result);
+        setStep("summary");
+        return;
+      }
+      setError(executeErrorMessage(result));
     } finally {
       setPending(false);
     }
@@ -261,7 +291,19 @@ export function ImportWizard({
 
       {step === "summary" && summary && (
         <div className={CARD_CLASSES}>
-          <h2 className="text-text-primary text-lg font-semibold">Import complete</h2>
+          <h2 className="text-text-primary text-lg font-semibold">
+            {summary.status === "FAILED" ? "Import stopped" : "Import complete"}
+          </h2>
+
+          {summary.status === "FAILED" && (
+            <div
+              className="border-danger bg-danger-subtle text-danger mt-4 rounded-md border px-4 py-3 text-sm"
+              role="alert"
+            >
+              {partialFailureMessage(summary)}
+            </div>
+          )}
+
           <SummaryCounts summary={summary} />
           <RowResultsList rowDetails={summary.rowDetails} />
 
@@ -318,13 +360,19 @@ function PreviewSummary({ preview }: { preview: PreviewImportResult & { ok: true
   );
 }
 
-function SummaryCounts({ summary }: { summary: ExecuteImportResult & { ok: true } }) {
+function SummaryCounts({ summary }: { summary: ExecutionSummary }) {
+  // Only ever non-zero for a FAILED, partway-stopped run — a COMPLETED
+  // run's counts always exactly sum to totalRows. Shown explicitly
+  // rather than left for the reader to subtract themselves.
+  const unprocessed = summary.totalRows - summary.importedCount - summary.skippedCount - summary.failedCount;
+
   return (
     <dl className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
       <CountStat label="Total rows" value={summary.totalRows} />
       <CountStat label="Imported" value={summary.importedCount} tone="success" />
       <CountStat label="Skipped" value={summary.skippedCount} tone="warning" />
       <CountStat label="Failed" value={summary.failedCount} tone="danger" />
+      {unprocessed > 0 && <CountStat label="Not processed" value={unprocessed} />}
     </dl>
   );
 }
