@@ -7,6 +7,8 @@ import {
   consumeMockSignInConfig,
   consumeMockVerifyOtpConfig,
   mockCookies,
+  recordMockSignOutCall,
+  type MockSignOutCall,
 } from "../support/auth-mock";
 import { mockUploadAttachmentObject, mockRemoveAttachmentObject, mockCreateAttachmentSignedUrl } from "../support/storage-mock";
 import { mockUploadLogoObject, mockRemoveLogoObject } from "../support/logo-storage-mock";
@@ -93,7 +95,12 @@ vi.mock("@/lib/supabase/server", () => ({
       // authenticated as this identity for whatever the same test does
       // next. signInWithPassword()'s own setMockAuthUser(config.user) call
       // is exactly the state this must now undo.
-      async signOut() {
+      async signOut(options?: MockSignOutCall) {
+        // Sign-out scope hardening — records the exact scope argument
+        // (or its absence, i.e. the library's own default) so a test can
+        // assert on it directly; see recordMockSignOutCall()'s own doc
+        // comment.
+        recordMockSignOutCall(options);
         setMockAuthUser(null);
         return { error: null };
       },

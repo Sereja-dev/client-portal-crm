@@ -71,7 +71,11 @@ export async function portalLogin(
 
   // Neither a usable PortalUser nor a staff Membership — never leave an
   // authenticated-but-unauthorized session sitting around, and never say
-  // anything more specific than this generic message.
-  await supabase.auth.signOut();
+  // anything more specific than this generic message. Sign-out scope
+  // hardening: this only needs to clear THIS browser's unusable session
+  // before the next login attempt — it has no reason to also revoke this
+  // person's other, legitimate sessions elsewhere (local scope; see the
+  // sign-out scope audit).
+  await supabase.auth.signOut({ scope: "local" });
   return { error: NO_ACCESS_ERROR };
 }

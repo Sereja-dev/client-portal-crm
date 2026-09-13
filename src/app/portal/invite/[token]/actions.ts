@@ -282,6 +282,9 @@ export async function acceptClientInvitationAction(token: string): Promise<Invit
 
 export async function signOutForPortalInviteAction(token: string): Promise<void> {
   const supabase = await createClient();
-  await supabase.auth.signOut();
+  // Sign-out scope hardening — same browser-local identity-switch
+  // reasoning as invite/[token]/actions.ts's signOutForInviteAction(); see
+  // the sign-out scope audit.
+  await supabase.auth.signOut({ scope: "local" });
   redirect(`/portal/login?redirectTo=${encodeURIComponent(`/portal/invite/${token}`)}`);
 }

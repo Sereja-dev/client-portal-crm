@@ -202,6 +202,11 @@ export async function acceptInvitationAction(
 
 export async function signOutForInviteAction(token: string): Promise<void> {
   const supabase = await createClient();
-  await supabase.auth.signOut();
+  // Sign-out scope hardening: "sign out and log in with the right account"
+  // is a browser-local identity switch — global scope here would
+  // inadvertently revoke the WRONG account's other, unrelated devices just
+  // because this browser happened to have it signed in (see the sign-out
+  // scope audit).
+  await supabase.auth.signOut({ scope: "local" });
   redirect(`/login?redirectTo=${encodeURIComponent(`/invite/${token}`)}`);
 }

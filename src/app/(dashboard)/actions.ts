@@ -9,7 +9,13 @@ import { withToast } from "@/lib/toast-url";
 
 export async function signOut() {
   const supabase = await createClient();
-  await supabase.auth.signOut();
+  // Sign-out scope hardening: the installed Supabase Auth client defaults
+  // signOut() to `scope: "global"` — revoking this user's refresh token on
+  // EVERY device/browser they're signed in on, not just this one. A plain
+  // "Sign out" button never promises that (no UI copy here says "all
+  // devices"), and the installed library's own docs recommend `local` for
+  // exactly this case. See the sign-out scope audit for the full analysis.
+  await supabase.auth.signOut({ scope: "local" });
   redirect("/login");
 }
 

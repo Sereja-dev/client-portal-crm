@@ -134,6 +134,15 @@ export async function resetPasswordCore(params: ResetPasswordParams): Promise<Au
  * called only when the user clicks "Continue to sign in" on the success
  * screen, the real end of this flow. Identity-agnostic, same reasoning as
  * resetPasswordCore.
+ *
+ * Sign-out scope hardening (see the sign-out scope audit): every OTHER
+ * signOut() call site in this app was narrowed to `{ scope: "local" }` —
+ * this one is the deliberate exception and must stay on the default
+ * (global) scope. A password reset is precisely the case where revoking
+ * every other session for this user is the desired security behavior: if
+ * the reset was prompted by a compromised credential, an attacker's
+ * still-active session elsewhere must not survive it. Do not change this
+ * call to local scope as part of a future blanket edit.
  */
 export async function signOutCore(): Promise<void> {
   const supabase = await createClient();

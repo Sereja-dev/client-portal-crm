@@ -179,12 +179,35 @@ export function consumeMockVerifyOtpConfig(): MockVerifyOtpConfig {
   return config;
 }
 
+/**
+ * Sign-out scope hardening. Every supabase.auth.signOut() call now passes
+ * an explicit scope at some call sites (`local`) and none at others
+ * (defaulting to `global`) — this records exactly what each real,
+ * unmocked Server Action actually passed, so a test can assert the real
+ * argument instead of just asserting "signOut ran" (which "local" and
+ * "global" are otherwise indistinguishable behind). One-shot per test via
+ * resetAuthMock() clearing the array, same discipline as every other mock
+ * config here.
+ */
+export type MockSignOutCall = { scope?: "global" | "local" | "others" };
+
+let mockSignOutCalls: MockSignOutCall[] = [];
+
+export function recordMockSignOutCall(options?: MockSignOutCall): void {
+  mockSignOutCalls.push(options ?? {});
+}
+
+export function getMockSignOutCalls(): MockSignOutCall[] {
+  return mockSignOutCalls;
+}
+
 /** Call in afterEach — clears both the identity and the cookie jar so one test's "logged in as" state never leaks into the next. */
 export function resetAuthMock(): void {
   currentUser = null;
   mockSignUpConfig = null;
   mockSignInConfig = null;
   mockVerifyOtpConfig = null;
+  mockSignOutCalls = [];
   cookieStore.clear();
 }
 
