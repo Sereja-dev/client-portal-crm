@@ -80,6 +80,23 @@ test.describe("Import CSV wizard", () => {
   }) => {
     await actAs(context, baseURL!, fixtures.owner, fixtures.orgA.id);
     await page.goto("/clients/import");
+    // Cold-start E2E diagnostic — page.goto() resolves once the document's
+    // own declared resources have loaded, not once React has finished
+    // hydrating and attached this page's form/button handlers. On the
+    // very first Playwright invocation against a freshly built app (brand
+    // new content-hashed JS chunks the browser has never parsed/compiled
+    // before), that hydration gap can measurably outlast the moment
+    // immediately after navigation — a click fired into that gap lands on
+    // the server-rendered DOM but has no attached handler yet, so it's a
+    // silent no-op (confirmed directly: no upload POST is ever dispatched
+    // on the failing runs). This page has no legitimate ongoing
+    // background network traffic (no polling/websocket) once its initial
+    // load completes, so "the network has gone quiet" is a reliable,
+    // non-arbitrary readiness signal here — this is the one real
+    // interaction in this spec file that fires immediately after
+    // navigation with no other assertion already absorbing that gap; see
+    // this test's own diagnostic history for the confirmed repro/fix.
+    await page.waitForLoadState("networkidle");
 
     const suffix = randomUUID().slice(0, 8);
     const csv = `Name,Email,Company\r\nWizard-${suffix},wizard-${suffix}@example.com,Acme\r\n`;
