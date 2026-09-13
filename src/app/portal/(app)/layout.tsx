@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { getOptionalPortalUser } from "@/lib/current-portal-user";
+import { redirectToPortalLoginForSessionLoss } from "@/lib/auth/portal-session-redirect";
 import { isOrganizationSuspended, ORGANIZATION_UNAVAILABLE_PATH } from "@/lib/organization-access";
 import { PortalNav } from "@/components/client-portal/portal-nav";
 import { portalSignOut } from "./actions";
@@ -46,7 +47,13 @@ export default async function PortalAppLayout({
     } = await supabase.auth.getUser();
 
     if (!authUser) {
-      redirect("/portal/login?redirectTo=/portal");
+      // Genuine lost/expired session — no reliable way to recover the
+      // specific nested route being requested here (same reasoning as
+      // the Staff dashboard layout's own guard; see
+      // redirectToPortalLoginForSessionLoss()'s doc comment), so this
+      // keeps its existing safe fallback of "/portal" while gaining
+      // reason=session_expired.
+      redirectToPortalLoginForSessionLoss("/portal");
     }
 
     // A session exists but there's no usable PortalUser for it. If this

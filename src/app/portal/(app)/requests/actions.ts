@@ -27,7 +27,7 @@ export async function createPortalClientRequestAction(
   _prevState: ClientRequestCreateFormState,
   formData: FormData,
 ): Promise<ClientRequestCreateFormState> {
-  const { organizationId, clientId, portalUser } = await getCurrentPortalUser();
+  const { organizationId, clientId, portalUser } = await getCurrentPortalUser("/portal/requests");
 
   const limitCheck = checkRateLimit(CLIENT_REQUEST_CREATE_LIMIT, portalUser.id);
   if (limitCheck.limited) {
@@ -63,7 +63,7 @@ export async function addPortalClientRequestMessageAction(
   _prevState: ClientRequestMessageFormState,
   formData: FormData,
 ): Promise<ClientRequestMessageFormState> {
-  const { clientId, portalUser } = await getCurrentPortalUser();
+  const { clientId, portalUser } = await getCurrentPortalUser(`/portal/requests/${requestId}`);
 
   const limitCheck = checkRateLimit(CLIENT_REQUEST_MESSAGE_LIMIT, portalUser.id);
   if (limitCheck.limited) {

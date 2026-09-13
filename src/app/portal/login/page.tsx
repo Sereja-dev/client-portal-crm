@@ -14,6 +14,11 @@ export default async function PortalLoginPage({
 }) {
   const resolvedSearchParams = await searchParams;
   const redirectTo = sanitizePortalRedirectPath(parseSearchParam(resolvedSearchParams.redirectTo));
+  // Portal session-loss UX fix — set only by
+  // redirectToPortalLoginForSessionLoss() (src/lib/auth/
+  // portal-session-redirect.ts), never by an ordinary visit to this
+  // page, so a plain "/portal/login" never shows this message.
+  const sessionExpired = parseSearchParam(resolvedSearchParams.reason) === "session_expired";
 
   const identity = await getOptionalPortalUser();
   if (identity) {
@@ -43,6 +48,11 @@ export default async function PortalLoginPage({
         <h1 className="text-text-primary mb-6 text-2xl font-semibold tracking-tight">
           Client Portal
         </h1>
+        {sessionExpired && (
+          <p className="border-warning bg-warning-subtle text-warning mb-4 rounded-md border px-3 py-2 text-sm">
+            Your session expired. Sign in again to continue.
+          </p>
+        )}
         <PortalLoginForm redirectTo={redirectTo} />
       </div>
     </main>

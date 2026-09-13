@@ -51,7 +51,7 @@ async function transitionPortalQuote(
   quoteId: string,
   to: "APPROVED" | "DECLINED",
 ): Promise<PortalQuoteDecisionResult> {
-  const { clientId, organizationId, portalUser } = await getCurrentPortalUser();
+  const { clientId, organizationId, portalUser } = await getCurrentPortalUser(`/portal/quotes/${quoteId}`);
 
   const limitCheck = checkRateLimit(PORTAL_QUOTE_DECISION_LIMIT, portalUser.id);
   if (limitCheck.limited) {

@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import type { PortalUser, Client } from "@/generated/prisma/client";
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
 import { isOrganizationSuspended, ORGANIZATION_UNAVAILABLE_PATH } from "@/lib/organization-access";
+import { redirectToPortalLoginForSessionLoss } from "@/lib/auth/portal-session-redirect";
 
 export type CurrentPortalUser = {
   authUser: SupabaseAuthUser;
@@ -60,15 +61,24 @@ async function resolvePortalIdentity(
  * itself (not only in the (app) layout above it — see
  * PLATFORM_ADMIN_EXECUTION_AUTHORIZATION_AUDIT for why a layout-only
  * check would not be a complete fix).
+ *
+ * `currentPath`, when the caller already knows its own logical Portal
+ * route (see redirectToPortalLoginForSessionLoss()'s own doc comment),
+ * is preserved across the session-loss redirect so a re-authenticated
+ * Portal user returns to it instead of the generic Portal root. Only
+ * applies to the "no authUser at all" branch below — a genuine lost/
+ * expired session; the separate "no usable PortalUser" branch just
+ * below it is a wrong-identity-type denial, not session expiry, and
+ * keeps its own unrelated plain redirect.
  */
-export async function getCurrentPortalUser(): Promise<CurrentPortalUser> {
+export async function getCurrentPortalUser(currentPath?: string): Promise<CurrentPortalUser> {
   const supabase = await createClient();
   const {
     data: { user: authUser },
   } = await supabase.auth.getUser();
 
   if (!authUser) {
-    redirect("/portal/login");
+    redirectToPortalLoginForSessionLoss(currentPath);
   }
 
   const identity = await resolvePortalIdentity(authUser);
