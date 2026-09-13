@@ -461,6 +461,11 @@ model User {
   // authored automation configuration can never be hard-deleted while
   // any of it still exists.
   createdWorkflowAutomations WorkflowAutomation[] @relation("WorkflowAutomationCreatedBy")
+
+  // Communication Timeline Phase 1 -- see TimelineNote's own doc comment.
+  // Same "author" relation shape as authoredComments/CommentAuthor above --
+  // SetNull, so a note survives its own author's User row being deleted.
+  authoredTimelineNotes TimelineNote[] @relation("TimelineNoteAuthor")
 }
 
 // Multi-tenant scaffolding (schema-only for now; not yet wired into app
@@ -582,6 +587,10 @@ model Organization {
   // scoping shape as leads/customFieldDefinitions above.
   tags           Tag[]
   tagAssignments TagAssignment[]
+
+  // Communication Timeline Phase 1 -- see TimelineNote's own doc comment.
+  // Same direct-tenant-scoping shape as leads/customFieldDefinitions above.
+  timelineNotes TimelineNote[]
 }
 
 // Platform Admin Organization Suspension, PR 1. Deliberately separate
@@ -3553,4 +3562,83 @@ model TagAssignment {
   // "no duplicate index" discipline CommentMention's own comment
   // documents.
   @@index([organizationId, entityType, entityId])
+}
+
+// Communication Timeline Phase 1 -- the two entity types a TimelineNote
+// may be attached to. Deliberately its own narrow enum, not a reuse of
+// ActivityEntityType/TagEntityType/CustomFieldEntityType -- same "each
+// feature declares its own policy-scoped allowlist" convention those
+// already established (they overlap in values but are never the same
+// enum). V1 supports exactly CLIENT and LEAD; extending this later is a
+// deliberate, additive enum change, not implied by anything here.
+enum TimelineNoteEntityType {
+  CLIENT
+  LEAD
+}
+
+// Communication Timeline Phase 1 -- a free-form Staff note attached to a
+// Client or Lead. Deliberately its own dedicated model, not a reuse of
+// Activity (whose own metadata is documented as "snapshot + diff data
+// only... never full form payloads" and which has no editedAt/deletedAt
+// for correcting a typo) and not a reuse/widening of Comment (whose own
+// CommentEntityType is scoped to PROJECT/TASK only -- widening it to
+// cover CLIENT/LEAD too would break this codebase's own repeated "each
+// feature owns its own narrow enum" convention, the same reasoning
+// TagEntityType/CustomFieldEntityType/AttachmentEntityType already
+// established). Mirrors Comment's own proven shape closely instead:
+// same author/soft-delete/edit-tracking fields, same entity-scoped
+// timeline index shape Activity's own "later stage" index already uses.
+//
+// Deliberately NOT mirrored into Activity -- creating/editing/deleting a
+// TimelineNote never calls createActivity() (see this feature's own
+// domain layer, src/lib/timeline/notes.ts), so it can never accidentally
+// dispatch a Notification or a Workflow Automation run: both of those
+// consumers only ever react to a real Activity row, and none is ever
+// written here.
+model TimelineNote {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Nullable + SetNull, identical reasoning to Activity.actorId/
+  // Comment.authorId: no action deletes a User today, but a note
+  // shouldn't vanish (or block the delete) just because of who wrote
+  // it -- it stays in the timeline as an authorless historical row.
+  authorId String? @db.Uuid
+  author   User?   @relation("TimelineNoteAuthor", fields: [authorId], references: [id], onDelete: SetNull)
+
+  // Polymorphic, no real FK -- a TimelineNote must attach to either a
+  // Client or a Lead (two different models, so no single real FK column
+  // could reference both), same "polymorphic, no real FK" precedent
+  // Activity.entityId/TagAssignment.entityId/CustomFieldValue.entityId
+  // already establish, for the identical reason (the referenced Client/
+  // Lead row must remain deletable without this table blocking or
+  // cascading unexpectedly).
+  entityType TimelineNoteEntityType
+  entityId   String                 @db.Uuid
+
+  // Plain text only, same discipline Comment.body already documents --
+  // never Markdown, never an HTML/AST blob; rendering never trusts this
+  // as markup.
+  body String
+
+  // Non-null = has been edited at least once -- same "(edited)" marker
+  // convention Comment.editedAt already establishes. No revision/version
+  // table, same reasoning Comment's own doc comment gives.
+  editedAt DateTime?
+
+  // Soft delete: the row is never removed and body is never cleared at
+  // the schema level (nullable timestamp only), identical to
+  // Comment.deletedAt's own contract.
+  deletedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Primary read path: "notes for this Client/Lead, newest first" -- org
+  // first, so a foreign entityId can never be queried across tenants.
+  // Identical shape to Activity's own "Entity-specific timeline (a later
+  // stage)" index.
+  @@index([organizationId, entityType, entityId, createdAt, id])
 }

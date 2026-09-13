@@ -53,6 +53,11 @@ const FIELD_LABELS: Record<string, string> = {
   // buildInvoiceUpdatedMetadata's own names-only contract). Represents the
   // whole retroactive-archival event as one readable Timeline phrase.
   legacyArchive: "legacy PDF archive",
+  // Communication Timeline Phase 1 — Lead's own UPDATED-tracked fields not
+  // already covered above (see diffLeadFields' own LEAD_TRACKED_FIELDS).
+  source: "source",
+  value: "value",
+  assignedToUserId: "assignee",
 };
 
 function humanizeFieldName(field: string): string {
@@ -91,7 +96,14 @@ function isDataEntity(entityType: ActivityEntityType): boolean {
     entityType === "CLIENT" ||
     entityType === "PROJECT" ||
     entityType === "TASK" ||
-    entityType === "INVOICE"
+    entityType === "INVOICE" ||
+    // Communication Timeline Phase 1 — LEAD's own CREATED/UPDATED/
+    // STATUS_CHANGED metadata (src/lib/activity/lead-metadata.ts) is
+    // already byte-for-byte the same shape this shared builder already
+    // handles for CLIENT/PROJECT/TASK ({name, changedFields?} /
+    // {from, to}) — no new formatter, no new ActivityAction, just one
+    // more entityType routed through the existing one.
+    entityType === "LEAD"
   );
 }
 
@@ -105,6 +117,8 @@ function entityNoun(entityType: ActivityEntityType): string {
       return "task";
     case "INVOICE":
       return "invoice";
+    case "LEAD":
+      return "lead";
     default:
       return "";
   }

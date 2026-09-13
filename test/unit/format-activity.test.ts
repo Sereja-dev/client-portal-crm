@@ -43,6 +43,47 @@ describe("formatActivity — Client events", () => {
   });
 });
 
+describe("formatActivity — Lead events (Communication Timeline Phase 1)", () => {
+  it("CREATED", () => {
+    const result = activity("LEAD", "CREATED", { name: "Acme Corp", stage: "NEW", actorName: "Jane Doe" });
+    expect(result.actionLabel).toBe("created lead Acme Corp");
+    expect(result.entityLabel).toBe("Acme Corp");
+    expect(result.isDeleted).toBe(false);
+  });
+
+  it("UPDATED lists humanized changed field names, never their values", () => {
+    const result = activity("LEAD", "UPDATED", {
+      name: "Acme Corp",
+      stage: "CONTACTED",
+      changedFields: ["source", "value", "assignedToUserId"],
+      actorName: "Jane Doe",
+    });
+    expect(result.actionLabel).toBe("updated lead Acme Corp");
+    expect(result.detailLines).toEqual(["Changed: source, value, assignee"]);
+  });
+
+  it("STATUS_CHANGED", () => {
+    const result = activity("LEAD", "STATUS_CHANGED", {
+      name: "Acme Corp",
+      from: "NEW",
+      to: "QUALIFIED",
+      actorName: "Jane Doe",
+    });
+    expect(result.actionLabel).toBe("changed lead Acme Corp status");
+    expect(result.detailLines).toEqual(["New → Qualified"]);
+  });
+
+  it("malformed metadata (missing name) falls back safely", () => {
+    const result = activity("LEAD", "CREATED", { stage: "NEW" });
+    expect(result.actionLabel).toBe("Activity recorded");
+  });
+
+  it("STATUS_CHANGED missing from/to falls back safely", () => {
+    const result = activity("LEAD", "STATUS_CHANGED", { name: "Acme Corp" });
+    expect(result.actionLabel).toBe("Activity recorded");
+  });
+});
+
 describe("formatActivity — STATUS_CHANGED across entity types", () => {
   it("Project", () => {
     const result = activity("PROJECT", "STATUS_CHANGED", {
