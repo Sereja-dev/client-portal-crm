@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { FormLabel } from "@/components/ui/form-field";
 import { COMMENT_BODY_MAX_LENGTH } from "@/lib/comments/validate-body";
+import { callActionWithStaleRecovery } from "@/lib/action-error";
 import type { ClientRequestMessageFormState } from "@/types";
 
 const initialState: ClientRequestMessageFormState = { error: null };
@@ -16,13 +17,24 @@ const initialState: ClientRequestMessageFormState = { error: null };
  * messages.ts) is the actual source of truth. No mentions, no edit mode
  * (messages are immutable — this composer is only ever used for "new
  * message", never reused for editing).
+ *
+ * Shared between Staff (app/(dashboard)/requests/[id]/page.tsx) and
+ * Portal (app/portal/(app)/requests/[id]/page.tsx) — both callers'
+ * actions resolve to the exact same ClientRequestMessageFormState shape,
+ * so wrapping the submitted action in callActionWithStaleRecovery
+ * (src/lib/action-error.ts) here benefits both identically rather than
+ * forking this component. Same stale-deployment-recovery treatment
+ * note-composer.tsx already gives Timeline's own composer.
  */
 export function MessageComposer({
   action,
 }: {
   action: (prevState: ClientRequestMessageFormState, formData: FormData) => Promise<ClientRequestMessageFormState>;
 }) {
-  const [state, formAction, pending] = useActionState(action, initialState);
+  const [state, formAction, pending] = useActionState(
+    (prevState: ClientRequestMessageFormState, formData: FormData) => callActionWithStaleRecovery(() => action(prevState, formData)),
+    initialState,
+  );
   const formRef = useRef<HTMLFormElement>(null);
   const wasPending = useRef(false);
   const bodyFieldId = useId();

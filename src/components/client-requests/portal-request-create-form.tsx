@@ -7,6 +7,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { FormField } from "@/components/ui/form-field";
 import { formatStatusLabel } from "@/lib/format";
+import { callActionWithStaleRecovery } from "@/lib/action-error";
 import {
   CLIENT_REQUEST_TITLE_MAX_LENGTH,
   CLIENT_REQUEST_DESCRIPTION_MAX_LENGTH,
@@ -26,6 +27,16 @@ const initialState: ClientRequestCreateFormState = { error: null };
  * (getPortalProjects(clientId) — this Portal Client's own Projects only)
  * by the page component; this form never fetches or filters anything
  * itself.
+ *
+ * Portal stale Server Action hardening — the submitted action is wrapped
+ * in callActionWithStaleRecovery (src/lib/action-error.ts), the exact
+ * same treatment src/components/timeline/note-composer.tsx already gives
+ * every Staff useActionState-driven form: a stale-deployment Server
+ * Action failure now surfaces as this form's own inline error banner
+ * instead of an uncaught exception reaching the Portal segment error
+ * boundary. A real auth redirect (session loss) is unaffected — the
+ * wrapper only classifies the literal "Failed to find Server Action"
+ * text and rethrows everything else, including a redirect(), unchanged.
  */
 export function PortalRequestCreateForm({
   action,
@@ -34,7 +45,10 @@ export function PortalRequestCreateForm({
   action: (prevState: ClientRequestCreateFormState, formData: FormData) => Promise<ClientRequestCreateFormState>;
   projects: { id: string; name: string }[];
 }) {
-  const [state, formAction, pending] = useActionState(action, initialState);
+  const [state, formAction, pending] = useActionState(
+    (prevState: ClientRequestCreateFormState, formData: FormData) => callActionWithStaleRecovery(() => action(prevState, formData)),
+    initialState,
+  );
 
   return (
     <form action={formAction} className="space-y-4">
