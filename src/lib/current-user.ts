@@ -8,6 +8,7 @@ import { createTrialSubscription } from "@/lib/billing/provisioning";
 import { bootstrapOrganizationStatusDefinitions } from "@/lib/custom-statuses/bootstrap";
 import { isOrganizationSuspended, ORGANIZATION_UNAVAILABLE_PATH } from "@/lib/organization-access";
 import { seedThemeModeFromRequestCookie } from "@/lib/theme/request-cookie-seed";
+import { redirectToLoginForSessionLoss } from "@/lib/auth/staff-session-redirect";
 
 const ACTIVE_ORG_COOKIE = "active_organization_id";
 const ACTIVE_ORG_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
@@ -37,12 +38,17 @@ function activeOrgCookieOptions() {
  * background prefetch requests for Sidebar links re-render Server
  * Components independently of whichever page the user is actually looking
  * at — a single guard higher up in the tree doesn't see those.
+ *
+ * `currentPath`, when the caller already knows its own logical route
+ * (see redirectToLoginForSessionLoss()'s own doc comment), is preserved
+ * across the session-loss redirect so a re-authenticated Staff member
+ * returns to it instead of the generic default landing route.
  */
-export async function getOrCreateUser() {
+export async function getOrCreateUser(currentPath?: string) {
   const authUser = await getVerifiedAuthUser();
 
   if (!authUser) {
-    redirect("/login");
+    redirectToLoginForSessionLoss(currentPath);
   }
 
   const existing = await prisma.user.findUnique({ where: { id: authUser.id } });
@@ -400,9 +406,13 @@ async function resolveActiveOrganizationId(user: {
 /**
  * Convenience wrapper for the common case: pages/actions that need both the
  * current User row and the active organizationId to scope queries by.
+ *
+ * `currentPath`, when supplied, is threaded straight through to
+ * getOrCreateUser() — see that function's and
+ * redirectToLoginForSessionLoss()'s own doc comments.
  */
-export async function getCurrentUserOrganization() {
-  const user = await getOrCreateUser();
+export async function getCurrentUserOrganization(currentPath?: string) {
+  const user = await getOrCreateUser(currentPath);
   const organizationId = await resolveActiveOrganizationId(user);
   return { user, organizationId };
 }
@@ -413,9 +423,12 @@ export async function getCurrentUserOrganization() {
  * behavior varies by role (e.g. who's allowed to invite members). The
  * lookup can't miss: resolveActiveOrganizationId() only ever returns an
  * organizationId backed by an existing Membership for this user.
+ *
+ * `currentPath` is threaded through the same way as
+ * getCurrentUserOrganization() above.
  */
-export async function getCurrentMembership() {
-  const { user, organizationId } = await getCurrentUserOrganization();
+export async function getCurrentMembership(currentPath?: string) {
+  const { user, organizationId } = await getCurrentUserOrganization(currentPath);
   const membership = await prisma.membership.findUnique({
     where: { userId_organizationId: { userId: user.id, organizationId } },
   });

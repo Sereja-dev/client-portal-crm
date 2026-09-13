@@ -91,7 +91,7 @@ describe("Authorization — both actions call requirePlatformAdmin() first, befo
     try {
       asUnauthenticated();
       const signal = await catchRedirect(() => suspendOrganizationAction(org.id, "OTHER"));
-      expect(signal.url).toBe("/login");
+      expect(signal.url).toBe("/login?reason=session_expired");
 
       const reread = await prisma.organization.findUniqueOrThrow({ where: { id: org.id }, select: { suspendedAt: true } });
       expect(reread.suspendedAt).toBeNull();
@@ -121,7 +121,7 @@ describe("Authorization — both actions call requirePlatformAdmin() first, befo
     try {
       asUnauthenticated();
       const signal = await catchRedirect(() => reactivateOrganizationAction(org.id));
-      expect(signal.url).toBe("/login");
+      expect(signal.url).toBe("/login?reason=session_expired");
 
       const reread = await prisma.organization.findUniqueOrThrow({ where: { id: org.id }, select: { suspendedAt: true } });
       expect(reread.suspendedAt).not.toBeNull();

@@ -146,7 +146,10 @@ test.describe("PLATFORM_ADMIN_EXECUTION_AUTHORIZATION_AUDIT correction — route
   test("unauthenticated: still a clean, generic redirect to /login", async ({ page, baseURL }) => {
     const res = await page.request.get(`${baseURL}/platform-admin`, { maxRedirects: 0 });
     expect(res.status()).toBe(307);
-    expect(res.headers()["location"]).toBe("/login");
+    // Staff session-loss UX fix — see platform-admin.spec.ts's own
+    // identical comment: still a clean, generic redirect, now carrying
+    // ?reason=session_expired.
+    expect(res.headers()["location"]).toBe("/login?reason=session_expired");
   });
 
   test("authenticated non-admin: still a clean, generic redirect to /dashboard", async ({ context, baseURL }) => {

@@ -69,7 +69,7 @@ describe("requirePlatformAdmin", () => {
     setMockAuthUser(null);
 
     const signal = await catchRedirect(() => requirePlatformAdmin());
-    expect(signal.url).toBe("/login");
+    expect(signal.url).toBe("/login?reason=session_expired");
   });
 
   it("redirects an authenticated but non-allowlisted user to /dashboard, never a visible access-denied page", async () => {

@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import { getVerifiedAuthUser } from "@/lib/supabase/server";
+import { redirectToLoginForSessionLoss } from "@/lib/auth/staff-session-redirect";
 
 /**
  * Sale-Ready Phase C. Platform Admin identity is deliberately NOT a
@@ -86,7 +87,13 @@ export const requirePlatformAdmin = cache(async (): Promise<{ email: string }> =
   const user = await getVerifiedAuthUser();
 
   if (!user) {
-    redirect("/login");
+    // Reused by multiple unrelated platform-admin routes with no
+    // reliable way to recover which one was actually being requested —
+    // see redirectToLoginForSessionLoss()'s own doc comment. This is a
+    // genuine lost/expired session; the line below (not-an-admin) is a
+    // separate, intentional authorization denial and must stay a plain
+    // redirect, not this helper.
+    redirectToLoginForSessionLoss();
   }
 
   if (!isPlatformAdmin(user.email)) {

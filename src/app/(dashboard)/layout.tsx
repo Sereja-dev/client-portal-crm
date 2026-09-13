@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getVerifiedAuthUser } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { getCurrentMembership, getOrganizationSwitcherItems } from "@/lib/current-user";
+import { redirectToLoginForSessionLoss } from "@/lib/auth/staff-session-redirect";
 import { getRecentNotifications, getUnreadNotificationCount } from "@/lib/notifications/queries";
 import { getDisabledInAppTypes } from "@/lib/notifications/preferences";
 import { formatNotification } from "@/lib/notifications/format-notification";
@@ -28,7 +29,13 @@ export default async function DashboardLayout({
   const user = await getVerifiedAuthUser();
 
   if (!user) {
-    redirect("/login");
+    // A layout wraps every route beneath it with no reliable way to
+    // recover which specific nested page was actually being requested
+    // (see redirectToLoginForSessionLoss()'s own doc comment on why that
+    // isn't inferred from a request header here) — the safe fallback is
+    // the login flow's own existing default landing route, not a
+    // fabricated path.
+    redirectToLoginForSessionLoss();
   }
 
   // A Client Portal-only identity (a PortalUser with no staff Membership)

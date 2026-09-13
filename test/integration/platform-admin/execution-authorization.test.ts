@@ -91,7 +91,7 @@ describe("requirePlatformAdmin — functional behavior unchanged by the cache() 
   it("unauthenticated redirects to /login", async () => {
     asUnauthenticated();
     const signal = await catchRedirect(() => requirePlatformAdmin());
-    expect(signal.url).toBe("/login");
+    expect(signal.url).toBe("/login?reason=session_expired");
   });
 
   it("authenticated non-admin redirects to /dashboard", async () => {
@@ -111,7 +111,7 @@ describe("getOrganizationDetail — execution-level guard", () => {
     asUnauthenticated();
     const spy = vi.spyOn(prisma.organization, "findUnique");
     const signal = await catchRedirect(() => getOrganizationDetail("definitely-invalid-test-id", new Date()));
-    expect(signal.url).toBe("/login");
+    expect(signal.url).toBe("/login?reason=session_expired");
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -119,7 +119,7 @@ describe("getOrganizationDetail — execution-level guard", () => {
     asUnauthenticated();
     const spy = vi.spyOn(prisma.organization, "findUnique");
     const signal = await catchRedirect(() => getOrganizationDetail(fixtures.orgA.id, new Date()));
-    expect(signal.url).toBe("/login");
+    expect(signal.url).toBe("/login?reason=session_expired");
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -161,7 +161,7 @@ describe("listOrganizations — execution-level guard", () => {
     asUnauthenticated();
     const spy = vi.spyOn(prisma, "$transaction");
     const signal = await catchRedirect(() => listOrganizations(params, new Date()));
-    expect(signal.url).toBe("/login");
+    expect(signal.url).toBe("/login?reason=session_expired");
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -189,7 +189,7 @@ describe("listUsers — execution-level guard", () => {
     asUnauthenticated();
     const spy = vi.spyOn(prisma, "$transaction");
     const signal = await catchRedirect(() => listUsers(params));
-    expect(signal.url).toBe("/login");
+    expect(signal.url).toBe("/login?reason=session_expired");
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -215,7 +215,7 @@ describe("getPlatformDashboardData — execution-level guard (platform-wide aggr
     asUnauthenticated();
     const spy = vi.spyOn(prisma.organization, "count");
     const signal = await catchRedirect(() => getPlatformDashboardData(new Date()));
-    expect(signal.url).toBe("/login");
+    expect(signal.url).toBe("/login?reason=session_expired");
     expect(spy).not.toHaveBeenCalled();
   });
 
@@ -243,7 +243,7 @@ describe("getFailureMonitoringSummary — execution-level guard", () => {
     // objects.ts) must never execute for an unauthorized caller either.
     const archiveSpy = vi.spyOn(prisma.invoicePdfArchiveObject, "count");
     const signal = await catchRedirect(() => getFailureMonitoringSummary(new Date()));
-    expect(signal.url).toBe("/login");
+    expect(signal.url).toBe("/login?reason=session_expired");
     expect(spy).not.toHaveBeenCalled();
     expect(archiveSpy).not.toHaveBeenCalled();
   });
@@ -284,7 +284,7 @@ describe("Configuration page — execution-level guard (page-level exception, pe
     asUnauthenticated();
     const spy = vi.spyOn(platformBillingConfig, "getPlatformBillingConfig");
     const signal = await catchRedirect(() => PlatformAdminConfigurationPage());
-    expect(signal.url).toBe("/login");
+    expect(signal.url).toBe("/login?reason=session_expired");
     expect(spy).not.toHaveBeenCalled();
   });
 

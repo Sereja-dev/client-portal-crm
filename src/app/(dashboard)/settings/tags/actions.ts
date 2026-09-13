@@ -33,7 +33,7 @@ export async function createTagAction(
   _prevState: TagFormState,
   formData: FormData,
 ): Promise<TagFormState> {
-  const { user, organizationId, membership } = await getCurrentMembership();
+  const { user, organizationId, membership } = await getCurrentMembership(LIST_PATH);
   const actor = { id: user.id, name: user.name, role: membership.role };
 
   const result = await createTag(organizationId, actor, {
@@ -61,7 +61,7 @@ export async function updateTagAction(
   _prevState: TagFormState,
   formData: FormData,
 ): Promise<TagFormState> {
-  const { user, organizationId, membership } = await getCurrentMembership();
+  const { user, organizationId, membership } = await getCurrentMembership(LIST_PATH);
   const actor = { id: user.id, name: user.name, role: membership.role };
 
   const result = await renameTag(organizationId, tagId, actor, {
@@ -87,7 +87,7 @@ export async function updateTagAction(
 }
 
 export async function archiveTagAction(tagId: string): Promise<void> {
-  const { user, organizationId, membership } = await getCurrentMembership();
+  const { user, organizationId, membership } = await getCurrentMembership(LIST_PATH);
   const actor = { id: user.id, name: user.name, role: membership.role };
 
   const result = await archiveTag(organizationId, tagId, actor);

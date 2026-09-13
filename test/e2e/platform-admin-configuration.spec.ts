@@ -272,5 +272,7 @@ test("an ordinary tenant user is redirected away from Configuration", async ({ c
 
 test("an anonymous visitor is redirected to login", async ({ page }) => {
   await page.goto(BASE_PATH);
-  await expect(page).toHaveURL(/\/login$/);
+  // Staff session-loss UX fix — see platform-admin.spec.ts's own
+  // identical comment.
+  await expect(page).toHaveURL(/\/login\?reason=session_expired$/);
 });

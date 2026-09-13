@@ -33,7 +33,9 @@ test.afterAll(async () => {
 
 test("no session redirects to /login", async ({ page }) => {
   await page.goto("/platform-admin/observability");
-  await expect(page).toHaveURL(/\/login$/);
+  // Staff session-loss UX fix — see platform-admin.spec.ts's own
+  // identical comment.
+  await expect(page).toHaveURL(/\/login\?reason=session_expired$/);
 });
 
 test("an authenticated but non-allowlisted staff user is redirected to /dashboard, never shown an access-denied page", async ({ context, baseURL }) => {

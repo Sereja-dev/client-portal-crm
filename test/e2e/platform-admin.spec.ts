@@ -25,7 +25,12 @@ test.afterAll(async () => {
 
 test("no session redirects to /login", async ({ page }) => {
   await page.goto("/platform-admin");
-  await expect(page).toHaveURL(/\/login$/);
+  // Staff session-loss UX fix — requirePlatformAdmin()'s "no authenticated
+  // user" branch now routes through redirectToLoginForSessionLoss(),
+  // which always adds ?reason=session_expired (no redirectTo here: a
+  // generic guard reused by many platform-admin routes has no reliable
+  // specific path to preserve — see that helper's own doc comment).
+  await expect(page).toHaveURL(/\/login\?reason=session_expired$/);
 });
 
 test("an authenticated but non-allowlisted staff user is redirected to /dashboard, never shown an access-denied page", async ({

@@ -16,11 +16,13 @@ const NOT_OWNER_MESSAGE = "Only the organization owner can update company detail
  * getCurrentMembership(), the same non-negotiable rule every existing
  * Server Action in this codebase already follows.
  */
+const COMPANY_PROFILE_PATH = "/settings/company";
+
 export async function updateCompanyProfileAction(
   _prevState: CompanyProfileFormState,
   formData: FormData,
 ): Promise<CompanyProfileFormState> {
-  const { organizationId, membership } = await getCurrentMembership();
+  const { organizationId, membership } = await getCurrentMembership(COMPANY_PROFILE_PATH);
 
   if (!canManageCompanyProfile(membership.role)) {
     return { error: NOT_OWNER_MESSAGE };

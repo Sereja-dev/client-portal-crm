@@ -596,13 +596,15 @@ test.describe("Organization Details (PR3.3)", () => {
     test("unauthenticated + invalid id: still a clean, generic redirect to /login", async ({ page, baseURL }) => {
       const res = await page.request.get(`${baseURL}${BASE_PATH}/definitely-invalid-test-id`, { maxRedirects: 0 });
       expect(res.status()).toBe(307);
-      expect(res.headers()["location"]).toBe("/login");
+      // Staff session-loss UX fix — see platform-admin.spec.ts's own
+      // identical comment.
+      expect(res.headers()["location"]).toBe("/login?reason=session_expired");
     });
 
     test("unauthenticated + a real, valid organization id: still a clean, generic redirect to /login", async ({ page, baseURL }) => {
       const res = await page.request.get(`${baseURL}${BASE_PATH}/${fixtures.orgA.id}`, { maxRedirects: 0 });
       expect(res.status()).toBe(307);
-      expect(res.headers()["location"]).toBe("/login");
+      expect(res.headers()["location"]).toBe("/login?reason=session_expired");
     });
 
     test("authenticated non-admin + invalid id: still a clean, generic redirect to /dashboard", async ({ context, baseURL }) => {

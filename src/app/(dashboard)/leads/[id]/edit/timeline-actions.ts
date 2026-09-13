@@ -19,7 +19,7 @@ export async function createLeadTimelineNoteAction(
   _prevState: TimelineNoteActionState,
   formData: FormData,
 ): Promise<TimelineNoteActionState> {
-  const { user, organizationId, membership } = await getCurrentMembership();
+  const { user, organizationId, membership } = await getCurrentMembership(editPath(leadId));
   const actor = { id: user.id, name: user.name, role: membership.role };
 
   const result = await createTimelineNote(organizationId, actor, {
@@ -42,7 +42,7 @@ export async function editLeadTimelineNoteAction(
   _prevState: TimelineNoteActionState,
   formData: FormData,
 ): Promise<TimelineNoteActionState> {
-  const { user, organizationId, membership } = await getCurrentMembership();
+  const { user, organizationId, membership } = await getCurrentMembership(editPath(leadId));
   const actor = { id: user.id, name: user.name, role: membership.role };
 
   const result = await editTimelineNote(organizationId, noteId, actor, formData.get("body"));
@@ -56,7 +56,7 @@ export async function editLeadTimelineNoteAction(
 }
 
 export async function deleteLeadTimelineNoteAction(leadId: string, noteId: string): Promise<void> {
-  const { user, organizationId, membership } = await getCurrentMembership();
+  const { user, organizationId, membership } = await getCurrentMembership(editPath(leadId));
   const actor = { id: user.id, name: user.name, role: membership.role };
 
   const result = await deleteTimelineNote(organizationId, noteId, actor);
