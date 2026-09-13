@@ -58,6 +58,10 @@ const FIELD_LABELS: Record<string, string> = {
   source: "source",
   value: "value",
   assignedToUserId: "assignee",
+  // Lead Timeline Activity formatting fix — archiveLeadAction/
+  // unarchiveLeadAction's own changedFields entry; without this it
+  // rendered as the raw "archivedAt" column name.
+  archivedAt: "archive status",
 };
 
 function humanizeFieldName(field: string): string {
@@ -136,11 +140,45 @@ function buildDataEntityModel(
   metadata: Record<string, unknown>,
 ): PartialModel {
   const noun = entityNoun(entityType);
+
+  // STATUS_CHANGED is handled before the shared name requirement below —
+  // Lead Timeline Activity formatting fix. Every existing, immutable
+  // Production LEAD STATUS_CHANGED row (moveLeadStageAction/
+  // markLeadLostAction, before this fix) carries only { from, to }, no
+  // entity name — see lead-metadata.ts's own doc comment. `from`/`to`
+  // alone are already enough to render a meaningful label, so a missing
+  // name here falls back to a shorter, still-human-readable phrasing
+  // instead of the fully generic "Activity recorded". A producer that
+  // does supply name (the fixed Lead producer, and Project/Task, which
+  // always have) gets the fuller phrasing naming the entity. Genuinely
+  // malformed metadata (missing from/to) still falls back exactly as
+  // before — this only relaxes the name requirement, nothing else.
+  if (action === "STATUS_CHANGED") {
+    const from = str(metadata.from);
+    const to = str(metadata.to);
+    if (!from || !to) return FALLBACK;
+    const name = str(metadata[nameField(entityType)]);
+    // INVOICE's SENT enum value renders as "Issued" everywhere in the
+    // staff UI (docs/invoicing-architecture.md §3.1) — scoped to this one
+    // entityType so CLIENT/PROJECT/TASK STATUS_CHANGED events (which share
+    // this same code path) are unaffected.
+    const label = entityType === "INVOICE" ? formatInvoiceStatusLabel : formatStatusLabel;
+    return {
+      actionLabel: name ? `changed ${noun} ${name} status` : `changed ${noun} status`,
+      entityLabel: name,
+      detailLines: [`${label(from)} → ${label(to)}`],
+    };
+  }
+
   const name = str(metadata[nameField(entityType)]);
   if (!name) return FALLBACK;
 
-  if (action === "CREATED" || action === "DELETED") {
-    const verb = action === "CREATED" ? "created" : "deleted";
+  if (action === "CREATED" || action === "DELETED" || action === "CONVERTED") {
+    // Lead Timeline Activity formatting fix — CONVERTED is a real action
+    // convertLeadToClientAction produces (metadata always includes name,
+    // exactly like CREATED/DELETED), previously unrecognized here and
+    // always falling back regardless of metadata quality.
+    const verb = action === "CREATED" ? "created" : action === "DELETED" ? "deleted" : "converted";
     const detailLines: string[] = [];
     if (entityType === "INVOICE") {
       const amount = numeric(metadata.amount);
@@ -148,22 +186,6 @@ function buildDataEntityModel(
       if (amount !== null) detailLines.push(formatCurrency(amount, currency));
     }
     return { actionLabel: `${verb} ${noun} ${name}`, entityLabel: name, detailLines };
-  }
-
-  if (action === "STATUS_CHANGED") {
-    const from = str(metadata.from);
-    const to = str(metadata.to);
-    if (!from || !to) return FALLBACK;
-    // INVOICE's SENT enum value renders as "Issued" everywhere in the
-    // staff UI (docs/invoicing-architecture.md §3.1) — scoped to this one
-    // entityType so CLIENT/PROJECT/TASK STATUS_CHANGED events (which share
-    // this same code path) are unaffected.
-    const label = entityType === "INVOICE" ? formatInvoiceStatusLabel : formatStatusLabel;
-    return {
-      actionLabel: `changed ${noun} ${name} status`,
-      entityLabel: name,
-      detailLines: [`${label(from)} → ${label(to)}`],
-    };
   }
 
   if (action === "UPDATED") {

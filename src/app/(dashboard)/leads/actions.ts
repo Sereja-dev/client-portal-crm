@@ -475,7 +475,7 @@ export async function moveLeadStageAction(leadId: string, stage: LeadStage): Pro
       entityType: "LEAD",
       entityId: leadId,
       action: "STATUS_CHANGED",
-      metadata: buildLeadStageChangeMetadata(existing.stage, stage),
+      metadata: buildLeadStageChangeMetadata(existing, existing.stage, stage),
     });
 
     return { status: "updated" as const, activity };
@@ -696,7 +696,7 @@ export async function markLeadLostAction(leadId: string, lostReason?: string | n
       // Activity.metadata — only the stage transition is (see
       // lead-metadata.ts's own doc comment); the reason itself stays on
       // the Lead row only.
-      metadata: buildLeadStageChangeMetadata(existing.stage, "LOST"),
+      metadata: buildLeadStageChangeMetadata(existing, existing.stage, "LOST"),
     });
 
     return { status: "updated" as const, activity };

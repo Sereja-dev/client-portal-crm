@@ -62,7 +62,7 @@ describe("formatActivity — Lead events (Communication Timeline Phase 1)", () =
     expect(result.detailLines).toEqual(["Changed: source, value, assignee"]);
   });
 
-  it("STATUS_CHANGED", () => {
+  it("STATUS_CHANGED — current producer shape (name, from, to)", () => {
     const result = activity("LEAD", "STATUS_CHANGED", {
       name: "Acme Corp",
       from: "NEW",
@@ -73,13 +73,77 @@ describe("formatActivity — Lead events (Communication Timeline Phase 1)", () =
     expect(result.detailLines).toEqual(["New → Qualified"]);
   });
 
+  it("STATUS_CHANGED — new producer shape with a different Lead name", () => {
+    const result = activity("LEAD", "STATUS_CHANGED", {
+      name: "Example Lead",
+      from: "NEW",
+      to: "QUALIFIED",
+      actorName: "Jane Doe",
+    });
+    expect(result.actionLabel).toBe("changed lead Example Lead status");
+    expect(result.actionLabel).not.toBe("Activity recorded");
+    expect(result.detailLines).toEqual(["New → Qualified"]);
+  });
+
+  it("Lead Timeline Activity formatting fix — STATUS_CHANGED with the exact historical Production shape ({from, to}, no name) renders a meaningful label, not the generic fallback", () => {
+    const result = activity("LEAD", "STATUS_CHANGED", { from: "NEW", to: "QUALIFIED" });
+    expect(result.actionLabel).toBe("changed lead status");
+    expect(result.actionLabel).not.toBe("Activity recorded");
+    expect(result.detailLines).toEqual(["New → Qualified"]);
+    expect(result.entityLabel).toBeNull();
+  });
+
+  it("Lead Timeline Activity formatting fix — CONVERTED with valid metadata renders a meaningful label", () => {
+    const result = activity("LEAD", "CONVERTED", { name: "Acme Corp", stage: "WON", actorName: "Jane Doe" });
+    expect(result.actionLabel).toBe("converted lead Acme Corp");
+    expect(result.entityLabel).toBe("Acme Corp");
+    expect(result.actionLabel).not.toBe("Activity recorded");
+  });
+
+  it("CONVERTED with malformed metadata (missing name) falls back safely", () => {
+    const result = activity("LEAD", "CONVERTED", { stage: "WON" });
+    expect(result.actionLabel).toBe("Activity recorded");
+  });
+
+  it("Lead Timeline Activity formatting fix — archive/unarchive's own changedFields entry (archivedAt) is humanized, never shown as the raw field name", () => {
+    const result = activity("LEAD", "UPDATED", {
+      name: "Acme Corp",
+      stage: "NEW",
+      actorName: "Jane Doe",
+      changedFields: ["archivedAt"],
+    });
+    expect(result.actionLabel).toBe("updated lead Acme Corp");
+    expect(result.detailLines).toEqual(["Changed: archive status"]);
+    expect(result.detailLines.join(" ")).not.toContain("archivedAt");
+  });
+
   it("malformed metadata (missing name) falls back safely", () => {
     const result = activity("LEAD", "CREATED", { stage: "NEW" });
     expect(result.actionLabel).toBe("Activity recorded");
   });
 
-  it("STATUS_CHANGED missing from/to falls back safely", () => {
+  it("STATUS_CHANGED missing both from and to falls back safely", () => {
     const result = activity("LEAD", "STATUS_CHANGED", { name: "Acme Corp" });
+    expect(result.actionLabel).toBe("Activity recorded");
+  });
+
+  it("STATUS_CHANGED missing `to` falls back safely, even with a name present", () => {
+    const result = activity("LEAD", "STATUS_CHANGED", { name: "Acme Corp", from: "NEW" });
+    expect(result.actionLabel).toBe("Activity recorded");
+  });
+
+  it("STATUS_CHANGED missing `to`, historical shape (no name) — still falls back safely, never half-renders", () => {
+    const result = activity("LEAD", "STATUS_CHANGED", { from: "NEW" });
+    expect(result.actionLabel).toBe("Activity recorded");
+  });
+
+  it("STATUS_CHANGED with null metadata falls back safely", () => {
+    const result = activity("LEAD", "STATUS_CHANGED", null);
+    expect(result.actionLabel).toBe("Activity recorded");
+  });
+
+  it("STATUS_CHANGED with malformed (non-object) metadata falls back safely", () => {
+    const result = activity("LEAD", "STATUS_CHANGED", "not an object");
     expect(result.actionLabel).toBe("Activity recorded");
   });
 });

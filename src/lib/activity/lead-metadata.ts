@@ -39,7 +39,17 @@ export type LeadActivityMetadata = {
   changedFields?: string[];
 };
 
+// Lead Timeline Activity formatting fix — this used to be bare
+// { from, to }, unlike ProjectStatusChangedMetadata/TaskStatusChangedMetadata
+// (project-metadata.ts / task-metadata.ts), which have always included
+// their own entity's name alongside from/to. buildDataEntityModel()
+// (format-activity.ts) requires a top-level entity name for EVERY action
+// it handles, STATUS_CHANGED included — omitting it here meant every real
+// LEAD STATUS_CHANGED event (moveLeadStageAction, markLeadLostAction)
+// rendered as the generic "Activity recorded" fallback. `name` is now
+// included, matching the sibling builders' own shape exactly.
 export type LeadStageChangeMetadata = {
+  name: string;
   from: string;
   to: string;
 };
@@ -75,6 +85,10 @@ export function buildLeadActivityMetadata(
   };
 }
 
-export function buildLeadStageChangeMetadata(from: string, to: string): LeadStageChangeMetadata {
-  return { from, to };
+export function buildLeadStageChangeMetadata(
+  lead: Pick<LeadTrackedSnapshot, "name">,
+  from: string,
+  to: string,
+): LeadStageChangeMetadata {
+  return { name: lead.name, from, to };
 }

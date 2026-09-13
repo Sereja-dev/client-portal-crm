@@ -21,7 +21,7 @@ async function createLead(orgId: string, actor: { id: string; email: string; nam
   const result = await createLeadAction({ name });
   if (!result.ok) throw new Error("fixture create failed");
   resetAuthMock();
-  return result.leadId;
+  return { leadId: result.leadId, name };
 }
 
 describe("moveLeadStageAction / markLeadLostAction", () => {
@@ -39,8 +39,8 @@ describe("moveLeadStageAction / markLeadLostAction", () => {
     await cleanupTestData(fixtures);
   });
 
-  it("9. stage move happy path — NEW -> QUALIFIED — and records STATUS_CHANGED {from,to}", async () => {
-    const leadId = await createLead(fixtures.orgA.id, fixtures.owner);
+  it("9. stage move happy path — NEW -> QUALIFIED — and records STATUS_CHANGED {name,from,to}", async () => {
+    const { leadId, name } = await createLead(fixtures.orgA.id, fixtures.owner);
     actAs(fixtures.owner, fixtures.orgA.id);
 
     const result = await moveLeadStageAction(leadId, "QUALIFIED");
@@ -52,11 +52,15 @@ describe("moveLeadStageAction / markLeadLostAction", () => {
       where: { entityType: "LEAD", entityId: leadId, action: "STATUS_CHANGED" },
     });
     expect(activities).toHaveLength(1);
-    expect(activities[0].metadata).toEqual({ from: "NEW", to: "QUALIFIED" });
+    // Lead Timeline Activity formatting fix — the Lead's own name is now
+    // included alongside from/to (matching Project/Task's own
+    // STATUS_CHANGED metadata shape), so the shared formatter no longer
+    // falls back to "Activity recorded" for a real stage-change event.
+    expect(activities[0].metadata).toEqual({ name, from: "NEW", to: "QUALIFIED" });
   });
 
   it("moving to WON before conversion is allowed (won but not yet converted)", async () => {
-    const leadId = await createLead(fixtures.orgA.id, fixtures.owner);
+    const { leadId } = await createLead(fixtures.orgA.id, fixtures.owner);
     actAs(fixtures.owner, fixtures.orgA.id);
 
     const result = await moveLeadStageAction(leadId, "WON");
@@ -68,7 +72,7 @@ describe("moveLeadStageAction / markLeadLostAction", () => {
   });
 
   it("LOST is not a valid target for the generic stage move — invalid_stage, use markLeadLostAction instead", async () => {
-    const leadId = await createLead(fixtures.orgA.id, fixtures.owner);
+    const { leadId } = await createLead(fixtures.orgA.id, fixtures.owner);
     actAs(fixtures.owner, fixtures.orgA.id);
 
     const result = await moveLeadStageAction(leadId, "LOST");
@@ -78,7 +82,7 @@ describe("moveLeadStageAction / markLeadLostAction", () => {
   });
 
   it("10. stage move against a foreign-org lead is a quiet not_found", async () => {
-    const leadId = await createLead(fixtures.orgB.id, fixtures.orgBOwner);
+    const { leadId } = await createLead(fixtures.orgB.id, fixtures.orgBOwner);
     actAs(fixtures.owner, fixtures.orgA.id);
 
     const result = await moveLeadStageAction(leadId, "QUALIFIED");
@@ -88,7 +92,7 @@ describe("moveLeadStageAction / markLeadLostAction", () => {
   });
 
   it("11. markLeadLostAction sets stage LOST and stores lostReason on the Lead, but never in Activity metadata", async () => {
-    const leadId = await createLead(fixtures.orgA.id, fixtures.owner);
+    const { leadId, name } = await createLead(fixtures.orgA.id, fixtures.owner);
     actAs(fixtures.owner, fixtures.orgA.id);
 
     const result = await markLeadLostAction(leadId, "Went with a competitor");
@@ -102,12 +106,12 @@ describe("moveLeadStageAction / markLeadLostAction", () => {
       where: { entityType: "LEAD", entityId: leadId, action: "STATUS_CHANGED" },
     });
     expect(activities).toHaveLength(1);
-    expect(activities[0].metadata).toEqual({ from: "NEW", to: "LOST" });
+    expect(activities[0].metadata).toEqual({ name, from: "NEW", to: "LOST" });
     expect(JSON.stringify(activities[0].metadata)).not.toContain("competitor");
   });
 
   it("markLeadLostAction against a foreign-org lead is a quiet not_found", async () => {
-    const leadId = await createLead(fixtures.orgB.id, fixtures.orgBOwner);
+    const { leadId } = await createLead(fixtures.orgB.id, fixtures.orgBOwner);
     actAs(fixtures.owner, fixtures.orgA.id);
 
     const result = await markLeadLostAction(leadId, "irrelevant");
@@ -116,7 +120,7 @@ describe("moveLeadStageAction / markLeadLostAction", () => {
   });
 
   it("12. leaving LOST via a generic stage move clears lostReason automatically (reactivation)", async () => {
-    const leadId = await createLead(fixtures.orgA.id, fixtures.owner);
+    const { leadId, name } = await createLead(fixtures.orgA.id, fixtures.owner);
     actAs(fixtures.owner, fixtures.orgA.id);
     await markLeadLostAction(leadId, "Budget cut");
     expect((await prisma.lead.findUnique({ where: { id: leadId } }))?.lostReason).toBe("Budget cut");
@@ -133,11 +137,11 @@ describe("moveLeadStageAction / markLeadLostAction", () => {
       orderBy: { createdAt: "asc" },
     });
     expect(activities).toHaveLength(2);
-    expect(activities[1].metadata).toEqual({ from: "LOST", to: "CONTACTED" });
+    expect(activities[1].metadata).toEqual({ name, from: "LOST", to: "CONTACTED" });
   });
 
   it("13. a converted lead cannot move stage — converted_locked", async () => {
-    const leadId = await createLead(fixtures.orgA.id, fixtures.owner);
+    const { leadId } = await createLead(fixtures.orgA.id, fixtures.owner);
     actAs(fixtures.owner, fixtures.orgA.id);
     // Simulate a completed conversion directly (conversion itself is
     // covered end-to-end in convert.test.ts) — this test is only about
@@ -160,7 +164,7 @@ describe("moveLeadStageAction / markLeadLostAction", () => {
   });
 
   it("a converted lead cannot be marked lost — converted_locked", async () => {
-    const leadId = await createLead(fixtures.orgA.id, fixtures.owner);
+    const { leadId } = await createLead(fixtures.orgA.id, fixtures.owner);
     actAs(fixtures.owner, fixtures.orgA.id);
     const fakeClientId = randomUUID();
     await prisma.client.create({

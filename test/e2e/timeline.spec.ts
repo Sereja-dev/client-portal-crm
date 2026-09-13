@@ -14,6 +14,25 @@ import { injectTestSession } from "../support/e2e-session";
 
 let fixtures: TestFixtures;
 
+// Custom Statuses Phase 2B — Completion Pass (Section G): see leads.spec.ts's
+// own identical helper/comment — the generic "Change status" select
+// (lead-actions-panel.tsx) sources its options from this org's own real
+// CustomStatusDefinition rows, and seedE2EFixtures()'s own org fixture is
+// never auto-bootstrapped. Needed here (Lead Timeline Activity formatting
+// fix) so a real stage move can be driven through the real UI control.
+async function bootstrapLeadStatuses(organizationId: string): Promise<void> {
+  await dbQuery("customStatusDefinition", "createMany", {
+    data: [
+      { organizationId, entityType: "LEAD", key: "new", label: "New", color: "NEUTRAL", position: 0, isDefault: true, isSystem: true },
+      { organizationId, entityType: "LEAD", key: "contacted", label: "Contacted", color: "INFO", position: 1, isDefault: false, isSystem: true },
+      { organizationId, entityType: "LEAD", key: "qualified", label: "Qualified", color: "INFO", position: 2, isDefault: false, isSystem: true },
+      { organizationId, entityType: "LEAD", key: "proposal", label: "Proposal", color: "INFO", position: 3, isDefault: false, isSystem: true },
+      { organizationId, entityType: "LEAD", key: "won", label: "Won", color: "SUCCESS", position: 4, isDefault: false, isSystem: true },
+      { organizationId, entityType: "LEAD", key: "lost", label: "Lost", color: "DANGER", position: 5, isDefault: false, isSystem: true },
+    ],
+  });
+}
+
 async function actAsOwner(context: BrowserContext, baseURL: string): Promise<void> {
   await context.clearCookies();
   await injectTestSession(context, fixtures.owner, baseURL);
@@ -49,6 +68,7 @@ test.describe("Communication Timeline — Staff UI", () => {
         isSystem: true,
       },
     });
+    await bootstrapLeadStatuses(fixtures.orgA.id);
   });
 
   test.afterAll(async () => {
@@ -127,6 +147,17 @@ test.describe("Communication Timeline — Staff UI", () => {
     await page.getByRole("button", { name: "Add note" }).click();
     await expect(page.getByText("Sent a proposal.")).toBeVisible();
     await expect(page).toHaveURL(`/leads/${lead.id}/edit`);
+
+    // Lead Timeline Activity formatting fix — a real stage move (the
+    // Lead's own "Change status" control, driving the real
+    // moveLeadStageAction) now renders meaningfully instead of the
+    // generic "Activity recorded" fallback. Exercised through the real
+    // producer, not a hand-constructed Activity row.
+    await page.getByLabel("Change status").selectOption({ label: "Qualified" });
+    await expect(page.getByText("Status updated")).toBeVisible();
+    await expect(page.getByText(new RegExp(`changed lead ${lead.name} status`))).toBeVisible();
+    await expect(page.getByText("New → Qualified")).toBeVisible();
+    await expect(page.getByText("Activity recorded")).toHaveCount(0);
   });
 
   test.describe("responsive", () => {
