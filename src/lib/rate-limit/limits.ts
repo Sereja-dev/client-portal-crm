@@ -314,3 +314,15 @@ export const CLIENT_REQUEST_CREATE_LIMIT: RateLimitConfig = { scope: "client-req
 // "generous for real back-and-forth, tight against a scripted loop"
 // reasoning.
 export const CLIENT_REQUEST_MESSAGE_LIMIT: RateLimitConfig = { scope: "client-request-message", limit: 60, windowMs: HOUR_MS };
+
+// CSV Import/Export Phase 1 — bulk data export, per authenticated staff
+// user id. Isolated buckets (never share a bucket across entity types,
+// same reasoning as every other resource-specific limiter in this file)
+// and deliberately much tighter than a read-only per-record download
+// like INVOICE_PDF_DOWNLOAD_LIMIT: this is a whole-organization dataset
+// leaving the app in one request, not one record — abuse protection
+// against a scripted repeated-export loop, not a hard day-to-day limit
+// for the OWNER/ADMIN roles this is gated to (see
+// src/lib/export/authorization.ts).
+export const CLIENT_EXPORT_LIMIT: RateLimitConfig = { scope: "client-export", limit: 20, windowMs: HOUR_MS };
+export const LEAD_EXPORT_LIMIT: RateLimitConfig = { scope: "lead-export", limit: 20, windowMs: HOUR_MS };

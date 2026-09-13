@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { getCurrentUserOrganization } from "@/lib/current-user";
+import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
+import { canExportData } from "@/lib/export/authorization";
 import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib/list-params";
 import { listCustomStatusDefinitions } from "@/lib/custom-statuses/definitions";
 import { listTags } from "@/lib/tags/definitions";
@@ -43,6 +44,14 @@ import {
 const PRIMARY_LINK_CLASSES =
   "focus-visible:ring-focus-ring rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
 
+// CSV Import/Export Phase 1 — mirrors Button's own "secondary" variant
+// tokens (src/components/ui/button.tsx) applied to a plain <a>, since
+// this needs to be a real navigating link (a file download), not a
+// button — matches invoice-read-only-view.tsx's own "Download PDF" link
+// precedent, which is also a plain <a> for the same reason.
+const SECONDARY_LINK_CLASSES =
+  "focus-visible:ring-focus-ring border-border-strong bg-surface text-text-primary rounded-md border px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
+
 const SORT_OPTIONS = [
   { value: "createdAt:desc", label: "Newest first" },
   { value: "createdAt:asc", label: "Oldest first" },
@@ -64,7 +73,7 @@ export default async function ClientsPage({
 }: {
   searchParams: Promise<RawSearchParams>;
 }) {
-  const { organizationId } = await getCurrentUserOrganization();
+  const { organizationId, membership } = await getCurrentMembership();
   const resolvedSearchParams = await searchParams;
   const listParams = parseClientListParams(resolvedSearchParams);
 
@@ -109,9 +118,21 @@ export default async function ClientsPage({
   const totalPages = getTotalPages(total);
   const hasActiveParams = Boolean(listParams.q || listParams.status || listParams.tagId);
 
+  // CSV Import/Export Phase 1 — the exact same filter params Pagination
+  // (below) already builds, minus `page`: an export always covers every
+  // matching row across every page, never just the one currently
+  // visible (Section C/9 of the read-only audit).
+  const listFilterParams = {
+    ...(listParams.q ? { q: listParams.q } : {}),
+    ...(listParams.status ? { status: listParams.status } : {}),
+    ...(listParams.tagId ? { tag: listParams.tagId } : {}),
+    sort: listParams.sortCombined,
+  };
+  const exportHref = `/api/clients/export?${new URLSearchParams(listFilterParams).toString()}`;
+
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-text-primary text-2xl font-semibold tracking-tight">
             Clients
@@ -120,12 +141,19 @@ export default async function ClientsPage({
             {total} {total === 1 ? "client" : "clients"}
           </p>
         </div>
-        <Link
-          href="/clients/new"
-          className={PRIMARY_LINK_CLASSES}
-        >
-          Add client
-        </Link>
+        <div className="flex items-center gap-3">
+          {canExportData(membership.role) && (
+            <a href={exportHref} className={SECONDARY_LINK_CLASSES}>
+              Export CSV
+            </a>
+          )}
+          <Link
+            href="/clients/new"
+            className={PRIMARY_LINK_CLASSES}
+          >
+            Add client
+          </Link>
+        </div>
       </div>
 
       <SearchFilterBar
@@ -269,12 +297,7 @@ export default async function ClientsPage({
 
           <Pagination
             basePath="/clients"
-            params={{
-              ...(listParams.q ? { q: listParams.q } : {}),
-              ...(listParams.status ? { status: listParams.status } : {}),
-              ...(listParams.tagId ? { tag: listParams.tagId } : {}),
-              sort: listParams.sortCombined,
-            }}
+            params={listFilterParams}
             page={listParams.page}
             totalPages={totalPages}
           />

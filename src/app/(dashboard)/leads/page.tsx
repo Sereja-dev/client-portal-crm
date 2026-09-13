@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { getCurrentUserOrganization } from "@/lib/current-user";
+import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency, formatStatusLabel } from "@/lib/format";
+import { canExportData } from "@/lib/export/authorization";
 import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib/list-params";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PencilIcon } from "@/components/ui/icons";
@@ -35,6 +36,12 @@ import { parseLeadView, parseLeadStageView, buildLeadsHref, type LeadView } from
 
 const PRIMARY_LINK_CLASSES =
   "focus-visible:ring-focus-ring rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
+
+// CSV Import/Export Phase 1 — see clients/page.tsx's own identical
+// comment; mirrors Button's "secondary" variant tokens for a real
+// navigating download link, not a button.
+const SECONDARY_LINK_CLASSES =
+  "focus-visible:ring-focus-ring border-border-strong bg-surface text-text-primary rounded-md border px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
 
 const VIEW_TOGGLE_CLASSES =
   "focus-visible:ring-focus-ring rounded-md px-3 py-1.5 text-sm font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
@@ -87,10 +94,27 @@ export default async function LeadsPage({
 }: {
   searchParams: Promise<RawSearchParams>;
 }) {
-  const { organizationId } = await getCurrentUserOrganization();
+  const { organizationId, membership } = await getCurrentMembership();
   const resolvedSearchParams = await searchParams;
   const listParams = parseLeadListParams(resolvedSearchParams);
   const view = parseLeadView(resolvedSearchParams);
+
+  // CSV Import/Export Phase 1 — the exact same filter params this page's
+  // own Pagination (List view, below) already builds, minus `page`: an
+  // export always covers every matching row across every page, and the
+  // same href is used from either view (Pipeline's own filters are a
+  // subset of List's — an unset stage/tag simply never appears in the
+  // query string either way).
+  const canExport = canExportData(membership.role);
+  const exportFilterParams = {
+    ...(listParams.q ? { q: listParams.q } : {}),
+    ...(listParams.stage ? { stage: listParams.stage } : {}),
+    ...(listParams.assignedToUserId ? { assignedToUserId: listParams.assignedToUserId } : {}),
+    ...(listParams.tagId ? { tag: listParams.tagId } : {}),
+    ...(listParams.archived ? { archived: "1" } : {}),
+    sort: listParams.sortCombined,
+  };
+  const exportHref = `/api/leads/export?${new URLSearchParams(exportFilterParams).toString()}`;
 
   const memberships = await prisma.membership.findMany({
     where: { organizationId },
@@ -143,6 +167,11 @@ export default async function LeadsPage({
           </div>
           <div className="flex items-center gap-3">
             <ViewToggle view={view} listParams={listParams} />
+            {canExport && (
+              <a href={exportHref} className={SECONDARY_LINK_CLASSES}>
+                Export CSV
+              </a>
+            )}
             <Link href="/leads/new" className={PRIMARY_LINK_CLASSES}>
               Add lead
             </Link>
@@ -234,6 +263,11 @@ export default async function LeadsPage({
         </div>
         <div className="flex items-center gap-3">
           <ViewToggle view={view} listParams={listParams} />
+          {canExport && (
+            <a href={exportHref} className={SECONDARY_LINK_CLASSES}>
+              Export CSV
+            </a>
+          )}
           <Link href="/leads/new" className={PRIMARY_LINK_CLASSES}>
             Add lead
           </Link>
@@ -362,14 +396,7 @@ export default async function LeadsPage({
 
           <Pagination
             basePath="/leads"
-            params={{
-              ...(listParams.q ? { q: listParams.q } : {}),
-              ...(listParams.stage ? { stage: listParams.stage } : {}),
-              ...(listParams.assignedToUserId ? { assignedToUserId: listParams.assignedToUserId } : {}),
-              ...(listParams.tagId ? { tag: listParams.tagId } : {}),
-              ...(listParams.archived ? { archived: "1" } : {}),
-              sort: listParams.sortCombined,
-            }}
+            params={exportFilterParams}
             page={listParams.page}
             totalPages={totalPages}
           />
