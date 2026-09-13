@@ -27,8 +27,19 @@ import { assertTimelineEntityOwnership } from "./entity-ownership";
 
 export type TimelineNoteActor = { id: string; name: string; role: Role };
 
-function isModerator(role: Role): boolean {
+export function isTimelineModerator(role: Role): boolean {
   return role === "OWNER" || role === "ADMIN";
+}
+
+/**
+ * The one shared permission rule every caller in this file (and the
+ * Phase 2 read layer's own UI-gating, src/lib/timeline/timeline.ts) uses
+ * — never reimplemented inline a second time. Byte-for-byte the same
+ * "author or moderator" shape src/lib/comments/delete-comment.ts's own
+ * isAuthor/isModerator check already establishes.
+ */
+export function canModifyTimelineNote(actor: TimelineNoteActor, note: { authorId: string | null }): boolean {
+  return note.authorId === actor.id || isTimelineModerator(actor.role);
 }
 
 // ---------------------------------------------------------------------------
@@ -116,8 +127,7 @@ export async function editTimelineNote(
     return { ok: false, reason: "DELETED" };
   }
 
-  const isAuthor = note.authorId === actor.id;
-  if (!isAuthor && !isModerator(actor.role)) {
+  if (!canModifyTimelineNote(actor, note)) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 
@@ -164,8 +174,7 @@ export async function deleteTimelineNote(
     return { ok: true, alreadyDeleted: true };
   }
 
-  const isAuthor = note.authorId === actor.id;
-  if (!isAuthor && !isModerator(actor.role)) {
+  if (!canModifyTimelineNote(actor, note)) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 

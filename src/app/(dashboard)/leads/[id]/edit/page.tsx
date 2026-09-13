@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getCurrentUserOrganization } from "@/lib/current-user";
+import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { getActiveCustomFieldFormDefinitions, getCustomFieldFormValues } from "@/lib/custom-fields/entity-form";
 import { getActiveTagFormOptions, getTagFormAssignments } from "@/lib/tags/entity-form";
@@ -8,13 +8,24 @@ import { buildStatusSelectOptions } from "@/lib/custom-statuses/entity-form";
 import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import { LeadForm } from "@/components/leads/lead-form";
 import { LeadActionsPanel } from "@/components/leads/lead-actions-panel";
+import { TimelineSection } from "@/components/timeline/timeline-section";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { updateLeadFormAction } from "./actions";
+import {
+  createLeadTimelineNoteAction,
+  editLeadTimelineNoteAction,
+  deleteLeadTimelineNoteAction,
+} from "./timeline-actions";
 
 export default async function EditLeadPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { organizationId } = await getCurrentUserOrganization();
+  // Communication Timeline Phase 2 — switched from getCurrentUserOrganization()
+  // to its own strict superset (per that function's own doc comment) so
+  // this page can also resolve the acting Staff member's own {id, name,
+  // role} for the new TimelineSection below; every existing use of
+  // organizationId here is completely unaffected.
+  const { user, organizationId, membership } = await getCurrentMembership();
 
   // Scoped by id + organizationId together — a foreign org's lead id
   // simply doesn't match, indistinguishable from a nonexistent one,
@@ -95,6 +106,16 @@ export default async function EditLeadPage({ params }: { params: Promise<{ id: s
           currentStatusDefinitionId={currentStatusDefinitionId}
           archivedAt={lead.archivedAt ? lead.archivedAt.toISOString() : null}
           convertedClientId={lead.convertedClientId}
+        />
+        {/* Communication Timeline Phase 2 — see EditClientPage's own identical placement comment; last on the page, after LeadActionsPanel. */}
+        <TimelineSection
+          entityType="LEAD"
+          entityId={lead.id}
+          organizationId={organizationId}
+          actor={{ id: user.id, name: user.name, role: membership.role }}
+          createAction={createLeadTimelineNoteAction.bind(null, lead.id)}
+          makeEditAction={(noteId) => editLeadTimelineNoteAction.bind(null, lead.id, noteId)}
+          makeDeleteAction={(noteId) => deleteLeadTimelineNoteAction.bind(null, lead.id, noteId)}
         />
       </div>
     </div>

@@ -7,12 +7,18 @@ import { getActiveTagFormOptions, getTagFormAssignments } from "@/lib/tags/entit
 import { buildStatusSelectOptions } from "@/lib/custom-statuses/entity-form";
 import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import { ClientForm } from "@/components/clients/client-form";
+import { TimelineSection } from "@/components/timeline/timeline-section";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { updateClientAction } from "./actions";
 import { ClientAttachmentsSection } from "./attachments-section";
 import { ClientContactsSection } from "./contacts-section";
 import { ClientPortalAccessSection } from "./portal-access-section";
+import {
+  createClientTimelineNoteAction,
+  editClientTimelineNoteAction,
+  deleteClientTimelineNoteAction,
+} from "./timeline-actions";
 
 export default async function EditClientPage({
   params,
@@ -20,7 +26,7 @@ export default async function EditClientPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const { organizationId, membership } = await getCurrentMembership();
+  const { user, organizationId, membership } = await getCurrentMembership();
 
   const client = await prisma.client.findFirst({
     where: { id, organizationId },
@@ -86,6 +92,24 @@ export default async function EditClientPage({
         <ClientContactsSection clientId={client.id} organizationId={organizationId} />
         <ClientAttachmentsSection clientId={client.id} organizationId={organizationId} />
         <ClientPortalAccessSection clientId={client.id} role={membership.role} />
+        {/*
+          Communication Timeline Phase 2 — placed last, after every
+          "current state" editing section: it is a running history of
+          everything that already happened on this record (including
+          Contacts/Attachments/Portal Access's own Activity events), so it
+          reads naturally as the final "here's the history" section,
+          matching Client Requests' own detail page precedent (its
+          Conversation section is likewise the last thing on the page).
+        */}
+        <TimelineSection
+          entityType="CLIENT"
+          entityId={client.id}
+          organizationId={organizationId}
+          actor={{ id: user.id, name: user.name, role: membership.role }}
+          createAction={createClientTimelineNoteAction.bind(null, client.id)}
+          makeEditAction={(noteId) => editClientTimelineNoteAction.bind(null, client.id, noteId)}
+          makeDeleteAction={(noteId) => deleteClientTimelineNoteAction.bind(null, client.id, noteId)}
+        />
       </div>
     </div>
   );

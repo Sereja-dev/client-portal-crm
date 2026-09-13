@@ -203,6 +203,14 @@ export type CommentActionState = {
   error: string | null;
 };
 
+// Communication Timeline Phase 2 (Staff UI). Shared by the create/edit
+// note actions on both the Client and Lead edit pages — a note body is
+// never invalid on any field other than itself, same reasoning
+// CommentActionState's own shape already documents.
+export type TimelineNoteActionState = {
+  error: string | null;
+};
+
 export type CompanyProfileFormState = {
   error: string | null;
   fieldErrors?: Partial<
