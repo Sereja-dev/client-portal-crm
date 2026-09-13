@@ -20,8 +20,16 @@ function req(query = ""): Request {
 }
 
 function parseCsv(body: string): string[][] {
+  // Excel Compatibility Fix — every document now leads with a bare
+  // "sep=," directive line (after the BOM, before the real header; see
+  // src/lib/csv/serialize.ts's own doc comment). Stripped here so every
+  // existing rows[0]-is-the-header assertion below keeps working
+  // unchanged; the directive's own presence/shape is proven separately
+  // by "the body's on-wire bytes begin with a UTF-8 BOM, then the bare
+  // sep=, directive, and the header row is as expected".
   const withoutBom = body.replace(/^﻿/, "");
-  return withoutBom
+  const withoutDirective = withoutBom.replace(/^sep=,\r\n/, "");
+  return withoutDirective
     .split("\r\n")
     .filter((line) => line.length > 0)
     .map((line) => line.split(","));
@@ -123,13 +131,20 @@ describe("GET /api/leads/export", () => {
       expect(res.headers.get("Cache-Control")).toBe("private, no-store");
     });
 
-    it("the body's on-wire bytes begin with a UTF-8 BOM, and the header row is as expected", async () => {
+    it("the body's on-wire bytes begin with a UTF-8 BOM, then the bare sep=, directive, and the header row is as expected", async () => {
       actAs(fixtures.owner, fixtures.orgA.id);
       const res = await GET(req());
       const bytes = new Uint8Array(await res.clone().arrayBuffer());
       expect(bytes.slice(0, 3)).toEqual(new Uint8Array([0xef, 0xbb, 0xbf]));
 
-      const rows = parseCsv(await res.text());
+      const body = await res.text();
+      // Excel Compatibility Fix: the directive is the first real line
+      // after the BOM (bare, unquoted, never a data row) — this is what
+      // makes Excel resolve the correct column delimiter regardless of
+      // the opening machine's regional "list separator" setting.
+      expect(body.replace(/^﻿/, "").split("\r\n")[0]).toBe("sep=,");
+
+      const rows = parseCsv(body);
       expect(rows[0]).toEqual([
         "ID",
         "Name",

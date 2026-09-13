@@ -118,12 +118,12 @@ describe("buildCsvDocument", () => {
     expect(doc.charCodeAt(0)).toBe(0xfeff);
   });
 
-  it("joins every row with CRLF line endings, header included", () => {
+  it("joins every row with CRLF line endings, header included, after the BOM + sep=, directive line", () => {
     const doc = buildCsvDocument([
       ["ID", "Name"],
       [csvTextCell("1"), csvTextCell("Acme")],
     ]);
-    expect(doc).toBe("\uFEFFID,Name\r\n1,Acme\r\n");
+    expect(doc).toBe("\uFEFFsep=,\r\nID,Name\r\n1,Acme\r\n");
   });
 
   it("round-trips a realistic mixed row (comma, quote, Unicode, formula-triggering value) without corrupting any other cell", () => {
@@ -132,7 +132,76 @@ describe("buildCsvDocument", () => {
       [csvTextCell("1"), csvTextCell("Acme, Inc."), csvTextCell('=HYPERLINK("http://evil.example")')],
     ]);
     const lines = doc.replace(/^\uFEFF/, "").split("\r\n").filter(Boolean);
-    expect(lines[0]).toBe("ID,Name,Notes");
-    expect(lines[1]).toBe('1,"Acme, Inc.","\'=HYPERLINK(""http://evil.example"")"');
+    expect(lines[0]).toBe("sep=,");
+    expect(lines[1]).toBe("ID,Name,Notes");
+    expect(lines[2]).toBe('1,"Acme, Inc.","\'=HYPERLINK(""http://evil.example"")"');
+  });
+});
+
+describe("buildCsvDocument — Excel locale-compatibility directive (sep=,)", () => {
+  // Production issue: Client export opened directly in Excel under a
+  // comma-decimal regional setting (e.g. Russian) rendered the whole
+  // header row in a single column, because Excel infers the delimiter
+  // from the OS/Excel regional "list separator" setting when a .csv is
+  // opened directly, not from the file's own content. A leading `sep=,`
+  // line is Microsoft's own documented convention that overrides this
+  // guess in every locale. These tests pin the exact byte-level contract
+  // so this can never silently regress (wrong order, missing directive,
+  // duplicated directive, or an accidentally-escaped/quoted directive
+  // would all defeat Excel's ability to recognize it).
+
+  it("emits BOM, then the bare sep=, directive, then CRLF, as the first bytes of every document — verified at the byte level", () => {
+    const doc = buildCsvDocument([["ID", "Name"]]);
+    const bytes = Buffer.from(doc, "utf8");
+    // EF BB BF (UTF-8 BOM) + ASCII "sep=," + CR LF
+    const expectedPrefix = Buffer.concat([
+      Buffer.from([0xef, 0xbb, 0xbf]),
+      Buffer.from("sep=,\r\n", "ascii"),
+    ]);
+    expect(bytes.subarray(0, expectedPrefix.length)).toEqual(expectedPrefix);
+  });
+
+  it("the directive is bare/unquoted — never the escaped form \"sep=,\"", () => {
+    const doc = buildCsvDocument([["ID", "Name"]]);
+    expect(doc).not.toContain('"sep=,"');
+    const firstLine = doc.replace(/^\uFEFF/, "").split("\r\n")[0];
+    expect(firstLine).toBe("sep=,");
+  });
+
+  it("appears exactly once per document, before the header, never repeated per row", () => {
+    const doc = buildCsvDocument([
+      ["ID", "Name"],
+      [csvTextCell("1"), csvTextCell("Acme")],
+      [csvTextCell("2"), csvTextCell("Widgets Co")],
+      [csvTextCell("3"), csvTextCell("Another Row")],
+    ]);
+    const occurrences = doc.split("sep=,").length - 1;
+    expect(occurrences).toBe(1);
+
+    const lines = doc.replace(/^\uFEFF/, "").split("\r\n").filter(Boolean);
+    expect(lines[0]).toBe("sep=,");
+    expect(lines[1]).toBe("ID,Name"); // the real header, immediately after the directive
+  });
+
+  it("is never neutralized as a formula trigger or escaped as a CSV field, even though it structurally contains a comma", () => {
+    // A real data cell containing a comma would be quoted by
+    // escapeCsvField; the directive line must never go through that (or
+    // neutralizeFormulaPrefix) — it is a hardcoded literal, not a value
+    // sourced from csvTextCell/csvNumberCell.
+    const doc = buildCsvDocument([["ID", "Name"]]);
+    const firstLine = doc.replace(/^\uFEFF/, "").split("\r\n")[0];
+    expect(firstLine).toBe("sep=,");
+    expect(firstLine.startsWith('"')).toBe(false);
+    expect(firstLine.startsWith("'")).toBe(false); // not formula-neutralized either
+  });
+
+  it("does not disturb ordinary field delimiting — the actual CSV field delimiter is still a plain comma", () => {
+    const doc = buildCsvDocument([
+      ["ID", "Name", "Company"],
+      [csvTextCell("1"), csvTextCell("Jane Doe"), csvTextCell("Acme")],
+    ]);
+    const lines = doc.replace(/^\uFEFF/, "").split("\r\n").filter(Boolean);
+    expect(lines[1]).toBe("ID,Name,Company");
+    expect(lines[2]).toBe("1,Jane Doe,Acme");
   });
 });

@@ -86,6 +86,32 @@ test.describe("Export CSV control", () => {
     }
   });
 
+  test("a downloaded Client export document begins with the UTF-8 BOM, then the bare sep=, Excel-compatibility directive, before the real header row", async ({
+    context,
+    baseURL,
+  }) => {
+    // Excel Compatibility Fix — production issue: Client export opened
+    // directly in Excel under a comma-decimal regional setting (e.g.
+    // Russian) rendered the whole header row in one column. This exercises
+    // the real, authenticated route response (same session/cookies as the
+    // browser context) exactly as a real download would receive it,
+    // without needing OS-level Excel automation or a native browser
+    // download-dialog handshake — the actual bytes are what matters here.
+    await actAs(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+
+    const response = await context.request.get(new URL("/api/clients/export", baseURL).toString());
+    expect(response.ok()).toBe(true);
+    const bytes = await response.body();
+
+    expect(bytes.subarray(0, 3)).toEqual(Buffer.from([0xef, 0xbb, 0xbf]));
+    const text = bytes.toString("utf8");
+    const firstLine = text.replace(/^﻿/, "").split("\r\n")[0];
+    expect(firstLine).toBe("sep=,");
+
+    const secondLine = text.replace(/^﻿/, "").split("\r\n")[1];
+    expect(secondLine.startsWith("ID,Name,Company")).toBe(true);
+  });
+
   for (const { width, label } of [
     { width: 1280, label: "1280px (desktop)" },
     { width: 834, label: "834px (tablet)" },

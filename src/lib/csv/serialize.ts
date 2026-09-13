@@ -16,6 +16,47 @@ const CRLF = "\r\n";
 const UTF8_BOM = "\uFEFF";
 
 /**
+ * Excel locale-compatibility directive (Excel Compatibility Fix —
+ * production issue: Client export opened directly in Excel under a
+ * comma-decimal regional setting, e.g. Russian, shows the whole header
+ * row in a single column). Excel's "double-click a .csv and open it"
+ * path — as opposed to an explicit Data > From Text/CSV import — infers
+ * the column delimiter from the OS/Excel regional "list separator"
+ * setting, not from the file's own content. Locales that use comma as
+ * the *decimal* separator (Russian, German, French, and most of
+ * continental Europe/Latin America) default that list separator to
+ * semicolon, so a plain comma-delimited file opens as one column.
+ *
+ * A leading `sep=,` line is Microsoft's own documented convention for
+ * exactly this: when it is the first line of the file, Excel reads it
+ * as a directive (never a data row) and uses the given character as the
+ * delimiter for the rest of the file, regardless of regional settings —
+ * in every locale, not just the broken ones. This is deliberately NOT a
+ * delimiter change (the actual field delimiter stays comma, so every
+ * non-Excel consumer — Google Sheets, Apple Numbers, a plain CSV
+ * parser, our own future CSV Import — still sees standard, unmodified
+ * RFC 4180 comma-CSV); it is purely an additional leading line that
+ * tells Excel specifically what that delimiter already is.
+ *
+ * Tradeoff (accepted, see the Excel compatibility diagnostic): a reader
+ * that does not recognize this convention (Google Sheets, Numbers, a
+ * generic script) sees one extra, harmless, self-evident line
+ * (`sep=,`) above the real header — never silent data corruption, never
+ * a shifted/misaligned column. Aqenra's own future CSV Import parser
+ * must detect and skip an optional leading `sep=X` line before treating
+ * the next line as the header (see this module's own header comment for
+ * the full contract) — this line is metadata about the file, never a
+ * CRM data row.
+ *
+ * Deliberately a bare literal, never passed through escapeCsvField/
+ * csvTextCell/neutralizeFormulaPrefix: it is not a data cell (quoting it
+ * as `"sep=,"` would stop Excel from recognizing it as the directive at
+ * all), and it is a hardcoded compile-time constant, never derived from
+ * user input, so it carries no formula-injection risk of its own.
+ */
+const EXCEL_SEPARATOR_DIRECTIVE = "sep=,";
+
+/**
  * CSV formula injection (OWASP CSV Injection) — mandatory protection for
  * every user-controlled free-text column. A spreadsheet application
  * (Excel, Google Sheets) evaluates a cell as a formula when its content
@@ -81,11 +122,14 @@ export function buildCsvRow(cells: string[]): string {
 }
 
 /**
- * The full document: every row (the header row included — callers pass
- * it as plain literal strings, e.g. ["ID", "Name", ...], which never
- * need escaping since they're compile-time constants with no special
- * characters) joined in order, prefixed with a UTF-8 BOM.
+ * The full document: UTF-8 BOM, then the Excel locale-compatibility
+ * directive (see EXCEL_SEPARATOR_DIRECTIVE's own comment — bare, exactly
+ * once, its own CRLF-terminated line, never escaped/quoted/passed through
+ * csvTextCell), then every row (the header row included — callers pass it
+ * as plain literal strings, e.g. ["ID", "Name", ...], which never need
+ * escaping since they're compile-time constants with no special
+ * characters) joined in order.
  */
 export function buildCsvDocument(rows: string[][]): string {
-  return UTF8_BOM + rows.map(buildCsvRow).join("");
+  return UTF8_BOM + EXCEL_SEPARATOR_DIRECTIVE + CRLF + rows.map(buildCsvRow).join("");
 }
