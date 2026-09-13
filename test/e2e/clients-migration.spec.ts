@@ -62,8 +62,12 @@ test.describe("Design System Batch 9 — Remaining Clients surfaces", () => {
     // "Billing details" legend, up three levels reaches it (legend ->
     // fieldset -> form -> card div). Also avoids React's own hidden
     // progressive-enhancement safety-net <form>, which duplicate-matches
-    // any plain `page.locator("form")` query.
-    const cardDiv = page.getByText("Billing details", { exact: true }).locator("../../..");
+    // any plain `page.locator("form")` query. filter({ visible: true })
+    // keeps this scoped to the one real, on-screen legend even if a
+    // route ever grows a route-segment loading.tsx (see the /edit test
+    // below's own comment) — the invisible streaming-staging duplicate
+    // that would introduce is never what a user actually sees.
+    const cardDiv = page.getByText("Billing details", { exact: true }).filter({ visible: true }).locator("../../..");
     await expect.poll(() => cardDiv.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(27, 31, 38)");
 
     expect(errors).toEqual([]);
@@ -77,7 +81,16 @@ test.describe("Design System Batch 9 — Remaining Clients surfaces", () => {
     await page.goto(`/clients/${fixtures.clientA.id}/edit`);
     await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("dark");
 
-    const cardDiv = page.getByText("Billing details", { exact: true }).locator("../../..");
+    // This route has its own loading.tsx, so Next.js streams it: for a
+    // short window after navigation, the real "Billing details" card
+    // coexists in the DOM with an invisible <div hidden id="S:N"> staging
+    // copy of the same content (React's out-of-order Suspense-boundary
+    // replacement protocol, mid-swap) — never a second copy a user can
+    // actually see. A bare getByText(...) matches DOM text regardless of
+    // visibility, so it can catch that staging copy too and strict-mode-
+    // violate; filter({ visible: true }) keeps this scoped to the one
+    // real, on-screen card.
+    const cardDiv = page.getByText("Billing details", { exact: true }).filter({ visible: true }).locator("../../..");
     await expect.poll(() => cardDiv.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(27, 31, 38)");
 
     // Portal Access section — existing portal user (fixtures.portalUser)
@@ -86,7 +99,14 @@ test.describe("Design System Batch 9 — Remaining Clients surfaces", () => {
     const portalHeading = page.getByRole("heading", { name: "Client Portal access" });
     await expect(portalHeading).toBeVisible();
     await expect.poll(() => portalHeading.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(236, 237, 238)");
-    await expect(page.getByText(fixtures.portalUser.email)).toBeVisible();
+    // Same streaming-staging duplicate as the "Billing details" card
+    // above, just on a different (later-resolving) Suspense boundary —
+    // reaching this check sooner after navigation (now that the Billing
+    // details check above no longer stalls on its own strict-mode
+    // violation) lands squarely inside this boundary's own still-active
+    // streaming window. Same fix, same reasoning: filter to the one
+    // real, on-screen row.
+    await expect(page.getByText(fixtures.portalUser.email).filter({ visible: true })).toBeVisible();
 
     // Attachments passive regression — already-migrated shared component,
     // still opaque/readable in Dark when consumed from this page.

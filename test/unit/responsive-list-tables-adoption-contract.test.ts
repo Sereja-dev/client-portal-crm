@@ -78,14 +78,18 @@ describe("Clients list page — responsive stacked-card adoption", () => {
     expect(source).toMatch(/<RecordCardList>[\s\S]*?\{clients\.map/);
   });
 
-  it("every real data column (Name, Company, Email, Phone, Status, Created) has a matching RecordCardField — no field silently dropped", () => {
+  it("every real data column (Name, Company, Email, Phone, Status, Tags, Created) has a matching RecordCardField — no field silently dropped", () => {
     const listStart = source.indexOf("<RecordCardList>");
     const listEnd = source.indexOf("</RecordCardList>");
     expect(listStart).toBeGreaterThan(-1);
     expect(listEnd).toBeGreaterThan(listStart);
     const dataHeaders = countDataHeaders(source);
     const cardFields = countCardFields(source, [listStart, listEnd]);
-    expect(dataHeaders).toBe(6);
+    // Tags V2 added a Tags column after this contract was first written
+    // (7 data columns today, not the original 6) — see this describe
+    // block's own field-parity intent above: the count itself must track
+    // the real table, not be pinned to whatever it was on day one.
+    expect(dataHeaders).toBe(7);
     expect(cardFields).toBe(dataHeaders);
   });
 

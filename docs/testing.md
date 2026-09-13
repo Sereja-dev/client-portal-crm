@@ -417,6 +417,34 @@ stays green — and is not referenced by any script or CI workflow.
   result, a malformed Prisma error) is ever observed — that would be a
   materially different, urgent situation, not covered by this document.
 
+### Related but distinct: raw isolated `pg.Client` variant (schema-migration tests)
+
+`test/integration/custom-fields/schema-migration.test.ts` and
+`test/integration/clients/contacts-schema-migration.test.ts` don't use
+the shared `pg-pool`-backed harness above at all — each test spins up
+its own disposable `PGlite` + `PGLiteSocketServer` + a single raw,
+non-pooled `pg.Client` on its own port. A related but mechanistically
+distinct wire-protocol race has been observed there too: an
+asynchronous, unhandled `Error: Received unexpected parseComplete
+message from backend` (or a sibling protocol-message error), sometimes
+attributed by the test runner to a nearby/unrelated test rather than
+the one actually racing. When it fires, the schema assertion it lands
+near can intermittently read as *resolved* where a CHECK/unique
+constraint should have rejected the query — this is the race
+corrupting which response the client reads, not the constraint failing
+to enforce; standalone reruns of the same file have been observed
+alternating cleanly between pass and fail with no code changes at all.
+
+This is not by itself evidence of a schema defect. Before invoking this
+family for a schema-migration test, triage must still confirm: the
+underlying SQL/constraint is independently correct (read the migration,
+don't infer it from the flaky run), the failure is non-deterministic
+under repeated standalone runs of the same file, and the signature
+matches this documented family. As above: never "fix" this with
+retries, longer arbitrary timeouts, weakened assertions, or a schema
+change — a real constraint defect must still be found and fixed on its
+own merits if one is ever confirmed.
+
 ## Why some things are deliberately not E2E
 
 E2E tests are the slowest and least precise layer to debug when they fail
