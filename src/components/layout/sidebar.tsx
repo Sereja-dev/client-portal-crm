@@ -15,6 +15,13 @@ const BASE_LINKS = [
   { href: "/requests", label: "Requests" },
   { href: "/quotes", label: "Quotes" },
   { href: "/invoices", label: "Invoices" },
+  // Contracts Phase 2 (Staff UI) — placed immediately after Invoices, the
+  // same operational-record tier (never under Settings — Contracts are a
+  // business record like Quote/Invoice, not organization configuration).
+  // Visible to every Staff role (OWNER/ADMIN/MEMBER, locked architecture
+  // §I) — no role gate here, unlike Recurring Invoices' own OWNER/ADMIN
+  // link just below.
+  { href: "/contracts", label: "Contracts" },
 ];
 
 // Recurring Invoices Phase 2A — OWNER/ADMIN-only, same "the whole feature

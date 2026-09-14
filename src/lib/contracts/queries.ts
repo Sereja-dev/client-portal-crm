@@ -15,9 +15,29 @@ import type { PrismaClientOrTx } from "./types";
  * indistinguishable from a nonexistent one" doctrine.
  */
 
-export type ContractWithClient = Contract & { client: { id: string; name: string } };
+export type ContractWithClient = Contract & {
+  client: { id: string; name: string };
+  // Contracts Phase 2 (Staff UI) — additive to Phase 1's own reviewed
+  // shape: the list/detail UI needs the current Project name and the
+  // current live signatory identity (not just the SENT snapshot) to
+  // display "current relational Client/Project/signatory link" alongside
+  // frozen sent-party data where relevant (locked architecture §19). Both
+  // are optional relations already on Contract itself — this widens what
+  // every existing service.ts caller of WITH_CLIENT returns, never a
+  // second query or a new include shape.
+  project: { id: string; name: string } | null;
+  signatoryContact: { id: string; name: string; email: string | null; role: string | null; archivedAt: Date | null } | null;
+};
 
-const WITH_CLIENT = { client: { select: { id: true, name: true } } };
+// Exported so service.ts's own lifecycle mutations (create/update/send/
+// accept/terminate/archive/restore) return this exact same enriched
+// shape too, via one shared constant rather than two independently
+// hand-maintained copies of the same include object.
+export const WITH_CLIENT = {
+  client: { select: { id: true, name: true } },
+  project: { select: { id: true, name: true } },
+  signatoryContact: { select: { id: true, name: true, email: true, role: true, archivedAt: true } },
+};
 
 export type ListContractsOptions = {
   /** Defaults to excluding archived rows — same convention as listQuoteTemplates/listTags. */

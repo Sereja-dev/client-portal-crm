@@ -228,6 +228,38 @@ describe("formatActivity — STATUS_CHANGED across entity types", () => {
     expect(result.actionLabel).toBe("created invoice INV-1");
     expect(result.detailLines).toEqual(["$100.00"]);
   });
+
+  // Contracts Phase 2 (Staff UI) — CONTRACT routed through this same
+  // generic model (format-activity.ts's own isDataEntity()/entityNoun()).
+  // The `actor` key ("staff"/"portal") service.ts's own STATUS_CHANGED
+  // metadata always carries is deliberately never asserted on here — it
+  // is not read by this shared formatter at all, exactly like every
+  // other entity's own extra, formatter-irrelevant metadata keys.
+  it("Contract CREATED", () => {
+    const result = activity("CONTRACT", "CREATED", { name: "Website Redesign Agreement", actorName: "Jane Doe" });
+    expect(result.actionLabel).toBe("created contract Website Redesign Agreement");
+  });
+
+  it("Contract STATUS_CHANGED (DRAFT -> SENT)", () => {
+    const result = activity("CONTRACT", "STATUS_CHANGED", {
+      name: "Website Redesign Agreement",
+      from: "DRAFT",
+      to: "SENT",
+      actorName: "Jane Doe",
+    });
+    expect(result.actionLabel).toBe("changed contract Website Redesign Agreement status");
+    expect(result.detailLines).toEqual(["Draft → Sent"]);
+  });
+
+  it("Contract STATUS_CHANGED (SENT -> ACCEPTED, Portal actor)", () => {
+    const result = activity("CONTRACT", "STATUS_CHANGED", {
+      name: "Website Redesign Agreement",
+      from: "SENT",
+      to: "ACCEPTED",
+      actor: "portal",
+    });
+    expect(result.detailLines).toEqual(["Sent → Accepted"]);
+  });
 });
 
 describe("formatActivity — Invitation events", () => {

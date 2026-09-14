@@ -107,7 +107,18 @@ function isDataEntity(entityType: ActivityEntityType): boolean {
     // handles for CLIENT/PROJECT/TASK ({name, changedFields?} /
     // {from, to}) — no new formatter, no new ActivityAction, just one
     // more entityType routed through the existing one.
-    entityType === "LEAD"
+    entityType === "LEAD" ||
+    // Contracts Phase 2 (Staff UI) — CONTRACT's own CREATED/STATUS_CHANGED
+    // metadata (src/lib/contracts/service.ts) was deliberately written in
+    // this exact same generic shape from Phase 1 onward ({name: title} /
+    // {from, to, name, actor?}) specifically so it could be routed
+    // through this already-proven, safe generic model rather than a new
+    // bespoke formatter (locked architecture §30: "do not create a new
+    // bespoke Contract timeline system"). The extra `actor` key
+    // (STATUS_CHANGED metadata's own "staff" | "portal" marker) is simply
+    // never read by buildDataEntityModel below — harmless, not a shape
+    // mismatch.
+    entityType === "CONTRACT"
   );
 }
 
@@ -123,6 +134,8 @@ function entityNoun(entityType: ActivityEntityType): string {
       return "invoice";
     case "LEAD":
       return "lead";
+    case "CONTRACT":
+      return "contract";
     default:
       return "";
   }

@@ -20,6 +20,19 @@ describe("buildSidebarLinks", () => {
     expect(memberLinks).toEqual(ownerLinks.filter((href) => href !== "/recurring-invoices"));
   });
 
+  // Contracts Phase 2 (Staff UI) — visible to every role, immediately
+  // after Invoices, never role-gated (locked architecture §I).
+  it("Contracts is visible to every role, immediately after Invoices", () => {
+    for (const role of ["OWNER", "ADMIN", "MEMBER"] as const) {
+      const links = buildSidebarLinks(role);
+      const invoicesIndex = links.findIndex((l) => l.href === "/invoices");
+      const contractsIndex = links.findIndex((l) => l.href === "/contracts");
+      expect(contractsIndex).toBeGreaterThan(-1);
+      expect(contractsIndex).toBe(invoicesIndex + 1);
+      expect(links[contractsIndex].label).toBe("Contracts");
+    }
+  });
+
   // Reports Phase 2 — un-role-gated in the sidebar, exactly like
   // Analytics: every role sees the link; MEMBER's actual block happens
   // server-side, on the page itself (ReportsAccessDenied), never here.

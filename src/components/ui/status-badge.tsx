@@ -162,6 +162,15 @@ export const STATUS_TONES: Record<string, StatusTone> = {
   // meaning values above). Mirrors ON_HOLD's own "temporarily inactive,
   // not a terminal/negative outcome" warning tone at the equivalent tier.
   PAUSED: "warning",
+
+  // Contracts Phase 2 (Staff UI) — ContractStatus's own TERMINATED value
+  // (DRAFT/SENT/ACCEPTED/ACTIVE/EXPIRED above already cover every other
+  // stored or derived Contract status). A terminated Contract is a
+  // resolved, wound-down business relationship, not a negative outcome
+  // like CANCELLED/DECLINED/REVOKED (those keep "danger") — mirrors
+  // CLOSED/ARCHIVED's own "wound down, no longer active" muted tone
+  // instead.
+  TERMINATED: "muted",
 };
 
 // Custom Statuses Phase 2A (Section P) — `tone` is an optional override

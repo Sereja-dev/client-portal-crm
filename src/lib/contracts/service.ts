@@ -15,7 +15,7 @@ import {
   type ParsedContractValues,
 } from "./validation";
 import { mapContractWriteError } from "./write-conflict-mapper";
-import { getContractForStaff, getContractForPortalClient, type ContractWithClient } from "./queries";
+import { getContractForStaff, getContractForPortalClient, WITH_CLIENT, type ContractWithClient } from "./queries";
 import {
   buildContractOrganizationSnapshotV1,
   buildContractClientSnapshotV1,
@@ -49,8 +49,6 @@ class ContractTransitionRaceError extends Error {}
 
 /** Thrown from inside sendContract's transaction when the freshly-read signatoryContactId is no longer valid (foreign/nonexistent/archived) at SEND time — see sendContract's own doc comment for the locked SEND-time signatory revalidation rule. */
 class ContractSignatoryInvalidError extends Error {}
-
-const WITH_CLIENT = { client: { select: { id: true, name: true } } } as const;
 
 // ---------------------------------------------------------------------------
 // Create
