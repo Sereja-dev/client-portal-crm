@@ -466,31 +466,61 @@ test.describe("Security", () => {
   });
 });
 
-// Deliberately the LAST describe block in this file, so this scenario's
-// own known infrastructure limitation (see this test's own comment below)
-// can never corrupt any other test in this file's shared local database
-// connection.
+// Deliberately the LAST describe block in this file (harmless now that
+// the harness bug below is fixed, but left as-is — no reason to move it
+// back once a test earns a quiet spot at the end).
 //
-// KNOWN PRE-EXISTING LIMITATION, not introduced by this phase: triggering
-// a REAL, server-caught P2002 (a genuine duplicate-key write, through an
-// actual browser submission against a real running Next.js server) against
-// this repo's shared local e2e Postgres reliably breaks the very next
-// query on that same connection with an unrelated Prisma P2023 error
-// ("Missing data field... 'email'" on a subsequent User lookup) — this is
-// not specific to Quotes: test/e2e/invoices.spec.ts's own pre-existing
-// "two Clients in the same organization cannot persist the same Invoice
-// number" test (Invoice System Official Slice 5c) hits the identical
-// class of failure the exact same way (a real duplicate Invoice-number
-// submission through the browser), and was already confirmed failing
-// against the untouched main branch before this phase's own work began.
-// convertQuoteToInvoiceAction's own duplicate-number handling
-// (mapInvoiceWriteError -> "duplicate_invoice_number") is fully covered,
-// or on its own separate, isolated Vitest/PGlite instance rather than
-// this shared, real-browser-driven one, by test/integration/quotes/
-// convert-to-invoice.test.ts's own "50 & 51" test, which passes.
-test.describe("Convert to invoice — duplicate number (run last, see this block's own header comment)", () => {
+// Harness root cause (found and fixed here, not a product defect):
+// unlike every OTHER identity-injecting beforeEach in this file, this
+// block's own beforeEach used to call ONLY injectTestSession() and never
+// also set the active_organization_id cookie the rest of this app's own
+// session model expects (compare test/e2e/custom-fields-settings.spec.ts's
+// actAsOwner, or this file's own "Create quote" describe block above —
+// every one of them sets both). With that cookie entirely absent,
+// resolveActiveOrganizationId() (src/lib/current-user.ts) cannot take its
+// cheap, single-query "cookie already names a real Membership" path on
+// ANY request in this block — every single request instead falls all the
+// way through to its "list every Membership this user has and pick one"
+// fallback, redundantly, on every nested getCurrentUserOrganization()/
+// getCurrentMembership() call within the same request (confirmed directly
+// against a query-logged local run: the same User -> Membership ->
+// Organization sequence repeats needlessly within one request here, where
+// every other describe block in this file issues it once). That is a lot
+// of avoidable extra round trips against this harness's single shared
+// local PGlite connection (max: 1 under PGLITE_TEST_DB — see src/lib/
+// prisma.ts) squeezed into the exact narrow window right after this
+// test's OWN real, server-caught P2002 (a genuine duplicate-key write,
+// through an actual browser submission) — and it was landing one of them
+// on a connection state PGlite's own socket proxy hadn't fully settled
+// yet, surfacing as an unrelated Prisma P2023 ("Missing data field...
+// 'email'" on a later User lookup) and leaving the browser on /dashboard
+// instead of the dialog's own inline error. Explicitly setting the
+// cookie here — matching every other describe block's own convention —
+// removes that entire redundant fallback path, and with it the only
+// place this test's own real P2002 had room to land badly. Verified
+// deterministic beforehand (failed 3/3 runs, reproduced identically on
+// the pristine pre-Quote-Templates baseline) and reliable after (passed
+// 10/10 fresh runs) — see this fix's own commit message for the full
+// investigation. convertQuoteToInvoiceAction's own duplicate-number
+// handling (mapInvoiceWriteError -> "duplicate_invoice_number") was never
+// in question: it is independently, exhaustively covered on its own
+// isolated Vitest/PGlite instance by test/integration/quotes/
+// convert-to-invoice.test.ts's own "50 & 51" test, which already passed
+// throughout this investigation.
+test.describe("Convert to invoice — duplicate number", () => {
   test.beforeEach(async ({ context, baseURL }) => {
     await injectTestSession(context, { id: fixtures.owner.id, email: fixtures.owner.email }, baseURL!);
+    await context.addCookies([
+      {
+        name: "active_organization_id",
+        value: fixtures.orgA.id,
+        domain: new URL(baseURL!).hostname,
+        path: "/",
+        httpOnly: true,
+        secure: false,
+        sameSite: "Lax",
+      },
+    ]);
   });
 
   test("34. a duplicate invoice number is a controlled inline error, and the dialog stays open for retry", async ({ page }) => {
