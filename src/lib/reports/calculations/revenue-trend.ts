@@ -1,4 +1,5 @@
 import type { ReportsBucketUnit, ReportsPeriodRange } from "../period";
+import { toExactCents, centsToAmount } from "./money";
 
 /**
  * Reports Phase 1 — pure bucketing for the Paid revenue trend section.
@@ -96,33 +97,43 @@ const BUCKET_STRATEGIES: Record<ReportsBucketUnit, BucketStrategy> = {
  * whose `end` lands exactly on a bucket boundary (e.g. `this_month`'s
  * `end` is the 1st of next month) never grows a spurious trailing
  * bucket for an instant the period doesn't actually include.
+ *
+ * Cent-exactness (Phase 1 hardening audit): accumulates in exact integer
+ * cents per bucket (see ./money.ts) — never repeated JS float addition of
+ * Decimal amounts. Every row belongs to exactly one bucket (proved by
+ * `range.start`/`range.end` already bounding every row, combined with
+ * `bucketStartMs` being a monotonic floor function — see this function's
+ * own `buckets.has(key)` guard below), so summing every bucket's own
+ * exact cents total always equals the same grand total
+ * queries/financial.ts's own summarizePaidRevenue() computes from the
+ * identical row set — the KPI and this trend can never silently disagree.
  */
 export function bucketReportsRevenue(rows: ReportsPaidInvoiceRow[], range: ReportsPeriodRange): ReportsRevenueTrend {
   const strategy = BUCKET_STRATEGIES[range.bucketUnit];
 
-  const buckets = new Map<string, number>();
+  const bucketCents = new Map<string, number>();
   const startMs = strategy.bucketStartMs(range.start);
   const lastIncludedInstant = new Date(range.end.getTime() - 1);
   const endMs = strategy.bucketStartMs(lastIncludedInstant);
   for (let ms = startMs; ms <= endMs; ms = strategy.nextMs(ms)) {
-    buckets.set(strategy.formatKey(ms), 0);
+    bucketCents.set(strategy.formatKey(ms), 0);
   }
 
   for (const row of rows) {
-    const amount = Number(row.amount);
+    const cents = toExactCents(row.amount);
     const key = strategy.formatKey(strategy.bucketStartMs(row.paidAt));
     // A row's own bucket key is always within [startMs, endMs] since the
     // caller already filtered paidAt to [range.start, range.end) — but
     // guard against ever creating an extra bucket if that invariant is
     // ever violated by a future caller.
-    if (buckets.has(key)) {
-      buckets.set(key, (buckets.get(key) ?? 0) + amount);
+    if (bucketCents.has(key)) {
+      bucketCents.set(key, (bucketCents.get(key) ?? 0) + cents);
     }
   }
 
-  const points = Array.from(buckets.entries())
+  const points = Array.from(bucketCents.entries())
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([bucketStart, amount]) => ({ bucketStart, amount }));
+    .map(([bucketStart, cents]) => ({ bucketStart, amount: centsToAmount(cents) }));
 
   return { unit: range.bucketUnit, points };
 }

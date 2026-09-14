@@ -49,6 +49,13 @@ export type ReportsLeadPipelineSnapshot = {
    * only — a rough, non-primary secondary figure (see this app's own
    * Lead.value schema comment: "a rough estimated deal value, never a
    * real charge"). Deliberately not part of the Overview KPI set.
+   *
+   * Cent-exactness note (Phase 1 hardening audit): this SUM already
+   * happens DB-side (see getLeadPipelineSnapshot's own `prisma.lead.aggregate`
+   * call below), converted from Decimal to a JS number exactly once —
+   * never repeated JS float addition. No change was needed here; see
+   * src/lib/reports/calculations/money.ts's own doc comment for the
+   * pattern this already satisfies by construction.
    */
   activePipelineValue: number;
 };

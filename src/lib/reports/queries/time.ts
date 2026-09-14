@@ -24,15 +24,35 @@ export type ReportsClientTime = { clientId: string; clientName: string; totalMin
 /**
  * Time by Client: TimeEntry -> Project -> Client, non-archived entries
  * only, `workDate` within range. `TimeEntry.organizationId` (a required,
- * direct column on TimeEntry itself) is the sole tenant boundary applied
- * here — Project/Client are looked up purely for display names, never
- * re-scoped by their own (legacy-nullable) organizationId. This matches
- * this app's own established precedent exactly:
- * src/lib/time-entries/entries.ts's TIME_ENTRY_DISPLAY_INCLUDE already
- * joins `project: { select: { id, name } }` with no additional
- * organizationId filter on the joined Project, relying on the domain
- * layer's own write-time guarantee that a TimeEntry's projectId always
- * belongs to the same organization as the entry itself.
+ * direct column on TimeEntry itself) scopes the aggregate below, exactly
+ * as before this hardening pass.
+ *
+ * Tenant hardening (Phase 1 hardening audit): unlike the aggregate above,
+ * nothing at the database level ties a TimeEntry's `projectId` to a
+ * Project in the SAME organization — that invariant is enforced only by
+ * the domain layer at write time (src/lib/time-entries/entries.ts), never
+ * by a Prisma/Postgres FK, since Project's own `organizationId` is the
+ * legacy-nullable column (see prisma/schema.prisma's own header comment
+ * on Client/Project/Task). The follow-up Project lookup below therefore
+ * REQUIRES both `Project.organizationId === organizationId` AND
+ * `Project.client.organizationId === organizationId` directly in the
+ * Prisma `where` (a relation filter on `client`, not a post-fetch JS
+ * filter) — so a corrupt or future-invalid cross-tenant Project/Client
+ * relation can never surface another organization's Project or Client
+ * identity here, even though no currently-shipped write path can
+ * actually produce one. The same equality check also excludes a legacy
+ * row whose own `organizationId` is null on either side (null never
+ * equals a real UUID) — a null-organizationId Project/Client is
+ * therefore NEVER surfaced in this organization-specific table, by the
+ * same "safety wins" rule, even though a real TimeEntry points at it.
+ *
+ * That TimeEntry's own minutes are NOT lost from Reports as a whole: they
+ * still count in `getTrackedMinutes()`'s own total above, which is scoped
+ * purely by the TimeEntry row's own (reliable, non-nullable)
+ * organizationId and has no Project/Client dependency at all. Only this
+ * function's own per-Client breakdown excludes it — the existing
+ * `if (!client) continue` guard below now also naturally absorbs this
+ * case, with no change to its own logic.
  *
  * Two bounded queries, never N+1: an aggregate `groupBy` on TimeEntry (by
  * projectId), then one batched `findMany` on Project (with its Client)
@@ -67,7 +87,11 @@ export async function getTimeByClient(organizationId: string, range: ReportsPeri
 
   const projectIds = grouped.map((g) => g.projectId as string);
   const projects = await prisma.project.findMany({
-    where: { id: { in: projectIds } },
+    where: {
+      id: { in: projectIds },
+      organizationId,
+      client: { organizationId },
+    },
     select: { id: true, client: { select: { id: true, name: true } } },
   });
   const clientByProjectId = new Map(projects.map((p) => [p.id, p.client]));
@@ -75,11 +99,13 @@ export async function getTimeByClient(organizationId: string, range: ReportsPeri
   const minutesByClient = new Map<string, { name: string; minutes: number }>();
   for (const row of grouped) {
     const client = clientByProjectId.get(row.projectId as string);
-    // Defensive only — Project.clientId is required (never null), so
-    // every found Project always carries a Client; this guards solely
-    // against a projectId whose Project row itself no longer exists
-    // (never expected, since TimeEntry.projectId is SetNull on Project
-    // deletion, not left dangling — but never assumed silently).
+    // A miss here now covers two cases, both deliberately excluded: (1)
+    // the pre-existing defensive case — a projectId whose Project row no
+    // longer exists at all (never expected, since TimeEntry.projectId is
+    // SetNull on Project deletion, not left dangling); (2) the hardened
+    // case this audit added — a Project/Client that failed the
+    // organizationId match above (cross-tenant or legacy-null). Neither
+    // is ever assumed away silently.
     if (!client) continue;
     const minutes = row._sum.durationMinutes ?? 0;
     const existing = minutesByClient.get(client.id);

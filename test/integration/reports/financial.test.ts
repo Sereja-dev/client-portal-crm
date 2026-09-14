@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { getPaidInvoiceRows, summarizePaidRevenue, getOutstandingNow, getTopClientsByPaidRevenue } from "@/lib/reports/queries/financial";
+import { bucketReportsRevenue } from "@/lib/reports/calculations/revenue-trend";
 import { getReportsPeriodRange } from "@/lib/reports/period";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { createExtraClient, createExtraInvoice, cleanupExtraReportsData } from "./helpers";
@@ -109,7 +110,7 @@ describe("Reports financial queries", () => {
       expect(summarizePaidRevenue(eurRows).paidRevenue).toBe(50);
     });
 
-    it("Decimal totals remain exact to the cent across multiple rows", async () => {
+    it("Decimal totals remain exact to the cent across multiple rows -- exact, not merely close", async () => {
       const range = getReportsPeriodRange("this_month", NOW);
       const a = await createExtraInvoice({ organizationId: fixtures.orgA.id, clientId: fixtures.clientA.id, amount: "10.10", currency: "USD", status: "PAID", paidAt: new Date("2026-06-01T00:00:00.000Z") });
       const b = await createExtraInvoice({ organizationId: fixtures.orgA.id, clientId: fixtures.clientA.id, amount: "0.20", currency: "USD", status: "PAID", paidAt: new Date("2026-06-02T00:00:00.000Z") });
@@ -117,7 +118,34 @@ describe("Reports financial queries", () => {
       invoiceIds = [a.id, b.id, c.id];
 
       const rows = await getPaidInvoiceRows(fixtures.orgA.id, "USD", range);
-      expect(summarizePaidRevenue(rows).paidRevenue).toBeCloseTo(15.35, 5);
+      expect(summarizePaidRevenue(rows).paidRevenue).toBe(15.35);
+    });
+
+    it("cent-exact against real, DB-round-tripped Decimal rows: 0.10 + 0.20 is exactly 0.3, not 0.30000000000000004", async () => {
+      const range = getReportsPeriodRange("this_month", NOW);
+      const a = await createExtraInvoice({ organizationId: fixtures.orgA.id, clientId: fixtures.clientA.id, amount: "0.10", currency: "USD", status: "PAID", paidAt: new Date("2026-06-01T00:00:00.000Z") });
+      const b = await createExtraInvoice({ organizationId: fixtures.orgA.id, clientId: fixtures.clientA.id, amount: "0.20", currency: "USD", status: "PAID", paidAt: new Date("2026-06-02T00:00:00.000Z") });
+      invoiceIds = [a.id, b.id];
+
+      const rows = await getPaidInvoiceRows(fixtures.orgA.id, "USD", range);
+      expect(summarizePaidRevenue(rows).paidRevenue).toBe(0.3);
+    });
+
+    it("sum(revenueTrend buckets) exactly equals paidRevenue at cent precision, for the same currency/range", async () => {
+      const range = getReportsPeriodRange("this_month", NOW);
+      const a = await createExtraInvoice({ organizationId: fixtures.orgA.id, clientId: fixtures.clientA.id, amount: "10.01", currency: "USD", status: "PAID", paidAt: new Date("2026-06-01T00:00:00.000Z") });
+      const b = await createExtraInvoice({ organizationId: fixtures.orgA.id, clientId: fixtures.clientA.id, amount: "20.02", currency: "USD", status: "PAID", paidAt: new Date("2026-06-05T00:00:00.000Z") });
+      const c = await createExtraInvoice({ organizationId: fixtures.orgA.id, clientId: fixtures.clientA.id, amount: "30.03", currency: "USD", status: "PAID", paidAt: new Date("2026-06-10T00:00:00.000Z") });
+      invoiceIds = [a.id, b.id, c.id];
+
+      const rows = await getPaidInvoiceRows(fixtures.orgA.id, "USD", range);
+      const { paidRevenue } = summarizePaidRevenue(rows);
+      const trend = bucketReportsRevenue(rows, range);
+
+      const trendTotalCents = trend.points.reduce((sum, p) => sum + Math.round(p.amount * 100), 0);
+      const paidRevenueCents = Math.round(paidRevenue * 100);
+      expect(trendTotalCents).toBe(paidRevenueCents);
+      expect(paidRevenue).toBe(60.06);
     });
 
     it("never leaks a foreign tenant's PAID invoice into this organization's total", async () => {
@@ -151,6 +179,15 @@ describe("Reports financial queries", () => {
       // subtracted around, since it genuinely IS an outstanding DRAFT.
       const outstanding = await getOutstandingNow(fixtures.orgA.id, "USD");
       expect(outstanding).toBe(10 + 20 + 30 + 500);
+    });
+
+    it("cent-exact: 0.10 + 0.20 across two outstanding invoices is exactly 0.3 -- DB-side SUM, converted once, was already exact and stays that way", async () => {
+      const a = await createExtraInvoice({ organizationId: fixtures.orgA.id, clientId: fixtures.clientA.id, amount: "0.10", currency: "EUR", status: "SENT" });
+      const b = await createExtraInvoice({ organizationId: fixtures.orgA.id, clientId: fixtures.clientA.id, amount: "0.20", currency: "EUR", status: "DRAFT" });
+      invoiceIds = [a.id, b.id];
+
+      const outstanding = await getOutstandingNow(fixtures.orgA.id, "EUR");
+      expect(outstanding).toBe(0.3);
     });
 
     it("is NOT period-scoped -- an old outstanding invoice from long ago still counts, regardless of any date range", async () => {
@@ -235,6 +272,19 @@ describe("Reports financial queries", () => {
       const row = top.find((c) => c.clientId === client.id)!;
       expect(row.paidAmount).toBe(100);
       expect(row.paidInvoiceCount).toBe(2);
+    });
+
+    it("cent-exact: two PAID invoices of 0.10 and 0.20 for the same Client rank at exactly 0.3, not 0.30000000000000004", async () => {
+      const client = await createExtraClient(fixtures.orgA.id, fixtures.owner.id, "Reports Cent-Exact Rank Client");
+      clientIds = [client.id];
+      const range = getReportsPeriodRange("this_month", NOW);
+      const i1 = await createExtraInvoice({ organizationId: fixtures.orgA.id, clientId: client.id, amount: "0.10", currency: "USD", status: "PAID", paidAt: new Date("2026-06-02T00:00:00.000Z") });
+      const i2 = await createExtraInvoice({ organizationId: fixtures.orgA.id, clientId: client.id, amount: "0.20", currency: "USD", status: "PAID", paidAt: new Date("2026-06-03T00:00:00.000Z") });
+      invoiceIds = [i1.id, i2.id];
+
+      const top = await getTopClientsByPaidRevenue(fixtures.orgA.id, "USD", range);
+      const row = top.find((c) => c.clientId === client.id)!;
+      expect(row.paidAmount).toBe(0.3);
     });
 
     it("never blends currencies into the ranking", async () => {

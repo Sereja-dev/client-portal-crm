@@ -145,6 +145,15 @@ describe("Reports Lead queries", () => {
       expect(snapshot.activePipelineValue).toBe(400);
     });
 
+    it("cent-exact: two active Leads valued at 0.10 and 0.20 sum to exactly 0.3, not 0.30000000000000004 -- DB-side SUM, converted once, was already exact", async () => {
+      const a = await createExtraLead({ organizationId: fixtures.orgA.id, stage: "QUALIFIED", value: "0.10" });
+      const b = await createExtraLead({ organizationId: fixtures.orgA.id, stage: "PROPOSAL", value: "0.20" });
+      leadIds = [a.id, b.id];
+
+      const snapshot = await getLeadPipelineSnapshot(fixtures.orgA.id);
+      expect(snapshot.activePipelineValue).toBe(0.3);
+    });
+
     it("never leaks a foreign tenant's Lead into the snapshot", async () => {
       const foreign = await createExtraLead({ organizationId: fixtures.orgB.id, stage: "QUALIFIED" });
       leadIds = [foreign.id];

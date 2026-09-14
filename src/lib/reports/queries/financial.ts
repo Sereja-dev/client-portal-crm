@@ -2,6 +2,7 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { ReportsPeriodRange } from "../period";
 import type { ReportsPaidInvoiceRow } from "../calculations/revenue-trend";
+import { toExactCents, sumExactCents, centsToAmount } from "../calculations/money";
 
 /**
  * Reports Phase 1 — financial queries. Every function here takes an
@@ -46,9 +47,16 @@ export async function getPaidInvoiceRows(
   return rows.map((row) => ({ amount: row.amount, paidAt: row.paidAt as Date }));
 }
 
+/**
+ * Reports Phase 1 hardening — exact-to-the-cent, never repeated JS float
+ * addition of Decimal amounts (see calculations/money.ts's own doc
+ * comment). Every row's amount is converted to exact integer cents,
+ * summed as integers, and divided back to a decimal number exactly once,
+ * at this function's own return.
+ */
 export function summarizePaidRevenue(rows: ReportsPaidInvoiceRow[]): { paidRevenue: number; paidInvoiceCount: number } {
-  const paidRevenue = rows.reduce((sum, row) => sum + Number(row.amount), 0);
-  return { paidRevenue, paidInvoiceCount: rows.length };
+  const totalCents = sumExactCents(rows.map((row) => toExactCents(row.amount)));
+  return { paidRevenue: centsToAmount(totalCents), paidInvoiceCount: rows.length };
 }
 
 /**
@@ -60,6 +68,13 @@ export function summarizePaidRevenue(rows: ReportsPaidInvoiceRow[]): { paidReven
  * period would misrepresent what's actually owed right now). Never
  * includes PAID (that's Paid revenue, a different number) or CANCELLED
  * (never owed).
+ *
+ * Cent-exactness note (Phase 1 hardening audit): this SUM already happens
+ * DB-side (Postgres' own exact Decimal aggregation), and the result is
+ * converted from Decimal to a JS number exactly once, below — never
+ * repeated JS float addition. No change was needed here; see
+ * calculations/money.ts's own doc comment for the pattern this function
+ * already satisfies by construction.
  */
 export async function getOutstandingNow(organizationId: string, currency: string): Promise<number> {
   const result = await prisma.invoice.aggregate({
@@ -86,6 +101,16 @@ const TOP_CLIENTS_LIMIT = 5;
  * `findMany` for the winning rows' display names. Deterministic tie-break
  * (`clientId` ascending after the amount) so two Clients tied on paid
  * amount always return in the same order.
+ *
+ * Cent-exactness note (Phase 1 hardening audit): `_sum.amount` per group
+ * is a DB-side, exact Decimal aggregate, converted to a JS number exactly
+ * once per group below — never repeated JS float addition. No change was
+ * needed here; see calculations/money.ts's own doc comment.
+ *
+ * Tenant-scoping note (Phase 1 hardening audit): the Client `findMany`
+ * below already filters by `organizationId` in addition to `id IN (...)`
+ * — this lookup was already defense-in-depth tenant-scoped before this
+ * audit and required no change.
  *
  * `Invoice.clientId` is required and `onDelete: Restrict` (see
  * prisma/schema.prisma's own Invoice model) — a Client can never be

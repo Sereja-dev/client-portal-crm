@@ -103,7 +103,29 @@ describe("bucketReportsRevenue", () => {
       ],
       range,
     );
-    expect(result.points[0].amount).toBeCloseTo(15.75, 5);
+    expect(result.points[0].amount).toBe(15.75);
+  });
+
+  it("cent-exact: multiple rows in the same bucket accumulate via exact integer cents, never repeated JS float addition", () => {
+    // Classic floating-point failure case: 0.10 + 0.20 !== 0.3 under
+    // plain JS addition. Proves the bucket accumulator itself (not just
+    // summarizePaidRevenue) is hardened.
+    const range = dayRange("2026-06-01T00:00:00.000Z", "2026-06-02T00:00:00.000Z");
+    const result = bucketReportsRevenue(
+      [
+        { amount: decimal("0.10"), paidAt: new Date("2026-06-01T01:00:00.000Z") },
+        { amount: decimal("0.20"), paidAt: new Date("2026-06-01T02:00:00.000Z") },
+      ],
+      range,
+    );
+    expect(result.points[0].amount).toBe(0.3);
+  });
+
+  it("cent-exact: one hundred 0.01 rows in the same bucket sum to exactly 1, not 1.0000000000000007", () => {
+    const range = dayRange("2026-06-01T00:00:00.000Z", "2026-06-02T00:00:00.000Z");
+    const rows = Array.from({ length: 100 }, () => ({ amount: decimal("0.01"), paidAt: new Date("2026-06-01T01:00:00.000Z") }));
+    const result = bucketReportsRevenue(rows, range);
+    expect(result.points[0].amount).toBe(1);
   });
 
   it("still ignores a row entirely outside the range rather than growing a spurious bucket for it", () => {

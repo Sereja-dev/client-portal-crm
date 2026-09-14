@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { prisma } from "@/lib/prisma";
 import { getTrackedMinutes, getTimeByClient } from "@/lib/reports/queries/time";
 import { getReportsPeriodRange } from "@/lib/reports/period";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
@@ -121,6 +122,91 @@ describe("Reports Time queries", () => {
 
       const result = await getTimeByClient(fixtures.orgA.id, RANGE);
       expect(result.find((r) => r.clientId === fixtures.clientB.id)).toBeUndefined();
+    });
+
+    it("tenant hardening: a corrupted TimeEntry (organizationId = org A, but pointing at org B's own Project) never surfaces org B's Client in org A's Time-by-Client -- and its minutes are excluded from this table, though still counted in the overall Tracked Minutes KPI", async () => {
+      // Deliberately bypasses the domain layer's own write-time org-match
+      // guarantee (src/lib/time-entries/entries.ts) -- exactly the
+      // "corrupted or future-invalid cross-tenant relation" scenario the
+      // Phase 1 hardening review flagged: nothing at the database level
+      // ties TimeEntry.projectId to a same-org Project, so this row is a
+      // real, constructible (if never legitimately produced) state.
+      const projectB = await createExtraProject(fixtures.orgB.id, fixtures.clientB.id, fixtures.orgBOwner.id, "Reports Corrupt Cross-Org Project");
+      projectIds = [projectB.id];
+      const corrupted = await createExtraTimeEntry({
+        organizationId: fixtures.orgA.id, // org A's own TimeEntry...
+        projectId: projectB.id, // ...pointing at org B's own Project
+        durationMinutes: 500,
+        workDate: new Date("2026-06-05T00:00:00.000Z"),
+      });
+      timeEntryIds = [corrupted.id];
+
+      const byClient = await getTimeByClient(fixtures.orgA.id, RANGE);
+      expect(byClient.find((r) => r.clientId === fixtures.clientB.id)).toBeUndefined();
+      expect(byClient.reduce((sum, r) => sum + r.totalMinutes, 0)).toBe(0);
+
+      // The TimeEntry row itself is genuinely org A's own (its own
+      // organizationId column says so) -- Tracked Minutes, scoped purely
+      // by that reliable column, still counts it.
+      expect(await getTrackedMinutes(fixtures.orgA.id, RANGE)).toBe(500);
+    });
+
+    it("tenant hardening: a legacy Project with a null organizationId is never surfaced in Time-by-Client, even though a real org A TimeEntry points at it", async () => {
+      const legacyProject = await prisma.project.create({
+        data: {
+          name: "Reports Legacy Null-Org Project",
+          clientId: fixtures.clientA.id,
+          organizationId: null,
+          ownerId: fixtures.owner.id,
+          status: "IN_PROGRESS",
+        },
+      });
+      projectIds = [legacyProject.id];
+      const entry = await createExtraTimeEntry({
+        organizationId: fixtures.orgA.id,
+        projectId: legacyProject.id,
+        durationMinutes: 240,
+        workDate: new Date("2026-06-05T00:00:00.000Z"),
+      });
+      timeEntryIds = [entry.id];
+
+      const byClient = await getTimeByClient(fixtures.orgA.id, RANGE);
+      expect(byClient.find((r) => r.clientId === fixtures.clientA.id && r.totalMinutes > 0)).toBeUndefined();
+      expect(byClient.reduce((sum, r) => sum + r.totalMinutes, 0)).toBe(0);
+
+      // Still a real org A TimeEntry -- still counted in the overall KPI.
+      expect(await getTrackedMinutes(fixtures.orgA.id, RANGE)).toBe(240);
+    });
+
+    it("tenant hardening: a legacy Client with a null organizationId is never surfaced in Time-by-Client, even when its Project has a real organizationId", async () => {
+      const legacyClient = await prisma.client.create({
+        data: { name: "Reports Legacy Null-Org Client", organizationId: null, userId: fixtures.owner.id },
+      });
+      clientIds = [legacyClient.id];
+      const projectOnLegacyClient = await prisma.project.create({
+        data: {
+          name: "Reports Project On Legacy Client",
+          clientId: legacyClient.id,
+          organizationId: fixtures.orgA.id, // the Project itself claims org A...
+          ownerId: fixtures.owner.id,
+          status: "IN_PROGRESS",
+        },
+      });
+      projectIds = [projectOnLegacyClient.id];
+      const entry = await createExtraTimeEntry({
+        organizationId: fixtures.orgA.id,
+        projectId: projectOnLegacyClient.id,
+        durationMinutes: 90,
+        workDate: new Date("2026-06-05T00:00:00.000Z"),
+      });
+      timeEntryIds = [entry.id];
+
+      // ...but its Client does not -- the relation filter on `client`
+      // requires both sides to match, so this Project is excluded too.
+      const byClient = await getTimeByClient(fixtures.orgA.id, RANGE);
+      expect(byClient.find((r) => r.clientId === legacyClient.id)).toBeUndefined();
+      expect(byClient.reduce((sum, r) => sum + r.totalMinutes, 0)).toBe(0);
+      expect(await getTrackedMinutes(fixtures.orgA.id, RANGE)).toBe(90);
     });
   });
 });
