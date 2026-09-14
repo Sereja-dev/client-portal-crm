@@ -232,6 +232,23 @@ enum ActivityEntityType {
   // any WorkflowAutomation row in this phase — see create-activity.ts's
   // own header comment, untouched by this addition).
   WORKFLOW_AUTOMATION
+
+  // Contracts Phase 1 (schema/domain foundation only — see Contract's own
+  // doc comment). Additive enum value only — same FALLBACK-rendering
+  // safety net as every prior addition above: format-activity.ts's own
+  // isDataEntity()/entityNoun() dispatch has no case for CONTRACT yet, so
+  // it renders as a neutral "Activity recorded" line until a later UI
+  // phase adds a dedicated formatter (the same deliberate incremental
+  // rollout QUOTE/CLIENT_REQUEST/TIME_ENTRY/RECURRING_INVOICE/
+  // WORKFLOW_AUTOMATION above all already went through). notification-
+  // rules.ts's own RULES map has no CONTRACT entry, so this produces no
+  // notification fan-out; workflow-automations/triggers.ts's own trigger
+  // list has no CONTRACT entry either, so no Workflow Automation can ever
+  // fire from it. Only CREATED and STATUS_CHANGED are written by this
+  // phase's own domain layer (contract created; DRAFT->SENT->ACCEPTED->
+  // TERMINATED transitions via STATUS_CHANGED + changedFields) — no new
+  // ActivityAction is added here.
+  CONTRACT
 }
 
 enum ActivityAction {
@@ -447,6 +464,15 @@ model User {
   // comment).
   createdQuoteTemplates QuoteTemplate[] @relation("QuoteTemplateCreatedBy")
 
+  // Contracts Phase 1 (schema/domain foundation only). Same "author"
+  // relation shape as createdQuotes/createdQuoteTemplates above -- audit
+  // metadata only, never an authorization boundary (see Contract's own
+  // doc comment). acceptedContracts is a distinct, separate relation --
+  // the Staff member who *accepted* a Contract on the client's behalf is
+  // not necessarily the one who created it.
+  createdContracts  Contract[] @relation("ContractCreatedBy")
+  acceptedContracts Contract[] @relation("ContractAcceptedByUser")
+
   // Client Requests / Tickets Phase 1 (schema foundation only). Same
   // "assignee" role/naming convention as assignedTasks/TaskAssignee and
   // assignedLeads/LeadAssignee above.
@@ -612,6 +638,11 @@ model Organization {
   // CSV Import Phase 2 -- see ImportJob's own doc comment. Same direct-
   // tenant-scoping shape as leads/customFieldDefinitions above.
   importJobs ImportJob[]
+
+  // Contracts Phase 1 (schema/domain foundation only -- see Contract's
+  // own doc comment). Same direct-tenant-scoping shape as leads/
+  // customFieldDefinitions above.
+  contracts Contract[]
 }
 
 // Platform Admin Organization Suspension, PR 1. Deliberately separate
@@ -979,6 +1010,14 @@ model Client {
   // ClientRequest side, not here.
   clientRequests ClientRequest[]
 
+  // Contracts Phase 1 (schema foundation only). A Client can never be
+  // deleted while a Contract still references it -- see Contract.clientId's
+  // own Restrict FK comment. Named relation ("ContractClient") since
+  // Client already has a same-shaped `quotes Quote[] @relation("QuoteClient")`
+  // above; an unnamed second array relation to the same model pair would
+  // be ambiguous.
+  contracts Contract[] @relation("ContractClient")
+
   @@index([status])
   @@index([userId])
   @@index([organizationId])
@@ -1059,6 +1098,13 @@ model ClientContact {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  // Contracts Phase 1 (schema foundation only). SetNull at the Contract
+  // side -- a signatory contact may be archived (or, if a future phase
+  // ever adds hard-delete for ClientContact, deleted) without blocking or
+  // destroying a Contract that references it; see Contract.signatoryContactId's
+  // own doc comment for the full reasoning.
+  contracts Contract[]
 
   @@index([organizationId])
   @@index([clientId])
@@ -1426,6 +1472,13 @@ model Project {
   // time, only unlink it (see TimeEntry's own doc comment); this
   // back-relation is just the array view of that.
   timeEntries TimeEntry[]
+
+  // Contracts Phase 1 (schema foundation only). Optional link, SetNull at
+  // the Contract side -- mirrors Invoice.projectId exactly (see
+  // Contract's own doc comment): a Project may be deleted while a
+  // Contract still references it, and the Contract survives with
+  // projectId reset to null.
+  contracts Contract[]
 
   @@index([status])
   @@index([ownerId])
@@ -2178,6 +2231,13 @@ model PortalUser {
   // precedent as Activity.actorId/Comment.authorId.
   clientRequests        ClientRequest[]
   clientRequestMessages ClientRequestMessage[]
+
+  // Contracts Phase 1 (schema/domain foundation only -- no Portal UI
+  // yet, see Contract's own doc comment). SetNull at the Contract side,
+  // same "a real hard-delete path exists for PortalUser, and removing one
+  // must never be blocked by, or destroy, history it produced" reasoning
+  // clientRequests/clientRequestMessages above already established.
+  acceptedContracts Contract[]
 
   @@index([clientId])
   @@index([email])
@@ -3907,4 +3967,194 @@ model ImportJob {
   // Recent-jobs list for an organization, newest first.
   @@index([organizationId, createdAt])
   @@index([actorId])
+}
+
+// Contracts Phase 1 (schema/domain foundation only -- no Staff UI, no
+// Portal UI, no PDF, no email, no Contract Templates in this phase; see
+// this phase's own architecture-lock report). Only four REAL stored
+// statuses -- ACTIVE/EXPIRED/ARCHIVED are all derived/orthogonal, never
+// stored (see src/lib/contracts/status.ts's own doc comment for the full
+// derivation rules): a status this small, with everything else computed
+// from timestamps, mirrors Quote's own DRAFT/SENT/APPROVED/DECLINED +
+// derived EXPIRED/CONVERTED discipline exactly.
+enum ContractStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  TERMINATED
+}
+
+// Contracts Phase 1. An independent operational domain -- deliberately
+// NOT a renamed Quote, NOT built on QuoteTemplate/a generic Template
+// table, NOT an Invoice, and NOT a legal-certified e-signature document
+// (see this phase's own architecture-lock report §1/§7 for the full
+// reasoning). A Contract belongs to exactly one Organization and exactly
+// one Client, may optionally belong to one Project and reference one
+// ClientContact as its signatory, contains plain-text content only (no
+// Markdown/HTML/rich text -- this app has no sanitizer or rich-text
+// editor dependency anywhere; see the architecture audit's own §11/§24),
+// and becomes immutable the moment it is SENT (see isContractEditable()
+// in src/lib/contracts/status.ts) -- acceptance and termination are later
+// business events layered on top of that already-frozen document, never
+// a second editing window.
+model Contract {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Operational-record precedent (Quote.organizationId/Invoice.organizationId,
+  // both Restrict), not the config-asset precedent (QuoteTemplate.organizationId/
+  // WorkflowAutomation.organizationId, both Cascade) -- a Contract is a
+  // real business/legal record like a Quote or an Invoice, never
+  // organization-wide configuration like a Template or an Automation, so
+  // it follows their exact FK discipline instead. No code path in this
+  // app hard-deletes an Organization today either way, so this is a
+  // defensive invariant, not an active guard yet -- but it is the
+  // correct one to declare given what this row actually is.
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  // Required -- a Contract must never exist without its Client (locked
+  // architecture §1/§9). Restrict, matching Quote.clientId's own exact
+  // reasoning: Client does have a real delete action in this app, and
+  // this is the real, active guard against that exact orphaning path,
+  // not a defensive no-op.
+  clientId String @db.Uuid
+  client   Client @relation("ContractClient", fields: [clientId], references: [id], onDelete: Restrict)
+
+  // Optional. SetNull, matching Invoice.projectId exactly -- a Project
+  // may be deleted while a Contract still references it; the Contract
+  // survives with projectId reset to null. Application code (never the
+  // database) enforces that a supplied Project belongs to this exact
+  // organization AND to this exact Client (Project.clientId is itself
+  // required and NOT NULL -- see resolveContractTarget() in
+  // src/lib/contracts/target.ts, which mirrors resolveInvoiceTarget()
+  // exactly).
+  projectId String?  @db.Uuid
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  // Optional. Who, among the Client's own Multiple Contacts, this
+  // Contract's document was addressed to / is meant to be accepted by.
+  // SetNull -- ClientContact has no hard-delete action anywhere in this
+  // app today (only soft-archive via archivedAt), but if a future phase
+  // ever adds one, a Contract must survive it exactly like it survives a
+  // deleted Project, never blocking or vanishing. A soft-archived contact
+  // remains a valid historical reference (application code only refuses
+  // to let a currently-archived contact be *newly chosen* on a DRAFT
+  // Contract -- see the signatory validation in
+  // src/lib/contracts/validation.ts -- it never invalidates one already
+  // chosen on an already-SENT Contract or its own already-written
+  // signatorySnapshot).
+  signatoryContactId String?        @db.Uuid
+  signatoryContact   ClientContact? @relation(fields: [signatoryContactId], references: [id], onDelete: SetNull)
+
+  // Required, user-entered, free text -- exactly like Quote.number/
+  // Invoice.invoiceNumber (never a database auto-increment sequence; see
+  // src/lib/contracts/numbering.ts's own doc comment). @@unique below is
+  // the real race-safety mechanism; a suggestion helper is advisory only.
+  contractNumber String
+
+  title String
+
+  // Plain text only -- see this model's own header comment. Mutable in
+  // DRAFT, frozen the moment status becomes SENT (isContractEditable()).
+  body String
+
+  status ContractStatus @default(DRAFT)
+
+  issueDate     DateTime  @default(now())
+  // The contractual effective date, when meaningfully different from
+  // issueDate/acceptedAt (e.g. a contract issued and accepted in
+  // January but not meant to take effect until the 1st of the following
+  // month). Null is common and means "effective immediately upon
+  // acceptance" -- see getContractDisplayStatus()'s own ACCEPTED-vs-
+  // ACTIVE derivation.
+  effectiveDate DateTime?
+  // Drives the derived EXPIRED display state (see status.ts) -- never
+  // itself a stored lifecycle status.
+  expiresAt     DateTime?
+
+  // Staff-only, mirrors Invoice.internalNotes exactly: never part of the
+  // document shown to or accepted by the Client, and -- unlike every
+  // other business-content field on this model -- remains editable even
+  // after SEND (see updateContractInternalNotes() in
+  // src/lib/contracts/service.ts, kept structurally separate from the
+  // document-content update path so a generic update can never
+  // accidentally bypass the SENT immutability rule for the real fields).
+  internalNotes String?
+
+  // Stamped the moment DRAFT -> SENT actually commits (same transaction
+  // that writes the three snapshots below). Null until sent. "Send" in
+  // this phase means exactly what it means for Quote today (see
+  // sendQuoteAction's own precedent) -- a status transition only, no
+  // real email, no Resend call (email sending is explicit V1-deferred
+  // scope).
+  sentAt DateTime?
+
+  // Timestamp-only acceptance, deliberately not e-signature -- identical
+  // reasoning to Quote.approvedAt/declinedAt's own doc comment: no
+  // signer name/IP/user-agent is captured anywhere in this app for any
+  // entity, and inventing that here without a stated legal-signature
+  // purpose would be scope creep. Exactly one of acceptedByUserId/
+  // acceptedByPortalUserId is ever non-null at acceptance (enforced by
+  // acceptContractByStaff()/acceptContractByPortal() in service.ts, never
+  // by a database CHECK constraint -- see this phase's own report for why
+  // a dedicated AcceptedByType enum was judged unnecessary).
+  acceptedAt DateTime?
+
+  // Staff-recorded acceptance actor. SetNull -- an audit-trail actor
+  // reference, not authorship/ownership (contrast createdByUserId below),
+  // so it follows Activity.actorId's own "history survives, becomes
+  // authorless" precedent rather than createdByUserId's Restrict.
+  acceptedByUserId String? @db.Uuid
+  acceptedByUser   User?   @relation("ContractAcceptedByUser", fields: [acceptedByUserId], references: [id], onDelete: SetNull)
+
+  // Portal-recorded acceptance actor. SetNull, matching
+  // ClientRequest.portalUserId's own exact reasoning: PortalUser does
+  // have a real hard-delete path in this app (see portal-access-
+  // actions.ts's own "remove portal user" action), and removing one must
+  // never be blocked by, or destroy, a Contract they accepted.
+  acceptedByPortalUserId String?     @db.Uuid
+  acceptedByPortalUser   PortalUser? @relation(fields: [acceptedByPortalUserId], references: [id], onDelete: SetNull)
+
+  // Written ONCE, atomically, at SEND -- never rebuilt at acceptance, and
+  // never touched again afterward (see this phase's own §9/§10 locked
+  // snapshot-timing rule, and the immutability test suite that proves
+  // it). Versioned/pure-builder/strict-parser shape directly modeled on
+  // the already-proven InvoiceIssuerSnapshotV1/InvoiceRecipientSnapshotV1
+  // pattern (src/lib/invoices/pdf/snapshot-types.ts) -- see
+  // src/lib/contracts/snapshot-types.ts for the Contract-specific field
+  // sets (deliberately narrower than Invoice's own issuer snapshot: no
+  // payment instructions, no logo -- irrelevant to a Contract).
+  organizationSnapshot Json?
+  clientSnapshot       Json?
+  // Null when this Contract has no signatoryContactId at SEND time.
+  signatorySnapshot    Json?
+
+  // Set only on an explicit ACCEPTED -> TERMINATED transition (see
+  // terminateContract() in service.ts). Terminal -- no "un-terminate" in
+  // this phase (locked architecture §13).
+  terminatedAt DateTime?
+
+  // Soft-archive only, same convention as Quote/Lead/QuoteTemplate's own
+  // archivedAt -- orthogonal to `status` (see status.ts's own doc
+  // comment): archiving/restoring never changes status, sentAt,
+  // acceptedAt, terminatedAt, or any snapshot. No hard-delete action
+  // exists for this model anywhere in this phase.
+  archivedAt DateTime?
+
+  // Authorship, not assignment -- same "a User who owns/authored real
+  // records can't be hard-deleted out from under them" reasoning
+  // Quote.createdByUser/QuoteTemplate.createdByUser already established.
+  createdByUserId String @db.Uuid
+  createdByUser   User   @relation("ContractCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([organizationId, contractNumber])
+  @@index([organizationId])
+  @@index([organizationId, status])
+  @@index([organizationId, archivedAt])
+  @@index([clientId])
+  @@index([projectId])
+  @@index([signatoryContactId])
 }
