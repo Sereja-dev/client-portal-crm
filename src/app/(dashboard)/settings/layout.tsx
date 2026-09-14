@@ -39,6 +39,11 @@ export default async function SettingsLayout({
   // Tags V2 — same OWNER/ADMIN gate as Workflow Automations immediately
   // above (mirrors src/lib/tags/definitions.ts's own isPrivileged()).
   const canManageTags = membership.role === "OWNER" || membership.role === "ADMIN";
+  // Quote Templates Phase 2 — same OWNER/ADMIN gate as Workflow
+  // Automations/Tags immediately above (mirrors the Phase 1 domain
+  // layer's own canManageQuoteTemplates() in
+  // src/lib/quote-templates/authorization.ts).
+  const canManageQuoteTemplates = membership.role === "OWNER" || membership.role === "ADMIN";
 
   return (
     <div>
@@ -46,6 +51,7 @@ export default async function SettingsLayout({
         canAccessPayment={canAccessPayment}
         canManageWorkflowAutomations={canManageWorkflowAutomations}
         canManageTags={canManageTags}
+        canManageQuoteTemplates={canManageQuoteTemplates}
       />
       {children}
     </div>

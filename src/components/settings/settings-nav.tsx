@@ -31,6 +31,8 @@ type SettingsNavLink = {
   workflowAutomationsOnly?: boolean;
   /** Tags V2 — OWNER/ADMIN-only, mirroring workflowAutomationsOnly's own identical gate and identical "hiding the link is discoverability only" precedent: /settings/tags' own page and Server Actions independently re-verify the same role. Tag *assignment* on Clients/Leads is a separate, unrelated, open-to-any-role concern (see src/lib/tags/assignments.ts) — this only gates the *definitions* management page. */
   tagsOnly?: boolean;
+  /** Quote Templates Phase 2 — OWNER/ADMIN-only, mirroring workflowAutomationsOnly/tagsOnly's own identical gate and identical "hiding the link is discoverability only" precedent: every page under /settings/templates independently re-verifies the same role server-side (canManageQuoteTemplates, the Phase 1 domain layer's own gate). *Applying* an active template from /quotes/new is a separate, unrelated, open-to-any-Staff-role concern (see src/lib/quote-templates/authorization.ts's own canApplyQuoteTemplates) — this only gates the template *management* page. */
+  templatesOnly?: boolean;
 };
 
 const SETTINGS_LINKS: readonly SettingsNavLink[] = [
@@ -62,6 +64,10 @@ const SETTINGS_LINKS: readonly SettingsNavLink[] = [
   // Tags V2 — grouped next to Workflow Automations, the other OWNER/
   // ADMIN-only org-wide config entry (see tagsOnly's own comment).
   { href: "/settings/tags", label: "Tags", tagsOnly: true },
+  // Quote Templates Phase 2 — grouped next to Tags/Workflow Automations,
+  // the other OWNER/ADMIN-only org-wide config entries (see
+  // templatesOnly's own comment).
+  { href: "/settings/templates", label: "Templates", templatesOnly: true },
   // Phase D: grouped next to Notifications — both are personal,
   // per-identity preferences (not organization-wide config like
   // Company/Payment/Domain/Billing above), and neither is role-gated.
@@ -78,15 +84,18 @@ export function SettingsNav({
   canAccessPayment,
   canManageWorkflowAutomations,
   canManageTags,
+  canManageQuoteTemplates,
 }: {
   canAccessPayment: boolean;
   canManageWorkflowAutomations: boolean;
   canManageTags: boolean;
+  canManageQuoteTemplates: boolean;
 }) {
   const pathname = usePathname();
   const links = SETTINGS_LINKS.filter((link) => !link.paymentOnly || canAccessPayment)
     .filter((link) => !link.workflowAutomationsOnly || canManageWorkflowAutomations)
-    .filter((link) => !link.tagsOnly || canManageTags);
+    .filter((link) => !link.tagsOnly || canManageTags)
+    .filter((link) => !link.templatesOnly || canManageQuoteTemplates);
 
   return (
     <nav

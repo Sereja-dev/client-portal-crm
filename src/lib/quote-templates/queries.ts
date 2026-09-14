@@ -28,15 +28,29 @@ export type ListQuoteTemplatesOptions = {
   includeArchived?: boolean;
 };
 
-/** Deterministic order: name asc, then id asc as a stable tie-break (createdAt can collide at the same millisecond under concurrent creates; id never does). No pagination/search in V1 — see the architecture audit's own §28 scale estimate (tens to low hundreds of templates per organization). */
+/**
+ * Deterministic order: name asc, then id asc as a stable tie-break
+ * (createdAt can collide at the same millisecond under concurrent
+ * creates; id never does). No pagination/search in V1 — see the
+ * architecture audit's own §28 scale estimate (tens to low hundreds of
+ * templates per organization).
+ *
+ * Phase 2 (Settings UI) — widened to include items in position order
+ * (the same ITEMS_IN_POSITION_ORDER shape getQuoteTemplateForManagement
+ * already uses) so the list page can show an item count without a
+ * second per-row query. Purely additive to the return type
+ * (QuoteTemplate[] -> QuoteTemplateWithItems[], a superset) — no
+ * existing caller reads a narrower shape that this would break.
+ */
 export async function listQuoteTemplates(
   organizationId: string,
   options: ListQuoteTemplatesOptions = {},
   client: PrismaClientOrTx = prisma,
-): Promise<QuoteTemplate[]> {
+): Promise<QuoteTemplateWithItems[]> {
   return client.quoteTemplate.findMany({
     where: { organizationId, ...(options.includeArchived ? {} : { archivedAt: null }) },
     orderBy: [{ name: "asc" }, { id: "asc" }],
+    include: ITEMS_IN_POSITION_ORDER,
   });
 }
 
