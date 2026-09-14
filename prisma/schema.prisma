@@ -441,6 +441,12 @@ model User {
   // be hard-deleted while any of them still exist.
   createdQuotes Quote[] @relation("QuoteCreatedBy")
 
+  // Quote Templates Phase 1 (schema/domain foundation only). Same "author"
+  // relation shape as createdQuotes immediately above -- audit metadata
+  // only, never an authorization boundary (see QuoteTemplate's own doc
+  // comment).
+  createdQuoteTemplates QuoteTemplate[] @relation("QuoteTemplateCreatedBy")
+
   // Client Requests / Tickets Phase 1 (schema foundation only). Same
   // "assignee" role/naming convention as assignedTasks/TaskAssignee and
   // assignedLeads/LeadAssignee above.
@@ -511,6 +517,11 @@ model Organization {
   // leads above -- organizationId is required, so this is a plain,
   // unnamed relation.
   quotes Quote[]
+
+  // Quote Templates Phase 1 (schema/domain foundation only). Same direct-
+  // tenant-scoping shape as quotes above -- organizationId is required,
+  // plain unnamed relation.
+  quoteTemplates QuoteTemplate[]
 
   // Multiple Contacts Phase 1 (data model foundation only). Same direct-
   // tenant-scoping shape as leads/quotes above.
@@ -3082,6 +3093,140 @@ model QuoteItem {
   updatedAt DateTime @updatedAt
 
   @@unique([quoteId, position])
+}
+
+// -----------------------------------------------------------------------
+// Quote Templates Phase 1 (schema/domain foundation only — no Settings UI,
+// no apply-prefill route yet; see the completed Templates architecture
+// audit). QUOTE templates only in V1 — no generic cross-entity Template
+// table, no TemplateType enum, no JSON payload (the audit's own explicit
+// "avoid speculative generic abstractions" conclusion, evidenced by
+// RecurringInvoice already covering the dominant repeated-Invoice-content
+// case, so an InvoiceTemplate would duplicate nearly the same field set --
+// see RecurringInvoice's own "Template fields" comment below).
+//
+// Snapshot/copy semantics only: a QuoteTemplate is applied by copying its
+// values into a brand-new, ordinary Quote at creation time -- there is
+// deliberately no Quote.quoteTemplateId column and no live relation from a
+// created Quote back to the template that seeded it (see QuoteTemplate's
+// own doc comment for the full "why"). Editing or archiving a
+// QuoteTemplate after a Quote was created from it therefore has zero
+// effect on that Quote, by construction -- there is no column anywhere
+// for such an effect to travel through.
+// -----------------------------------------------------------------------
+
+// Organization-wide, not personal -- same tier as Tag/WorkflowAutomation/
+// CustomFieldDefinition/CustomStatusDefinition (an org-wide config asset,
+// managed by OWNER/ADMIN, applied/read by any Staff role), never Quote's
+// own tier (a protected, per-record business/financial document). This is
+// exactly why `organization`'s own onDelete is Cascade here, like
+// WorkflowAutomation's, not Restrict like Quote's own -- Organizations are
+// never hard-deleted anywhere in this app either way, so this choice is
+// about which existing precedent tier a QuoteTemplate belongs to, not
+// about a cascade path that ever actually fires.
+model QuoteTemplate {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Required, deliberately NOT unique within an organization (see the
+  // architecture audit's own §3 -- two templates may legitimately share a
+  // name with different content, e.g. two "Web design" variants; no lookup
+  // anywhere in this domain is keyed by name).
+  name String
+
+  // Prefilled onto the new Quote's own `title` field at apply time --
+  // otherwise identical in meaning to Quote.title.
+  title String?
+
+  // Prefilled onto the new Quote's own `notes` field verbatim -- plain
+  // text only (no rich text/placeholder engine exists anywhere in this
+  // app yet -- see the architecture audit's own §E/§F; out of scope here).
+  notes String?
+
+  // The template's own currency -- line-item unitPrice values below are
+  // denominated in it. Applying the template initializes the new Quote's
+  // currency from this value; the Staff member may still change it in the
+  // ordinary Quote form before saving, exactly like Invoice's own
+  // duplicate-as-new-DRAFT flow already lets a duplicated Invoice's
+  // currency be edited before save. No FX conversion exists or is ever
+  // performed anywhere in this app.
+  currency String
+
+  // Same discount/tax fields, same shared Invoice-domain enums, as Quote
+  // itself -- see Quote's own identical fields/comment for why
+  // InvoiceDiscountType/InvoiceTaxLabel are already fully domain-neutral
+  // and reused directly rather than forked.
+  discountType   InvoiceDiscountType @default(NONE)
+  discountValue  Decimal?            @db.Decimal(10, 2)
+  taxRatePercent Decimal?            @db.Decimal(5, 2)
+  taxLabel       InvoiceTaxLabel     @default(TAX)
+
+  // A relative day-count, never an absolute date -- Quote.validUntil is
+  // an absolute calendar date, which makes no sense to freeze into a
+  // reusable template (a template created in January can't sensibly say
+  // "valid until March 3" for reuse in June). Null means the applied
+  // Quote gets no default validUntil at all (the same "no default" state
+  // an ordinary blank Quote already starts in). When set, the apply-time
+  // helper computes validUntil = issueDate + validityDays calendar days,
+  // using the exact same date-only (UTC midnight) semantics
+  // src/lib/invoices/date-only.ts already establishes for every other
+  // date-only column in this app.
+  validityDays Int?
+
+  // Audit metadata only, never an authorization/ownership boundary --
+  // template management/application is gated entirely by organizationId +
+  // Role (see src/lib/quote-templates/authorization.ts), never by who
+  // originally created a given template. Restrict, matching Quote's own
+  // createdByUser/QuoteCreatedBy relation exactly ("a User who
+  // owns/authored real records can't be hard-deleted out from under
+  // them") -- the same reasoning applies here even though this row isn't
+  // itself a financial record, since it's still real, referenced content
+  // a User authored.
+  createdByUserId String @db.Uuid
+  createdByUser   User   @relation("QuoteTemplateCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  // Soft-archive only, same convention as Tag/WorkflowAutomation/
+  // CustomFieldDefinition/CustomStatusDefinition -- null = active/
+  // applyable. Unlike Tag/WorkflowAutomation (archive is terminal in V1
+  // for those), QuoteTemplate supports restore (archivedAt reset to
+  // null) -- see the architecture audit's own §11/§21 lifecycle
+  // requirement, mirroring CustomFieldDefinition's own
+  // archive/unarchive pair exactly.
+  archivedAt DateTime?
+
+  items QuoteTemplateItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([organizationId, archivedAt])
+}
+
+// Mirrors QuoteItem's own reusable input fields exactly (description/
+// quantity/unitPrice/position) -- deliberately omits `lineTotal` (and
+// Quote's own subtotal/discountAmount/taxAmount/total): every one of
+// those is always recomputed fresh at apply/create time via the existing,
+// unmodified calculateQuoteTotals() utility, never stored redundantly
+// here -- the exact same "Template fields... recomputed/copied fresh...
+// never a stale precomputed total stored here" contract
+// RecurringInvoice's own line items already established.
+model QuoteTemplateItem {
+  id              String        @id @default(uuid()) @db.Uuid
+  quoteTemplateId String        @db.Uuid
+  quoteTemplate   QuoteTemplate @relation(fields: [quoteTemplateId], references: [id], onDelete: Cascade)
+
+  description String
+  quantity    Decimal @db.Decimal(10, 3)
+  unitPrice   Decimal @db.Decimal(10, 2)
+  position    Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([quoteTemplateId, position])
 }
 
 // -----------------------------------------------------------------------
