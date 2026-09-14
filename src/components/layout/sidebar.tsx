@@ -31,6 +31,15 @@ const TRAILING_LINKS = [
   { href: "/team", label: "Team" },
   { href: "/activity", label: "Activity" },
   { href: "/analytics", label: "Analytics" },
+  // Reports Phase 2 — placed immediately after Analytics, un-role-gated
+  // in the sidebar exactly like Analytics itself: this app's own existing
+  // precedent for an OWNER/ADMIN-only page is to show the link to every
+  // role and let the page's own server-side authorization check render
+  // an Access denied state for MEMBER (see AnalyticsAccessDenied and
+  // src/app/(dashboard)/reports/page.tsx's own identical pattern) —
+  // never a client-only nav-hiding gate, which would be unsafe on its
+  // own and inconsistent with how Analytics already does this.
+  { href: "/reports", label: "Reports" },
   { href: "/settings/notifications", label: "Settings" },
   { href: "/settings/billing", label: "Billing" },
 ];

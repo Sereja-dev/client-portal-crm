@@ -19,4 +19,18 @@ describe("buildSidebarLinks", () => {
     const ownerLinks = buildSidebarLinks("OWNER").map((l) => l.href);
     expect(memberLinks).toEqual(ownerLinks.filter((href) => href !== "/recurring-invoices"));
   });
+
+  // Reports Phase 2 — un-role-gated in the sidebar, exactly like
+  // Analytics: every role sees the link; MEMBER's actual block happens
+  // server-side, on the page itself (ReportsAccessDenied), never here.
+  it("Reports is visible to every role, immediately after Analytics, exactly like Analytics' own sidebar visibility", () => {
+    for (const role of ["OWNER", "ADMIN", "MEMBER"] as const) {
+      const links = buildSidebarLinks(role);
+      const analyticsIndex = links.findIndex((l) => l.href === "/analytics");
+      const reportsIndex = links.findIndex((l) => l.href === "/reports");
+      expect(reportsIndex).toBeGreaterThan(-1);
+      expect(reportsIndex).toBe(analyticsIndex + 1);
+      expect(links[reportsIndex].label).toBe("Reports");
+    }
+  });
 });
