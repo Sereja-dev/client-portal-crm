@@ -69,6 +69,12 @@ test.describe("staff Invoice create/edit", () => {
     await page.goto("/invoices/new");
 
     await page.getByLabel("Invoice number").fill(invoiceNumber);
+    // Client is required and Project stays disabled until one is chosen
+    // (Invoice System Slice 2.3 — see invoice-form.tsx's own
+    // disabled={!clientId}) — select it first so Project's own selectOption
+    // below finds an enabled control. fixtures.project belongs to
+    // fixtures.clientA (test/fixtures/seed.ts).
+    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
     await page.getByLabel("Project").selectOption(fixtures.project.id);
     await page.getByRole("radio", { name: "Itemized" }).check();
 
@@ -136,6 +142,12 @@ test.describe("staff Invoice create/edit", () => {
     await page.goto("/invoices/new");
 
     await page.getByLabel("Invoice number").fill(invoiceNumber);
+    // Client is required and Project stays disabled until one is chosen
+    // (Invoice System Slice 2.3 — see invoice-form.tsx's own
+    // disabled={!clientId}) — select it first so Project's own selectOption
+    // below finds an enabled control. fixtures.project belongs to
+    // fixtures.clientA (test/fixtures/seed.ts).
+    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
     await page.getByLabel("Project").selectOption(fixtures.project.id);
     await page.getByRole("textbox", { name: "Amount" }).fill("500.00");
     await expect(page.getByText("Total: $500.00")).toBeVisible();
@@ -157,6 +169,12 @@ test.describe("staff Invoice create/edit", () => {
     await page.goto("/invoices/new");
 
     await page.getByLabel("Invoice number").fill(invoiceNumber);
+    // Client is required and Project stays disabled until one is chosen
+    // (Invoice System Slice 2.3 — see invoice-form.tsx's own
+    // disabled={!clientId}) — select it first so Project's own selectOption
+    // below finds an enabled control. fixtures.project belongs to
+    // fixtures.clientA (test/fixtures/seed.ts).
+    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
     await page.getByLabel("Project").selectOption(fixtures.project.id);
     await page.getByRole("radio", { name: "Itemized" }).check();
 
@@ -188,6 +206,12 @@ test.describe("staff Invoice create/edit", () => {
     await page.goto("/invoices/new");
 
     await page.getByLabel("Invoice number").fill(invoiceNumber);
+    // Client is required and Project stays disabled until one is chosen
+    // (Invoice System Slice 2.3 — see invoice-form.tsx's own
+    // disabled={!clientId}) — select it first so Project's own selectOption
+    // below finds an enabled control. fixtures.project belongs to
+    // fixtures.clientA (test/fixtures/seed.ts).
+    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
     await page.getByLabel("Project").selectOption(fixtures.project.id);
     await page.getByRole("radio", { name: "Itemized" }).check();
 
@@ -345,6 +369,12 @@ test.describe("staff Invoice list — DRAFT vs non-DRAFT row actions, read-only 
   test("keyboard: the itemized editor is fully operable without a pointer", async ({ page }) => {
     await page.goto("/invoices/new");
     await page.getByLabel("Invoice number").fill(`E2E-KBD-${fixtures.runId}`);
+    // Client is required and Project stays disabled until one is chosen
+    // (Invoice System Slice 2.3 — see invoice-form.tsx's own
+    // disabled={!clientId}) — select it first so Project's own selectOption
+    // below finds an enabled control. fixtures.project belongs to
+    // fixtures.clientA (test/fixtures/seed.ts).
+    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
     await page.getByLabel("Project").selectOption(fixtures.project.id);
     await page.getByRole("radio", { name: "Itemized" }).check();
 
@@ -1759,8 +1789,25 @@ test.describe("Invoice System Official Slice 5c — organization-wide Invoice-nu
     await dbQuery("client", "deleteMany", { where: { id: secondClientId } });
   });
 
+  // Matching the fixed Quote duplicate-number block's own convention
+  // (test/e2e/quotes.spec.ts, "Convert to invoice — duplicate number") and
+  // this file's own actAsRole helper above — an explicit
+  // active_organization_id cookie alongside the TEST_MODE session cookie,
+  // rather than relying on resolveActiveOrganizationId()'s own "no cookie,
+  // fall back to listing every Membership" path on every request.
   test.beforeEach(async ({ context, baseURL }) => {
     await injectTestSession(context, { id: fixtures.owner.id, email: fixtures.owner.email }, baseURL!);
+    await context.addCookies([
+      {
+        name: "active_organization_id",
+        value: fixtures.orgA.id,
+        domain: new URL(baseURL!).hostname,
+        path: "/",
+        httpOnly: true,
+        secure: false,
+        sameSite: "Lax",
+      },
+    ]);
   });
 
   test("two Clients in the same organization cannot persist the same Invoice number — the second attempt shows the existing duplicate-number message, no duplicate row or partial side effect remains", async ({ page }) => {
@@ -1769,6 +1816,12 @@ test.describe("Invoice System Official Slice 5c — organization-wide Invoice-nu
     // First Invoice, under the original Client/Project — succeeds.
     await page.goto("/invoices/new");
     await page.getByLabel("Invoice number").fill(invoiceNumber);
+    // Client is required and Project stays disabled until one is chosen
+    // (Invoice System Slice 2.3 — see invoice-form.tsx's own
+    // disabled={!clientId}) — select it first so Project's own selectOption
+    // below finds an enabled control. fixtures.project belongs to
+    // fixtures.clientA (test/fixtures/seed.ts).
+    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
     await page.getByLabel("Project").selectOption(fixtures.project.id);
     await page.getByRole("textbox", { name: "Amount" }).fill("100.00");
     await Promise.all([
@@ -1782,6 +1835,7 @@ test.describe("Invoice System Official Slice 5c — organization-wide Invoice-nu
     // client-scoped constraint).
     await page.goto("/invoices/new");
     await page.getByLabel("Invoice number").fill(invoiceNumber);
+    await page.getByLabel("Client").selectOption(secondClientId);
     await page.getByLabel("Project").selectOption(secondProjectId);
     await page.getByRole("textbox", { name: "Amount" }).fill("200.00");
     await Promise.all([
