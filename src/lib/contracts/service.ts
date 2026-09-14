@@ -44,8 +44,11 @@ import type { PrismaClientOrTx } from "./types";
  * `internalNotes` was deliberately kept out of ContractWritableInput.
  */
 
-/** Thrown from inside a transaction when a guarded updateMany() matches zero rows — an ordinary optimistic-concurrency race (a concurrent send/accept/terminate/edit already changed the row's status out from under this call), never logged, always mapped to a controlled typed result by the caller. */
+/** Thrown from inside a transaction when a guarded updateMany() matches zero rows — an ordinary optimistic-concurrency race (a concurrent send/accept/terminate/edit already changed the row's status, archivedAt, or updatedAt version out from under this call), never logged, always mapped to a controlled typed result by the caller. */
 class ContractTransitionRaceError extends Error {}
+
+/** Thrown from inside sendContract's transaction when the freshly-read signatoryContactId is no longer valid (foreign/nonexistent/archived) at SEND time — see sendContract's own doc comment for the locked SEND-time signatory revalidation rule. */
+class ContractSignatoryInvalidError extends Error {}
 
 const WITH_CLIENT = { client: { select: { id: true, name: true } } } as const;
 
@@ -143,6 +146,15 @@ export type UpdateContractDocumentResult =
  * of them frozen the instant status leaves DRAFT (locked architecture
  * §8). Never touches internalNotes (see updateContractInternalNotes
  * below).
+ *
+ * Archived DRAFTs are also NOT_EDITABLE (Contracts Hardening §4): archive
+ * is a visibility/organization toggle for every OTHER lifecycle state,
+ * but a DRAFT's own document content is still actively being authored,
+ * so hiding it from the working list while silently leaving it open to
+ * edits would be a confusing, unintended combination. A caller must
+ * restoreContract() first. This does not apply to internalNotes (see
+ * updateContractInternalNotes below, which stays editable in every
+ * archive state as Staff-only operational metadata).
  */
 export async function updateContractDocument(
   organizationId: string,
@@ -154,7 +166,7 @@ export async function updateContractDocument(
   if (!existing) {
     return { ok: false, reason: "NOT_FOUND" };
   }
-  if (existing.status !== "DRAFT") {
+  if (existing.status !== "DRAFT" || existing.archivedAt !== null) {
     return { ok: false, reason: "NOT_EDITABLE" };
   }
 
@@ -249,11 +261,12 @@ export async function updateContractInternalNotes(
 }
 
 // ---------------------------------------------------------------------------
-// Shared guarded-transition helper (document update / terminate share this
-// exact "updateMany by prior status, throw on count 0, re-fetch" shape).
-// send/accept build their own transactions inline below because each also
-// needs to read/write other things (snapshots, a distinct actor field) in
-// the very same transaction.
+// Shared guarded-transition helper. Currently used only by
+// updateContractDocument (its "updateMany by prior status/archivedAt,
+// throw on count 0, re-fetch" shape) — terminate/send/accept build their
+// own transactions inline below because each also needs to read/write
+// other things (snapshots, a distinct actor field, a fresh-version
+// optimistic guard) in the very same transaction.
 // ---------------------------------------------------------------------------
 
 async function guardedTransition(args: {
@@ -269,7 +282,11 @@ async function guardedTransition(args: {
 }): Promise<ContractWithClient> {
   return prisma.$transaction(async (tx) => {
     const result = await tx.contract.updateMany({
-      where: { id: args.contractId, organizationId: args.organizationId, status: args.requiredStatus },
+      // archivedAt: null -- an archived DRAFT is not document-editable
+      // (Contracts Hardening §4); re-checked here, not just by the
+      // caller's own pre-check, to close the same class of TOCTOU gap
+      // sendContract's own fix below closes.
+      where: { id: args.contractId, organizationId: args.organizationId, status: args.requiredStatus, archivedAt: null },
       data: args.data,
     });
     if (result.count === 0) {
@@ -286,7 +303,8 @@ async function guardedTransition(args: {
 export type SendContractResult =
   | { ok: true; contract: ContractWithClient }
   | { ok: false; reason: "NOT_FOUND" }
-  | { ok: false; reason: "INVALID_TRANSITION" };
+  | { ok: false; reason: "INVALID_TRANSITION" }
+  | { ok: false; reason: "INVALID_SIGNATORY" };
 
 /**
  * DRAFT -> SENT. Builds and persists all three snapshots atomically with
@@ -296,26 +314,70 @@ export type SendContractResult =
  * precedent).
  *
  * A cheap pre-check via getContractForStaff fails fast for the common
- * cases (NOT_FOUND / already not DRAFT) before doing any real work; the
- * actual state change, however, is fully re-validated from a FRESH read
+ * cases (NOT_FOUND / already not DRAFT/archived) before doing any real
+ * work; the actual state change is fully re-validated from a FRESH read
  * inside the transaction itself (never trusting the pre-check's own
- * now-possibly-stale snapshot of the row), exactly like issueInvoice()'s
- * own two-phase shape.
+ * now-possibly-stale snapshot of the row).
+ *
+ * Contracts Hardening §1/§2 (closes a real pre-push-review-found TOCTOU
+ * gap): the fresh read's own `updatedAt` is captured as an optimistic-
+ * concurrency version token and threaded into the FINAL guarded update's
+ * own WHERE clause below, exactly mirroring issueInvoice()'s own already-
+ * proven `updatedAt: expectedDate` pattern
+ * (src/lib/invoices/pdf/issue-invoice.ts). Without this token, a
+ * concurrent updateContractDocument() landing between the fresh read
+ * (used to build the snapshots) and this function's own final write could
+ * change clientId/projectId/signatoryContactId/title/body/dates while
+ * leaving `status` untouched (still DRAFT) — the OLD guard (id/org/status
+ * only) would then still match and commit a snapshot that no longer
+ * matches the Contract's own final document. Because Prisma's `@updatedAt`
+ * bumps on every write to this row, `updatedAt: freshUpdatedAt` in the
+ * final guard detects ANY such concurrent mutation (not just a clientId/
+ * signatoryContactId change specifically) and fails the send safely
+ * (INVALID_TRANSITION) instead of committing a mismatched snapshot.
+ * `archivedAt: null` is re-checked in both the pre-check and the fresh
+ * read/final guard — an archived Contract cannot be sent (Contracts
+ * Hardening §4).
+ *
+ * Also revalidates the signatory at SEND time (Contracts Hardening §3):
+ * if `signatoryContactId` is set but the contact is no longer a valid,
+ * active (non-archived) member of this Contract's own Client — including
+ * having been archived sometime between DRAFT selection and this SEND —
+ * the send is refused with INVALID_SIGNATORY rather than silently
+ * snapshotting an archived contact or silently clearing the field. This
+ * only gates SEND readiness; an already-SENT Contract's own historical
+ * signatorySnapshot remains valid forever regardless of what happens to
+ * the live ClientContact row afterward (see snapshot immutability tests).
  */
 export async function sendContract(organizationId: string, contractId: string, actor: ContractActor): Promise<SendContractResult> {
   const precheck = await getContractForStaff(organizationId, contractId);
   if (!precheck) {
     return { ok: false, reason: "NOT_FOUND" };
   }
-  if (precheck.status !== "DRAFT") {
+  if (precheck.status !== "DRAFT" || precheck.archivedAt !== null) {
     return { ok: false, reason: "INVALID_TRANSITION" };
   }
 
   try {
     const contract = await prisma.$transaction(async (tx) => {
       const fresh = await tx.contract.findFirst({ where: { id: contractId, organizationId } });
-      if (!fresh || fresh.status !== "DRAFT") {
+      if (!fresh || fresh.status !== "DRAFT" || fresh.archivedAt !== null) {
         throw new ContractTransitionRaceError();
+      }
+      // Captured immediately after the fresh read, before any further
+      // work -- the exact "version" this SEND is allowed to commit. See
+      // this function's own doc comment above.
+      const freshUpdatedAt = fresh.updatedAt;
+
+      // SEND-time signatory revalidation (Contracts Hardening §3) --
+      // reuses the exact same tenant/Client/archived-state check a new
+      // DRAFT selection already goes through (resolveContractSignatory),
+      // run here again against the FRESH signatoryContactId so a contact
+      // archived after DRAFT selection but before SEND blocks the send
+      // rather than being silently snapshotted or silently dropped.
+      const signatoryResult = await resolveContractSignatory(tx, organizationId, fresh.clientId, fresh.signatoryContactId);
+      if (!signatoryResult.ok) {
+        throw new ContractSignatoryInvalidError();
       }
 
       const [organization, profile, client, signatoryContact] = await Promise.all([
@@ -364,7 +426,14 @@ export async function sendContract(organizationId: string, contractId: string, a
 
       const now = new Date();
       const result = await tx.contract.updateMany({
-        where: { id: contractId, organizationId, status: "DRAFT" },
+        // id/organizationId/status/archivedAt re-assert the transition is
+        // still legal; updatedAt: freshUpdatedAt is the optimistic-
+        // concurrency token that closes the TOCTOU gap -- if ANY write
+        // (a document edit, an archive, anything) touched this row since
+        // `fresh` was read above, updatedAt will have moved and this
+        // predicate will match zero rows, exactly like issueInvoice()'s
+        // own `updatedAt: expectedDate` guard.
+        where: { id: contractId, organizationId, status: "DRAFT", archivedAt: null, updatedAt: freshUpdatedAt },
         data: {
           status: "SENT",
           sentAt: now,
@@ -400,6 +469,9 @@ export async function sendContract(organizationId: string, contractId: string, a
     if (err instanceof ContractTransitionRaceError) {
       return { ok: false, reason: "INVALID_TRANSITION" };
     }
+    if (err instanceof ContractSignatoryInvalidError) {
+      return { ok: false, reason: "INVALID_SIGNATORY" };
+    }
     throw err;
   }
 }
@@ -420,6 +492,17 @@ export type AcceptContractByStaffResult =
  * one actor source is ever populated (locked architecture §4). An
  * archived Contract cannot be Staff-accepted either, symmetric with the
  * Portal rule below.
+ *
+ * Terminology (Contracts Hardening §12, locked): this records that a
+ * Staff member RECORDED the Contract as accepted — it does NOT assert
+ * that the intended signatory (signatoryContactId / signatorySnapshot)
+ * personally accepted anything. signatorySnapshot is intended-recipient/
+ * addressee context captured at SEND, never proof of personal acceptance
+ * — that distinction lives entirely in which actor column gets populated
+ * here (acceptedByUserId, a Staff Membership) versus in
+ * acceptContractByPortal below (acceptedByPortalUserId, an authenticated
+ * Client Portal identity). A future UI must not render this as "signed
+ * by <signatory name>" — see metadata's own `actor: "staff"` marker.
  */
 export async function acceptContractByStaff(
   organizationId: string,
@@ -488,6 +571,16 @@ export type AcceptContractByPortalResult =
  * `clientId` — a foreign Contract (belonging to a different Client)
  * resolves to the identical NOT_FOUND a nonexistent one would, never a
  * distinguishable response.
+ *
+ * Multi-PortalUser semantics (Contracts Hardening §13, locked V1 scope):
+ * a Client may have more than one PortalUser (PortalUser.clientId is a
+ * plain many-to-one FK, not unique), and this Contract model has no
+ * "sent to this specific PortalUser" targeting concept at all (only
+ * `signatoryContactId`, a completely separate ClientContact reference) —
+ * so ANY authenticated PortalUser belonging to this Contract's own
+ * Client may record its acceptance, not only one matching the intended
+ * signatory. This is a documented V1 limitation, not a defect; no
+ * recipient-specific acceptance restriction is in scope for this phase.
  */
 export async function acceptContractByPortal(contractId: string): Promise<AcceptContractByPortalResult> {
   const { portalUser, clientId, organizationId } = await getCurrentPortalUser();
@@ -549,6 +642,14 @@ export type TerminateContractResult =
 /**
  * ACCEPTED -> TERMINATED only (locked architecture §13). Terminal — no
  * "un-terminate" in this phase. Snapshots are never touched/cleared.
+ *
+ * Deliberately has NO archivedAt check (Contracts Hardening §4, locked):
+ * archive is a visibility/organization toggle, never a legal-lifecycle
+ * freeze, so an archived ACCEPTED Contract MAY still be terminated --
+ * unlike send/accept, which archive correctly blocks (a Contract must
+ * still be visible/active to be newly offered or newly accepted, but
+ * ending an already-accepted business relationship is not something
+ * hiding the record from a list should be able to prevent).
  */
 export async function terminateContract(organizationId: string, contractId: string, actor: ContractActor): Promise<TerminateContractResult> {
   const existing = await getContractForStaff(organizationId, contractId);

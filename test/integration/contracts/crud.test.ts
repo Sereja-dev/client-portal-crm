@@ -1,7 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { createContract, updateContractDocument, updateContractInternalNotes } from "@/lib/contracts/service";
+import {
+  createContract,
+  updateContractDocument,
+  updateContractInternalNotes,
+  sendContract,
+  acceptContractByStaff,
+  terminateContract,
+  archiveContract,
+} from "@/lib/contracts/service";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { actorFor, contractInput, cleanupContracts } from "./helpers";
 
@@ -175,6 +183,65 @@ describe("Contracts — create / update / internal notes", () => {
       const result = await updateContractDocument(fixtures.orgA.id, created.contract.id, owner, contractInput(fixtures.clientA.id, { body: "" }));
       expect(result).toMatchObject({ ok: false, reason: "VALIDATION" });
     });
+
+    // Contracts Hardening §7 -- document immutability proven at every
+    // lifecycle stage, not only SENT (see snapshot-immutability.test.ts
+    // for the SENT case combined with a snapshot-mutation proof).
+    it("rejects a document edit on a SENT Contract (NOT_EDITABLE)", async () => {
+      const owner = actorFor(fixtures.owner, "OWNER");
+      const created = await createContract(fixtures.orgA.id, owner, contractInput(fixtures.clientA.id));
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      contractIds.push(created.contract.id);
+      await sendContract(fixtures.orgA.id, created.contract.id, owner);
+
+      const result = await updateContractDocument(fixtures.orgA.id, created.contract.id, owner, contractInput(fixtures.clientA.id, { title: "Hacked" }));
+      expect(result).toEqual({ ok: false, reason: "NOT_EDITABLE" });
+    });
+
+    it("rejects a document edit on an ACCEPTED Contract (NOT_EDITABLE)", async () => {
+      const owner = actorFor(fixtures.owner, "OWNER");
+      const created = await createContract(fixtures.orgA.id, owner, contractInput(fixtures.clientA.id));
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      contractIds.push(created.contract.id);
+      await sendContract(fixtures.orgA.id, created.contract.id, owner);
+      await acceptContractByStaff(fixtures.orgA.id, created.contract.id, owner);
+
+      const result = await updateContractDocument(fixtures.orgA.id, created.contract.id, owner, contractInput(fixtures.clientA.id, { title: "Hacked" }));
+      expect(result).toEqual({ ok: false, reason: "NOT_EDITABLE" });
+    });
+
+    it("rejects a document edit on a TERMINATED Contract (NOT_EDITABLE)", async () => {
+      const owner = actorFor(fixtures.owner, "OWNER");
+      const created = await createContract(fixtures.orgA.id, owner, contractInput(fixtures.clientA.id));
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      contractIds.push(created.contract.id);
+      await sendContract(fixtures.orgA.id, created.contract.id, owner);
+      await acceptContractByStaff(fixtures.orgA.id, created.contract.id, owner);
+      await terminateContract(fixtures.orgA.id, created.contract.id, owner);
+
+      const result = await updateContractDocument(fixtures.orgA.id, created.contract.id, owner, contractInput(fixtures.clientA.id, { title: "Hacked" }));
+      expect(result).toEqual({ ok: false, reason: "NOT_EDITABLE" });
+    });
+
+    // Contracts Hardening §4 (locked): an archived DRAFT is not
+    // document-editable until restored -- archive is a visibility toggle
+    // for every OTHER lifecycle state, but a DRAFT is still actively
+    // being authored, so silently allowing edits on a hidden/archived
+    // DRAFT would be an inconsistent combination.
+    it("rejects a document edit on an archived DRAFT Contract (NOT_EDITABLE)", async () => {
+      const owner = actorFor(fixtures.owner, "OWNER");
+      const created = await createContract(fixtures.orgA.id, owner, contractInput(fixtures.clientA.id));
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      contractIds.push(created.contract.id);
+      await archiveContract(fixtures.orgA.id, created.contract.id);
+
+      const result = await updateContractDocument(fixtures.orgA.id, created.contract.id, owner, contractInput(fixtures.clientA.id, { title: "Hacked" }));
+      expect(result).toEqual({ ok: false, reason: "NOT_EDITABLE" });
+    });
   });
 
   describe("updateContractInternalNotes", () => {
@@ -208,6 +275,50 @@ describe("Contracts — create / update / internal notes", () => {
 
       const result = await updateContractInternalNotes(fixtures.orgA.id, created.contract.id, owner, "n".repeat(10_001));
       expect(result).toMatchObject({ ok: false, reason: "VALIDATION" });
+    });
+
+    // Contracts Hardening §8 (locked): internalNotes is Staff-only
+    // operational metadata, never part of the immutable client-facing
+    // document, and stays editable in EVERY lifecycle state and EVERY
+    // archive state -- proven explicitly here at each one, not merely
+    // inferred from "no status check exists in the code."
+    it.each(["SENT", "ACCEPTED", "TERMINATED"] as const)("remains editable on a %s Contract", async (targetStatus) => {
+      const owner = actorFor(fixtures.owner, "OWNER");
+      const created = await createContract(fixtures.orgA.id, owner, contractInput(fixtures.clientA.id));
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      contractIds.push(created.contract.id);
+
+      await sendContract(fixtures.orgA.id, created.contract.id, owner);
+      if (targetStatus === "ACCEPTED" || targetStatus === "TERMINATED") {
+        await acceptContractByStaff(fixtures.orgA.id, created.contract.id, owner);
+      }
+      if (targetStatus === "TERMINATED") {
+        await terminateContract(fixtures.orgA.id, created.contract.id, owner);
+      }
+
+      const result = await updateContractInternalNotes(fixtures.orgA.id, created.contract.id, owner, `notes while ${targetStatus}`);
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.contract.status).toBe(targetStatus);
+        expect(result.contract.internalNotes).toBe(`notes while ${targetStatus}`);
+      }
+    });
+
+    it("remains editable on an archived Contract (of any status)", async () => {
+      const owner = actorFor(fixtures.owner, "OWNER");
+      const created = await createContract(fixtures.orgA.id, owner, contractInput(fixtures.clientA.id));
+      expect(created.ok).toBe(true);
+      if (!created.ok) return;
+      contractIds.push(created.contract.id);
+
+      await archiveContract(fixtures.orgA.id, created.contract.id);
+      const result = await updateContractInternalNotes(fixtures.orgA.id, created.contract.id, owner, "notes while archived");
+      expect(result.ok).toBe(true);
+      if (result.ok) {
+        expect(result.contract.archivedAt).not.toBeNull();
+        expect(result.contract.internalNotes).toBe("notes while archived");
+      }
     });
   });
 

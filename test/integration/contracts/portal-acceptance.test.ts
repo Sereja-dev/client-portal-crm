@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
-import { createContract, sendContract, acceptContractByPortal, archiveContract } from "@/lib/contracts/service";
+import { createContract, sendContract, acceptContractByPortal, acceptContractByStaff, archiveContract } from "@/lib/contracts/service";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { setMockAuthUser, resetAuthMock } from "../../support/auth-mock";
 import { actorFor, contractInput, cleanupContracts } from "./helpers";
@@ -142,5 +142,64 @@ describe("Contracts — Portal acceptance", () => {
     setMockAuthUser({ id: fixtures.portalUser.id, email: fixtures.portalUser.email });
     const result = await acceptContractByPortal(contract.id);
     expect(result).toEqual({ ok: false, reason: "INVALID_TRANSITION" });
+  });
+
+  // Contracts Hardening §13 (locked V1 scope): any authenticated
+  // PortalUser belonging to the Contract's own Client may accept --
+  // there is no recipient-specific/signatory-specific targeting in this
+  // phase. Confirmed cheaply with a second, independent PortalUser on
+  // the same Client.
+  it("any PortalUser of the Contract's own Client may accept -- not only the first/original one", async () => {
+    const contract = await createSentContractForClientA();
+    const secondPortalUser = await prisma.portalUser.create({
+      data: { id: randomUUID(), clientId: fixtures.clientA.id, email: `second-portal-${fixtures.runId}@test.local`, name: "Second Portal User" },
+    });
+
+    setMockAuthUser({ id: secondPortalUser.id, email: secondPortalUser.email });
+    const result = await acceptContractByPortal(contract.id);
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.contract.acceptedByPortalUserId).toBe(secondPortalUser.id);
+
+    await prisma.portalUser.delete({ where: { id: secondPortalUser.id } });
+  });
+
+  // Contracts Hardening §5/§6 -- Staff-vs-Portal concurrent accept race.
+  // Both acceptContractByStaff's and acceptContractByPortal's own guarded
+  // updates share the identical predicate shape (status: "SENT",
+  // archivedAt: null), so this is the same proven status-guard
+  // concurrency mechanism the Staff-vs-Staff double-accept race already
+  // exercises in lifecycle.test.ts -- just crossing the two entry points.
+  it("Staff-vs-Portal concurrent accept race: exactly one side wins, final actor is exactly one column, one Activity transition", async () => {
+    const owner = actorFor(fixtures.owner, "OWNER");
+    const contract = await createSentContractForClientA();
+    setMockAuthUser({ id: fixtures.portalUser.id, email: fixtures.portalUser.email });
+
+    const [staffResult, portalResult] = await Promise.all([
+      acceptContractByStaff(fixtures.orgA.id, contract.id, owner),
+      acceptContractByPortal(contract.id),
+    ]);
+
+    const results = [staffResult, portalResult];
+    const successes = results.filter((r) => r.ok);
+    const failures = results.filter((r) => !r.ok);
+    expect(successes).toHaveLength(1);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toEqual({ ok: false, reason: "INVALID_TRANSITION" });
+
+    const final = await prisma.contract.findUniqueOrThrow({ where: { id: contract.id } });
+    expect(final.status).toBe("ACCEPTED");
+    expect(final.acceptedAt).not.toBeNull();
+    // Exactly one actor column populated, whichever side actually won --
+    // never both, never neither.
+    const staffWon = final.acceptedByUserId !== null;
+    const portalWon = final.acceptedByPortalUserId !== null;
+    expect(staffWon !== portalWon).toBe(true); // exactly one, XOR
+    if (staffWon) expect(final.acceptedByPortalUserId).toBeNull();
+    if (portalWon) expect(final.acceptedByUserId).toBeNull();
+
+    const activities = await prisma.activity.findMany({
+      where: { organizationId: fixtures.orgA.id, entityType: "CONTRACT", entityId: contract.id, action: "STATUS_CHANGED", metadata: { path: ["to"], equals: "ACCEPTED" } },
+    });
+    expect(activities).toHaveLength(1);
   });
 });

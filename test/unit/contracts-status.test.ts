@@ -67,6 +67,25 @@ describe("isContractExpired", () => {
     const farPast = new Date(Date.now() - 1000 * 60 * 60 * 24 * 365);
     expect(isContractExpired({ status: "ACCEPTED", expiresAt: farPast })).toBe(true);
   });
+
+  // Contracts Hardening §11 -- deterministic date-completeness cases the
+  // pre-push review flagged as absent. Pure Date.getTime() arithmetic
+  // means neither of these is expected to behave specially, but the
+  // review explicitly asked for the cases to be proven, not assumed.
+  it("leap-day boundary: Feb 29 of a leap year behaves exactly like any other calendar day", () => {
+    const expiresAt = new Date("2028-02-29T00:00:00.000Z"); // 2028 is a leap year
+    expect(isContractExpired({ status: "ACCEPTED", expiresAt, now: new Date("2028-02-28T23:59:59.999Z") })).toBe(false);
+    expect(isContractExpired({ status: "ACCEPTED", expiresAt, now: new Date("2028-02-29T00:00:00.000Z") })).toBe(false);
+    expect(isContractExpired({ status: "ACCEPTED", expiresAt, now: new Date("2028-02-29T00:00:00.001Z") })).toBe(true);
+    expect(isContractExpired({ status: "ACCEPTED", expiresAt, now: new Date("2028-03-01T00:00:00.000Z") })).toBe(true);
+  });
+
+  it("year boundary: Dec 31 -> Jan 1 crossing behaves exactly like any other day crossing", () => {
+    const expiresAt = new Date("2026-12-31T00:00:00.000Z");
+    expect(isContractExpired({ status: "ACCEPTED", expiresAt, now: new Date("2026-12-30T23:59:59.999Z") })).toBe(false);
+    expect(isContractExpired({ status: "ACCEPTED", expiresAt, now: new Date("2026-12-31T00:00:00.000Z") })).toBe(false);
+    expect(isContractExpired({ status: "ACCEPTED", expiresAt, now: new Date("2027-01-01T00:00:00.000Z") })).toBe(true);
+  });
 });
 
 describe("getContractDisplayStatus", () => {
@@ -108,6 +127,20 @@ describe("getContractDisplayStatus", () => {
     const effectiveDate = new Date("2026-01-01T00:00:00.000Z");
     const expiresAt = new Date("2026-01-15T00:00:00.000Z"); // long expired
     expect(getContractDisplayStatus({ status: "TERMINATED", effectiveDate, expiresAt, now })).toBe("TERMINATED");
+  });
+
+  // Contracts Hardening §11 -- date-completeness cases through the full
+  // derivation function, not just isContractExpired in isolation.
+  it("leap-day boundary: expiresAt on Feb 29 of a leap year -> EXPIRED starts the instant after, not the day after", () => {
+    const leapNow = new Date("2028-02-29T00:00:00.001Z");
+    expect(
+      getContractDisplayStatus({ status: "ACCEPTED", effectiveDate: null, expiresAt: new Date("2028-02-29T00:00:00.000Z"), now: leapNow }),
+    ).toBe("EXPIRED");
+  });
+
+  it("year boundary: an ACCEPTED Contract effective exactly at the new year is ACTIVE, not still ACCEPTED", () => {
+    const newYear = new Date("2027-01-01T00:00:00.000Z");
+    expect(getContractDisplayStatus({ status: "ACCEPTED", effectiveDate: newYear, expiresAt: null, now: newYear })).toBe("ACTIVE");
   });
 });
 
