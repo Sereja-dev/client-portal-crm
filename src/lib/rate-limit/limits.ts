@@ -288,6 +288,14 @@ export const QUOTE_UPDATE_LIMIT: RateLimitConfig = { scope: "quote-update", limi
 // loop tightly.
 export const PORTAL_QUOTE_DECISION_LIMIT: RateLimitConfig = { scope: "portal-quote-decision", limit: 20, windowMs: HOUR_MS };
 
+// Contracts Portal V1 — isolated bucket, same shape and same reasoning as
+// PORTAL_QUOTE_DECISION_LIMIT immediately above: keyed by the
+// authenticated PortalUser's own id, a real client accepts a given
+// Contract at most once ever (the transition is one-way and guarded — see
+// acceptContractByPortal in src/lib/contracts/service.ts), so 20/hour is
+// the same generous-but-bounded ceiling, not a newly invented value.
+export const PORTAL_CONTRACT_ACCEPTANCE_LIMIT: RateLimitConfig = { scope: "portal-contract-acceptance", limit: 20, windowMs: HOUR_MS };
+
 // Public Lead Capture Forms, Phase 1 — per IP, the same "genuinely
 // unauthenticated entry point" reasoning as SIGNUP_LIMIT/LOGIN_LIMIT
 // above (PASSWORD_RESET_REQUEST_LIMIT's own comment). Deliberately

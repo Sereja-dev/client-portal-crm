@@ -9,6 +9,13 @@ const LINKS = [
   { href: "/portal/projects", label: "Projects" },
   { href: "/portal/quotes", label: "Quotes" },
   { href: "/portal/invoices", label: "Invoices" },
+  // Contracts Portal V1 — placed after Invoices, before Profile (locked
+  // architecture §2), matching where Contracts sits in the Staff
+  // Sidebar's own equivalent operational-record tier. No grouping/badge —
+  // this flat array is the only Portal nav architecture that exists, and
+  // every authenticated PortalUser sees every link (no role concept in
+  // the Portal at all).
+  { href: "/portal/contracts", label: "Contracts" },
   { href: "/portal/profile", label: "Profile" },
 ];
 

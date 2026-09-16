@@ -1,9 +1,10 @@
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
-import type { ProjectStatus, InvoiceStatus, QuoteStatus, CustomStatusColor } from "@/generated/prisma/enums";
+import type { ProjectStatus, InvoiceStatus, QuoteStatus, ContractStatus, CustomStatusColor } from "@/generated/prisma/enums";
 import { classifyInvoiceArchival } from "@/lib/invoices/pdf/classify-archival";
 import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import { SYSTEM_STATUS_KEYS } from "@/lib/custom-statuses/constants";
+import { isUuid } from "@/lib/validation/lead";
 
 // Same definition the staff Dashboard KPI already uses for "active
 // projects" (src/app/(dashboard)/dashboard/query.ts) — kept identical so
@@ -524,5 +525,199 @@ export async function getPortalQuote(
       lineTotal: Number(item.lineTotal),
     })),
     convertedInvoice,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Contracts Portal V1
+// ---------------------------------------------------------------------------
+
+// Contracts Portal V1 (readiness audit §Q finding 1/2) — the one
+// authoritative Portal-visible Contract status set, mirroring
+// VISIBLE_PORTAL_QUOTE_STATUSES's own exact discipline above. DRAFT is
+// the only stored status ever excluded — a DRAFT Contract is still a
+// Staff-only work-in-progress document, never shown to a client, on any
+// Portal surface (list or detail), matching Invoice/Quote's own
+// identical "DRAFT never visible anywhere" rule. ACCEPTED covers both the
+// "accepted, not yet effective" and the derived ACTIVE/EXPIRED display
+// states — none of those are separate stored values (see
+// src/lib/contracts/status.ts) so none need a separate entry here.
+// TERMINATED is visible (a Client should be able to see a contract they
+// once accepted was ended).
+export const VISIBLE_PORTAL_CONTRACT_STATUSES: readonly ContractStatus[] = ["SENT", "ACCEPTED", "TERMINATED"];
+
+export type PortalContractSummary = {
+  id: string;
+  contractNumber: string;
+  title: string;
+  status: ContractStatus;
+  issueDate: Date;
+  effectiveDate: Date | null;
+  expiresAt: Date | null;
+};
+
+/**
+ * Discriminates how a Contract was accepted without ever exposing a raw
+ * Staff/PortalUser id, a Staff name/email, or the signatory snapshot as a
+ * substitute actor (locked architecture §14). `name` is only ever the
+ * accepting PortalUser's own display name, re-resolved under this exact
+ * Client's own boundary (see resolvePortalAcceptedBy below) — null only
+ * in the defensive edge case where that PortalUser row itself no longer
+ * exists/no longer belongs to this Client (e.g. removed after accepting).
+ */
+export type PortalContractAcceptedBy = { kind: "portal"; name: string | null } | { kind: "staff" } | null;
+
+export type PortalContractDetail = PortalContractSummary & {
+  /** Immutable after SEND — see Contract.body's own schema comment. Plain text, rendered whitespace-pre-wrap, never Markdown/HTML. */
+  body: string;
+  sentAt: Date | null;
+  acceptedAt: Date | null;
+  terminatedAt: Date | null;
+  /**
+   * Raw stored Json, exactly as written once at SEND — the caller (the
+   * Portal detail page) must parse each of these through the existing
+   * strict src/lib/contracts/snapshot-types.ts parsers before rendering,
+   * exactly like the Staff detail page already does, and render a safe
+   * "Unavailable" state on a parse failure rather than raw JSON or a
+   * crash (locked architecture §10). Never a live
+   * OrganizationProfile/Client/ClientContact substitute.
+   */
+  organizationSnapshot: unknown;
+  clientSnapshot: unknown;
+  signatorySnapshot: unknown;
+  acceptedBy: PortalContractAcceptedBy;
+};
+
+const CONTRACT_SUMMARY_SELECT = {
+  id: true,
+  contractNumber: true,
+  title: true,
+  status: true,
+  issueDate: true,
+  effectiveDate: true,
+  expiresAt: true,
+} as const;
+
+/**
+ * Contracts Portal V1 §B/§C (readiness audit) — deliberately NOT built on
+ * getContractForPortalClient() (src/lib/contracts/queries.ts), which
+ * returns the full, unselected Contract row including internalNotes; see
+ * that function's own doc comment and the readiness audit's §Q finding.
+ * This is a new, narrow, Portal-render-safe query living alongside
+ * getPortalQuotes/getPortalInvoices in this same shared Portal
+ * read-model file, following their exact convention rather than
+ * src/lib/contracts/queries.ts's own Staff-oriented one.
+ *
+ * Scoped by clientId (primary tenant boundary) + organizationId (defense
+ * in depth), archivedAt: null (no Portal archive toggle in V1, matching
+ * every other Portal list), and the visible-status set above. No
+ * search/filter/pagination in V1 (§6) — matches every other Portal list
+ * in this app exactly.
+ */
+export async function getPortalContracts(
+  clientId: string,
+  organizationId: string,
+): Promise<PortalContractSummary[]> {
+  return prisma.contract.findMany({
+    where: {
+      clientId,
+      organizationId,
+      archivedAt: null,
+      status: { in: [...VISIBLE_PORTAL_CONTRACT_STATUSES] },
+    },
+    orderBy: { createdAt: "desc" },
+    select: CONTRACT_SUMMARY_SELECT,
+  });
+}
+
+/**
+ * Re-resolves the accepting PortalUser's own display name under THIS
+ * Client's own boundary — never trusts contract.acceptedByPortalUserId
+ * alone as proof of anything about the current Client (locked
+ * architecture §14/§21: any authenticated PortalUser of the Contract's
+ * own Client may have accepted it, and that id must be re-verified, not
+ * assumed). acceptedByUserId (Staff) is read only to discriminate "staff"
+ * — its value is never returned to any caller (locked architecture §14:
+ * "Do NOT expose Staff internal identity").
+ */
+async function resolvePortalAcceptedBy(
+  contract: { acceptedByUserId: string | null; acceptedByPortalUserId: string | null },
+  clientId: string,
+): Promise<PortalContractAcceptedBy> {
+  if (contract.acceptedByPortalUserId) {
+    const portalUser = await prisma.portalUser.findFirst({
+      where: { id: contract.acceptedByPortalUserId, clientId },
+      select: { name: true },
+    });
+    return { kind: "portal", name: portalUser?.name ?? null };
+  }
+  if (contract.acceptedByUserId) {
+    return { kind: "staff" };
+  }
+  return null;
+}
+
+/**
+ * Scoped by id + clientId + organizationId + archivedAt + status
+ * together — a DRAFT Contract, an archived Contract, a foreign Client's
+ * Contract, a foreign organization's Contract, a malformed id, and a
+ * nonexistent id are all simply not found here, indistinguishably from
+ * one another (§9/§H of the locked architecture). Callers must
+ * notFound() on null, never fall back to a bare id lookup.
+ *
+ * internalNotes, createdByUserId, and every other Staff-only column are
+ * never part of this select — the query shape itself excludes them
+ * (locked architecture §12: "the query shape itself must exclude it," not
+ * merely "we don't render it").
+ */
+export async function getPortalContract(
+  clientId: string,
+  organizationId: string,
+  contractId: string,
+): Promise<PortalContractDetail | null> {
+  if (!isUuid(contractId)) return null;
+
+  const contract = await prisma.contract.findFirst({
+    where: {
+      id: contractId,
+      clientId,
+      organizationId,
+      archivedAt: null,
+      status: { in: [...VISIBLE_PORTAL_CONTRACT_STATUSES] },
+    },
+    select: {
+      ...CONTRACT_SUMMARY_SELECT,
+      body: true,
+      sentAt: true,
+      acceptedAt: true,
+      terminatedAt: true,
+      organizationSnapshot: true,
+      clientSnapshot: true,
+      signatorySnapshot: true,
+      acceptedByUserId: true,
+      acceptedByPortalUserId: true,
+    },
+  });
+
+  if (!contract) return null;
+
+  const acceptedBy = await resolvePortalAcceptedBy(contract, clientId);
+
+  return {
+    id: contract.id,
+    contractNumber: contract.contractNumber,
+    title: contract.title,
+    status: contract.status,
+    issueDate: contract.issueDate,
+    effectiveDate: contract.effectiveDate,
+    expiresAt: contract.expiresAt,
+    body: contract.body,
+    sentAt: contract.sentAt,
+    acceptedAt: contract.acceptedAt,
+    terminatedAt: contract.terminatedAt,
+    organizationSnapshot: contract.organizationSnapshot,
+    clientSnapshot: contract.clientSnapshot,
+    signatorySnapshot: contract.signatorySnapshot,
+    acceptedBy,
   };
 }
