@@ -31,6 +31,7 @@ import {
   buildProjectWhere,
   buildProjectOrderBy,
 } from "./query";
+import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
 
 // Page-owned primary call-to-action link (navigates, so a real <Link> —
 // not the shared <Button>, which renders a <button>). Matches Button's
@@ -194,12 +195,12 @@ export default async function ProjectsPage({
                     </TableCell>
                     <TableCell>
                       {project.startDate
-                        ? project.startDate.toLocaleDateString()
+                        ? formatDateOnlyForDisplay(project.startDate)
                         : "—"}
                     </TableCell>
                     <TableCell>
                       {project.endDate
-                        ? project.endDate.toLocaleDateString()
+                        ? formatDateOnlyForDisplay(project.endDate)
                         : "—"}
                     </TableCell>
                     <TableCell>{project.createdAt.toLocaleDateString()}</TableCell>
@@ -236,11 +237,11 @@ export default async function ProjectsPage({
                 <RecordCardField label="Status" value={<ProjectStatusBadge project={project} />} />
                 <RecordCardField
                   label="Start date"
-                  value={project.startDate ? project.startDate.toLocaleDateString() : "—"}
+                  value={project.startDate ? formatDateOnlyForDisplay(project.startDate) : "—"}
                 />
                 <RecordCardField
                   label="End date"
-                  value={project.endDate ? project.endDate.toLocaleDateString() : "—"}
+                  value={project.endDate ? formatDateOnlyForDisplay(project.endDate) : "—"}
                 />
                 <RecordCardField label="Created" value={project.createdAt.toLocaleDateString()} />
                 <RecordCardActions>

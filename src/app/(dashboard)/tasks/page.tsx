@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { formatStatusLabel } from "@/lib/format";
+import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
 import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib/list-params";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { deleteTaskAction } from "./actions";
@@ -192,7 +193,7 @@ export default async function TasksPage({
                       <StatusBadge status={task.priority} />
                     </TableCell>
                     <TableCell>
-                      {task.dueDate ? task.dueDate.toLocaleDateString() : "—"}
+                      {task.dueDate ? formatDateOnlyForDisplay(task.dueDate) : "—"}
                     </TableCell>
                     <TableCell>
                       {task.completedAt
@@ -234,7 +235,7 @@ export default async function TasksPage({
                 <RecordCardField label="Priority" value={<StatusBadge status={task.priority} />} />
                 <RecordCardField
                   label="Due date"
-                  value={task.dueDate ? task.dueDate.toLocaleDateString() : "—"}
+                  value={task.dueDate ? formatDateOnlyForDisplay(task.dueDate) : "—"}
                 />
                 <RecordCardField
                   label="Completed"

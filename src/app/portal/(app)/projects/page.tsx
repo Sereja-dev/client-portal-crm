@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getCurrentPortalUser } from "@/lib/current-portal-user";
 import { getPortalProjects } from "@/lib/client-portal/queries";
+import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { resolveStatusPresentation } from "@/lib/custom-statuses/presentation";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -58,10 +59,10 @@ export default async function PortalProjectsPage() {
                   <StatusBadge status={project.status} label={presentation.label} tone={presentation.tone} />
                 </TableCell>
                 <TableCell>
-                  {project.startDate ? project.startDate.toLocaleDateString() : "—"}
+                  {project.startDate ? formatDateOnlyForDisplay(project.startDate) : "—"}
                 </TableCell>
                 <TableCell>
-                  {project.endDate ? project.endDate.toLocaleDateString() : "—"}
+                  {project.endDate ? formatDateOnlyForDisplay(project.endDate) : "—"}
                 </TableCell>
               </TableRow>
               );

@@ -4,6 +4,7 @@ import { getCurrentPortalUser } from "@/lib/current-portal-user";
 import { getPortalInvoice } from "@/lib/client-portal/queries";
 import { getPortalInvoiceAttachments } from "@/lib/client-portal/attachments";
 import { formatCurrency } from "@/lib/format";
+import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
@@ -69,7 +70,7 @@ export default async function PortalInvoiceDetailPage({
               Issue date
             </dt>
             <dd className="text-text-primary mt-1 text-sm">
-              {invoice.issueDate.toLocaleDateString()}
+              {formatDateOnlyForDisplay(invoice.issueDate)}
             </dd>
           </div>
           <div>
@@ -77,7 +78,7 @@ export default async function PortalInvoiceDetailPage({
               Due date
             </dt>
             <dd className="text-text-primary mt-1 text-sm">
-              {invoice.dueDate ? invoice.dueDate.toLocaleDateString() : "—"}
+              {invoice.dueDate ? formatDateOnlyForDisplay(invoice.dueDate) : "—"}
             </dd>
           </div>
           {invoice.paidAt && (

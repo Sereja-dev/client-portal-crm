@@ -7,6 +7,7 @@ import {
 } from "@/lib/client-portal/queries";
 import { parseSearchParam, type RawSearchParams } from "@/lib/list-params";
 import { formatCurrency } from "@/lib/format";
+import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import {
@@ -94,9 +95,9 @@ export default async function PortalInvoicesPage({
                   </Link>
                 </TableCell>
                 <TableCell>{invoice.projectName ?? "No project"}</TableCell>
-                <TableCell>{invoice.issueDate.toLocaleDateString()}</TableCell>
+                <TableCell>{formatDateOnlyForDisplay(invoice.issueDate)}</TableCell>
                 <TableCell>
-                  {invoice.dueDate ? invoice.dueDate.toLocaleDateString() : "—"}
+                  {invoice.dueDate ? formatDateOnlyForDisplay(invoice.dueDate) : "—"}
                 </TableCell>
                 <TableCell>{formatCurrency(invoice.amount, invoice.currency)}</TableCell>
                 <TableCell>

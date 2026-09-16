@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getCurrentPortalUser } from "@/lib/current-portal-user";
 import { getPortalProject } from "@/lib/client-portal/queries";
+import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
 import { getPortalProjectAttachments } from "@/lib/client-portal/attachments";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { resolveStatusPresentation } from "@/lib/custom-statuses/presentation";
@@ -62,7 +63,7 @@ export default async function PortalProjectDetailPage({
               Start date
             </dt>
             <dd className="text-text-primary mt-1 text-sm">
-              {project.startDate ? project.startDate.toLocaleDateString() : "—"}
+              {project.startDate ? formatDateOnlyForDisplay(project.startDate) : "—"}
             </dd>
           </div>
           <div>
@@ -70,7 +71,7 @@ export default async function PortalProjectDetailPage({
               End date
             </dt>
             <dd className="text-text-primary mt-1 text-sm">
-              {project.endDate ? project.endDate.toLocaleDateString() : "—"}
+              {project.endDate ? formatDateOnlyForDisplay(project.endDate) : "—"}
             </dd>
           </div>
         </dl>

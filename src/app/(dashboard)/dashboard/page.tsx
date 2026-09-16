@@ -10,6 +10,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { formatInvoiceStatusLabel } from "@/lib/invoices/status-label";
+import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
 import { OnboardingCard, ONBOARDING_DISMISS_RETURN_FOCUS_ID } from "@/components/onboarding/onboarding-card";
 import { parseDashboardPeriod, formatDashboardPeriodLabel } from "@/lib/dashboard/period";
 import { getOrganizationOnboardingProgress } from "@/lib/onboarding/progress";
@@ -126,7 +127,7 @@ export default async function DashboardPage({
                   </Link>
                   <p className="text-text-muted text-sm">{task.projectName}</p>
                   <p className="text-text-muted mt-1 text-xs">
-                    Due {task.dueDate.toLocaleDateString()}
+                    Due {formatDateOnlyForDisplay(task.dueDate)}
                   </p>
                 </li>
               ))}
@@ -158,7 +159,7 @@ export default async function DashboardPage({
                     {item.kind === "invoice" && ` · ${formatCurrency(item.amount, item.currency)}`}
                   </p>
                   <p className="text-danger mt-0.5 text-xs">
-                    Due {item.dueDate.toLocaleDateString()}
+                    Due {formatDateOnlyForDisplay(item.dueDate)}
                   </p>
                 </li>
               ))}
