@@ -74,6 +74,29 @@ describe("Contracts — Portal acceptance", () => {
     expect(activity?.metadata).toMatchObject({ actor: "portal" });
   });
 
+  // Activity actor label fix -- acceptContractByPortal's Activity now
+  // carries metadata.actorName (the authenticated PortalUser's own real
+  // name), the same fallback formatActivity's actorLabel already reads
+  // for every other null-actorId Activity (see Portal Quote decisions'
+  // own buildQuoteStatusChangeMetadata precedent). Never the signatory
+  // snapshot name, the Client name, or a Staff actor.
+  it("records the authenticated PortalUser's own name as metadata.actorName, and the transition remains SENT -> ACCEPTED", async () => {
+    const contract = await createSentContractForClientA();
+    setMockAuthUser({ id: fixtures.portalUser.id, email: fixtures.portalUser.email });
+    await acceptContractByPortal(contract.id);
+
+    const activity = await prisma.activity.findFirst({
+      where: { organizationId: fixtures.orgA.id, entityType: "CONTRACT", entityId: contract.id, action: "STATUS_CHANGED" },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(activity?.metadata).toMatchObject({
+      from: "SENT",
+      to: "ACCEPTED",
+      actor: "portal",
+      actorName: fixtures.portalUser.name,
+    });
+  });
+
   it("a PortalUser belonging to a DIFFERENT Client cannot accept -- NOT_FOUND, indistinguishable from a nonexistent Contract", async () => {
     const contract = await createSentContractForClientA();
     const foreignPortalUser = await prisma.portalUser.create({
@@ -111,13 +134,22 @@ describe("Contracts — Portal acceptance", () => {
     expect(result).toEqual({ ok: false, reason: "INVALID_TRANSITION" });
   });
 
-  it("an already-ACCEPTED Contract cannot be accepted again", async () => {
+  it("an already-ACCEPTED Contract cannot be accepted again, and the failed retry writes no duplicate Activity", async () => {
     const contract = await createSentContractForClientA();
     setMockAuthUser({ id: fixtures.portalUser.id, email: fixtures.portalUser.email });
     await acceptContractByPortal(contract.id);
 
     const second = await acceptContractByPortal(contract.id);
     expect(second).toEqual({ ok: false, reason: "INVALID_TRANSITION" });
+
+    const acceptEvents = await prisma.activity.findMany({
+      where: { organizationId: fixtures.orgA.id, entityType: "CONTRACT", entityId: contract.id, action: "STATUS_CHANGED" },
+    });
+    // Exactly two STATUS_CHANGED rows total for this Contract's whole
+    // lifecycle so far (DRAFT->SENT from the fixture's own send, then the
+    // one successful SENT->ACCEPTED) -- the rejected second accept call
+    // must not add a third.
+    expect(acceptEvents).toHaveLength(2);
   });
 
   it("a TERMINATED Contract cannot be accepted", async () => {

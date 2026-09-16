@@ -607,13 +607,21 @@ export async function acceptContractByPortal(contractId: string): Promise<Accept
       // here, matching every other Portal-originated Activity write in
       // this app; the Portal actor is recorded in metadata instead, same
       // as acceptContractByStaff's own "actor: staff" convention above.
+      // actorName is the authenticated PortalUser's own display name --
+      // formatActivity's null-actorId fallback chain reads it (same
+      // metadata.actorName convention Portal Quote decisions already use,
+      // see buildQuoteStatusChangeMetadata), so the Activity feed renders
+      // the real accepting person instead of "Unknown user". It is never
+      // the signatorySnapshot name, a Client name, or a Staff actor --
+      // and it carries no signature/e-signature implication, only "who
+      // clicked accept in the portal".
       await createActivity(tx, {
         organizationId,
         actorId: null,
         entityType: "CONTRACT",
         entityId: contractId,
         action: "STATUS_CHANGED",
-        metadata: { from: "SENT", to: "ACCEPTED", name: existing.title, actor: "portal" },
+        metadata: { from: "SENT", to: "ACCEPTED", name: existing.title, actor: "portal", actorName: portalUser.name },
       });
 
       return tx.contract.findFirstOrThrow({ where: { id: contractId } });

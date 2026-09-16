@@ -260,6 +260,22 @@ describe("formatActivity — STATUS_CHANGED across entity types", () => {
     });
     expect(result.detailLines).toEqual(["Sent → Accepted"]);
   });
+
+  // Activity actor label fix — acceptContractByPortal's null actorId
+  // falls back to metadata.actorName (formatActivity's own generic
+  // fallback chain, same one Portal Quote decisions already rely on).
+  // Without it, this event rendered "Unknown user"; a Client name,
+  // signatory-snapshot name, or Staff actor must never substitute here.
+  it("Contract STATUS_CHANGED (SENT -> ACCEPTED, Portal actor) resolves actorLabel from metadata.actorName, never 'Unknown user'", () => {
+    const result = activity("CONTRACT", "STATUS_CHANGED", {
+      name: "Website Redesign Agreement",
+      from: "SENT",
+      to: "ACCEPTED",
+      actor: "portal",
+      actorName: "Jamie Client",
+    });
+    expect(result.actorLabel).toBe("Jamie Client");
+  });
 });
 
 describe("formatActivity — Invitation events", () => {
