@@ -181,10 +181,11 @@ describe("Calendar V1 — service", () => {
       await archiveCalendarEvent(fixtures.orgA.id, created.event.id, owner());
 
       const { listCalendarEventsForRange } = await import("@/lib/calendar-events/queries");
-      const results = await listCalendarEventsForRange(fixtures.orgA.id, {
-        from: new Date("2026-05-01T00:00:00.000Z"),
-        to: new Date("2026-07-01T00:00:00.000Z"),
-      });
+      const results = await listCalendarEventsForRange(
+        fixtures.orgA.id,
+        { from: new Date("2026-05-01T00:00:00.000Z"), to: new Date("2026-07-01T00:00:00.000Z") },
+        "UTC",
+      );
       expect(results.some((e) => e.id === created.event.id)).toBe(false);
     });
 

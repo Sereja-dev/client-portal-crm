@@ -2,6 +2,8 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { CalendarEvent } from "@/generated/prisma/client";
 import { isUuid } from "@/lib/validation/lead";
+import { formatDateOnly } from "@/lib/invoices/date-only";
+import { toWallClockInputValues } from "./timezone";
 import type { PrismaClientOrTx } from "./types";
 
 /**
@@ -73,44 +75,130 @@ export type CalendarEventRangeFilters = {
 };
 
 /**
- * The bounded Month/Agenda manual-event query (locked architecture §15).
- * `from`/`to` are real UTC instants (already resolved from whichever
- * calendar-grid boundary the caller is rendering) — `startsAt` is
- * compared directly against them, which is correct for both timed
- * events (a real instant) and all-day events (UTC-midnight on their own
- * named calendar date, so a range aligned to UTC-midnight boundaries
- * still includes every all-day event that falls within it). Excludes
- * archived by default — there is no Portal archive-toggle-equivalent
- * for Calendar; archived events are a separate, deliberately distinct
- * query (see listArchivedCalendarEventsForRange below).
+ * One calendar-day guard on each side of the requested visible range, used
+ * only to widen the DB-level candidate fetch for TIMED events (Calendar
+ * Range Boundary Fix). A timed event's `startsAt` is a real UTC instant,
+ * but which organization-LOCAL calendar date it belongs to can differ from
+ * its own UTC date by at most one day in either direction, for any real
+ * IANA zone (the largest UTC offsets are ±14:00, well under 24h) — so a
+ * ±24h widened fetch is always a safe superset. This is still a bounded
+ * query, never an unbounded one: it grows the requested range by exactly
+ * two fixed days, regardless of how wide the requested range itself is.
+ */
+const LOCAL_DATE_GUARD_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Locked design (Calendar Range Boundary Fix): a timed CalendarEvent
+ * belongs to the organization-LOCAL calendar date its `startsAt` falls on
+ * (via the same centralized timezone helper used for display), never the
+ * raw UTC date. `fromDateKey`/`toDateKey` are the requested visible
+ * range's own date-only boundaries ("YYYY-MM-DD"), `fromDateKey` inclusive
+ * and `toDateKey` exclusive — comparing plain padded strings is a correct,
+ * deterministic stand-in for date-only comparison here.
+ */
+function isTimedEventInLocalRange(startsAt: Date, timezone: string, fromDateKey: string, toDateKey: string): boolean {
+  const localDate = toWallClockInputValues(startsAt, timezone).date;
+  return localDate >= fromDateKey && localDate < toDateKey;
+}
+
+function byStartsAtThenId(direction: "asc" | "desc") {
+  return (a: CalendarEventWithRelations, b: CalendarEventWithRelations): number => {
+    const diff = a.startsAt.getTime() - b.startsAt.getTime();
+    const ordered = direction === "asc" ? diff : -diff;
+    if (ordered !== 0) return ordered;
+    return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+  };
+}
+
+/**
+ * The bounded Month/Agenda manual-event query (locked architecture §15),
+ * corrected by the Calendar Range Boundary Fix to distinguish two
+ * genuinely different semantics that a single raw `startsAt: {gte, lt}`
+ * filter previously conflated:
+ *
+ * - All-day events: `startsAt` is already a timezone-agnostic UTC-midnight
+ *   date-only value (src/lib/invoices/date-only.ts's own convention) — the
+ *   exact same `range.from`/`range.to` date-only boundaries used to build
+ *   this request correctly select them directly, with no timezone
+ *   conversion at all (organization timezone must never shift an all-day
+ *   event onto a different date).
+ * - Timed events: `startsAt` is a real UTC instant, and which calendar
+ *   date it belongs to depends on `timezone` (locked architecture §8/§10)
+ *   — a raw UTC-date-aligned filter mis-files any timed event whose local
+ *   date differs from its UTC date (e.g. a late-night America/Los_Angeles
+ *   or early-morning Asia/Bangkok event near a month boundary). Fixed by
+ *   fetching a ±24h widened candidate set (`LOCAL_DATE_GUARD_MS`), then
+ *   keeping only the candidates whose organization-LOCAL date actually
+ *   falls in the requested range (`isTimedEventInLocalRange`).
+ *
+ * The two result sets are fetched independently, then merged and
+ * re-sorted in application code (`byStartsAtThenId`) to reproduce the
+ * original single-query `orderBy` exactly. Excludes archived by default —
+ * there is no Portal archive-toggle-equivalent for Calendar; archived
+ * events are a separate, deliberately distinct query (see
+ * listArchivedCalendarEventsForRange below, which shares this same fix).
  */
 export async function listCalendarEventsForRange(
   organizationId: string,
   range: { from: Date; to: Date },
+  timezone: string,
   filters: CalendarEventRangeFilters = {},
 ): Promise<CalendarEventWithRelations[]> {
-  return prisma.calendarEvent.findMany({
-    where: {
-      organizationId,
-      archivedAt: null,
-      startsAt: { gte: range.from, lt: range.to },
-      ...(filters.assignedToUserId ? { assignedToUserId: filters.assignedToUserId } : {}),
-    },
-    orderBy: [{ startsAt: "asc" }, { id: "asc" }],
-    include: WITH_RELATIONS,
-  });
+  const fromDateKey = formatDateOnly(range.from);
+  const toDateKey = formatDateOnly(range.to);
+  const guardFrom = new Date(range.from.getTime() - LOCAL_DATE_GUARD_MS);
+  const guardTo = new Date(range.to.getTime() + LOCAL_DATE_GUARD_MS);
+  const assigneeWhere = filters.assignedToUserId ? { assignedToUserId: filters.assignedToUserId } : {};
+
+  const [allDayEvents, timedCandidates] = await Promise.all([
+    prisma.calendarEvent.findMany({
+      where: { organizationId, archivedAt: null, allDay: true, startsAt: { gte: range.from, lt: range.to }, ...assigneeWhere },
+      include: WITH_RELATIONS,
+    }),
+    prisma.calendarEvent.findMany({
+      where: { organizationId, archivedAt: null, allDay: false, startsAt: { gte: guardFrom, lt: guardTo }, ...assigneeWhere },
+      include: WITH_RELATIONS,
+    }),
+  ]);
+
+  const timedEvents = timedCandidates.filter((event) => isTimedEventInLocalRange(event.startsAt, timezone, fromDateKey, toDateKey));
+
+  return [...allDayEvents, ...timedEvents].sort(byStartsAtThenId("asc"));
 }
 
-/** The archived-events view (locked architecture §22: "a minimal way to view/restore archived events... a query-param archived view/list is acceptable"). Also bounded by the same range — archived events are never fetched without limit either. */
+/**
+ * The archived-events view (locked architecture §22: "a minimal way to
+ * view/restore archived events... a query-param archived view/list is
+ * acceptable"). Also bounded by the same range — archived events are
+ * never fetched without limit either. Shares the exact same all-day/timed
+ * distinction as listCalendarEventsForRange above (Calendar Range
+ * Boundary Fix) — an archived timed event near a month boundary is
+ * exactly as susceptible to the same UTC-vs-organization-local mismatch.
+ */
 export async function listArchivedCalendarEventsForRange(
   organizationId: string,
   range: { from: Date; to: Date },
+  timezone: string,
 ): Promise<CalendarEventWithRelations[]> {
-  return prisma.calendarEvent.findMany({
-    where: { organizationId, archivedAt: { not: null }, startsAt: { gte: range.from, lt: range.to } },
-    orderBy: [{ startsAt: "desc" }, { id: "asc" }],
-    include: WITH_RELATIONS,
-  });
+  const fromDateKey = formatDateOnly(range.from);
+  const toDateKey = formatDateOnly(range.to);
+  const guardFrom = new Date(range.from.getTime() - LOCAL_DATE_GUARD_MS);
+  const guardTo = new Date(range.to.getTime() + LOCAL_DATE_GUARD_MS);
+
+  const [allDayEvents, timedCandidates] = await Promise.all([
+    prisma.calendarEvent.findMany({
+      where: { organizationId, archivedAt: { not: null }, allDay: true, startsAt: { gte: range.from, lt: range.to } },
+      include: WITH_RELATIONS,
+    }),
+    prisma.calendarEvent.findMany({
+      where: { organizationId, archivedAt: { not: null }, allDay: false, startsAt: { gte: guardFrom, lt: guardTo } },
+      include: WITH_RELATIONS,
+    }),
+  ]);
+
+  const timedEvents = timedCandidates.filter((event) => isTimedEventInLocalRange(event.startsAt, timezone, fromDateKey, toDateKey));
+
+  return [...allDayEvents, ...timedEvents].sort(byStartsAtThenId("desc"));
 }
 
 /**

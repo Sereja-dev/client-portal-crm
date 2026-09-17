@@ -71,7 +71,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   const members = await listAssignableMembers(organizationId);
 
   if (view === "archived") {
-    const archivedEvents = await listArchivedCalendarEventsForRange(organizationId, { from: rangeFrom, to: rangeTo });
+    const archivedEvents = await listArchivedCalendarEventsForRange(organizationId, { from: rangeFrom, to: rangeTo }, timezone);
     return (
       <div>
         <CalendarHeader monthLabel={formatMonthLabel(year, month)} prevHref={monthHref(prev.year, prev.month)} nextHref={monthHref(next.year, next.month)} todayHref={todayHref} view={view} />
@@ -100,7 +100,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     prisma.client.findMany({ where: { organizationId, status: { not: "ARCHIVED" } }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.lead.findMany({ where: { organizationId, archivedAt: null }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.project.findMany({ where: { organizationId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
-    listCalendarEventsForRange(organizationId, { from: rangeFrom, to: rangeTo }, { assignedToUserId: assigneeFilter }),
+    listCalendarEventsForRange(organizationId, { from: rangeFrom, to: rangeTo }, timezone, { assignedToUserId: assigneeFilter }),
     listInvoiceDueOverlayForRange(organizationId, { from: rangeFrom, to: rangeTo }),
   ]);
 
