@@ -249,6 +249,23 @@ enum ActivityEntityType {
   // TERMINATED transitions via STATUS_CHANGED + changedFields) — no new
   // ActivityAction is added here.
   CONTRACT
+
+  // Calendar V1 (schema/domain foundation). Additive enum value only —
+  // same FALLBACK-rendering safety net as every prior addition above,
+  // though CalendarEvent's own CREATED/UPDATED metadata (src/lib/
+  // calendar-events/service.ts) is deliberately written in the exact
+  // same generic shape CLIENT/PROJECT/LEAD/CONTRACT already use
+  // ({name: title} / {changedFields}), so it is routed through the
+  // already-proven, safe generic model (isDataEntity() in
+  // format-activity.ts), never a new bespoke formatter. Archive/restore
+  // write UPDATED + changedFields:["archivedAt"], the exact same
+  // convention archiveLeadAction/unarchiveLeadAction already
+  // established — no new ActivityAction is added here.
+  // notification-rules.ts's own RULES map has no CALENDAR_EVENT entry,
+  // so this produces no notification fan-out; workflow-automations/
+  // triggers.ts's own trigger list has no CALENDAR_EVENT entry either,
+  // so no Workflow Automation can ever fire from it.
+  CALENDAR_EVENT
 }
 
 enum ActivityAction {
@@ -504,6 +521,18 @@ model User {
   // SetNull, so an import's audit row survives its own actor's User row
   // being deleted.
   importJobs ImportJob[] @relation("ImportJobActor")
+
+  // Calendar V1 (schema/domain foundation). Same "author" relation shape
+  // as createdQuotes/QuoteCreatedBy above -- Restrict, so a User who has
+  // created CalendarEvents can never be hard-deleted while any of them
+  // still exist. assignedCalendarEvents is a distinct, separate relation
+  // -- same "assignee" role/naming convention as assignedTasks/
+  // TaskAssignee above -- SetNull, since an assignee is a much lighter
+  // reference than authorship and a real hard-delete path for User
+  // doesn't exist today anyway (see timeEntries/TimeEntryUser's own
+  // identical reasoning above).
+  createdCalendarEvents  CalendarEvent[] @relation("CalendarEventCreatedBy")
+  assignedCalendarEvents CalendarEvent[] @relation("CalendarEventAssignee")
 }
 
 // Multi-tenant scaffolding (schema-only for now; not yet wired into app
@@ -643,6 +672,10 @@ model Organization {
   // own doc comment). Same direct-tenant-scoping shape as leads/
   // customFieldDefinitions above.
   contracts Contract[]
+
+  // Calendar V1 (schema/domain foundation). Same direct-tenant-scoping
+  // shape as leads/customFieldDefinitions above.
+  calendarEvents CalendarEvent[]
 }
 
 // Platform Admin Organization Suspension, PR 1. Deliberately separate
@@ -1017,6 +1050,12 @@ model Client {
   // above; an unnamed second array relation to the same model pair would
   // be ambiguous.
   contracts Contract[] @relation("ContractClient")
+
+  // Calendar V1 (schema/domain foundation). Optional link, SetNull at
+  // the CalendarEvent side -- a Client can be archived (never hard-
+  // deleted, see Client.status's own ARCHIVED value) while a
+  // CalendarEvent still references it as historical context.
+  calendarEvents CalendarEvent[]
 
   @@index([status])
   @@index([userId])
@@ -1479,6 +1518,13 @@ model Project {
   // Contract still references it, and the Contract survives with
   // projectId reset to null.
   contracts Contract[]
+
+  // Calendar V1 (schema/domain foundation). Optional link, SetNull at
+  // the CalendarEvent side -- mirrors Contract.projectId exactly: a
+  // Project has no archive concept of its own (only `status`), so
+  // nothing here needs to survive an "archived Project" state, only a
+  // Project row genuinely no longer referenced by anything else.
+  calendarEvents CalendarEvent[]
 
   @@index([status])
   @@index([ownerId])
@@ -2616,6 +2662,11 @@ model Lead {
   // deleted out from under a Quote that still has clientId null, which
   // would otherwise leave that Quote with both leadId and clientId null.
   quotes Quote[] @relation("QuoteLead")
+
+  // Calendar V1 (schema/domain foundation). Optional link, SetNull at
+  // the CalendarEvent side -- a Lead can be archived while a
+  // CalendarEvent still references it as historical context.
+  calendarEvents CalendarEvent[]
 
   // Soft-archive only — no hard-delete action is planned for Leads (see
   // the architecture audit's §H). Null = active.
@@ -4157,4 +4208,92 @@ model Contract {
   @@index([clientId])
   @@index([projectId])
   @@index([signatoryContactId])
+}
+
+// Calendar V1 (locked architecture, read-only readiness audit +
+// implementation). First-class manual event record, deliberately not
+// polymorphic -- the read-only Invoice due-date overlay this phase also
+// ships is a query-time presentation concept only (see src/lib/
+// calendar-events/queries.ts), never copied into this table.
+//
+// Target invariant (LOCKED): at most one of clientId/leadId/projectId is
+// ever non-null -- enforced entirely in the application layer
+// (src/lib/calendar-events/validation.ts), never a database CHECK
+// constraint, matching this app's own existing "exactly one of
+// acceptedByUserId/acceptedByPortalUserId" precedent on Contract above
+// (that invariant is application-enforced too, for the identical
+// "matches Quote's own approvedAt/declinedAt precedent more closely than
+// a DB CHECK constraint" reasoning already recorded on this model).
+//
+// Timed events: startsAt/endsAt are always real UTC instants, computed
+// from a wall-clock date+time interpreted in OrganizationProfile.timezone
+// (falling back to "UTC" when no profile row exists) -- see
+// src/lib/calendar-events/timezone.ts, the one centralized helper every
+// timed-event parse/format in this feature goes through. All-day events
+// (allDay: true) are timezone-agnostic date-only values, following the
+// exact same UTC-midnight-on-the-named-calendar-date convention
+// src/lib/invoices/date-only.ts already established for Invoice/Quote/
+// Contract/RecurringInvoice/TimeEntry -- startsAt for an all-day event is
+// never treated as a real timezone-sensitive instant.
+model CalendarEvent {
+  id String @id @default(uuid()) @db.Uuid
+
+  // Operational-record precedent (Contract.organizationId/
+  // Quote.organizationId, both Restrict) -- a CalendarEvent is a real
+  // business record like a Contract or a Quote, never organization-wide
+  // configuration, so it follows their exact FK discipline.
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  title       String
+  description String?
+  location    String?
+
+  // See this model's own header comment for the full timed/all-day
+  // storage contract.
+  allDay   Boolean
+  startsAt DateTime
+  endsAt   DateTime?
+
+  // Target invariant (LOCKED) -- see this model's own header comment.
+  // Each is independently optional at the schema level (the "at most
+  // one" rule is an application invariant, not something Prisma/Postgres
+  // can express directly here); all three SetNull, matching
+  // Contract.projectId/Contract.signatoryContactId's own exact "optional
+  // reference that must survive deletion of the referenced row" shape --
+  // never Restrict, which is reserved for required relations only.
+  clientId String? @db.Uuid
+  client   Client? @relation(fields: [clientId], references: [id], onDelete: SetNull)
+
+  leadId String? @db.Uuid
+  lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  projectId String?  @db.Uuid
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  // Optional Staff assignee. SetNull -- an assignee is a much lighter
+  // reference than authorship (see createdByUserId below); mirrors
+  // Task.assigneeId's own identical onDelete choice.
+  assignedToUserId String? @db.Uuid
+  assignedToUser   User?   @relation("CalendarEventAssignee", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+
+  // Authorship, not assignment -- same "a User who owns/authored real
+  // records can't be hard-deleted out from under them" reasoning
+  // Quote.createdByUser/Contract.createdByUser already established.
+  createdByUserId String @db.Uuid
+  createdByUser   User   @relation("CalendarEventCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Soft-archive only, same convention as Lead/Contract/WorkflowAutomation
+  // -- null = active, never hard-deleted (locked architecture: no hard
+  // delete function exists at all for this model).
+  archivedAt DateTime?
+
+  @@index([organizationId, startsAt])
+  @@index([organizationId, archivedAt])
+  @@index([clientId])
+  @@index([leadId])
+  @@index([projectId])
 }

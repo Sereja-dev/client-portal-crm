@@ -62,6 +62,19 @@ const FIELD_LABELS: Record<string, string> = {
   // unarchiveLeadAction's own changedFields entry; without this it
   // rendered as the raw "archivedAt" column name.
   archivedAt: "archive status",
+  // Calendar V1 — CalendarEvent's own UPDATED changedFields entries not
+  // already covered above (title/assignedToUserId already are).
+  // "target" is the one shared changed-field name for the whole Related-
+  // to concept (Client/Lead/Project are mutually exclusive, so a single
+  // label covers all three — see service.ts's own updateCalendarEvent,
+  // never the raw clientId/leadId/projectId column name, which would
+  // wrongly imply only Client could ever have changed). "startsAt"
+  // covers any change to the date/time/all-day shape as one readable
+  // unit, never a raw timezone-conversion internal.
+  description: "description",
+  location: "location",
+  startsAt: "date/time",
+  target: "related record",
 };
 
 function humanizeFieldName(field: string): string {
@@ -118,7 +131,15 @@ function isDataEntity(entityType: ActivityEntityType): boolean {
     // (STATUS_CHANGED metadata's own "staff" | "portal" marker) is simply
     // never read by buildDataEntityModel below — harmless, not a shape
     // mismatch.
-    entityType === "CONTRACT"
+    entityType === "CONTRACT" ||
+    // Calendar V1 — CalendarEvent's own CREATED/UPDATED metadata
+    // (src/lib/calendar-events/service.ts) is deliberately written in
+    // this exact same generic shape ({name: title} / {changedFields}),
+    // and archive/restore reuse the exact same UPDATED +
+    // changedFields:["archivedAt"] convention archiveLeadAction/
+    // unarchiveLeadAction already established — see this model's own
+    // prisma.schema.prisma doc comment.
+    entityType === "CALENDAR_EVENT"
   );
 }
 
@@ -136,6 +157,8 @@ function entityNoun(entityType: ActivityEntityType): string {
       return "lead";
     case "CONTRACT":
       return "contract";
+    case "CALENDAR_EVENT":
+      return "event";
     default:
       return "";
   }

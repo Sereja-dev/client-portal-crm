@@ -20,6 +20,21 @@ describe("buildSidebarLinks", () => {
     expect(memberLinks).toEqual(ownerLinks.filter((href) => href !== "/recurring-invoices"));
   });
 
+  // Calendar V1 — visible to every role, immediately after Dashboard
+  // and before Leads, never role-gated (locked architecture §1/§5).
+  it("Calendar is visible to every role, immediately after Dashboard and before Leads", () => {
+    for (const role of ["OWNER", "ADMIN", "MEMBER"] as const) {
+      const links = buildSidebarLinks(role);
+      const dashboardIndex = links.findIndex((l) => l.href === "/dashboard");
+      const calendarIndex = links.findIndex((l) => l.href === "/calendar");
+      const leadsIndex = links.findIndex((l) => l.href === "/leads");
+      expect(calendarIndex).toBeGreaterThan(-1);
+      expect(calendarIndex).toBe(dashboardIndex + 1);
+      expect(calendarIndex).toBe(leadsIndex - 1);
+      expect(links[calendarIndex].label).toBe("Calendar");
+    }
+  });
+
   // Contracts Phase 2 (Staff UI) — visible to every role, immediately
   // after Invoices, never role-gated (locked architecture §I).
   it("Contracts is visible to every role, immediately after Invoices", () => {

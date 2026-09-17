@@ -278,6 +278,36 @@ describe("formatActivity — STATUS_CHANGED across entity types", () => {
   });
 });
 
+// Calendar V1 — CALENDAR_EVENT routed through this same generic model
+// (format-activity.ts's own isDataEntity()/entityNoun()), exactly like
+// CONTRACT above.
+describe("formatActivity — CalendarEvent events", () => {
+  it("CREATED", () => {
+    const result = activity("CALENDAR_EVENT", "CREATED", { name: "Kickoff call", actorName: "Jane Doe" });
+    expect(result.actionLabel).toBe("created event Kickoff call");
+  });
+
+  it("UPDATED lists humanized changed field names, never their values", () => {
+    const result = activity("CALENDAR_EVENT", "UPDATED", {
+      name: "Kickoff call",
+      changedFields: ["title", "startsAt", "target", "assignedToUserId"],
+      actorName: "Jane Doe",
+    });
+    expect(result.actionLabel).toBe("updated event Kickoff call");
+    expect(result.detailLines).toEqual(["Changed: title, date/time, related record, assignee"]);
+  });
+
+  it("archive/restore reuse the exact same UPDATED + changedFields:['archivedAt'] convention Lead's own archive/unarchive already established", () => {
+    const result = activity("CALENDAR_EVENT", "UPDATED", {
+      name: "Kickoff call",
+      changedFields: ["archivedAt"],
+      actorName: "Jane Doe",
+    });
+    expect(result.actionLabel).toBe("updated event Kickoff call");
+    expect(result.detailLines).toEqual(["Changed: archive status"]);
+  });
+});
+
 describe("formatActivity — Invitation events", () => {
   it("INVITATION_SENT", () => {
     const result = activity("INVITATION", "INVITATION_SENT", {

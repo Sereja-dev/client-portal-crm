@@ -7,6 +7,13 @@ import type { Role } from "@/generated/prisma/enums";
 
 const BASE_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
+  // Calendar V1 — placed immediately after Dashboard, before Leads
+  // (locked architecture §1): a daily-use operational surface like
+  // Dashboard itself, not a business-record list. Visible to every
+  // Staff role (OWNER/ADMIN/MEMBER, locked architecture §5) — no role
+  // gate here, matching Contracts' own un-gated placement in this same
+  // array.
+  { href: "/calendar", label: "Calendar" },
   { href: "/leads", label: "Leads" },
   { href: "/clients", label: "Clients" },
   { href: "/projects", label: "Projects" },
