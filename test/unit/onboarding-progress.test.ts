@@ -12,6 +12,7 @@ function signals(overrides: Partial<OnboardingRawSignals> = {}): OnboardingRawSi
     hasCompanyProfile: false,
     hasPaymentDetails: false,
     hasDomainSettings: false,
+    hasPresetApplication: false,
     actedStepKeys: new Set<OnboardingStepKey>(),
     ...overrides,
   };
@@ -191,12 +192,12 @@ describe("buildOnboardingProgress — skip semantics", () => {
 });
 
 describe("buildOnboardingProgress — percent semantics and boundaries", () => {
-  it("percent denominator is 10 (excludes WELCOME; includes FINISH; includes the Customer Setup Wizard's three steps — Stage 6.2 — and REVIEW_BILLING, available since Sale-Ready Phase E, E3.3)", () => {
+  it("percent denominator is 11 (excludes WELCOME; includes FINISH; includes the Customer Setup Wizard's three steps — Stage 6.2 — Industry Presets V1's own INDUSTRY_PRESET, and REVIEW_BILLING, available since Sale-Ready Phase E, E3.3)", () => {
     const progress = buildOnboardingProgress(signals());
-    expect(progress.totalCount).toBe(10);
+    expect(progress.totalCount).toBe(11);
   });
 
-  it("5 of 10 substantive-plus-finish steps done is 50%", () => {
+  it("5 of 11 substantive-plus-finish steps done is 45%", () => {
     const progress = buildOnboardingProgress(
       signals({
         hasClient: true,
@@ -204,12 +205,12 @@ describe("buildOnboardingProgress — percent semantics and boundaries", () => {
         hasTask: true,
         hasSecondMember: true,
         hasPortalUser: true,
-        // COMPANY_PROFILE/PAYMENT_DETAILS/DOMAIN_SETUP, REVIEW_BILLING, and FINISH not yet done/acknowledged.
+        // COMPANY_PROFILE/INDUSTRY_PRESET/PAYMENT_DETAILS/DOMAIN_SETUP, REVIEW_BILLING, and FINISH not yet done/acknowledged.
       }),
     );
     expect(progress.completedCount).toBe(5);
-    expect(progress.totalCount).toBe(10);
-    expect(progress.percent).toBe(50);
+    expect(progress.totalCount).toBe(11);
+    expect(progress.percent).toBe(45);
   });
 
   it("every substantive step done AND Finish acknowledged is 100%", () => {
@@ -221,6 +222,7 @@ describe("buildOnboardingProgress — percent semantics and boundaries", () => {
         hasSecondMember: true,
         hasPortalUser: true,
         hasCompanyProfile: true,
+        hasPresetApplication: true,
         hasPaymentDetails: true,
         hasDomainSettings: true,
         actedStepKeys: new Set(["REVIEW_BILLING", "FINISH"]),
@@ -237,6 +239,7 @@ describe("buildOnboardingProgress — percent semantics and boundaries", () => {
         hasProject: true,
         hasCompanyProfile: true,
         actedStepKeys: new Set([
+          "INDUSTRY_PRESET",
           "PAYMENT_DETAILS",
           "DOMAIN_SETUP",
           "CREATE_TASK",

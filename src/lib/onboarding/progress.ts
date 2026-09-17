@@ -83,6 +83,8 @@ export type OnboardingRawSignals = {
   hasPaymentDetails: boolean;
   /** OrganizationDomainSettings row exists — regardless of whether a custom domain was actually entered; confirming "I'll use the generated subdomain" is itself a complete way to finish this step. */
   hasDomainSettings: boolean;
+  /** Industry Presets V1 — a PresetApplication row exists for this organization (any preset, applying any one of the four locked catalog presets satisfies this step; V1 supports only one applied preset per organization anyway — see src/lib/industry-presets/apply.ts). */
+  hasPresetApplication: boolean;
   /** The set of step keys with an existing OrganizationOnboardingStep row for this organization — each one means either "explicitly skipped" (a skippable step) or "explicitly acknowledged" (WELCOME/FINISH), never both meanings for the same key (§9's own row-existence-is-the-whole-signal model). */
   actedStepKeys: ReadonlySet<OnboardingStepKey>;
 };
@@ -102,6 +104,8 @@ function isStepDoneByData(key: OnboardingStepKey, signals: OnboardingRawSignals)
   switch (key) {
     case "COMPANY_PROFILE":
       return signals.hasCompanyProfile;
+    case "INDUSTRY_PRESET":
+      return signals.hasPresetApplication;
     case "PAYMENT_DETAILS":
       return signals.hasPaymentDetails;
     case "DOMAIN_SETUP":
@@ -130,6 +134,7 @@ function isStepDoneByData(key: OnboardingStepKey, signals: OnboardingRawSignals)
  */
 const SUBSTANTIVE_STEPS: readonly OnboardingStepKey[] = [
   "COMPANY_PROFILE",
+  "INDUSTRY_PRESET",
   "PAYMENT_DETAILS",
   "DOMAIN_SETUP",
   "CREATE_CLIENT",
@@ -279,6 +284,7 @@ export async function getOrganizationOnboardingProgress(organizationId: string):
     hasCompanyProfileRow,
     hasPaymentDetailsRow,
     hasDomainSettingsRow,
+    hasPresetApplicationRow,
     actedRows,
   ] = await Promise.all([
     prisma.client.count({ where: { organizationId } }),
@@ -289,6 +295,9 @@ export async function getOrganizationOnboardingProgress(organizationId: string):
     prisma.organizationProfile.findUnique({ where: { organizationId }, select: { organizationId: true } }),
     prisma.organizationPaymentDetails.findUnique({ where: { organizationId }, select: { organizationId: true } }),
     prisma.organizationDomainSettings.findUnique({ where: { organizationId }, select: { organizationId: true } }),
+    // At most one PresetApplication can ever exist per organization
+    // (organizationId is @unique) -- findUnique, not findFirst.
+    prisma.presetApplication.findUnique({ where: { organizationId }, select: { id: true } }),
     prisma.organizationOnboardingStep.findMany({
       where: { organizationId },
       select: { step: true },
@@ -302,6 +311,7 @@ export async function getOrganizationOnboardingProgress(organizationId: string):
     hasCompanyProfile: hasCompanyProfileRow !== null,
     hasPaymentDetails: hasPaymentDetailsRow !== null,
     hasDomainSettings: hasDomainSettingsRow !== null,
+    hasPresetApplication: hasPresetApplicationRow !== null,
     hasSecondMember: membershipCount > 1,
     hasPortalUser: portalUserCount > 0,
     actedStepKeys: new Set(actedRows.map((r) => r.step)),

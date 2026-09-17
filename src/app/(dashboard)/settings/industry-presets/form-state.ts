@@ -1,0 +1,2 @@
+/** Same `{ error: string | null }` shape every other form-state type in this app shares (TagFormState et al. — see src/lib/action-error.ts's own doc comment). Its own file (not the "use server" actions.ts, and not inline in the client component) so both may import it without pulling a Server Action module into client code or vice versa. */
+export type ApplyPresetFormState = { error: string | null };

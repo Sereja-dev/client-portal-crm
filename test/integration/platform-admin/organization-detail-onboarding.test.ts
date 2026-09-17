@@ -154,7 +154,7 @@ describe("getOrganizationDetail — onboarding across fresh, partial, complete, 
       data: { organizationId: org.id, legalName: "Complete Org Legal", country: "US", currency: "USD", timezone: "America/New_York" },
     });
     // Every skippable step explicitly skipped, WELCOME acknowledged, FINISH acknowledged.
-    for (const step of ["WELCOME", "PAYMENT_DETAILS", "DOMAIN_SETUP", "CREATE_TASK", "INVITE_TEAMMATE", "INVITE_PORTAL_USER", "REVIEW_BILLING", "FINISH"] as const) {
+    for (const step of ["WELCOME", "INDUSTRY_PRESET", "PAYMENT_DETAILS", "DOMAIN_SETUP", "CREATE_TASK", "INVITE_TEAMMATE", "INVITE_PORTAL_USER", "REVIEW_BILLING", "FINISH"] as const) {
       await prisma.organizationOnboardingStep.create({ data: { organizationId: org.id, step } });
     }
 

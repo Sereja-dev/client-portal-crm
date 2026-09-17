@@ -57,6 +57,16 @@ const SETTINGS_LINKS: readonly SettingsNavLink[] = [
   // above; not role-gated, matching the identical permission model (see
   // this feature's own Server Actions for the full reasoning).
   { href: "/settings/lead-capture-forms", label: "Lead capture forms" },
+  // Industry Presets V1 — same "org-wide config, open to any staff role"
+  // tier as Custom Fields/Custom Statuses/Lead Capture Forms immediately
+  // above: MEMBER may view the catalog and preview a preset, just not
+  // apply one (src/lib/industry-presets/authorization.ts's own
+  // canApplyIndustryPreset gate) — the same "reads open, one mutation
+  // privileged" split Tags' own definitions.ts already establishes, but
+  // unlike Tags/Workflow Automations/Templates, that split doesn't reach
+  // this link's own visibility at all (view/preview is not privileged
+  // here), so no *Only flag is added for it.
+  { href: "/settings/industry-presets", label: "Industry presets" },
   // Workflow Automations V1 — grouped with the other org-wide config
   // entries above, but OWNER/ADMIN-only (see workflowAutomationsOnly's
   // own comment) rather than open to any staff role like its neighbors.

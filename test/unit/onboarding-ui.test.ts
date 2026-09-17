@@ -23,6 +23,7 @@ function signals(overrides: Partial<OnboardingRawSignals> = {}): OnboardingRawSi
     hasCompanyProfile: false,
     hasPaymentDetails: false,
     hasDomainSettings: false,
+    hasPresetApplication: false,
     actedStepKeys: new Set<OnboardingStepKey>(),
     ...overrides,
   };
@@ -173,6 +174,7 @@ describe("shouldRenderOnboardingCard", () => {
         hasSecondMember: true,
         hasPortalUser: true,
         hasCompanyProfile: true,
+        hasPresetApplication: true,
         hasPaymentDetails: true,
         hasDomainSettings: true,
         actedStepKeys: new Set<OnboardingStepKey>(["REVIEW_BILLING"]),

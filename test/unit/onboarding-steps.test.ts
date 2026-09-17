@@ -28,10 +28,11 @@ describe("ONBOARDING_STEP_ORDER / ONBOARDING_STEPS — catalog invariants", () =
     });
   });
 
-  it("adopts docs/onboarding-architecture.md §5's decided order, with the Customer Setup Wizard's three steps (Stage 6.2) inserted between WELCOME and CREATE_CLIENT", () => {
+  it("adopts docs/onboarding-architecture.md §5's decided order, with the Customer Setup Wizard's three steps (Stage 6.2) inserted between WELCOME and CREATE_CLIENT, and Industry Presets V1's own INDUSTRY_PRESET inserted right after COMPANY_PROFILE", () => {
     expect(ONBOARDING_STEP_ORDER).toEqual([
       "WELCOME",
       "COMPANY_PROFILE",
+      "INDUSTRY_PRESET",
       "PAYMENT_DETAILS",
       "DOMAIN_SETUP",
       "CREATE_CLIENT",

@@ -414,6 +414,15 @@ enum OnboardingStepKey {
   // steps.ts's own ONBOARDING_STEP_ORDER) — initial workspace setup,
   // before a user starts putting business data in.
   COMPANY_PROFILE
+  // Industry Presets V1 (docs/industry-presets, if any — see
+  // PresetApplication's own doc comment for the full design story).
+  // Placed immediately after COMPANY_PROFILE in src/lib/onboarding/
+  // steps.ts's own ONBOARDING_STEP_ORDER, matching this enum's own
+  // "growing the step-key set is designed to grow" allowance quoted
+  // above — a preset is optional starter configuration, logically
+  // reviewed right after a workspace's own identity (Company Profile),
+  // before later operational setup steps.
+  INDUSTRY_PRESET
   PAYMENT_DETAILS
   DOMAIN_SETUP
   CREATE_CLIENT
@@ -533,6 +542,12 @@ model User {
   // identical reasoning above).
   createdCalendarEvents  CalendarEvent[] @relation("CalendarEventCreatedBy")
   assignedCalendarEvents CalendarEvent[] @relation("CalendarEventAssignee")
+
+  // Industry Presets V1 (schema/domain foundation). Same "author" relation
+  // shape as createdQuotes/QuoteCreatedBy above -- Restrict, so a User who
+  // has applied a preset can never be hard-deleted while that application's
+  // own audit row still exists.
+  appliedPresets PresetApplication[] @relation("PresetApplicationAppliedBy")
 }
 
 // Multi-tenant scaffolding (schema-only for now; not yet wired into app
@@ -676,6 +691,15 @@ model Organization {
   // Calendar V1 (schema/domain foundation). Same direct-tenant-scoping
   // shape as leads/customFieldDefinitions above.
   calendarEvents CalendarEvent[]
+
+  // Industry Presets V1 (schema/domain foundation). Zero-or-one, not a
+  // list -- the V1 invariant (at most one applied preset per
+  // organization, no switching) is a real one-to-one relation, the same
+  // shape `profile`/`paymentDetails`/`domainSettings` above already use,
+  // not the plain "list of child rows" shape leads/customFieldDefinitions
+  // have. Enforced by PresetApplication.organizationId's own @unique
+  // below, not merely assumed here.
+  presetApplication PresetApplication?
 }
 
 // Platform Admin Organization Suspension, PR 1. Deliberately separate
@@ -4296,4 +4320,67 @@ model CalendarEvent {
   @@index([clientId])
   @@index([leadId])
   @@index([projectId])
+}
+
+// Industry Presets V1 (schema/domain foundation). At most ONE row per
+// organization, ever — proof that a given code-defined preset
+// (src/lib/industry-presets/catalog.ts) was applied to this organization,
+// never a permanent assertion that the organization "is" that industry
+// (deliberately no Organization.industry/OrganizationProfile.industry/
+// businessType field exists anywhere in this schema, and none should be
+// added for this feature). A preset only ever ADDS starter Custom
+// Statuses/Custom Fields/Tags (never replaces, renames, or archives
+// anything existing, and never touches the 15 built-in system status
+// definitions) — this row is that application's own audit/provenance
+// record, not a business record itself.
+//
+// presetKey/presetVersion identify exactly which code-defined preset
+// definition (and which version of its own content) was applied — the
+// preset catalog itself lives entirely in code (never a database-backed,
+// Platform-Admin-editable table), matching this app's own existing
+// SYSTEM_STATUS_DEFINITIONS precedent (src/lib/custom-statuses/constants.ts)
+// for "default configuration content is a plain, versioned, code-defined
+// constant." No createdItemsJson/provenance-of-individual-rows column
+// exists here by explicit V1 decision.
+//
+// Concurrency-fix revision: `organizationId` itself is `@unique` (not a
+// composite `(organizationId, presetKey)` unique as an earlier revision
+// of this model had) — that composite only ever rejected a duplicate
+// SAME-preset row, never a second row for a DIFFERENT preset, so it
+// could not by itself enforce "at most one application per organization"
+// under concurrent apply attempts for two different presets. A plain
+// `@unique` on `organizationId` alone is the actual, real, database-
+// enforced one-preset-per-organization invariant (Organization's own
+// inverse relation below is `PresetApplication?`, zero-or-one, not a
+// list, reflecting this truthfully). The application layer
+// (src/lib/industry-presets/apply.ts) creates this row FIRST, inside its
+// own transaction, before any Custom Status/Field/Tag write — that
+// insert is the actual concurrency gate; a losing concurrent transaction
+// is classified (same preset vs. different preset) only after re-reading
+// the now-committed row, never inferred from the raw unique-violation
+// error alone. See that module's own doc comment for the full mechanism.
+model PresetApplication {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @unique @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  presetKey     String
+  presetVersion Int
+
+  // Audit metadata only, never an authorization/ownership boundary --
+  // same "a User who authored/applied a real record can't be hard-deleted
+  // out from under it" reasoning Quote/Contract/WorkflowAutomation/
+  // QuoteTemplate/CalendarEvent's own createdByUserId already establishes
+  // (Restrict, not SetNull).
+  appliedByUserId String @db.Uuid
+  appliedByUser   User   @relation("PresetApplicationAppliedBy", fields: [appliedByUserId], references: [id], onDelete: Restrict)
+
+  createdAt DateTime @default(now())
+
+  // No separate @@index([organizationId]) -- the @unique above already
+  // creates that exact index (a unique constraint is backed by a unique
+  // B-tree index in Postgres); a second plain index on the same single
+  // column would be a pure duplicate (same convention Lead's own
+  // convertedClientId comment already documents for the identical case).
 }

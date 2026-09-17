@@ -23,6 +23,7 @@ function signals(overrides: Partial<OnboardingRawSignals> = {}): OnboardingRawSi
     hasCompanyProfile: false,
     hasPaymentDetails: false,
     hasDomainSettings: false,
+    hasPresetApplication: false,
     actedStepKeys: new Set<OnboardingStepKey>(),
     ...overrides,
   };
@@ -40,10 +41,10 @@ describe("getWorkspaceCompletionSummary", () => {
     const summary = getWorkspaceCompletionSummary(progress);
 
     expect(summary.completedSteps).toEqual([]);
-    expect(summary.nextActions.map((s) => s.key)).toEqual(["COMPANY_PROFILE", "PAYMENT_DETAILS", "DOMAIN_SETUP"]);
-    // CREATE_CLIENT is actionable too on a fresh org, but capped out —
-    // proves the cap is real, not an accident of there being exactly 3
-    // candidates.
+    expect(summary.nextActions.map((s) => s.key)).toEqual(["COMPANY_PROFILE", "INDUSTRY_PRESET", "PAYMENT_DETAILS"]);
+    // DOMAIN_SETUP/CREATE_CLIENT are actionable too on a fresh org, but
+    // capped out — proves the cap is real, not an accident of there
+    // being exactly 3 candidates.
     expect(summary.nextActions).toHaveLength(3);
   });
 
@@ -53,9 +54,11 @@ describe("getWorkspaceCompletionSummary", () => {
 
     expect(summary.completedSteps.map((s) => s.key)).toEqual(["COMPANY_PROFILE", "CREATE_CLIENT"]);
     // CREATE_PROJECT and INVITE_PORTAL_USER both depend on CREATE_CLIENT —
-    // now actionable and eligible to appear, proving this reflects live
-    // dependency state, not a static list.
-    expect(summary.nextActions.map((s) => s.key)).toEqual(["PAYMENT_DETAILS", "DOMAIN_SETUP", "CREATE_PROJECT"]);
+    // now actionable and eligible to appear, but INDUSTRY_PRESET/
+    // PAYMENT_DETAILS/DOMAIN_SETUP (earlier in catalog order, still
+    // NOT_STARTED) fill the cap of 3 first — proving this reflects live
+    // dependency state ordered by the real catalog, not a static list.
+    expect(summary.nextActions.map((s) => s.key)).toEqual(["INDUSTRY_PRESET", "PAYMENT_DETAILS", "DOMAIN_SETUP"]);
   });
 
   it("WELCOME and FINISH never appear in completed steps even when acknowledged — acknowledgments aren't setup accomplishments", () => {
@@ -91,6 +94,7 @@ describe("getWorkspaceCompletionSummary", () => {
         hasSecondMember: true,
         hasPortalUser: true,
         hasCompanyProfile: true,
+        hasPresetApplication: true,
         hasPaymentDetails: true,
         hasDomainSettings: true,
         actedStepKeys: new Set<OnboardingStepKey>(["REVIEW_BILLING"]),
@@ -101,6 +105,7 @@ describe("getWorkspaceCompletionSummary", () => {
     const summary = getWorkspaceCompletionSummary(progress);
     expect(summary.completedSteps.map((s) => s.key)).toEqual([
       "COMPANY_PROFILE",
+      "INDUSTRY_PRESET",
       "PAYMENT_DETAILS",
       "DOMAIN_SETUP",
       "CREATE_CLIENT",
@@ -124,6 +129,7 @@ describe("getWorkspaceCompletionSummary", () => {
         hasSecondMember: true,
         hasPortalUser: true,
         hasCompanyProfile: true,
+        hasPresetApplication: true,
         hasPaymentDetails: true,
         hasDomainSettings: true,
       }),

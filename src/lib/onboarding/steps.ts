@@ -26,6 +26,7 @@ import type { OnboardingStepKey } from "@/generated/prisma/enums";
 export const ONBOARDING_STEP_ORDER: readonly OnboardingStepKey[] = [
   "WELCOME",
   "COMPANY_PROFILE",
+  "INDUSTRY_PRESET",
   "PAYMENT_DETAILS",
   "DOMAIN_SETUP",
   "CREATE_CLIENT",
@@ -113,12 +114,33 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepKey, OnboardingStep
     dependsOn: null,
     targetHref: "/settings/company",
   },
+  // Industry Presets V1 — optional starter configuration, reviewed right
+  // after a workspace's own identity (Company Profile) and before later
+  // operational setup steps (locked spec: "Placed logically after
+  // COMPANY_PROFILE and before later operational setup steps"). Because
+  // a newly-created org always starts with exactly one member (the
+  // OWNER), this step's own ADMIN/MEMBER onboarding edge cases don't
+  // arise in practice — no new architecture needed for them. Points at
+  // the one real Settings page (/settings/industry-presets) that already
+  // implements the full catalog/preview/apply flow — this step is
+  // intentionally not a second implementation of any of that (locked
+  // spec §14: "do NOT create a second implementation").
+  INDUSTRY_PRESET: {
+    key: "INDUSTRY_PRESET",
+    order: 2,
+    label: "Choose an industry preset",
+    computed: true,
+    skippable: true,
+    required: false,
+    dependsOn: null,
+    targetHref: "/settings/industry-presets",
+  },
   // Deferred/optional, matching this stage's own explicit "no Stripe/
   // payment processing yet" scope — real payment collection is a later
   // concern, entering *where to receive* money is not mandatory today.
   PAYMENT_DETAILS: {
     key: "PAYMENT_DETAILS",
-    order: 2,
+    order: 3,
     label: "Add payment receiving details",
     computed: true,
     skippable: true,
@@ -131,7 +153,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepKey, OnboardingStep
   // works with zero action from the user.
   DOMAIN_SETUP: {
     key: "DOMAIN_SETUP",
-    order: 3,
+    order: 4,
     label: "Review your domain settings",
     computed: true,
     skippable: true,
@@ -141,7 +163,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepKey, OnboardingStep
   },
   CREATE_CLIENT: {
     key: "CREATE_CLIENT",
-    order: 4,
+    order: 5,
     label: "Create your first client",
     computed: true,
     skippable: false,
@@ -151,7 +173,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepKey, OnboardingStep
   },
   CREATE_PROJECT: {
     key: "CREATE_PROJECT",
-    order: 5,
+    order: 6,
     label: "Create your first project",
     computed: true,
     skippable: false,
@@ -161,7 +183,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepKey, OnboardingStep
   },
   CREATE_TASK: {
     key: "CREATE_TASK",
-    order: 6,
+    order: 7,
     label: "Create your first task",
     computed: true,
     skippable: true,
@@ -171,7 +193,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepKey, OnboardingStep
   },
   INVITE_TEAMMATE: {
     key: "INVITE_TEAMMATE",
-    order: 7,
+    order: 8,
     label: "Invite a teammate",
     computed: true,
     skippable: true,
@@ -181,7 +203,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepKey, OnboardingStep
   },
   INVITE_PORTAL_USER: {
     key: "INVITE_PORTAL_USER",
-    order: 8,
+    order: 9,
     label: "Invite a Client Portal user",
     computed: true,
     skippable: true,
@@ -196,7 +218,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepKey, OnboardingStep
   },
   REVIEW_BILLING: {
     key: "REVIEW_BILLING",
-    order: 9,
+    order: 10,
     label: "Review billing",
     computed: false,
     skippable: true,
@@ -214,7 +236,7 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepKey, OnboardingStep
   },
   FINISH: {
     key: "FINISH",
-    order: 10,
+    order: 11,
     label: "Finish setup",
     computed: false,
     skippable: false,
@@ -253,6 +275,7 @@ export function isOnboardingStepAvailable(key: OnboardingStepKey): boolean {
 /** A fixed allowlist of every href this catalog can ever point at — real, existing routes only, checked by this module's own unit tests and by the security check. */
 export const ONBOARDING_STEP_HREF_ALLOWLIST: readonly string[] = [
   "/settings/company",
+  "/settings/industry-presets",
   "/settings/payment",
   "/settings/domain",
   "/settings/billing",

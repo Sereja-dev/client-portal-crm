@@ -127,7 +127,7 @@ test.afterAll(async () => {
 });
 
 test.describe("Visibility per progress state", () => {
-  test("a fresh, empty organization shows the full checklist, 0 of 10 complete, Welcome first", async ({
+  test("a fresh, empty organization shows the full checklist, 0 of 11 complete, Welcome first", async ({
     context,
     baseURL,
     page,
@@ -137,19 +137,20 @@ test.describe("Visibility per progress state", () => {
     await gotoAndSettle(page, `${baseURL}/dashboard`);
 
     await expect(onboardingCard(page)).toBeVisible();
-    // 10 = every ONBOARDING_STEP_ORDER key except WELCOME — includes the
+    // 11 = every ONBOARDING_STEP_ORDER key except WELCOME — includes the
     // Customer Setup Wizard's three steps (Stage 6.2): Company Profile,
-    // Payment Details, Domain Setup; and REVIEW_BILLING, available since
-    // Sale-Ready Phase E, E3.3.
-    await expect(onboardingCard(page).getByText("0 of 10 complete")).toBeVisible();
+    // Payment Details, Domain Setup; Industry Presets V1's own
+    // INDUSTRY_PRESET; and REVIEW_BILLING, available since Sale-Ready
+    // Phase E, E3.3.
+    await expect(onboardingCard(page).getByText("0 of 11 complete")).toBeVisible();
 
     const bar = onboardingCard(page).getByRole("progressbar", { name: "Onboarding progress" });
     await expect(bar).toHaveAttribute("aria-valuenow", "0");
 
-    // 11 = every key in ONBOARDING_STEP_ORDER (every step always renders as
+    // 12 = every key in ONBOARDING_STEP_ORDER (every step always renders as
     // a row regardless of its status).
     const rows = onboardingCard(page).getByRole("listitem");
-    await expect(rows).toHaveCount(11);
+    await expect(rows).toHaveCount(12);
     await expect(rows.first()).toContainText("Welcome");
 
     await cleanupFreshOrg(fresh);
@@ -192,6 +193,7 @@ test.describe("Visibility per progress state", () => {
     });
     await dbQuery("organizationDomainSettings", "create", { data: { organizationId: fixtures.orgA.id, customDomain: null } });
     await dbQuery("organizationOnboardingStep", "create", { data: { organizationId: fixtures.orgA.id, step: "REVIEW_BILLING" } });
+    await dbQuery("organizationOnboardingStep", "create", { data: { organizationId: fixtures.orgA.id, step: "INDUSTRY_PRESET" } });
 
     try {
       await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
@@ -201,7 +203,7 @@ test.describe("Visibility per progress state", () => {
       await dbQuery("organizationProfile", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
       await dbQuery("organizationPaymentDetails", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
       await dbQuery("organizationDomainSettings", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
-      await dbQuery("organizationOnboardingStep", "deleteMany", { where: { organizationId: fixtures.orgA.id, step: "REVIEW_BILLING" } });
+      await dbQuery("organizationOnboardingStep", "deleteMany", { where: { organizationId: fixtures.orgA.id, step: { in: ["REVIEW_BILLING", "INDUSTRY_PRESET"] } } });
     }
   });
 });
@@ -253,6 +255,7 @@ test.describe("Workspace completion summary (Stage 7.1.1)", () => {
     });
     await dbQuery("organizationDomainSettings", "create", { data: { organizationId: fixtures.orgA.id, customDomain: null } });
     await dbQuery("organizationOnboardingStep", "create", { data: { organizationId: fixtures.orgA.id, step: "REVIEW_BILLING" } });
+    await dbQuery("organizationOnboardingStep", "create", { data: { organizationId: fixtures.orgA.id, step: "INDUSTRY_PRESET" } });
 
     try {
       await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
@@ -263,7 +266,7 @@ test.describe("Workspace completion summary (Stage 7.1.1)", () => {
       await dbQuery("organizationProfile", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
       await dbQuery("organizationPaymentDetails", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
       await dbQuery("organizationDomainSettings", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
-      await dbQuery("organizationOnboardingStep", "deleteMany", { where: { organizationId: fixtures.orgA.id, step: "REVIEW_BILLING" } });
+      await dbQuery("organizationOnboardingStep", "deleteMany", { where: { organizationId: fixtures.orgA.id, step: { in: ["REVIEW_BILLING", "INDUSTRY_PRESET"] } } });
     }
   });
 
