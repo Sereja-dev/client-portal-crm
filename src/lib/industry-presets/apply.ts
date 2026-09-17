@@ -2,8 +2,14 @@ import "server-only";
 import { Prisma } from "@/generated/prisma/client";
 import type { CustomFieldEntityType, CustomStatusEntityType } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
-import { createTag } from "@/lib/tags/definitions";
-import { getIndustryPreset, type IndustryPresetKey, type PresetFieldSeed, type PresetStatusSeed } from "./catalog";
+import { normalizeTagName } from "@/lib/tags/normalize";
+import {
+  getIndustryPreset,
+  type IndustryPresetKey,
+  type PresetFieldSeed,
+  type PresetStatusSeed,
+  type PresetTagSeed,
+} from "./catalog";
 import { assertCanApplyIndustryPreset, IndustryPresetAccessError, type IndustryPresetActor } from "./authorization";
 import type { PrismaClientOrTx } from "./types";
 
@@ -18,28 +24,46 @@ import type { PrismaClientOrTx } from "./types";
  * success). A normal, expected per-item conflict is a SKIP, not a
  * transaction failure.
  *
+ * PRODUCTION TRANSACTION LATENCY FIX (post-launch correction): the
+ * original version of this module issued one small, sequential Prisma
+ * round trip per catalog item (2 findFirst + 1 create per status, 2
+ * findFirst + 1 create + N option creates per field, 1 findFirst + 1
+ * create per tag) -- up to ~61 sequential round trips for the largest
+ * V1 preset (marketing_agency: 8 statuses + 6 fields incl. one 6-option
+ * SELECT + 6 tags). Against local PGlite (in-process, near-zero
+ * latency) this was invisible; against a real, networked Postgres
+ * instance in Production, cumulative round-trip latency exceeded
+ * Prisma's default 5000ms interactive-transaction timeout partway
+ * through, throwing P2028 ("query cannot be executed on an expired
+ * transaction") and rolling back the whole apply. The fix below keeps
+ * the exact same one-atomic-transaction design and the exact same
+ * conflict/ordering/side-effect semantics, but replaces the per-item
+ * read pattern with a small, fixed number of BATCHED reads (one
+ * conflict findMany + one position groupBy per entity kind, regardless
+ * of how many catalog items that kind has) and batched writes
+ * (createMany/createManyAndReturn), reducing the same marketing_agency
+ * worst case to ~10 total operations. See this module's own README-style
+ * count in the PR/report that shipped this fix for the full before/after
+ * breakdown; test/integration/industry-presets/apply.test.ts's own
+ * query-volume regression guard enforces a small fixed upper bound going
+ * forward so this can't silently regress back to N+1.
+ *
  * WHY THIS MODULE DOES NOT REUSE createCustomStatusDefinition/
- * createCustomFieldDefinition/createCustomFieldOption (locked spec §23):
- * all three always derive-or-suffix their own key/value on a collision
- * (deriveUniqueCustomStatusKey/deriveUniqueCustomFieldDefinitionKey/
- * deriveUniqueCustomFieldOptionValue) -- exactly the near-duplicate-
- * creation behavior a preset must never produce (locked spec §7: "Do NOT
- * call a helper that auto-suffixes on collision for preset application").
- * The two narrow primitives below (createPresetStatusIfAbsent/
- * createPresetFieldIfAbsent) instead check for the catalog's own EXACT,
- * stable key and either create with that literal key or skip --
- * mirroring those helpers' own position-append/isSystem/isDefault
- * conventions, never their suffixing behavior. Tags need no analogous
- * primitive: createTag's own existing collision behavior (pre-check
- * across ANY state including archived, return DUPLICATE_NAME, never
- * suffix) already matches presets' required semantics exactly, so it is
- * reused directly, unmodified.
+ * createCustomFieldDefinition/createCustomFieldOption/createTag (locked
+ * spec §23): all four always derive-or-suffix their own key/value on a
+ * collision, or (createTag) perform their own per-call existence
+ * pre-check -- exactly the near-duplicate-creation and redundant-N+1-read
+ * behavior a batched preset apply must avoid. This module computes every
+ * conflict decision itself, in bulk, from batched reads, and writes only
+ * the items classified ADD -- using the SAME canonical rules those
+ * helpers embody (exact stable key, no suffixing; canonical tag name
+ * normalization via normalizeTagName) without duplicating or diverging
+ * from them.
  *
  * CONCURRENCY (locked spec, concurrency-blocker fix revision) — the
  * actual, final, database-enforced invariant is
  * `PresetApplication.organizationId @unique` (prisma/schema.prisma), NOT
- * the earlier `@@unique([organizationId, presetKey])` this model used
- * before this fix: a composite unique on (organizationId, presetKey)
+ * a composite `(organizationId, presetKey)` unique: a composite unique
  * only ever rejects a duplicate SAME-preset row -- it can never stop two
  * concurrent transactions from each successfully inserting a row for
  * the same organization with two DIFFERENT presetKey values, since
@@ -66,21 +90,29 @@ import type { PrismaClientOrTx } from "./types";
  * matches ONLY this exact unique index (a single "organizationId"
  * field) -- an unrelated P2002 from a Custom Status/Custom Field/Tag
  * table has a different field fingerprint and is deliberately left to
- * propagate as a genuine, unexpected error (never swallowed).
+ * propagate as a genuine, unexpected error (never swallowed) -- this
+ * includes a genuine Tag-uniqueness race against a concurrent, unrelated
+ * interactive Tag creation (Tags are not gated by the PresetApplication
+ * singleton the way Custom Status/Field rows effectively are within one
+ * apply), which surfaces as an ordinary unexpected-failure rollback, not
+ * a swallowed or misclassified result.
  *
  * This still uses this repo's own established default transaction
- * behavior (`prisma.$transaction` with no explicit isolation level --
- * Postgres READ COMMITTED), the same default every other aggregate
- * mutation in this codebase already uses (src/lib/custom-statuses/
- * definitions.ts, src/lib/custom-fields/definitions.ts, src/lib/tags/
- * definitions.ts) -- no Serializable-isolation precedent exists
- * anywhere in this repo, and this module does not introduce one
- * speculatively. The single-column unique index (checked by Postgres on
- * every INSERT, not merely read-then-decided by application code) is
- * what makes READ COMMITTED sufficient here: unlike the pre-fix design,
- * correctness no longer depends on a SELECT that a concurrent writer
- * could race past.
+ * behavior (Postgres READ COMMITTED, no Serializable precedent anywhere
+ * in this repo) -- the single-column unique index (checked by Postgres
+ * on every INSERT, not merely read-then-decided by application code) is
+ * what makes READ COMMITTED sufficient here: correctness never depends
+ * on a SELECT that a concurrent writer could race past. The explicit
+ * `maxWait`/`timeout` below (locked spec §13) is bounded defense-in-depth
+ * for a small, fixed-size catalog operation against a real remote
+ * Postgres -- batching is the primary fix; the higher ceiling is
+ * insurance against an unusually slow moment, never permission for
+ * unbounded work inside the transaction.
  */
+
+/** Bounded defense-in-depth only (locked spec §13) -- batching the query pattern below is the actual fix for the Production timeout. Never raise this to accommodate more work; if 15s genuinely isn't enough, the query pattern itself needs another pass, not a bigger number. */
+const INDUSTRY_PRESET_TRANSACTION_MAX_WAIT_MS = 5_000;
+const INDUSTRY_PRESET_TRANSACTION_TIMEOUT_MS = 15_000;
 
 export type PresetApplyStatusOutcome = { entityType: CustomStatusEntityType; key: string; label: string };
 export type PresetApplyFieldOutcome = { entityType: CustomFieldEntityType; key: string; label: string };
@@ -105,35 +137,56 @@ export type ApplyIndustryPresetResult =
   | { ok: true; alreadyApplied: true }
   | { ok: true; alreadyApplied: false; summary: IndustryPresetApplySummary };
 
+const statusConflictKey = (entityType: CustomStatusEntityType, key: string) => `${entityType}:${key}`;
+const fieldConflictKey = (entityType: CustomFieldEntityType, key: string) => `${entityType}:${key}`;
+
 /**
- * Creates a CUSTOM status definition for this EXACT catalog key, or
- * reports a skip if one already exists for this organization+entityType
- * (any state, including archived -- locked spec §7: "if exists -> SKIP
- * (includes archived)"). Never suffixes. `position` is current max + 1,
- * same convention as createCustomStatusDefinition's own.
+ * Classifies every catalog status into ADD/SKIP with exactly TWO reads
+ * total, regardless of how many statuses the preset has: one batched
+ * conflict findMany (any existing row, any archived state, counts --
+ * locked spec §4/§7), and one batched position groupBy covering every
+ * distinct entityType that has at least one ADD candidate (locked spec
+ * §5). Positions are then assigned in memory, in catalog order, only to
+ * ADD items -- a SKIP never consumes a position slot. Writes only the
+ * ADD rows, in one createMany (locked spec §6).
  */
-async function createPresetStatusIfAbsent(
+async function applyPresetStatuses(
   tx: Prisma.TransactionClient,
   organizationId: string,
-  seed: PresetStatusSeed,
-): Promise<{ decision: "ADD" | "SKIP" }> {
-  const existing = await tx.customStatusDefinition.findFirst({
-    where: { organizationId, entityType: seed.entityType, key: seed.key },
-    select: { id: true },
-  });
-  if (existing) {
-    return { decision: "SKIP" };
+  statuses: readonly PresetStatusSeed[],
+): Promise<{ added: PresetApplyStatusOutcome[]; skipped: PresetApplyStatusOutcome[] }> {
+  if (statuses.length === 0) {
+    return { added: [], skipped: [] };
   }
 
-  const last = await tx.customStatusDefinition.findFirst({
-    where: { organizationId, entityType: seed.entityType },
-    orderBy: { position: "desc" },
-    select: { position: true },
+  const existingRows = await tx.customStatusDefinition.findMany({
+    where: {
+      organizationId,
+      OR: statuses.map((s) => ({ entityType: s.entityType, key: s.key })),
+    },
+    select: { entityType: true, key: true },
   });
-  const position = (last?.position ?? -1) + 1;
+  const conflicts = new Set(existingRows.map((r) => statusConflictKey(r.entityType, r.key)));
 
-  await tx.customStatusDefinition.create({
-    data: {
+  const addSeeds = statuses.filter((s) => !conflicts.has(statusConflictKey(s.entityType, s.key)));
+  const skipSeeds = statuses.filter((s) => conflicts.has(statusConflictKey(s.entityType, s.key)));
+
+  const nextPositionByEntityType = new Map<CustomStatusEntityType, number>();
+  if (addSeeds.length > 0) {
+    const entityTypes = [...new Set(addSeeds.map((s) => s.entityType))];
+    const positionGroups = await tx.customStatusDefinition.groupBy({
+      by: ["entityType"],
+      where: { organizationId, entityType: { in: entityTypes } },
+      _max: { position: true },
+    });
+    for (const entityType of entityTypes) nextPositionByEntityType.set(entityType, -1);
+    for (const group of positionGroups) nextPositionByEntityType.set(group.entityType, group._max.position ?? -1);
+  }
+
+  const createData = addSeeds.map((seed) => {
+    const position = (nextPositionByEntityType.get(seed.entityType) ?? -1) + 1;
+    nextPositionByEntityType.set(seed.entityType, position);
+    return {
       organizationId,
       entityType: seed.entityType,
       key: seed.key,
@@ -142,68 +195,168 @@ async function createPresetStatusIfAbsent(
       position,
       isDefault: false,
       isSystem: false,
-    },
+    };
   });
-  return { decision: "ADD" };
+
+  if (createData.length > 0) {
+    await tx.customStatusDefinition.createMany({ data: createData });
+  }
+
+  const toOutcome = (seed: PresetStatusSeed): PresetApplyStatusOutcome => ({
+    entityType: seed.entityType,
+    key: seed.key,
+    label: seed.label,
+  });
+  return { added: addSeeds.map(toOutcome), skipped: skipSeeds.map(toOutcome) };
 }
 
 /**
- * Creates a custom field definition for this EXACT catalog key (skip on
- * any existing match, any state -- same rule as statuses), and, only
- * when the definition itself was newly created, its SELECT options in
- * catalog order with their own exact literal values. An already-existing
- * field is never touched, so its options (if any) are never appended to
- * either -- strictly additive, no partial modification of a pre-existing
- * definition (locked spec §7/§12).
+ * Same batching strategy as applyPresetStatuses, for Custom Fields
+ * (locked spec §7/§8): one conflict findMany, one position groupBy over
+ * only the ADD entity types, one createManyAndReturn for the ADD field
+ * rows themselves (returning each new row's own id, needed to attach
+ * SELECT options), and -- only for the one field that is both ADD and
+ * SELECT -- one createMany for its options in exact catalog order
+ * (locked spec §9). A SKIPped field is never touched, so its
+ * pre-existing options (if any) are never read or written.
  */
-async function createPresetFieldIfAbsent(
+async function applyPresetFields(
   tx: Prisma.TransactionClient,
   organizationId: string,
-  seed: PresetFieldSeed,
-): Promise<{ decision: "ADD" | "SKIP" }> {
-  const existing = await tx.customFieldDefinition.findFirst({
-    where: { organizationId, entityType: seed.entityType, key: seed.key },
-    select: { id: true },
-  });
-  if (existing) {
-    return { decision: "SKIP" };
+  fields: readonly PresetFieldSeed[],
+): Promise<{ added: PresetApplyFieldOutcome[]; skipped: PresetApplyFieldOutcome[] }> {
+  if (fields.length === 0) {
+    return { added: [], skipped: [] };
   }
 
-  const last = await tx.customFieldDefinition.findFirst({
-    where: { organizationId, entityType: seed.entityType },
-    orderBy: { position: "desc" },
-    select: { position: true },
+  const existingRows = await tx.customFieldDefinition.findMany({
+    where: {
+      organizationId,
+      OR: fields.map((f) => ({ entityType: f.entityType, key: f.key })),
+    },
+    select: { entityType: true, key: true },
   });
-  const position = (last?.position ?? -1) + 1;
+  const conflicts = new Set(existingRows.map((r) => fieldConflictKey(r.entityType, r.key)));
 
-  const definition = await tx.customFieldDefinition.create({
-    data: {
+  const addSeeds = fields.filter((f) => !conflicts.has(fieldConflictKey(f.entityType, f.key)));
+  const skipSeeds = fields.filter((f) => conflicts.has(fieldConflictKey(f.entityType, f.key)));
+
+  const nextPositionByEntityType = new Map<CustomFieldEntityType, number>();
+  if (addSeeds.length > 0) {
+    const entityTypes = [...new Set(addSeeds.map((f) => f.entityType))];
+    const positionGroups = await tx.customFieldDefinition.groupBy({
+      by: ["entityType"],
+      where: { organizationId, entityType: { in: entityTypes } },
+      _max: { position: true },
+    });
+    for (const entityType of entityTypes) nextPositionByEntityType.set(entityType, -1);
+    for (const group of positionGroups) nextPositionByEntityType.set(group.entityType, group._max.position ?? -1);
+  }
+
+  const createData = addSeeds.map((seed) => {
+    const position = (nextPositionByEntityType.get(seed.entityType) ?? -1) + 1;
+    nextPositionByEntityType.set(seed.entityType, position);
+    return {
       organizationId,
       entityType: seed.entityType,
       key: seed.key,
       label: seed.label,
       fieldType: seed.fieldType,
-      required: false,
+      required: false as const,
       position,
-    },
+    };
   });
 
-  if (seed.fieldType === "SELECT" && seed.options) {
-    let optionPosition = 0;
-    for (const option of seed.options) {
-      await tx.customFieldOption.create({
-        data: {
-          definitionId: definition.id,
-          label: option.label,
-          value: option.value,
-          position: optionPosition,
-        },
-      });
-      optionPosition += 1;
-    }
+  let optionCreateData: { definitionId: string; label: string; value: string; position: number }[] = [];
+  if (createData.length > 0) {
+    const createdRows = await tx.customFieldDefinition.createManyAndReturn({
+      data: createData,
+      select: { id: true, entityType: true, key: true },
+    });
+    optionCreateData = createdRows.flatMap((row) => {
+      const seed = addSeeds.find((s) => s.entityType === row.entityType && s.key === row.key);
+      if (!seed || seed.fieldType !== "SELECT" || !seed.options) return [];
+      return seed.options.map((option, position) => ({
+        definitionId: row.id,
+        label: option.label,
+        value: option.value,
+        position,
+      }));
+    });
   }
 
-  return { decision: "ADD" };
+  if (optionCreateData.length > 0) {
+    await tx.customFieldOption.createMany({ data: optionCreateData });
+  }
+
+  const toOutcome = (seed: PresetFieldSeed): PresetApplyFieldOutcome => ({
+    entityType: seed.entityType,
+    key: seed.key,
+    label: seed.label,
+  });
+  return { added: addSeeds.map(toOutcome), skipped: skipSeeds.map(toOutcome) };
+}
+
+/**
+ * Same batching strategy for Tags (locked spec §10/§11): reuses the
+ * canonical `normalizeTagName` (never a re-implemented normalization
+ * rule), one conflict findMany keyed on normalizedName (any archived
+ * state counts, never restored), and one createMany for the ADD tags.
+ * Deliberately bypasses the public, interactive `createTag` helper --
+ * not because its normalization/collision rules differ (they don't;
+ * this function embodies the exact same rules), but because calling it
+ * once per tag would repeat the very per-item existence read this
+ * batching pass exists to eliminate, and its own per-call authorization
+ * check is already redundant with `applyIndustryPreset`'s own
+ * `assertCanApplyIndustryPreset` gate for the whole operation. A
+ * genuine unique-violation race against a concurrent, unrelated
+ * interactive Tag creation (Tags carry no PresetApplication-style
+ * singleton gate of their own) is deliberately left uncaught here -- it
+ * propagates as a real, unexpected transaction failure and full
+ * rollback, exactly like any other genuinely unexpected error in this
+ * transaction, never silently swallowed or misclassified as an expected
+ * preset conflict.
+ */
+async function applyPresetTags(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  tags: readonly PresetTagSeed[],
+): Promise<{ added: PresetApplyTagOutcome[]; skipped: PresetApplyTagOutcome[] }> {
+  if (tags.length === 0) {
+    return { added: [], skipped: [] };
+  }
+
+  const normalized = tags.map((seed) => {
+    const parsed = normalizeTagName(seed.name);
+    return parsed.ok
+      ? { seed, name: parsed.value.name, normalizedName: parsed.value.normalizedName }
+      : { seed, name: seed.name.trim(), normalizedName: seed.name.trim().toLowerCase() };
+  });
+
+  const existingRows = await tx.tag.findMany({
+    where: { organizationId, normalizedName: { in: normalized.map((n) => n.normalizedName) } },
+    select: { normalizedName: true },
+  });
+  const conflicts = new Set(existingRows.map((r) => r.normalizedName));
+
+  const addEntries = normalized.filter((n) => !conflicts.has(n.normalizedName));
+  const skipEntries = normalized.filter((n) => conflicts.has(n.normalizedName));
+
+  if (addEntries.length > 0) {
+    await tx.tag.createMany({
+      data: addEntries.map((entry) => ({
+        organizationId,
+        name: entry.name,
+        normalizedName: entry.normalizedName,
+        color: null,
+      })),
+    });
+  }
+
+  return {
+    added: addEntries.map((entry) => ({ name: entry.seed.name })),
+    skipped: skipEntries.map((entry) => ({ name: entry.seed.name })),
+  };
 }
 
 /**
@@ -341,28 +494,9 @@ export async function applyIndustryPreset(
       },
     });
 
-    const addedStatuses: PresetApplyStatusOutcome[] = [];
-    const skippedStatuses: PresetApplyStatusOutcome[] = [];
-    for (const seed of preset.statuses) {
-      const { decision } = await createPresetStatusIfAbsent(tx, organizationId, seed);
-      const outcome: PresetApplyStatusOutcome = { entityType: seed.entityType, key: seed.key, label: seed.label };
-      (decision === "ADD" ? addedStatuses : skippedStatuses).push(outcome);
-    }
-
-    const addedFields: PresetApplyFieldOutcome[] = [];
-    const skippedFields: PresetApplyFieldOutcome[] = [];
-    for (const seed of preset.fields) {
-      const { decision } = await createPresetFieldIfAbsent(tx, organizationId, seed);
-      const outcome: PresetApplyFieldOutcome = { entityType: seed.entityType, key: seed.key, label: seed.label };
-      (decision === "ADD" ? addedFields : skippedFields).push(outcome);
-    }
-
-    const addedTags: PresetApplyTagOutcome[] = [];
-    const skippedTags: PresetApplyTagOutcome[] = [];
-    for (const seed of preset.tags) {
-      const result = await createTag(organizationId, actor, { name: seed.name }, tx);
-      (result.ok ? addedTags : skippedTags).push({ name: seed.name });
-    }
+    const statusResult = await applyPresetStatuses(tx, organizationId, preset.statuses);
+    const fieldResult = await applyPresetFields(tx, organizationId, preset.fields);
+    const tagResult = await applyPresetTags(tx, organizationId, preset.tags);
 
     return {
       ok: true,
@@ -371,18 +505,23 @@ export async function applyIndustryPreset(
         presetKey: preset.key,
         presetVersion: preset.version,
         appliedAt: presetApplication.createdAt,
-        addedStatuses,
-        skippedStatuses,
-        addedFields,
-        skippedFields,
-        addedTags,
-        skippedTags,
+        addedStatuses: statusResult.added,
+        skippedStatuses: statusResult.skipped,
+        addedFields: fieldResult.added,
+        skippedFields: fieldResult.skipped,
+        addedTags: tagResult.added,
+        skippedTags: tagResult.skipped,
       },
     };
   };
 
   try {
-    return client === prisma ? await prisma.$transaction((tx) => runApply(tx)) : await runApply(client as Prisma.TransactionClient);
+    return client === prisma
+      ? await prisma.$transaction((tx) => runApply(tx), {
+          maxWait: INDUSTRY_PRESET_TRANSACTION_MAX_WAIT_MS,
+          timeout: INDUSTRY_PRESET_TRANSACTION_TIMEOUT_MS,
+        })
+      : await runApply(client as Prisma.TransactionClient);
   } catch (err) {
     if (isPresetApplicationOrganizationConflict(err)) {
       // Lost the concurrency race: a concurrent transaction's own

@@ -5,18 +5,36 @@ import { previewIndustryPreset } from "@/lib/industry-presets/preview";
 import { getOrganizationOnboardingProgress } from "@/lib/onboarding/progress";
 import { skipOnboardingStepAction } from "@/lib/onboarding/actions";
 import { createTag } from "@/lib/tags/definitions";
+import { normalizeTagName } from "@/lib/tags/normalize";
 import { bootstrapOrganizationStatusDefinitions } from "@/lib/custom-statuses/bootstrap";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { actAs, resetAuthMock } from "../../support/auth-mock";
 import type { IndustryPresetActor } from "@/lib/industry-presets/authorization";
 
-// Same technique test/integration/comments/create.test.ts already
-// established for forcing a real, unexpected mid-transaction failure:
-// wrap the real createTag so it can be made to reject exactly once,
-// while every other call still runs its real implementation.
+// createTag is no longer called by apply.ts itself (the transaction-
+// latency fix replaced its own per-tag create with one batched
+// tx.tag.createMany -- see apply.ts's own header comment), but several
+// tests below still call it directly as a plain seeding helper (to
+// pre-create a conflicting tag before applying a preset), so it's still
+// imported and still safe to wrap transparently here.
 vi.mock("@/lib/tags/definitions", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/tags/definitions")>();
   return { ...actual, createTag: vi.fn(actual.createTag) };
+});
+
+// Same technique test/integration/comments/create.test.ts already
+// established for forcing a real, unexpected mid-transaction failure --
+// now wrapping normalizeTagName instead of createTag, since the
+// transaction-latency fix's own tags phase (apply.ts's applyPresetTags)
+// calls this real, imported, synchronous function once per catalog tag
+// BEFORE its own batched conflict read/write, right after the statuses
+// and fields phases have already run. Forcing its first call to throw
+// therefore still lands exactly where the original rollback test needed
+// it: after real status/field/option writes, before the tags phase's
+// own work, and before commit.
+vi.mock("@/lib/tags/normalize", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/tags/normalize")>();
+  return { ...actual, normalizeTagName: vi.fn(actual.normalizeTagName) };
 });
 
 /**
@@ -68,6 +86,39 @@ async function pollUntilStable<T>(
   return check();
 }
 
+const READ_OPS = new Set(["findFirst", "findMany", "findUnique", "findFirstOrThrow", "findUniqueOrThrow", "count", "groupBy", "aggregate"]);
+const WRITE_OPS = new Set(["create", "createMany", "createManyAndReturn", "update", "updateMany", "upsert", "delete", "deleteMany"]);
+
+/**
+ * Wraps a real (already-open, transaction-scoped) Prisma client in a
+ * Proxy that counts every model operation actually issued through it,
+ * classified as a read or a write -- no mocking of apply.ts's own
+ * internals, no fake latency, just a structural count of real Prisma
+ * calls. Used by the query-volume regression guard below (Production
+ * Transaction Latency Fix, locked spec §15) to prove the batched design
+ * stays at a small, fixed operation count regardless of preset size,
+ * rather than reverting to one round trip per catalog item.
+ */
+function countingProxy<T extends object>(target: T, counts: { reads: number; writes: number }): T {
+  return new Proxy(target, {
+    get(obj, prop) {
+      const value = Reflect.get(obj, prop);
+      if (typeof value !== "object" || value === null) return value;
+      return new Proxy(value, {
+        get(modelObj, method) {
+          const fn = Reflect.get(modelObj, method);
+          if (typeof fn !== "function") return fn;
+          return (...args: unknown[]) => {
+            if (READ_OPS.has(String(method))) counts.reads += 1;
+            else if (WRITE_OPS.has(String(method))) counts.writes += 1;
+            return fn.apply(modelObj, args);
+          };
+        },
+      });
+    },
+  });
+}
+
 async function cleanupPresetArtifacts(organizationId: string) {
   await prisma.presetApplication.deleteMany({ where: { organizationId } });
   await prisma.customFieldOption.deleteMany({ where: { definition: { organizationId } } });
@@ -89,6 +140,7 @@ describe("Industry Presets V1 — apply/preview integration", () => {
 
   afterEach(async () => {
     vi.mocked(createTag).mockClear();
+    vi.mocked(normalizeTagName).mockClear();
     resetAuthMock();
     await cleanupPresetArtifacts(fixtures.orgA.id);
     await cleanupPresetArtifacts(fixtures.orgB.id);
@@ -374,9 +426,15 @@ describe("Industry Presets V1 — apply/preview integration", () => {
     expect(await prisma.presetApplication.count({ where: { organizationId: fixtures.orgB.id } })).toBe(0);
   });
 
-  it("16. transaction rollback: a forced real mid-apply failure rolls back the PresetApplication row itself (inserted first) along with every already-written status/field/option/tag", async () => {
+  it("16. transaction rollback: a forced real mid-apply failure rolls back the PresetApplication row itself (inserted first) along with every already-written status/field/option, before the tags phase ever runs", async () => {
     const owner = await actorFor(fixtures, "owner");
-    vi.mocked(createTag).mockRejectedValueOnce(new Error("simulated failure"));
+    // Statuses and fields (createMany/createManyAndReturn) run before the
+    // tags phase -- forcing the tags phase's own first normalizeTagName
+    // call to throw still lands after real status/field/option writes
+    // and before commit, same as the original mock point on createTag.
+    vi.mocked(normalizeTagName).mockImplementationOnce(() => {
+      throw new Error("simulated failure");
+    });
 
     await expect(applyIndustryPreset(fixtures.orgA.id, owner, "freelancer")).rejects.toThrow("simulated failure");
 
@@ -385,6 +443,41 @@ describe("Industry Presets V1 — apply/preview integration", () => {
     expect(await prisma.customFieldOption.count({ where: { definition: { organizationId: fixtures.orgA.id } } })).toBe(0);
     expect(await prisma.tag.count({ where: { organizationId: fixtures.orgA.id } })).toBe(0);
     expect(await prisma.presetApplication.count({ where: { organizationId: fixtures.orgA.id } })).toBe(0);
+  });
+
+  it("query-volume regression guard: applying marketing_agency (the largest V1 preset) to a fresh org uses a small, fixed, batched operation budget -- not one round trip per catalog item", async () => {
+    const owner = await actorFor(fixtures, "owner");
+    const counts = { reads: 0, writes: 0 };
+
+    const result = await prisma.$transaction(async (tx) => {
+      const countedClient = countingProxy(tx, counts);
+      return applyIndustryPreset(fixtures.orgA.id, owner, "marketing_agency", countedClient);
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok || result.alreadyApplied) throw new Error("expected a fresh apply");
+    // marketing_agency: 8 statuses, 6 fields (one 6-option SELECT), 6 tags --
+    // the largest V1 preset by total item count and by SELECT option count.
+    expect(result.summary.addedStatuses).toHaveLength(8);
+    expect(result.summary.addedFields).toHaveLength(6);
+    expect(result.summary.addedTags).toHaveLength(6);
+
+    // Measured, batched operation count for this exact preset on a fresh
+    // org (every item ADD): 1 pre-check read + 1 PresetApplication insert
+    // + (1 conflict read + 1 position read + 1 createMany) for statuses +
+    // (1 conflict read + 1 position read + 1 createManyAndReturn + 1
+    // option createMany) for fields + (1 conflict read + 1 createMany)
+    // for tags = reads: 6, writes: 5 (11 total), regardless of catalog
+    // size (statuses/fields/tags counts never multiply the operation
+    // count the way the pre-fix per-item design did, which issued ~61
+    // operations for this exact preset: 1 + 8x3 + (6x3+6) + 6x2). The
+    // bounds below keep a little headroom above the measured 6/5/11
+    // while staying far below that pre-fix pattern, so a future change
+    // that reintroduces even a modest per-item read/write pattern trips
+    // this test.
+    expect(counts.reads).toBeLessThanOrEqual(8);
+    expect(counts.writes).toBeLessThanOrEqual(7);
+    expect(counts.reads + counts.writes).toBeLessThanOrEqual(14);
   });
 
   it("17. status defaults are unchanged -- LEAD's default remains the system NEW definition", async () => {
