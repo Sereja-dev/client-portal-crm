@@ -518,24 +518,98 @@ export async function removeMemberAction(membershipId: string): Promise<void> {
  * enforces "exactly one OWNER at all times", that condition can only be
  * met by first transferring ownership via changeRoleAction, which demotes
  * the caller to ADMIN; leaving then proceeds via the ADMIN/MEMBER path.
+ *
+ * TEAM OWNERSHIP INVARIANT HARDENING (post-audit correction): the previous
+ * version of this function branched on `membership.role`, resolved once by
+ * getCurrentMembership() BEFORE this transaction opened, and only ran the
+ * sole-OWNER count check when that stale snapshot said OWNER. A concurrent
+ * changeRoleAction ownership transfer that promoted this same caller from
+ * ADMIN to OWNER *after* that snapshot but *before* this transaction's
+ * delete slipped straight past the check (the snapshot still said ADMIN)
+ * and deleted the organization's only OWNER -- a genuine zero-OWNER race,
+ * not merely a theoretical one.
+ *
+ * The fix below never consults that outer snapshot for the gating
+ * decision. The delete and the sole-OWNER invariant are the SAME
+ * statement: a single DELETE whose own WHERE clause requires either
+ * "this row isn't OWNER" or "more than one OWNER currently exists",
+ * evaluated by Postgres at DELETE-execution time -- not a separate
+ * check-then-delete pair application code could race between. This is
+ * deliberately the same shape of fix as industry-presets/apply.ts's
+ * PresetApplication concurrency gate: the invariant is enforced by the
+ * statement Postgres actually executes, not inferred by application code
+ * from an earlier read.
+ *
+ * Why this is correct under this repo's ordinary Postgres READ COMMITTED
+ * transactions -- no Serializable isolation, no explicit row locking code:
+ * this DELETE targets the caller's own membership row by id, the exact
+ * same row changeRoleAction's ownership-transfer UPDATE also targets by id
+ * when promoting this caller. If that UPDATE is still uncommitted when
+ * this DELETE reaches the same row, Postgres blocks this DELETE on that
+ * row's lock until the UPDATE resolves. Once it commits, ordinary READ
+ * COMMITTED semantics for a statement that had to wait on a row lock (the
+ * documented EvalPlanQual re-check) re-evaluate this DELETE's entire WHERE
+ * clause -- including the OWNER-count subquery -- against the row's fresh,
+ * post-commit version, not the state that existed when this statement
+ * started. So the exact interleaving that broke the old check (a transfer
+ * landing between an earlier read and a later delete) instead makes this
+ * DELETE re-check itself against the just-committed OWNER state and
+ * correctly match zero rows once the caller is the organization's only
+ * OWNER. This holds regardless of what isolation level the OTHER
+ * transaction (changeRoleAction) uses -- the wait-then-recheck happens
+ * because both statements target the same row by id, an ordinary property
+ * of MVCC row locking, not of Serializable snapshot isolation.
+ *
+ * PGlite (this repo's local/test Postgres) cannot itself prove the above
+ * under genuine multi-connection concurrency (see prisma.ts's own note:
+ * its socket server serializes all execution onto one connection) -- the
+ * correctness argument here rests on documented Postgres MVCC behavior,
+ * verified by reasoning about the actual statements involved, not by a
+ * local concurrency test claiming to reproduce real lock contention.
  */
 export async function leaveOrganizationAction(): Promise<void> {
   const { user, organizationId, membership } = await getCurrentMembership();
 
   try {
     await prisma.$transaction(async (tx) => {
-      if (membership.role === Role.OWNER) {
-        const ownerCount = await tx.membership.count({
-          where: { organizationId, role: Role.OWNER },
-        });
-        if (ownerCount <= 1) {
+      // The sole-OWNER invariant and the delete are one statement -- see
+      // this function's header comment. membership.role captured above is
+      // never consulted for this decision.
+      const deleted = await tx.$queryRaw<Array<{ id: string; role: string }>>`
+        DELETE FROM "Membership"
+        WHERE "id" = ${membership.id}::uuid
+          AND "organizationId" = ${organizationId}::uuid
+          AND (
+            "role" != 'OWNER'::"Role"
+            OR (
+              SELECT COUNT(*)::int FROM "Membership"
+              WHERE "organizationId" = ${organizationId}::uuid AND "role" = 'OWNER'::"Role"
+            ) > 1
+          )
+        RETURNING "id", "role"
+      `;
+
+      if (deleted.length === 0) {
+        // Either genuinely blocked (the caller is the sole remaining
+        // OWNER -- the expected case this whole fix exists for), or the
+        // row was already removed by some unrelated concurrent operation.
+        // One more read disambiguates so the sole-OWNER message stays
+        // exact; the "already gone" case propagates as an ordinary
+        // unexpected error, same as the P2025 the previous unconditional
+        // tx.membership.delete() would have raised for it.
+        const stillThere = await tx.membership.findUnique({ where: { id: membership.id } });
+        if (stillThere) {
           throw new Error("SOLE_OWNER");
         }
+        throw new Error("Membership no longer exists.");
       }
-      await tx.membership.delete({ where: { id: membership.id } });
 
       // Self-referential, like INVITATION_ACCEPTED — the actor leaving IS
       // the member, so memberName/actorName are the same value here.
+      // Uses the role this statement actually deleted (deleted[0].role),
+      // not the pre-transaction membership.role snapshot -- accurate even
+      // in the (currently unreachable, given the app's own invariant)
+      // case where the caller's real role differed from that snapshot.
       await createActivity(tx, {
         organizationId,
         actorId: user.id,
@@ -544,7 +618,7 @@ export async function leaveOrganizationAction(): Promise<void> {
         action: "MEMBER_LEFT",
         metadata: buildMembershipMetadata(
           { name: user.name, email: user.email },
-          membership.role,
+          deleted[0].role,
           user.name,
         ),
       });
