@@ -238,6 +238,35 @@ export type CompanyProfileFormState = {
     >
   >;
   message?: string | null;
+  // Company Profile Failed-Validation Form State Preservation --
+  // populated ONLY when updateCompanyProfileAction rejects a submission
+  // (never on success, never on the initial un-submitted render) with
+  // the exact FormData the user just attempted, parsed/trimmed the same
+  // way parseCompanyProfileForm's own return value already is -- valid
+  // fields included, not just the one(s) that failed, so the form can
+  // re-render every field exactly as the user left it instead of
+  // silently reverting any of them to the last persisted value merely
+  // because a DIFFERENT field errored. Mirrors
+  // src/lib/validation/company-profile.ts's own ParsedCompanyProfileInput
+  // shape field-for-field (duplicated here, not imported, to keep this
+  // file's own established zero-import convention) -- keep both in sync
+  // if that shape ever changes.
+  values?: {
+    legalName: string;
+    displayName: string;
+    country: string;
+    currency: string;
+    timezone: string;
+    supportEmail: string | null;
+    website: string | null;
+    phone: string | null;
+    taxId: string | null;
+    brandColor: string | null;
+    streetAddress: string | null;
+    city: string | null;
+    state: string | null;
+    postalCode: string | null;
+  };
 };
 
 export type PaymentDetailsFormState = {

@@ -43,7 +43,11 @@ describe("company-profile-form.tsx — Currency/Time zone adopt the shared Selec
     expect(block).toMatch(/<Select/);
     expect(block).toMatch(/id="currency"/);
     expect(block).toMatch(/name="currency"/);
-    expect(block).toMatch(/defaultValue=\{profile\.currency \?\? ""\}/);
+    // Company Profile Failed-Validation Form State Preservation --
+    // defaultValue (and key, checked by a later assertion below) now
+    // prefer the just-submitted value on a rejected save, falling back
+    // to the persisted profile only when no failed submission exists.
+    expect(block).toMatch(/defaultValue=\{fieldDefault\(state\.values\?\.currency, profile\.currency\)\}/);
     expect(block).toMatch(/aria-invalid=\{!!state\.fieldErrors\?\.currency\}/);
     expect(block).toMatch(/\brequired\b/);
     expect(block).toMatch(/currencies\.map/);
@@ -55,7 +59,9 @@ describe("company-profile-form.tsx — Currency/Time zone adopt the shared Selec
     expect(block).toMatch(/<Select/);
     expect(block).toMatch(/id="timezone"/);
     expect(block).toMatch(/name="timezone"/);
-    expect(block).toMatch(/defaultValue=\{profile\.timezone \?\? ""\}/);
+    // Company Profile Failed-Validation Form State Preservation -- see
+    // the Currency control's own identical comment above.
+    expect(block).toMatch(/defaultValue=\{fieldDefault\(state\.values\?\.timezone, profile\.timezone\)\}/);
     expect(block).toMatch(/aria-invalid=\{!!state\.fieldErrors\?\.timezone\}/);
     expect(block).toMatch(/\brequired\b/);
     expect(block).toMatch(/timezones\.map/);

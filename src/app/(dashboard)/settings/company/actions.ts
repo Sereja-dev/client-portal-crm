@@ -30,7 +30,17 @@ export async function updateCompanyProfileAction(
 
   const { values, fieldErrors } = parseCompanyProfileForm(formData);
   if (Object.keys(fieldErrors).length > 0) {
-    return { error: null, fieldErrors };
+    // Company Profile Failed-Validation Form State Preservation --
+    // `values` is the complete parsed submission, valid fields included,
+    // not just the one(s) that failed. Returning it here (never on the
+    // success branch below, where the fresh persisted `profile` prop is
+    // deliberately the sole source of truth) is what lets
+    // CompanyProfileForm re-render every field exactly as the user left
+    // it instead of a stale persisted value merely because a DIFFERENT
+    // field errored — see that component's own doc comment for why a
+    // native form's own post-action reset otherwise makes this
+    // necessary, not merely convenient.
+    return { error: null, fieldErrors, values };
   }
 
   await upsertCompanyProfile(organizationId, values);

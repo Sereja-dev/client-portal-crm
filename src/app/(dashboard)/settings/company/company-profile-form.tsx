@@ -14,6 +14,25 @@ import type { CompanyProfileData } from "@/lib/organization-setup/company-profil
 const initialState: CompanyProfileFormState = { error: null };
 
 /**
+ * Company Profile Failed-Validation Form State Preservation -- the one
+ * place every field's own `defaultValue` (and, for the two Select
+ * fields, `key` too) decides between the just-attempted submission and
+ * the persisted profile. `submitted` is `undefined` exactly when
+ * `state.values` itself is absent (the initial render, or right after a
+ * successful save -- updateCompanyProfileAction deliberately never
+ * returns `values` on that branch, see its own doc comment) -- in that
+ * case, and ONLY in that case, this falls back to the persisted value.
+ * A `null` `submitted` (an optional field the user genuinely cleared on
+ * a submission that failed for a DIFFERENT field) is NOT the same as
+ * absent: it must render empty, never silently fall back to whatever
+ * was last persisted -- this is exactly the distinction a bare `??`
+ * across both levels at once would erase.
+ */
+function fieldDefault(submitted: string | null | undefined, persisted: string | null): string {
+  return submitted !== undefined ? (submitted ?? "") : (persisted ?? "");
+}
+
+/**
  * Sale-Ready Phase A.1 (Business Identity), PR3. Same form, same
  * `updateCompanyProfileAction`, same `useActionState` pattern, same
  * validation/error-display contract as before this stage — every field
@@ -61,7 +80,7 @@ export function CompanyProfileForm({
             id="displayName"
             name="displayName"
             type="text"
-            defaultValue={profile.displayName}
+            defaultValue={fieldDefault(state.values?.displayName, profile.displayName)}
             aria-invalid={!!state.fieldErrors?.displayName}
             required
           />
@@ -72,7 +91,7 @@ export function CompanyProfileForm({
             id="legalName"
             name="legalName"
             type="text"
-            defaultValue={profile.legalName ?? ""}
+            defaultValue={fieldDefault(state.values?.legalName, profile.legalName)}
             aria-invalid={!!state.fieldErrors?.legalName}
             required
           />
@@ -80,40 +99,46 @@ export function CompanyProfileForm({
 
         <FormField label="Currency" htmlFor="currency" required error={state.fieldErrors?.currency}>
           {/*
-            Company Profile Timezone Persistence Diagnostic — keyed on the
-            field's OWN persisted value, not the surrounding form. Traced
-            root cause: this app's Server Actions run through React 19's
-            built-in "reset uncontrolled fields after a successful form
-            action" behavior (react-dom internally calls the native form
-            element's own reset() once useActionState's action settles).
-            A plain text Input stays correct after that reset because
-            React's own update path re-syncs its underlying defaultValue
-            DOM property on every render (confirmed directly in
-            node_modules/react-dom's updateInput/setDefaultValue). This
-            Select's own child option elements' selected/defaultSelected
-            state is NOT re-synced on an ordinary prop update (confirmed
-            in the same source: the select branch of the update-props
-            path only re-runs updateOptions() when `multiple` itself
-            changes) -- it is set once, at the very first mount, and
-            never again. So after ANY later save, the native reset snaps
-            this control back to whichever option was selected at this
-            component's original mount, even though the freshly
-            revalidated `profile` prop (and the real database row) both
-            already hold the new value -- exactly the reported "the
-            dropdown reverts to the old value right after save" symptom.
-            `key={profile.currency ?? ""}` forces React to discard and
-            re-mount just this one control whenever the persisted value
-            genuinely changes, which re-bakes a fresh, correct
-            selected/defaultSelected state -- closing the gap without
-            remounting the whole form (which would also discard
-            useActionState's own in-flight success/error message) and
-            without converting this field to a controlled input.
+            Company Profile Timezone Persistence Diagnostic — keyed on
+            fieldDefault(...), not the surrounding form and not bare
+            `profile.currency` alone. Traced root cause: this app's
+            Server Actions run through React 19's built-in "reset
+            uncontrolled fields after a successful form action" behavior
+            (react-dom internally calls the native form element's own
+            reset() once useActionState's action settles). A plain text
+            Input stays correct after that reset because React's own
+            update path re-syncs its underlying defaultValue DOM property
+            on every render (confirmed directly in node_modules/
+            react-dom's updateInput/setDefaultValue). This Select's own
+            child option elements' selected/defaultSelected state is NOT
+            re-synced on an ordinary prop update (confirmed in the same
+            source: the select branch of the update-props path only
+            re-runs updateOptions() when `multiple` itself changes) -- it
+            is set once, at the very first mount, and never again. So
+            after ANY later action settlement -- a successful save OR a
+            rejected one -- the native reset snaps this control back to
+            whichever option was selected at this component's own last
+            mount, unless something forces a fresh mount with the
+            correct value as ITS OWN new default first.
+            `key={fieldDefault(...)}` does exactly that: after a
+            successful save it equals the freshly persisted `profile`
+            value (identical to this fix's own originally-reviewed
+            behavior, since `state.values` is deliberately absent then);
+            after a REJECTED save (Company Profile Failed-Validation Form
+            State Preservation) it instead equals whatever the user just
+            submitted for this field, so a validation error on some OTHER
+            field never silently reverts an already-changed, valid
+            currency/timezone choice back to its last-persisted value.
+            Either way this remounts just this one control, never the
+            whole form (which would also discard useActionState's own
+            in-flight success/error message), and never converts this
+            field to a controlled input.
           */}
           <Select
-            key={profile.currency ?? ""}
+            key={fieldDefault(state.values?.currency, profile.currency)}
             id="currency"
             name="currency"
-            defaultValue={profile.currency ?? ""}
+            defaultValue={fieldDefault(state.values?.currency, profile.currency)}
             aria-invalid={!!state.fieldErrors?.currency}
             required
           >
@@ -131,10 +156,10 @@ export function CompanyProfileForm({
         <FormField label="Time zone" htmlFor="timezone" required error={state.fieldErrors?.timezone}>
           {/* See the Currency field's own comment above -- same defect, same fix. */}
           <Select
-            key={profile.timezone ?? ""}
+            key={fieldDefault(state.values?.timezone, profile.timezone)}
             id="timezone"
             name="timezone"
-            defaultValue={profile.timezone ?? ""}
+            defaultValue={fieldDefault(state.values?.timezone, profile.timezone)}
             aria-invalid={!!state.fieldErrors?.timezone}
             required
           >
@@ -166,7 +191,7 @@ export function CompanyProfileForm({
             // and consistent with every other validated-but-optional
             // field on this form already being type="text".
             type="text"
-            defaultValue={profile.supportEmail ?? ""}
+            defaultValue={fieldDefault(state.values?.supportEmail, profile.supportEmail)}
             aria-invalid={!!state.fieldErrors?.supportEmail}
           />
         </FormField>
@@ -177,7 +202,7 @@ export function CompanyProfileForm({
             name="website"
             type="text"
             placeholder="https://"
-            defaultValue={profile.website ?? ""}
+            defaultValue={fieldDefault(state.values?.website, profile.website)}
             aria-invalid={!!state.fieldErrors?.website}
           />
         </FormField>
@@ -187,7 +212,7 @@ export function CompanyProfileForm({
             id="phone"
             name="phone"
             type="text"
-            defaultValue={profile.phone ?? ""}
+            defaultValue={fieldDefault(state.values?.phone, profile.phone)}
             aria-invalid={!!state.fieldErrors?.phone}
           />
         </FormField>
@@ -201,7 +226,7 @@ export function CompanyProfileForm({
             id="country"
             name="country"
             type="text"
-            defaultValue={profile.country ?? ""}
+            defaultValue={fieldDefault(state.values?.country, profile.country)}
             aria-invalid={!!state.fieldErrors?.country}
             required
           />
@@ -212,7 +237,7 @@ export function CompanyProfileForm({
             id="streetAddress"
             name="streetAddress"
             type="text"
-            defaultValue={profile.streetAddress ?? ""}
+            defaultValue={fieldDefault(state.values?.streetAddress, profile.streetAddress)}
             aria-invalid={!!state.fieldErrors?.streetAddress}
           />
         </FormField>
@@ -222,7 +247,7 @@ export function CompanyProfileForm({
             id="city"
             name="city"
             type="text"
-            defaultValue={profile.city ?? ""}
+            defaultValue={fieldDefault(state.values?.city, profile.city)}
             aria-invalid={!!state.fieldErrors?.city}
           />
         </FormField>
@@ -232,7 +257,7 @@ export function CompanyProfileForm({
             id="state"
             name="state"
             type="text"
-            defaultValue={profile.state ?? ""}
+            defaultValue={fieldDefault(state.values?.state, profile.state)}
             aria-invalid={!!state.fieldErrors?.state}
           />
         </FormField>
@@ -242,7 +267,7 @@ export function CompanyProfileForm({
             id="postalCode"
             name="postalCode"
             type="text"
-            defaultValue={profile.postalCode ?? ""}
+            defaultValue={fieldDefault(state.values?.postalCode, profile.postalCode)}
             aria-invalid={!!state.fieldErrors?.postalCode}
           />
         </FormField>
@@ -256,7 +281,7 @@ export function CompanyProfileForm({
             id="taxId"
             name="taxId"
             type="text"
-            defaultValue={profile.taxId ?? ""}
+            defaultValue={fieldDefault(state.values?.taxId, profile.taxId)}
             aria-invalid={!!state.fieldErrors?.taxId}
           />
         </FormField>
@@ -280,7 +305,7 @@ export function CompanyProfileForm({
             name="brandColor"
             type="text"
             placeholder="#RRGGBB"
-            defaultValue={profile.brandColor ?? ""}
+            defaultValue={fieldDefault(state.values?.brandColor, profile.brandColor)}
             aria-invalid={!!state.fieldErrors?.brandColor}
           />
         </FormField>

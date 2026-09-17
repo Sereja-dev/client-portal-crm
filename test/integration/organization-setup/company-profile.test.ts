@@ -118,6 +118,44 @@ describe("Company Profile — Customer Setup Wizard (Stage 6.2)", () => {
     expect(rows).toHaveLength(1);
   });
 
+  it("Company Profile Failed-Validation Form State Preservation — a validation failure on one field returns enough of the just-submitted values to rebuild every other field exactly as the user left it, and leaves the DB untouched", async () => {
+    actAs(fixtures.owner, fixtures.orgA.id);
+
+    const created = await updateCompanyProfileAction(
+      { error: null },
+      companyForm({ legalName: "Old Name", timezone: "Asia/Singapore", currency: "USD" }),
+    );
+    expect(created.error).toBeNull();
+
+    // legalName/timezone/currency are all genuinely changed and valid;
+    // brandColor is deliberately invalid, so the whole submission is
+    // rejected.
+    const result = await updateCompanyProfileAction(
+      { error: null },
+      companyForm({ legalName: "New Name", timezone: "Asia/Bangkok", currency: "EUR", brandColor: "not-a-color" }),
+    );
+
+    expect(result.error).toBeNull();
+    expect(result.fieldErrors?.brandColor).toBeTruthy();
+
+    // The real save path must never have run -- the DB stays exactly at
+    // the old, already-persisted values, read back through the same
+    // getCompanyProfile() the real page uses.
+    const profile = await getCompanyProfile(fixtures.orgA.id);
+    expect(profile.legalName).toBe("Old Name");
+    expect(profile.timezone).toBe("Asia/Singapore");
+    expect(profile.currency).toBe("USD");
+
+    // The returned action state must carry enough of the just-submitted
+    // values -- valid fields included, not merely the one that failed
+    // -- for the form to rebuild the user's own attempt rather than
+    // reverting to the (unchanged) persisted profile.
+    expect(result.values?.legalName).toBe("New Name");
+    expect(result.values?.timezone).toBe("Asia/Bangkok");
+    expect(result.values?.currency).toBe("EUR");
+    expect(result.values?.brandColor).toBe("not-a-color");
+  });
+
   describe("Business Identity fields (Sale-Ready Phase A.1, PR2)", () => {
     it("OWNER can set every new field in one submission, persisted and read back via getCompanyProfile", async () => {
       actAs(fixtures.owner, fixtures.orgA.id);
