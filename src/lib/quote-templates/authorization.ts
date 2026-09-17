@@ -11,9 +11,11 @@ export type QuoteTemplateActor = { id: string; name: string; role: Role };
  * - MANAGEMENT (create/edit/archive/restore/duplicate) is OWNER/ADMIN-only
  *   — mirrors src/lib/tags/definitions.ts's own isPrivileged() gate
  *   exactly (a Quote Template is an organization-wide config asset, the
- *   same tier Tags/Workflow Automations/Custom Field definitions already
- *   occupy, never the "any Staff role" tier ordinary Quote CRUD itself
- *   uses).
+ *   same tier Tags already occupies, never the "any Staff role" tier
+ *   ordinary Quote CRUD itself uses). Custom Field definitions are a
+ *   different tier — any OWNER/ADMIN/MEMBER may manage those (see
+ *   src/app/(dashboard)/settings/custom-fields/actions.ts's own doc
+ *   comment) — so they are deliberately not cited here as a match.
  * - APPLICATION (using an ACTIVE template to prefill a new Quote) is open
  *   to any Staff role already permitted to create a Quote. Confirmed by
  *   inspection: src/app/(dashboard)/quotes/actions.ts's own
