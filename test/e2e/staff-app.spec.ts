@@ -71,11 +71,15 @@ test("sidebar navigation reaches every staff section", async ({ page }) => {
     ["Clients", "/clients"],
     ["Projects", "/projects"],
     ["Tasks", "/tasks"],
+    // exact: true -- "Invoices" is otherwise a substring match of the
+    // sidebar's own "Recurring Invoices" link (visible to this OWNER
+    // fixture), which Playwright's default non-exact name matching would
+    // also match, tripping strict mode.
     ["Invoices", "/invoices"],
     ["Team", "/team"],
     ["Activity", "/activity"],
   ] as const) {
-    await nav.getByRole("link", { name: label }).click();
+    await nav.getByRole("link", { name: label, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(path.replace("/", "\\/")));
   }
 });
