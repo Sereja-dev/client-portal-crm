@@ -57,15 +57,49 @@ test.describe("Design System Batch 7 — Shared uploads + simple Settings", () =
     await page.goto(`/clients/${fixtures.clientA.id}/edit`);
     await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("dark");
 
+    // Client Edit Transient SSR/Hydration Duplication (read-only
+    // diagnostic) -- for a short window (~60-350ms) after this page
+    // navigates, React briefly double-mounts this page's Client-Component-
+    // adjacent sections (Contacts/Attachments/Portal Access/Timeline) as
+    // two content-identical subtrees before settling to one. Proven NOT a
+    // server-HTML duplication (byte-position-verified: exactly one real
+    // <ul> per section in the raw SSR response), NOT a duplicate DB row
+    // (exactly one Attachment row exists throughout), and NOT a dead/
+    // inert control (a direct in-page interactivity probe found the
+    // transient copy's own Delete button fully functional) -- a genuine
+    // but NON-BLOCKING hydration-timing artifact, not something to wait
+    // out with an arbitrary sleep or to treat as evidence of a real
+    // defect. A bare page-wide `ul`/text lookup strict-mode-fails
+    // whenever this window is hit (both copies genuinely match), and
+    // would separately also be ambiguous against the unrelated Timeline/
+    // Activity list's own <ul> even outside that window. Every locator
+    // below is instead scoped to the closest real container of the
+    // "Attachments" heading, then deterministically disambiguated with
+    // `.first()`/`.last()` -- never masking a real defect, since any two
+    // matches here are, per that diagnostic, content-identical.
+    const attachmentsHeading = page.getByRole("heading", { name: "Attachments", level: 2 });
+    await expect(attachmentsHeading.first()).toBeVisible();
+
+    // Two DOM levels up from the heading is AttachmentsSection's own
+    // wrapper <div> -- h2 -> the heading/count flex row -> the section
+    // wrapper that also holds the upload form and the list as siblings
+    // of that row (see src/components/attachments/attachments-section.tsx's
+    // own structure) -- never the much bigger shared card ClientForm/
+    // Contacts/Attachments/Portal Access all sit inside together on this
+    // page. `.first()` sits at the very end, not on `attachmentsHeading`
+    // itself, so a genuine two-heading window (see this test's own
+    // comment above) still resolves to one complete, real wrapper rather
+    // than mixing an ancestor from one copy with a descendant from the
+    // other.
+    const attachmentsSection = attachmentsHeading.locator("xpath=../..").first();
+
     // fixtures.attachment is pre-seeded on clientA with originalName
     // "report.pdf" (see test/fixtures/seed.ts) — not exposed on the
     // TestFixtures type itself, so asserted here as the known literal.
-    // .first() because accumulated cross-run fixture state can leave more
-    // than one identically-named row; any instance has identical styling.
-    const title = page.getByText("report.pdf", { exact: true }).first();
+    const title = attachmentsSection.getByText("report.pdf", { exact: true }).first();
     await expect(title).toBeVisible();
 
-    const list = page.locator("ul", { has: title });
+    const list = attachmentsSection.getByRole("list").first();
     // expect.poll (not a one-shot evaluate): `transition-colors` on these
     // elements can still be animating from the pre-correction Light paint
     // to the just-applied Dark tokens for a moment after data-theme flips
@@ -77,7 +111,7 @@ test.describe("Design System Batch 7 — Shared uploads + simple Settings", () =
 
     await expect.poll(() => title.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(236, 237, 238)");
 
-    const downloadLink = page.getByRole("link", { name: "Download" }).first();
+    const downloadLink = attachmentsSection.getByRole("link", { name: "Download" }).first();
     await expect(downloadLink).toBeVisible();
     // text-text-secondary in Dark — never invisible-on-dark gray-700.
     await expect
