@@ -79,7 +79,38 @@ export function CompanyProfileForm({
         </FormField>
 
         <FormField label="Currency" htmlFor="currency" required error={state.fieldErrors?.currency}>
+          {/*
+            Company Profile Timezone Persistence Diagnostic — keyed on the
+            field's OWN persisted value, not the surrounding form. Traced
+            root cause: this app's Server Actions run through React 19's
+            built-in "reset uncontrolled fields after a successful form
+            action" behavior (react-dom internally calls the native form
+            element's own reset() once useActionState's action settles).
+            A plain text Input stays correct after that reset because
+            React's own update path re-syncs its underlying defaultValue
+            DOM property on every render (confirmed directly in
+            node_modules/react-dom's updateInput/setDefaultValue). This
+            Select's own child option elements' selected/defaultSelected
+            state is NOT re-synced on an ordinary prop update (confirmed
+            in the same source: the select branch of the update-props
+            path only re-runs updateOptions() when `multiple` itself
+            changes) -- it is set once, at the very first mount, and
+            never again. So after ANY later save, the native reset snaps
+            this control back to whichever option was selected at this
+            component's original mount, even though the freshly
+            revalidated `profile` prop (and the real database row) both
+            already hold the new value -- exactly the reported "the
+            dropdown reverts to the old value right after save" symptom.
+            `key={profile.currency ?? ""}` forces React to discard and
+            re-mount just this one control whenever the persisted value
+            genuinely changes, which re-bakes a fresh, correct
+            selected/defaultSelected state -- closing the gap without
+            remounting the whole form (which would also discard
+            useActionState's own in-flight success/error message) and
+            without converting this field to a controlled input.
+          */}
           <Select
+            key={profile.currency ?? ""}
             id="currency"
             name="currency"
             defaultValue={profile.currency ?? ""}
@@ -98,7 +129,9 @@ export function CompanyProfileForm({
         </FormField>
 
         <FormField label="Time zone" htmlFor="timezone" required error={state.fieldErrors?.timezone}>
+          {/* See the Currency field's own comment above -- same defect, same fix. */}
           <Select
+            key={profile.timezone ?? ""}
             id="timezone"
             name="timezone"
             defaultValue={profile.timezone ?? ""}

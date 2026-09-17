@@ -99,6 +99,25 @@ describe("Company Profile — Customer Setup Wizard (Stage 6.2)", () => {
     expect(rows[0].legalName).toBe("Updated Legal Name");
   });
 
+  it("Company Profile Timezone Persistence Diagnostic — changing an already-persisted timezone to a genuinely different value persists and reads back through the real getCompanyProfile() path (not raw Prisma), and never duplicates the row", async () => {
+    actAs(fixtures.owner, fixtures.orgA.id);
+
+    const created = await updateCompanyProfileAction({ error: null }, companyForm({ timezone: "Asia/Singapore" }));
+    expect(created.error).toBeNull();
+
+    const afterCreate = await getCompanyProfile(fixtures.orgA.id);
+    expect(afterCreate.timezone).toBe("Asia/Singapore");
+
+    const updated = await updateCompanyProfileAction({ error: null }, companyForm({ timezone: "Asia/Bangkok" }));
+    expect(updated.error).toBeNull();
+
+    const afterUpdate = await getCompanyProfile(fixtures.orgA.id);
+    expect(afterUpdate.timezone).toBe("Asia/Bangkok");
+
+    const rows = await prisma.organizationProfile.findMany({ where: { organizationId: fixtures.orgA.id } });
+    expect(rows).toHaveLength(1);
+  });
+
   describe("Business Identity fields (Sale-Ready Phase A.1, PR2)", () => {
     it("OWNER can set every new field in one submission, persisted and read back via getCompanyProfile", async () => {
       actAs(fixtures.owner, fixtures.orgA.id);
