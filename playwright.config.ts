@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import { TEST_DATABASE_URL } from "./test/support/local-postgres";
-import { E2E_APP_PORT } from "./test/support/e2e-ports";
+import { E2E_APP_PORT, E2E_SLACK_FIXTURE_PORT } from "./test/support/e2e-ports";
 
 // Applies to this config-loading process itself (so test files that
 // import @/lib/prisma directly — e.g. to seed/clean up fixtures — connect
@@ -123,6 +123,17 @@ export default defineConfig({
       VERCEL_GIT_PROVIDER: "github",
       VERCEL_GIT_REPO_OWNER: "e2e-test-owner",
       VERCEL_GIT_REPO_SLUG: "e2e-test-repo",
+      // Integrations V1 (Slack Incoming Webhook only, locked spec §37) —
+      // a fixed, valid 32-byte base64 test key (never a real secret,
+      // never used outside this E2E run) so Connect/Replace/Send test can
+      // encrypt/decrypt for real. TEST_SLACK_FIXTURE_BASE_URL points at
+      // test/e2e/support/slack-fixture-server.ts's own fixed loopback
+      // port — read ONLY under TEST_MODE by src/lib/integrations/
+      // slack-client.ts's own resolveSendTarget, which swaps just the
+      // outbound fetch() destination; the production hostname allowlist
+      // (hooks.slack.com only) is never touched or weakened.
+      INTEGRATIONS_ENCRYPTION_KEY_V1: "KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio=",
+      TEST_SLACK_FIXTURE_BASE_URL: `http://127.0.0.1:${E2E_SLACK_FIXTURE_PORT}`,
     },
   },
 });

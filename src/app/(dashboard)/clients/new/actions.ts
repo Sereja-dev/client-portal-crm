@@ -9,6 +9,8 @@ import { dispatchWorkflowAutomations } from "@/lib/workflow-automations/dispatch
 import { BillingLimitError } from "@/lib/billing/enforcement";
 import { findDuplicateOrganizationClientByEmail } from "@/lib/clients/duplicate-email";
 import { createClientCore, ClientStatusResolutionError } from "@/lib/clients/create-core";
+import { enqueueIntegrationDelivery } from "@/lib/integrations/enqueue";
+import { deliverIntegrationEventBestEffort } from "@/lib/integrations/deliver";
 import {
   getActiveCustomFieldFormDefinitions,
   parseCustomFieldFormValues,
@@ -67,6 +69,7 @@ export async function createClientAction(
   const submittedTagIds = parseTagFormSelection(formData, tagOptions);
 
   let clientActivity: Awaited<ReturnType<typeof createClientCore>>["activity"] | undefined;
+  let integrationDeliveryId: string | null = null;
 
   try {
     // Client create (via the shared createClientCore — see that
@@ -105,6 +108,12 @@ export async function createClientAction(
         existingActiveTagIds: [],
         submittedTagIds,
       });
+
+      // Integrations V1 — CLIENT_CREATED.
+      if (activity) {
+        const enqueued = await enqueueIntegrationDelivery(tx, { organizationId, activity });
+        integrationDeliveryId = enqueued?.deliveryId ?? null;
+      }
     });
   } catch (err) {
     if (err instanceof BillingLimitError) {
@@ -129,6 +138,9 @@ export async function createClientAction(
   // itself returned — none of which fall through to this line.
   if (clientActivity) {
     await dispatchWorkflowAutomations(clientActivity);
+  }
+  if (integrationDeliveryId) {
+    await deliverIntegrationEventBestEffort(integrationDeliveryId);
   }
 
   redirect(withToast("/clients", "Client created"));

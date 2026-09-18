@@ -20,6 +20,8 @@ import { findDuplicateOrganizationClientByEmail } from "@/lib/clients/duplicate-
 import { createClientContact, resolveFallbackContactName } from "@/lib/clients/contacts";
 import { LEAD_STAGES, isLostLeadStage } from "@/lib/leads/stages";
 import { createLeadCore } from "@/lib/leads/create-core";
+import { enqueueIntegrationDelivery } from "@/lib/integrations/enqueue";
+import { deliverIntegrationEventBestEffort } from "@/lib/integrations/deliver";
 import {
   getActiveCustomFieldFormDefinitions,
   getCustomFieldFormValues,
@@ -188,8 +190,8 @@ export async function createLeadAction(
   // atomic unit — a failed Activity insert (or custom field write) rolls
   // the create back with it, matching createClientAction/
   // createTaskAction's own exact pattern.
-  const lead = await prisma.$transaction(async (tx) => {
-    const { lead: created } = await createLeadCore(tx, {
+  const { lead, integrationDeliveryId } = await prisma.$transaction(async (tx) => {
+    const { lead: created, activity } = await createLeadCore(tx, {
       organizationId,
       userId: user.id,
       actorName: user.name,
@@ -216,10 +218,27 @@ export async function createLeadAction(
       submittedTagIds,
     });
 
-    return created;
+    // Integrations V1 — LEAD_CREATED. `activity` is only non-null for
+    // context "interactive" (see createLeadCore's own doc comment); CSV
+    // import never reaches this action at all, so that's always the case
+    // here, but the null check is kept honest rather than a non-null
+    // assertion.
+    const enqueued = activity
+      ? await enqueueIntegrationDelivery(tx, { organizationId, activity })
+      : null;
+
+    return { lead: created, integrationDeliveryId: enqueued?.deliveryId ?? null };
   });
 
   revalidatePath("/leads");
+
+  // Post-commit, best-effort — same "never inside the transaction, never
+  // allowed to fail this mutation" contract as dispatchWorkflowAutomations
+  // below already follows for an unrelated concern.
+  if (integrationDeliveryId) {
+    await deliverIntegrationEventBestEffort(integrationDeliveryId);
+  }
+
   return { ok: true, leadId: lead.id };
 }
 

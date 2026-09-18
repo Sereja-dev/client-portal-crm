@@ -285,6 +285,27 @@ enum ActivityEntityType {
   // rules.ts's own RULES map has no ROLE_PERMISSION entry -- locked spec
   // §15/§28: no email notification in V1.
   ROLE_PERMISSION
+
+  // Integrations V1 (Slack Incoming Webhook only -- architecture lock
+  // validation). A connection's own lifecycle (connected / replaced /
+  // disconnected / error) is org+provider-scoped configuration, never
+  // about one specific outbound delivery attempt -- IntegrationDelivery
+  // rows (one per notified business event) deliberately never write their
+  // own Activity row at all (locked spec §5/§24: "no Activity row per
+  // individual delivery failure... only connection-level state changes
+  // are Activity-visible"), the same "don't log every attempt, only the
+  // meaningful state" choice RECURRING_INVOICE's own claim/reclaim
+  // bookkeeping already made. Ships its own real formatter
+  // (buildIntegrationConnectionModel in format-activity.ts) from day one,
+  // the same choice ROLE_PERMISSION above already made, rather than
+  // relying on the FALLBACK safety net. Reuses the existing CREATED/
+  // UPDATED/STATUS_CHANGED ActivityAction values (see
+  // src/lib/integrations/connection.ts's own doc comment for exactly
+  // which action each transition uses) -- no new ActivityAction is added
+  // here. notification-rules.ts's own RULES map has no
+  // INTEGRATION_CONNECTION entry -- locked spec §29: no email
+  // notification for integration-management Activity in V1.
+  INTEGRATION_CONNECTION
 }
 
 enum ActivityAction {
@@ -727,6 +748,17 @@ model Organization {
   // overridden. See RolePermissionOverride's own doc comment for the
   // full invariant.
   rolePermissionOverrides RolePermissionOverride[]
+
+  // Integrations V1 (Slack Incoming Webhook only -- architecture lock
+  // validation). Same direct-tenant-scoping "list of child rows" shape as
+  // leads/customFieldDefinitions above -- @@unique([organizationId,
+  // provider]) on IntegrationConnection itself is what actually enforces
+  // "at most one connection per provider per organization" (a real
+  // invariant, but not a to-one Prisma relation the way presetApplication
+  // above is, since a future provider would add a second row for the
+  // same organization).
+  integrationConnections IntegrationConnection[]
+  integrationDeliveries  IntegrationDelivery[]
 }
 
 // Platform Admin Organization Suspension, PR 1. Deliberately separate
@@ -1939,6 +1971,15 @@ model Activity {
   // comment. Same shape as notifications above -- a plain, unnamed
   // back-relation for a child ledger table pointing at this row.
   workflowAutomationRuns WorkflowAutomationRun[]
+
+  // Integrations V1 -- see IntegrationDelivery's own doc comment. Same
+  // shape as workflowAutomationRuns above: a plain child-ledger back-
+  // relation, Cascade on the child side (no code anywhere ever deletes an
+  // individual Activity row directly -- confirmed via a full repo search;
+  // Activity rows are removed only via Organization's own cascade, the
+  // same event that must also take their IntegrationDelivery rows with
+  // them).
+  integrationDeliveries IntegrationDelivery[]
 
   // General organization timeline: ORDER BY createdAt DESC, id DESC.
   @@index([organizationId, createdAt, id])
@@ -4485,4 +4526,193 @@ model RolePermissionOverride {
   // PresetApplication's own organizationId @unique comment already
   // documents for the identical case.
   @@unique([organizationId, role, permissionKey])
+}
+
+// Integrations V1 (Slack Incoming Webhook only -- architecture lock
+// validation, locked spec). At most one row per (organization, provider)
+// -- @@unique below is the real, database-enforced "one connection per
+// provider per organization" invariant, the same PresetApplication-style
+// "the unique constraint IS the concurrency gate" discipline, applied
+// here to a composite key instead of a bare organizationId since a
+// second provider (out of scope for V1) would need its own row for the
+// same organization.
+//
+// `provider`/`status` are plain Strings, never Prisma enums -- deliberate,
+// matching RolePermissionOverride.permissionKey's own reasoning just
+// above and directly avoiding the exact enum-per-value migration churn
+// BillingProvider (a real, single-value enum in this same schema) is the
+// cautionary example of. V1's only valid `provider` value is
+// "SLACK_INCOMING_WEBHOOK"; valid `status` values are "CONNECTED",
+// "DISCONNECTED", "ERROR" -- validated in code
+// (src/lib/integrations/connection.ts), not by the database, with one
+// exception: the CHECK constraint below.
+//
+// `encryptedCredential`/`credentialKeyVersion` are nullable together and
+// must never disagree in nullness with `status` -- DISCONNECTED always
+// means both are NULL; CONNECTED/ERROR always mean both are NOT NULL.
+// Prisma's schema DSL has no CHECK-constraint attribute (the same
+// documented gap RolePermissionOverride's own doc comment above already
+// notes for a different constraint shape) -- so, identically to that
+// model, this invariant is declared here for readability but the actual
+// enforcement is a hand-written
+// `CHECK ((status = 'DISCONNECTED' AND "encryptedCredential" IS NULL AND
+// "credentialKeyVersion" IS NULL) OR (status IN ('CONNECTED', 'ERROR')
+// AND "encryptedCredential" IS NOT NULL AND "credentialKeyVersion" IS NOT
+// NULL))` added directly to this table's migration SQL, not expressible
+// in this file.
+//
+// INTENTIONAL DRIFT: the applied database has a real CHECK constraint,
+// "IntegrationConnection_status_credential_pairing_check", that this
+// model can never represent, for the same reason noted just above --
+// Prisma's DSL simply has no attribute for it. Because schema.prisma is
+// silent about it, a future `prisma migrate dev` / `prisma migrate diff`
+// run may propose a migration that DROPS
+// "IntegrationConnection_status_credential_pairing_check". Do not accept
+// that DROP as ordinary drift cleanup -- it must be manually stripped
+// from any generated migration, the same discipline this repo already
+// applies to the Custom Status/Custom Field deferrable-FK drift and to
+// RolePermissionOverride_role_not_owner_check (see
+// 20261005000000_add_role_permission_overrides/migration.sql's own
+// header for the full reasoning), unless the Integrations architecture is
+// deliberately changed to no longer require this constraint. This is
+// security-relevant: the CHECK is the sole database-level guarantee that
+// a DISCONNECTED row can never still carry a live credential, and that a
+// CONNECTED/ERROR row is never missing one.
+model IntegrationConnection {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  provider String
+  status   String
+
+  // OWNER-entered free-text label only, purely for self-reference -- never
+  // presented as a verified workspace/channel name (a bare Slack Incoming
+  // Webhook URL exposes no such identity without full OAuth/API access,
+  // out of scope for V1 -- see this feature's own architecture lock §D).
+  label String?
+
+  // AES-256-GCM ciphertext (src/lib/integrations/crypto.ts's own
+  // versioned, self-describing format) -- never the raw webhook URL.
+  // credentialKeyVersion records which INTEGRATIONS_ENCRYPTION_KEY_V{n}
+  // encrypted this row, independent of the ciphertext format's own
+  // internal version tag, so decrypt can look up the correct key even
+  // after a future rotation adds a new active version.
+  encryptedCredential  String?
+  credentialKeyVersion Int?
+
+  // Connection-level failures only (an explicit connect/test-send
+  // failure, full retry-ceiling exhaustion, or a definitive Slack
+  // "revoked" signal) -- never every transient per-delivery failure,
+  // which lives exclusively on IntegrationDelivery below. Keeping these
+  // two concerns on two different rows/tables is what avoids a two-
+  // sources-of-truth drift risk between "is this connection healthy" and
+  // "did this one message go out."
+  lastErrorCode String?
+  lastErrorAt   DateTime?
+
+  connectedAt    DateTime?
+  disconnectedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deliveries IntegrationDelivery[]
+
+  @@unique([organizationId, provider])
+}
+
+// Integrations V1 (Slack Incoming Webhook only). A durable outbox row per
+// (connection, Activity, event) -- one row is enqueued, DB-only, inside
+// the SAME transaction as the business mutation whose Activity it
+// records (src/lib/integrations/enqueue.ts), then drained by a
+// synchronous best-effort post-commit attempt and, on failure, a
+// cron-triggered retry job (src/app/api/cron/integration-delivery/
+// route.ts) -- directly mirroring NotificationDelivery's own proven
+// shape and claim mechanism (attempts/nextAttemptAt/lockedAt below are
+// each a deliberate one-to-one match of NotificationDelivery's
+// attemptCount/nextAttemptAt/lockedAt), applied to a different outbound
+// channel.
+//
+// `eventKey` is a plain String, not an enum -- matches
+// RolePermissionOverride.permissionKey/IntegrationConnection.provider's
+// own reasoning: the fixed V1 catalog
+// (src/lib/integrations/events.ts's EVENT_KEYS) is the sole source of
+// truth for which keys are meaningful, so adding a event key later never
+// requires a migration.
+//
+// @@unique([integrationConnectionId, activityId, eventKey]) is the
+// idempotency guarantee against a double-enqueue for the same Activity
+// (e.g. a retried Server Action, or a future caller mistake) -- a
+// repeated enqueueIntegrationDelivery call for the same triple is a
+// silent no-op via a check-then-create read in the same transaction
+// (src/lib/integrations/enqueue.ts's own doc comment explains why a
+// P2002-catch was deliberately NOT used here: unlike
+// IntegrationConnection's own save path, this function runs inside the
+// caller's already-open business transaction, where swallowing a
+// constraint-violation error and continuing would leave that
+// transaction permanently aborted) -- this unique index remains the
+// real, database-level backstop regardless.
+//
+// INTENTIONAL DRIFT: the applied database also has a real CHECK
+// constraint on this table, "IntegrationDelivery_attempts_nonnegative_check"
+// (`attempts >= 0`), that this model can never represent, for the same
+// reason IntegrationConnection's own doc comment above already explains
+// -- Prisma's schema DSL has no CHECK-constraint attribute at all, so
+// schema.prisma is intentionally silent about it and does not fully
+// describe the applied DB schema here. Because of that silence, a future
+// `prisma migrate dev` / `prisma migrate diff` run may propose a
+// migration that DROPS "IntegrationDelivery_attempts_nonnegative_check".
+// That DROP CONSTRAINT is false-positive intentional-drift churn, not a
+// real schema change -- it must be manually stripped from any generated
+// migration, the same discipline this repo already applies to the
+// Custom Status/Custom Field deferrable-FK drift,
+// RolePermissionOverride_role_not_owner_check, and
+// IntegrationConnection_status_credential_pairing_check (see
+// 20261005000000_add_role_permission_overrides/migration.sql's own
+// header, and this migration's own header, for the full reasoning),
+// unless the Integrations architecture is deliberately changed to no
+// longer require this constraint. The CHECK itself is defense in depth:
+// application code never decrements `attempts` or constructs a row with
+// a negative value, and this closes the gap against a future bug doing
+// so silently, preventing that invalid negative delivery-attempt state
+// from ever being persisted.
+model IntegrationDelivery {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  integrationConnectionId String                 @db.Uuid
+  integrationConnection   IntegrationConnection  @relation(fields: [integrationConnectionId], references: [id], onDelete: Cascade)
+
+  activityId String   @db.Uuid
+  activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+
+  eventKey String
+  status   String @default("PENDING")
+
+  attempts Int @default(0)
+
+  // Mirrors NotificationDelivery.nextAttemptAt/lockedAt exactly -- see
+  // that model's own doc comment for the full claim-mechanism reasoning;
+  // src/lib/integrations/jobs/retry-integration-deliveries.ts is the
+  // sole reader/writer of lockedAt, the same "never read/written outside
+  // the job" discipline NotificationDelivery.lockedAt already documents.
+  nextAttemptAt DateTime?
+  lockedAt      DateTime?
+  lastErrorCode String?
+
+  createdAt   DateTime  @default(now())
+  deliveredAt DateTime?
+
+  // The retry job's own candidate-discovery query shapes -- mirrors
+  // NotificationDelivery's own @@index([status, createdAt]) reasoning,
+  // split into two narrower indexes since this job's own two claim
+  // queries (due-for-retry vs stale-PROCESSING-reclaim) filter on
+  // different second columns.
+  @@unique([integrationConnectionId, activityId, eventKey])
+  @@index([status, nextAttemptAt])
+  @@index([status, lockedAt])
 }

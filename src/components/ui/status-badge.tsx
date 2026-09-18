@@ -171,6 +171,18 @@ export const STATUS_TONES: Record<string, StatusTone> = {
   // CLOSED/ARCHIVED's own "wound down, no longer active" muted tone
   // instead.
   TERMINATED: "muted",
+
+  // Integrations V1 (Slack Incoming Webhook only) — IntegrationConnection.
+  // status's own three values. CONNECTED mirrors ACTIVE/VERIFIED's own
+  // "healthy, working as intended" success tone; DISCONNECTED mirrors
+  // INACTIVE/ARCHIVED's own "deliberately wound down" muted tone; ERROR
+  // is the one genuinely new tone concept in this map (an existing
+  // connection that needs attention because something is actually
+  // broken, not merely paused/inactive) — danger, matching REVOKED/
+  // OVERDUE/CANCELLED's own "needs the owner's attention" tone.
+  CONNECTED: "success",
+  DISCONNECTED: "muted",
+  ERROR: "danger",
 };
 
 // Custom Statuses Phase 2A (Section P) — `tone` is an optional override

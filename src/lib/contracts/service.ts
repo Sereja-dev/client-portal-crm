@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import type { Contract } from "@/generated/prisma/client";
 import { createActivity } from "@/lib/activity/create-activity";
+import { enqueueIntegrationDelivery } from "@/lib/integrations/enqueue";
+import { deliverIntegrationEventBestEffort } from "@/lib/integrations/deliver";
 import { getCurrentPortalUser } from "@/lib/current-portal-user";
 import type { ContractActor } from "./authorization";
 import { resolveContractTarget } from "./target";
@@ -515,6 +517,8 @@ export async function acceptContractByStaff(
     return { ok: false, reason: "INVALID_TRANSITION" };
   }
 
+  let integrationDeliveryId: string | null = null;
+
   try {
     const contract = await prisma.$transaction(async (tx) => {
       const now = new Date();
@@ -526,7 +530,7 @@ export async function acceptContractByStaff(
         throw new ContractTransitionRaceError();
       }
 
-      await createActivity(tx, {
+      const activity = await createActivity(tx, {
         organizationId,
         actorId: actor.id,
         entityType: "CONTRACT",
@@ -535,8 +539,16 @@ export async function acceptContractByStaff(
         metadata: { from: "SENT", to: "ACCEPTED", name: existing.title, actor: "staff" },
       });
 
+      // Integrations V1 — CONTRACT_ACCEPTED.
+      const enqueued = await enqueueIntegrationDelivery(tx, { organizationId, activity });
+      integrationDeliveryId = enqueued?.deliveryId ?? null;
+
       return tx.contract.findFirstOrThrow({ where: { id: contractId }, include: WITH_CLIENT });
     });
+
+    if (integrationDeliveryId) {
+      await deliverIntegrationEventBestEffort(integrationDeliveryId);
+    }
 
     return { ok: true, contract };
   } catch (err) {
@@ -591,6 +603,8 @@ export async function acceptContractByPortal(contractId: string): Promise<Accept
     return { ok: false, reason: "INVALID_TRANSITION" };
   }
 
+  let integrationDeliveryId: string | null = null;
+
   try {
     const contract = await prisma.$transaction(async (tx) => {
       const now = new Date();
@@ -615,7 +629,7 @@ export async function acceptContractByPortal(contractId: string): Promise<Accept
       // the signatorySnapshot name, a Client name, or a Staff actor --
       // and it carries no signature/e-signature implication, only "who
       // clicked accept in the portal".
-      await createActivity(tx, {
+      const activity = await createActivity(tx, {
         organizationId,
         actorId: null,
         entityType: "CONTRACT",
@@ -624,8 +638,21 @@ export async function acceptContractByPortal(contractId: string): Promise<Accept
         metadata: { from: "SENT", to: "ACCEPTED", name: existing.title, actor: "portal", actorName: portalUser.name },
       });
 
+      // Integrations V1 — CONTRACT_ACCEPTED. Matched purely on the
+      // (entityType, action, metadata.to) shape (src/lib/integrations/
+      // events.ts), identically to acceptContractByStaff above — a
+      // client-side signature via the Portal is one of the primary ways a
+      // contract actually gets signed, and this hook lives entirely in
+      // this shared domain service file, not in any Portal route/UI.
+      const enqueued = await enqueueIntegrationDelivery(tx, { organizationId, activity });
+      integrationDeliveryId = enqueued?.deliveryId ?? null;
+
       return tx.contract.findFirstOrThrow({ where: { id: contractId } });
     });
+
+    if (integrationDeliveryId) {
+      await deliverIntegrationEventBestEffort(integrationDeliveryId);
+    }
 
     return { ok: true, contract };
   } catch (err) {

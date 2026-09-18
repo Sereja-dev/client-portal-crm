@@ -511,6 +511,42 @@ function buildRolePermissionModel(action: ActivityAction, metadata: Record<strin
   };
 }
 
+/**
+ * Integrations V1 (Slack Incoming Webhook only). metadata is always
+ * { provider, actorName, from?, to? } (see src/lib/activity/
+ * integration-connection-metadata.ts) — never the raw webhook URL,
+ * encrypted credential, or key version. CREATED/UPDATED never carry
+ * from/to; STATUS_CHANGED always does — a STATUS_CHANGED row missing
+ * either falls back like every other malformed-metadata case here.
+ */
+const INTEGRATION_PROVIDER_LABELS: Record<string, string> = {
+  SLACK_INCOMING_WEBHOOK: "Slack",
+};
+
+function buildIntegrationConnectionModel(action: ActivityAction, metadata: Record<string, unknown>): PartialModel {
+  const providerRaw = str(metadata.provider);
+  if (!providerRaw) return FALLBACK;
+  const providerLabel = INTEGRATION_PROVIDER_LABELS[providerRaw] ?? providerRaw;
+
+  if (action === "CREATED") {
+    return { actionLabel: `connected ${providerLabel}`, entityLabel: providerLabel, detailLines: [] };
+  }
+  if (action === "UPDATED") {
+    return { actionLabel: `updated the ${providerLabel} integration`, entityLabel: providerLabel, detailLines: [] };
+  }
+  if (action === "STATUS_CHANGED") {
+    const from = str(metadata.from);
+    const to = str(metadata.to);
+    if (!from || !to) return FALLBACK;
+    return {
+      actionLabel: `${providerLabel} integration changed from ${formatStatusLabel(from)} to ${formatStatusLabel(to)}`,
+      entityLabel: providerLabel,
+      detailLines: [],
+    };
+  }
+  return FALLBACK;
+}
+
 function buildModel(
   entityType: ActivityEntityType,
   action: ActivityAction,
@@ -523,6 +559,7 @@ function buildModel(
   if (entityType === "PORTAL_USER") return buildPortalUserModel(action, metadata);
   if (entityType === "COMMENT") return buildCommentModel(action, metadata);
   if (entityType === "ROLE_PERMISSION") return buildRolePermissionModel(action, metadata);
+  if (entityType === "INTEGRATION_CONNECTION") return buildIntegrationConnectionModel(action, metadata);
   return FALLBACK;
 }
 

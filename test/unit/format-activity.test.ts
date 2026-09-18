@@ -450,6 +450,78 @@ describe("formatActivity — Roles / Permissions events (ROLE_PERMISSION / UPDAT
   });
 });
 
+describe("formatActivity — Integrations events (INTEGRATION_CONNECTION)", () => {
+  it("CREATED renders a friendly connect line", () => {
+    const result = activity("INTEGRATION_CONNECTION", "CREATED", {
+      provider: "SLACK_INCOMING_WEBHOOK",
+      actorName: "Jane Doe",
+    });
+    expect(result.actionLabel).toBe("connected Slack");
+    expect(result.entityLabel).toBe("Slack");
+    expect(result.detailLines).toEqual([]);
+  });
+
+  it("UPDATED renders a friendly credential-replaced line", () => {
+    const result = activity("INTEGRATION_CONNECTION", "UPDATED", {
+      provider: "SLACK_INCOMING_WEBHOOK",
+      actorName: "Jane Doe",
+    });
+    expect(result.actionLabel).toBe("updated the Slack integration");
+  });
+
+  it("STATUS_CHANGED renders the from/to transition", () => {
+    const result = activity("INTEGRATION_CONNECTION", "STATUS_CHANGED", {
+      provider: "SLACK_INCOMING_WEBHOOK",
+      actorName: "Jane Doe",
+      from: "CONNECTED",
+      to: "DISCONNECTED",
+    });
+    expect(result.actionLabel).toBe("Slack integration changed from Connected to Disconnected");
+  });
+
+  it("STATUS_CHANGED from ERROR to CONNECTED (a recovered connection)", () => {
+    const result = activity("INTEGRATION_CONNECTION", "STATUS_CHANGED", {
+      provider: "SLACK_INCOMING_WEBHOOK",
+      actorName: "Aqenra",
+      from: "ERROR",
+      to: "CONNECTED",
+    });
+    expect(result.actionLabel).toBe("Slack integration changed from Error to Connected");
+  });
+
+  it("never renders the webhook URL, encrypted credential, or key version even if accidentally present in metadata", () => {
+    const result = activity("INTEGRATION_CONNECTION", "CREATED", {
+      provider: "SLACK_INCOMING_WEBHOOK",
+      actorName: "Jane Doe",
+      encryptedCredential: "v1.should.never.appear",
+      credentialKeyVersion: 1,
+    } as unknown);
+    expect(result.actionLabel).not.toContain("v1.should.never.appear");
+    expect(JSON.stringify(result)).not.toContain("v1.should.never.appear");
+  });
+
+  it("falls back to the neutral line when provider is missing (malformed metadata)", () => {
+    const result = activity("INTEGRATION_CONNECTION", "CREATED", { actorName: "Jane Doe" });
+    expect(result.actionLabel).toBe("Activity recorded");
+  });
+
+  it("STATUS_CHANGED falls back when from/to is missing", () => {
+    const result = activity("INTEGRATION_CONNECTION", "STATUS_CHANGED", {
+      provider: "SLACK_INCOMING_WEBHOOK",
+      actorName: "Jane Doe",
+    });
+    expect(result.actionLabel).toBe("Activity recorded");
+  });
+
+  it("an unrecognized provider value still renders (falls back to the raw string, never throws)", () => {
+    const result = activity("INTEGRATION_CONNECTION", "CREATED", {
+      provider: "SOME_FUTURE_PROVIDER",
+      actorName: "Jane Doe",
+    });
+    expect(result.actionLabel).toBe("connected SOME_FUTURE_PROVIDER");
+  });
+});
+
 describe("formatActivity — Attachment events", () => {
   it("FILE_UPLOADED", () => {
     const result = activity("ATTACHMENT", "FILE_UPLOADED", {

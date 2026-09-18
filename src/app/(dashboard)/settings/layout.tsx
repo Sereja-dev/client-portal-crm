@@ -1,6 +1,7 @@
 import { getCurrentMembership } from "@/lib/current-user";
 import { canAccessPaymentDetails } from "@/lib/organization-setup/authorization";
 import { getCachedEffectivePermissionSet } from "@/lib/permissions/resolver";
+import { canManageIntegrations } from "@/lib/integrations/authorization";
 import { SettingsNav } from "@/components/settings/settings-nav";
 
 /**
@@ -46,6 +47,11 @@ export default async function SettingsLayout({
   const canManageWorkflowAutomations = effectivePermissions.WORKFLOW_AUTOMATIONS_MANAGE;
   const canManageTags = effectivePermissions.TAGS_MANAGE;
   const canManageQuoteTemplates = effectivePermissions.QUOTE_TEMPLATES_MANAGE;
+  // Integrations V1 — deliberately NOT part of the Roles / Permissions
+  // catalog above (locked spec §10/§23): a plain inline OWNER check, the
+  // exact same mechanism canAccessPayment already uses two lines up,
+  // never getCachedEffectivePermissionSet.
+  const canManageIntegrationsValue = canManageIntegrations(membership.role);
 
   return (
     <div>
@@ -54,6 +60,7 @@ export default async function SettingsLayout({
         canManageWorkflowAutomations={canManageWorkflowAutomations}
         canManageTags={canManageTags}
         canManageQuoteTemplates={canManageQuoteTemplates}
+        canManageIntegrations={canManageIntegrationsValue}
       />
       {children}
     </div>

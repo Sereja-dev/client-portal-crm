@@ -14,6 +14,12 @@ process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = "test-anon-key";
 // socket server can't service concurrent connections.
 process.env.PGLITE_TEST_DB = "1";
 
+// Integrations V1 (Slack Incoming Webhook only) — a fixed, valid 32-byte
+// base64 test key so src/lib/integrations/crypto.ts's own encrypt/decrypt
+// can run for real against every integration test (never a real secret,
+// never used to protect anything outside this test run).
+process.env.INTEGRATIONS_ENCRYPTION_KEY_V1 = "KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio=";
+
 // Each test file gets its own fresh @/lib/prisma module instance (and
 // therefore its own pg.Pool), but nothing ever explicitly closes it — the
 // pool keeps an idle connection open by design. With the single-connection

@@ -8,6 +8,8 @@ import { getPaymentDetails } from "@/lib/organization-setup/payment-details";
 import { createActivity } from "@/lib/activity/create-activity";
 import { buildInvoiceStatusChangedMetadata } from "@/lib/activity/invoice-metadata";
 import { deliverNotificationEmails } from "@/lib/notifications/email/deliver-notification-email";
+import { enqueueIntegrationDelivery } from "@/lib/integrations/enqueue";
+import { deliverIntegrationEventBestEffort } from "@/lib/integrations/deliver";
 import { calculateInvoiceTotals, type InvoiceCalculationInput } from "@/lib/invoices/calculations";
 import type { IssueInvoiceInput, IssueInvoiceResult, IssueInvoiceErrorCode } from "@/lib/invoices/lifecycle";
 import {
@@ -453,7 +455,9 @@ export async function issueInvoice(
   const now = deps.now();
   const nextUpdatedAt = new Date(Math.max(now.getTime(), expectedDate.getTime() + 1));
 
-  type CommitOutcome = { ok: true; finalizedAt: Date; notificationIds: string[] } | { ok: false; error: "CONFLICT" | "FINALIZATION_FAILED" };
+  type CommitOutcome =
+    | { ok: true; finalizedAt: Date; notificationIds: string[]; integrationDeliveryId: string | null }
+    | { ok: false; error: "CONFLICT" | "FINALIZATION_FAILED" };
 
   let commitOutcome: CommitOutcome;
   try {
@@ -509,7 +513,16 @@ export async function issueInvoice(
         ),
       });
 
-      return { ok: true, finalizedAt: now, notificationIds: activity.notificationIds };
+      // Integrations V1 — INVOICE_SENT (matched by
+      // matchIntegrationEvent's own metadata.to === "SENT" filter — this
+      // exact DRAFT -> SENT transition, never any other Invoice status
+      // change).
+      const enqueued = await enqueueIntegrationDelivery(tx, {
+        organizationId: actor.organizationId,
+        activity,
+      });
+
+      return { ok: true, finalizedAt: now, notificationIds: activity.notificationIds, integrationDeliveryId: enqueued?.deliveryId ?? null };
     });
   } catch (err) {
     if (err instanceof InvoiceUpdateConflictError) {
@@ -541,6 +554,13 @@ export async function issueInvoice(
     await deps.deliverEmails(commitOutcome.notificationIds);
   } catch {
     // Best-effort — swallowed. The finalized Invoice is already committed.
+  }
+
+  // Integrations V1 — same "never allowed to surface as an Issue failure"
+  // contract as deliverEmails above; deliverIntegrationEventBestEffort
+  // itself already never throws, so no extra try/catch is needed here.
+  if (commitOutcome.integrationDeliveryId) {
+    await deliverIntegrationEventBestEffort(commitOutcome.integrationDeliveryId);
   }
 
   return { ok: true, invoiceId: invoice.id, finalizedAt: commitOutcome.finalizedAt };

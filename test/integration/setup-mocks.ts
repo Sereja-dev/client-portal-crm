@@ -13,6 +13,7 @@ import {
 import { mockUploadAttachmentObject, mockRemoveAttachmentObject, mockCreateAttachmentSignedUrl } from "../support/storage-mock";
 import { mockUploadLogoObject, mockRemoveLogoObject } from "../support/logo-storage-mock";
 import { mockRedirect, mockNotFound, mockRevalidatePath } from "../support/navigation-mock";
+import { mockSendSlackMessage } from "../support/slack-mock";
 
 // The ONLY things mocked across the whole integration suite — every one
 // of them because the REAL implementation needs an actual Next.js request
@@ -184,6 +185,13 @@ vi.mock("@/lib/storage/attachments-storage", () => ({
 vi.mock("@/lib/storage/logo-storage", () => ({
   uploadLogoObject: mockUploadLogoObject,
   removeLogoObject: mockRemoveLogoObject,
+}));
+
+// Integrations V1 (Slack Incoming Webhook only) — same "needs a live
+// external network call" reasoning as attachments-storage/logo-storage
+// above. See test/support/slack-mock.ts's own doc comment.
+vi.mock("@/lib/integrations/slack-client", () => ({
+  sendSlackMessage: mockSendSlackMessage,
 }));
 
 // The rate limiter's store is a real module-level singleton Map (see
