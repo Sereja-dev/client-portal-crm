@@ -24,31 +24,36 @@ describe("Reports authorization", () => {
     await cleanupTestData(fixtures);
   });
 
-  describe("canViewReports / assertCanViewReports", () => {
-    it("allows OWNER and ADMIN, denies MEMBER", () => {
-      expect(canViewReports(Role.OWNER)).toBe(true);
-      expect(canViewReports(Role.ADMIN)).toBe(true);
-      expect(canViewReports(Role.MEMBER)).toBe(false);
+  describe("canViewReports / assertCanViewReports (zero overrides -- catalog defaults)", () => {
+    it("allows OWNER and ADMIN, denies MEMBER", async () => {
+      const organizationId = fixtures.orgA.id;
+      expect(await canViewReports(organizationId, Role.OWNER)).toBe(true);
+      expect(await canViewReports(organizationId, Role.ADMIN)).toBe(true);
+      expect(await canViewReports(organizationId, Role.MEMBER)).toBe(false);
     });
 
-    it("assertCanViewReports throws ReportsAccessError for MEMBER, not for OWNER/ADMIN", () => {
-      expect(() => assertCanViewReports(Role.MEMBER)).toThrow(ReportsAccessError);
-      expect(() => assertCanViewReports(Role.OWNER)).not.toThrow();
-      expect(() => assertCanViewReports(Role.ADMIN)).not.toThrow();
+    it("assertCanViewReports throws ReportsAccessError for MEMBER, not for OWNER/ADMIN", async () => {
+      const organizationId = fixtures.orgA.id;
+      await expect(assertCanViewReports(organizationId, Role.MEMBER)).rejects.toThrow(ReportsAccessError);
+      await expect(assertCanViewReports(organizationId, Role.OWNER)).resolves.not.toThrow();
+      await expect(assertCanViewReports(organizationId, Role.ADMIN)).resolves.not.toThrow();
     });
 
-    it("is its own semantic boundary, not merely a re-export of Export/Import authorization", () => {
-      // Import/Export currently use the exact same OWNER+ADMIN role set
-      // (src/lib/import/authorization.ts, src/lib/export/authorization.ts)
-      // -- this proves Reports has an independent function, not a shared
-      // import, so the two can diverge in the future without one
-      // silently changing the other.
+    it("is its own semantic boundary, not merely a re-export of Export/Import authorization", async () => {
+      // Import/Export currently use the exact same OWNER+ADMIN catalog
+      // default (src/lib/import/authorization.ts, src/lib/export/
+      // authorization.ts) -- this proves Reports has an independent
+      // function, not a shared import, so the two can diverge in the
+      // future (e.g. via independent RolePermissionOverride rows) without
+      // one silently changing the other.
       expect(canViewReports).not.toBe(canImportData as unknown as typeof canViewReports);
       expect(canViewReports).not.toBe(canExportData as unknown as typeof canViewReports);
-      // Same current role set today (both OWNER+ADMIN) -- distinct
-      // functions, not distinct behavior, is exactly the point.
-      expect(canViewReports(Role.OWNER)).toBe(canImportData(Role.OWNER));
-      expect(canViewReports(Role.MEMBER)).toBe(canExportData(Role.MEMBER));
+      // Same current catalog default today (both OWNER+ADMIN) -- distinct
+      // functions/permission keys, not distinct behavior, is exactly the
+      // point.
+      const organizationId = fixtures.orgA.id;
+      expect(await canViewReports(organizationId, Role.OWNER)).toBe(await canImportData(organizationId, Role.OWNER));
+      expect(await canViewReports(organizationId, Role.MEMBER)).toBe(await canExportData(organizationId, Role.MEMBER));
     });
   });
 

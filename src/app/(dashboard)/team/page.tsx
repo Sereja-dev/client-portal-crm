@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@/generated/prisma/enums";
@@ -59,7 +60,7 @@ export default async function TeamPage() {
 
   return (
     <div className="space-y-10">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-text-primary text-2xl font-semibold tracking-tight">
             Team
@@ -68,15 +69,30 @@ export default async function TeamPage() {
             Manage who has access to your organization.
           </p>
         </div>
-        <LeaveOrganizationButton
-          action={leaveOrganizationAction}
-          disabled={isOwner}
-          disabledReason={
-            isOwner
-              ? "You're the only owner — transfer ownership to someone else first."
-              : undefined
-          }
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Roles / Permissions V1 — small Team-page link affordance
+              rather than a new secondary-nav framework (locked spec
+              §10). OWNER-only, matching /team/permissions' own
+              independent, real access check — this link's visibility is
+              discoverability only, never the security boundary. */}
+          {isOwner && (
+            <Link
+              href="/team/permissions"
+              className="border-border-strong text-text-primary focus-visible:ring-focus-ring inline-flex items-center justify-center gap-2 rounded-md border px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+            >
+              Roles &amp; permissions
+            </Link>
+          )}
+          <LeaveOrganizationButton
+            action={leaveOrganizationAction}
+            disabled={isOwner}
+            disabledReason={
+              isOwner
+                ? "You're the only owner — transfer ownership to someone else first."
+                : undefined
+            }
+          />
+        </div>
       </div>
 
       <section>

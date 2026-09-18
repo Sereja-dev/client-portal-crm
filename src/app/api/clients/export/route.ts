@@ -55,7 +55,7 @@ const CSV_HEADER = [
 export async function GET(request: Request) {
   const { user, organizationId, membership } = await getCurrentMembership();
 
-  if (!canExportData(membership.role)) {
+  if (!(await canExportData(organizationId, membership.role))) {
     return new NextResponse(FORBIDDEN_MESSAGE, { status: 403 });
   }
 

@@ -58,7 +58,7 @@ export async function getReportsOverview({
   now?: Date;
 } = {}): Promise<ReportsOverviewViewModel> {
   const { organizationId, membership } = await getCurrentMembership();
-  assertCanViewReports(membership.role);
+  await assertCanViewReports(organizationId, membership.role);
 
   const period = parseReportsPeriod(requestedPeriod);
   const range = getReportsPeriodRange(period, now);

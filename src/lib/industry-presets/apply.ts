@@ -450,7 +450,7 @@ export async function applyIndustryPreset(
   // createTag/createWorkflowAutomation's own ordering (a MEMBER never
   // learns whether the submitted key is even a real preset).
   try {
-    assertCanApplyIndustryPreset(actor.role);
+    await assertCanApplyIndustryPreset(organizationId, actor.role);
   } catch (err) {
     if (err instanceof IndustryPresetAccessError) {
       return { ok: false, reason: "FORBIDDEN" };

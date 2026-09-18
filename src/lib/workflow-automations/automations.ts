@@ -2,6 +2,7 @@ import "server-only";
 import type { WorkflowAutomation } from "@/generated/prisma/client";
 import { ActivityEntityType, ActivityAction, type Role } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
+import { getEffectivePermission } from "@/lib/permissions/resolver";
 import type { PrismaClientOrTx } from "./types";
 import { resolveWorkflowTrigger, type WorkflowTriggerDefinition } from "./triggers";
 import { parseWorkflowAutomationConditions, MAX_WORKFLOW_CONDITIONS } from "./conditions";
@@ -40,8 +41,18 @@ import { buildWorkflowAutomationActivityMetadata } from "@/lib/activity/workflow
 
 export type WorkflowAutomationActor = { id: string; name: string; role: Role };
 
-function isPrivileged(role: Role): boolean {
-  return role === "OWNER" || role === "ADMIN";
+/**
+ * Roles / Permissions V1 (locked spec §9/§21) — resolver-backed by the
+ * WORKFLOW_AUTOMATIONS_MANAGE catalog key. Like Recurring Invoices, this
+ * key governs the ENTIRE feature for MEMBER — get/list are gated exactly
+ * the same as create/update/setEnabled/archive below. With zero
+ * overrides this reproduces the exact pre-V1 OWNER/ADMIN-only behavior
+ * for every one of these functions (locked spec §6). No Workflow
+ * execution/runtime semantics are touched by this change — this governs
+ * configuration management only, the same scope it already had.
+ */
+async function isPrivileged(organizationId: string, role: Role): Promise<boolean> {
+  return getEffectivePermission({ organizationId, role, permissionKey: "WORKFLOW_AUTOMATIONS_MANAGE" });
 }
 
 export const WORKFLOW_AUTOMATION_NAME_MAX_LENGTH = 200;
@@ -110,7 +121,7 @@ export async function createWorkflowAutomation(
   // Authorization checked first, before any DB read — a MEMBER never
   // learns whether a submitted trigger/condition/action reference even
   // exists, matching createRecurringInvoice's own ordering.
-  if (!isPrivileged(actor.role)) {
+  if (!(await isPrivileged(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 
@@ -195,7 +206,7 @@ export async function updateWorkflowAutomation(
   input: UpdateWorkflowAutomationInput,
   client: PrismaClientOrTx = prisma,
 ): Promise<UpdateWorkflowAutomationResult> {
-  if (!isPrivileged(actor.role)) {
+  if (!(await isPrivileged(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 
@@ -296,7 +307,7 @@ export async function setWorkflowAutomationEnabled(
   isEnabled: boolean,
   client: PrismaClientOrTx = prisma,
 ): Promise<SetWorkflowAutomationEnabledResult> {
-  if (!isPrivileged(actor.role)) {
+  if (!(await isPrivileged(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 
@@ -346,7 +357,7 @@ export async function archiveWorkflowAutomation(
   actor: WorkflowAutomationActor,
   client: PrismaClientOrTx = prisma,
 ): Promise<ArchiveWorkflowAutomationResult> {
-  if (!isPrivileged(actor.role)) {
+  if (!(await isPrivileged(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 
@@ -395,7 +406,7 @@ export async function getWorkflowAutomation(
   actor: WorkflowAutomationActor,
   client: PrismaClientOrTx = prisma,
 ): Promise<GetWorkflowAutomationResult> {
-  if (!isPrivileged(actor.role)) {
+  if (!(await isPrivileged(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
   const workflowAutomation = await client.workflowAutomation.findFirst({
@@ -419,7 +430,7 @@ export async function listWorkflowAutomations(
   options: ListWorkflowAutomationsOptions = {},
   client: PrismaClientOrTx = prisma,
 ): Promise<ListWorkflowAutomationsResult> {
-  if (!isPrivileged(actor.role)) {
+  if (!(await isPrivileged(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
   const workflowAutomations = await client.workflowAutomation.findMany({

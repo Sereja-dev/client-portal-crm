@@ -473,6 +473,44 @@ function buildCommentModel(action: ActivityAction, metadata: Record<string, unkn
   return FALLBACK;
 }
 
+/**
+ * Roles / Permissions V1 — ROLE_PERMISSION / UPDATED. metadata is always
+ * { targetRole, actorName, changes: [{ permissionKey, permissionLabel,
+ * previousEffectiveValue, newEffectiveValue }] } (see
+ * src/lib/activity/role-permission-metadata.ts) — never a raw internal
+ * permission key alone (permissionLabel, the human-readable name
+ * snapshotted at write time, is what's ever shown). A change entry
+ * missing a usable label/boolean is skipped rather than rendered
+ * malformed; if that empties the list entirely, this falls back like
+ * every other builder here.
+ */
+function buildRolePermissionModel(action: ActivityAction, metadata: Record<string, unknown>): PartialModel {
+  if (action !== "UPDATED") return FALLBACK;
+
+  const targetRole = str(metadata.targetRole);
+  if (!targetRole) return FALLBACK;
+  const roleLabel = formatStatusLabel(targetRole);
+
+  const rawChanges = Array.isArray(metadata.changes) ? metadata.changes : [];
+  const detailLines = rawChanges
+    .map((entry): string | null => {
+      if (!isRecord(entry)) return null;
+      const label = str(entry.permissionLabel);
+      const newValue = entry.newEffectiveValue;
+      if (!label || typeof newValue !== "boolean") return null;
+      return `${label}: ${newValue ? "enabled" : "disabled"}`;
+    })
+    .filter((line): line is string => line !== null);
+
+  if (detailLines.length === 0) return FALLBACK;
+
+  return {
+    actionLabel: `updated ${roleLabel} permissions`,
+    entityLabel: roleLabel,
+    detailLines,
+  };
+}
+
 function buildModel(
   entityType: ActivityEntityType,
   action: ActivityAction,
@@ -484,6 +522,7 @@ function buildModel(
   if (entityType === "ATTACHMENT") return buildAttachmentModel(action, metadata);
   if (entityType === "PORTAL_USER") return buildPortalUserModel(action, metadata);
   if (entityType === "COMMENT") return buildCommentModel(action, metadata);
+  if (entityType === "ROLE_PERMISSION") return buildRolePermissionModel(action, metadata);
   return FALLBACK;
 }
 

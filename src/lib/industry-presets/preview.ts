@@ -128,7 +128,7 @@ export async function previewIndustryPreset(
     }),
   );
 
-  const canApply = canApplyIndustryPreset(actorRole) && !alreadyApplied && !existingAppliedPreset;
+  const canApply = (await canApplyIndustryPreset(organizationId, actorRole)) && !alreadyApplied && !existingAppliedPreset;
 
   return {
     ok: true,

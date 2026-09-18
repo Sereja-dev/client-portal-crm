@@ -8,13 +8,13 @@ import { ImportWizard } from "@/components/import/import-wizard";
  * CSV Import Phase 2 — page-level gate (OWNER/ADMIN only). This is a
  * defense-in-depth convenience, not the real authorization boundary:
  * every Server Action in src/lib/import/server-actions.ts independently
- * re-checks canImportData(membership.role) itself, so a MEMBER can never
+ * re-checks canImportData(organizationId, membership.role) itself, so a MEMBER can never
  * actually upload/preview/execute an import even if they somehow reached
  * this page directly.
  */
 export default async function ClientsImportPage() {
-  const { membership } = await getCurrentMembership();
-  if (!canImportData(membership.role)) {
+  const { organizationId, membership } = await getCurrentMembership();
+  if (!(await canImportData(organizationId, membership.role))) {
     notFound();
   }
 

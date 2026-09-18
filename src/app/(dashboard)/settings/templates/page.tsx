@@ -34,7 +34,7 @@ const PRIMARY_LINK_CLASSES =
 export default async function QuoteTemplatesSettingsPage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {
   const { organizationId, membership } = await getCurrentMembership();
 
-  if (!canManageQuoteTemplates(membership.role)) {
+  if (!(await canManageQuoteTemplates(organizationId, membership.role))) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
         <EmptyState title="Not available" description="You don't have permission to view quote templates." />

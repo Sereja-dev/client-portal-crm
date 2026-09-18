@@ -41,7 +41,7 @@ test.describe("staff dashboard routes", () => {
     await injectTestSession(context, { id: fixtures.owner.id, email: fixtures.owner.email }, baseURL!);
   });
 
-  for (const path of ["/dashboard", "/clients", "/projects", "/tasks", "/invoices", "/team", "/settings/notifications", "/settings/billing", "/analytics"]) {
+  for (const path of ["/dashboard", "/clients", "/projects", "/tasks", "/invoices", "/team", "/team/permissions", "/settings/notifications", "/settings/billing", "/analytics"]) {
     test(`no horizontal overflow on ${path}`, async ({ page }) => {
       await assertNoHorizontalOverflow(page, path);
     });

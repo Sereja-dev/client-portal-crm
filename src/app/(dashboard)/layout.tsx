@@ -8,6 +8,7 @@ import { getDisabledInAppTypes } from "@/lib/notifications/preferences";
 import { formatNotification } from "@/lib/notifications/format-notification";
 import type { NotificationBellItem } from "@/components/notifications/notification-bell";
 import { Sidebar } from "@/components/layout/sidebar";
+import { getCachedEffectivePermissionSet } from "@/lib/permissions/resolver";
 import { Header } from "@/components/layout/header";
 import { TEST_MODE } from "@/lib/test-mode";
 import { isAiAssistantAvailable } from "@/lib/ai/providers/provider-factory";
@@ -67,11 +68,11 @@ export default async function DashboardLayout({
   // organizationId/recipientId (user.id) here are the only ones the
   // notification queries below ever use — both server-resolved, never from
   // client input. getCurrentMembership() (a strict superset of
-  // getCurrentUserOrganization()) is used instead of that — Recurring
-  // Invoices Phase 2A needs membership.role here too, to decide whether
-  // Sidebar renders the "Recurring Invoices" link (a UI convenience gate
-  // only; every actual Recurring Invoices route/action still independently
-  // re-verifies OWNER/ADMIN server-side regardless of what this renders).
+  // getCurrentUserOrganization()) is used instead of that — membership.role
+  // feeds the request-scoped effective-permission resolution below, which
+  // decides Sidebar's own nav-visibility flags (a UI convenience gate
+  // only; every actual gated route/action still independently re-verifies
+  // the effective permission server-side regardless of what this renders).
   const { user: currentUser, organizationId, membership } = await getCurrentMembership();
 
   // A small (at most 6 rows), separately-fetched preference lookup — kept
@@ -80,7 +81,7 @@ export default async function DashboardLayout({
   // one) re-fetching the same preference set a second time.
   const excludeTypes = await getDisabledInAppTypes(currentUser.id);
 
-  const [organizations, unreadNotificationCount, recentNotificationRows] = await Promise.all([
+  const [organizations, unreadNotificationCount, recentNotificationRows, effectivePermissions] = await Promise.all([
     getOrganizationSwitcherItems(),
     getUnreadNotificationCount({ organizationId, recipientId: currentUser.id, excludeTypes }),
     getRecentNotifications({
@@ -89,6 +90,13 @@ export default async function DashboardLayout({
       limit: RECENT_NOTIFICATIONS_LIMIT,
       excludeTypes,
     }),
+    // Roles / Permissions V1 — one bounded, request-scoped resolution
+    // for the whole Sidebar (locked spec §9/§31), never one query per
+    // gated nav item. getCachedEffectivePermissionSet is React's own
+    // per-request cache() — if anything else in this request's render
+    // tree needs the same (organizationId, role) pair, it's reused, not
+    // re-queried; never persisted across requests.
+    getCachedEffectivePermissionSet(organizationId, membership.role),
   ]);
 
   const recentNotifications: NotificationBellItem[] = recentNotificationRows.map((row) => ({
@@ -135,7 +143,14 @@ export default async function DashboardLayout({
         Organization, and this component only ever reads the prop below.
       */}
       <ThemePreferenceReconciler mode={dbThemeModeToRuntimeMode(currentUser.themeMode)} />
-      <Sidebar disablePrefetch={TEST_MODE} role={membership.role} />
+      <Sidebar
+        disablePrefetch={TEST_MODE}
+        permissions={{
+          recurringInvoicesManage: effectivePermissions.RECURRING_INVOICES_MANAGE,
+          analyticsView: effectivePermissions.ANALYTICS_VIEW,
+          reportsView: effectivePermissions.REPORTS_VIEW,
+        }}
+      />
       {/*
         min-w-0: at the md breakpoint this becomes a flex row item next to
         the now-fixed-width Sidebar. Flex items default to `min-width:

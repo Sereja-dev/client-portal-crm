@@ -386,6 +386,70 @@ describe("formatActivity — Membership events", () => {
   });
 });
 
+describe("formatActivity — Roles / Permissions events (ROLE_PERMISSION / UPDATED)", () => {
+  it("an Admin permission change renders a human label, never the raw internal key", () => {
+    const result = activity("ROLE_PERMISSION", "UPDATED", {
+      targetRole: "ADMIN",
+      actorName: "Jane Doe",
+      changes: [
+        { permissionKey: "ANALYTICS_VIEW", permissionLabel: "Analytics", previousEffectiveValue: true, newEffectiveValue: false },
+      ],
+    });
+    expect(result.actionLabel).toBe("updated Admin permissions");
+    expect(result.entityLabel).toBe("Admin");
+    expect(result.detailLines).toEqual(["Analytics: disabled"]);
+  });
+
+  it("a Member permission change", () => {
+    const result = activity("ROLE_PERMISSION", "UPDATED", {
+      targetRole: "MEMBER",
+      actorName: "Jane Doe",
+      changes: [
+        { permissionKey: "TAGS_MANAGE", permissionLabel: "Tags", previousEffectiveValue: false, newEffectiveValue: true },
+      ],
+    });
+    expect(result.actionLabel).toBe("updated Member permissions");
+    expect(result.entityLabel).toBe("Member");
+    expect(result.detailLines).toEqual(["Tags: enabled"]);
+  });
+
+  it("multiple changes in one save render one detail line per change, in order", () => {
+    const result = activity("ROLE_PERMISSION", "UPDATED", {
+      targetRole: "ADMIN",
+      actorName: "Jane Doe",
+      changes: [
+        { permissionKey: "ANALYTICS_VIEW", permissionLabel: "Analytics", previousEffectiveValue: true, newEffectiveValue: false },
+        { permissionKey: "REPORTS_VIEW", permissionLabel: "Reports", previousEffectiveValue: false, newEffectiveValue: true },
+      ],
+    });
+    expect(result.actionLabel).toBe("updated Admin permissions");
+    expect(result.detailLines).toEqual(["Analytics: disabled", "Reports: enabled"]);
+  });
+
+  it("falls back to the neutral line for malformed/legacy metadata (missing targetRole)", () => {
+    const result = activity("ROLE_PERMISSION", "UPDATED", { changes: [] });
+    expect(result.actionLabel).toBe("Activity recorded");
+    expect(result.detailLines).toEqual([]);
+  });
+
+  it("falls back to the neutral line when changes is empty or every entry is malformed", () => {
+    const empty = activity("ROLE_PERMISSION", "UPDATED", { targetRole: "ADMIN", actorName: "Jane Doe", changes: [] });
+    expect(empty.actionLabel).toBe("Activity recorded");
+
+    const malformed = activity("ROLE_PERMISSION", "UPDATED", {
+      targetRole: "ADMIN",
+      actorName: "Jane Doe",
+      changes: [{ permissionKey: "ANALYTICS_VIEW" /* missing permissionLabel/newEffectiveValue */ }],
+    });
+    expect(malformed.actionLabel).toBe("Activity recorded");
+  });
+
+  it("an action other than UPDATED falls back (ROLE_PERMISSION only ever writes UPDATED)", () => {
+    const result = activity("ROLE_PERMISSION", "CREATED", { targetRole: "ADMIN", actorName: "Jane Doe", changes: [] });
+    expect(result.actionLabel).toBe("Activity recorded");
+  });
+});
+
 describe("formatActivity — Attachment events", () => {
   it("FILE_UPLOADED", () => {
     const result = activity("ATTACHMENT", "FILE_UPLOADED", {

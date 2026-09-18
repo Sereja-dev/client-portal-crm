@@ -64,7 +64,7 @@ export async function createQuoteTemplate(
   input: QuoteTemplateWritableInput,
   client: PrismaClientOrTx = prisma,
 ): Promise<CreateQuoteTemplateResult> {
-  if (!canManageQuoteTemplates(actor.role)) {
+  if (!(await canManageQuoteTemplates(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 
@@ -139,7 +139,7 @@ export async function updateQuoteTemplate(
   actor: QuoteTemplateActor,
   input: QuoteTemplateWritableInput,
 ): Promise<UpdateQuoteTemplateResult> {
-  if (!canManageQuoteTemplates(actor.role)) {
+  if (!(await canManageQuoteTemplates(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 
@@ -203,7 +203,7 @@ export async function archiveQuoteTemplate(
   actor: QuoteTemplateActor,
   client: PrismaClientOrTx = prisma,
 ): Promise<ArchiveQuoteTemplateResult> {
-  if (!canManageQuoteTemplates(actor.role)) {
+  if (!(await canManageQuoteTemplates(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 
@@ -234,7 +234,7 @@ export async function restoreQuoteTemplate(
   actor: QuoteTemplateActor,
   client: PrismaClientOrTx = prisma,
 ): Promise<RestoreQuoteTemplateResult> {
-  if (!canManageQuoteTemplates(actor.role)) {
+  if (!(await canManageQuoteTemplates(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 
@@ -282,7 +282,7 @@ export async function duplicateQuoteTemplate(
   actor: QuoteTemplateActor,
   client: PrismaClientOrTx = prisma,
 ): Promise<DuplicateQuoteTemplateResult> {
-  if (!canManageQuoteTemplates(actor.role)) {
+  if (!(await canManageQuoteTemplates(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 

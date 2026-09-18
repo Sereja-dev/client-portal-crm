@@ -1,27 +1,22 @@
+import "server-only";
 import type { Role } from "@/generated/prisma/enums";
+import { getEffectivePermission } from "@/lib/permissions/resolver";
 
 /**
- * Reports Phase 1 (read-only architecture/readiness audit, then this
- * foundation). Reports is its own semantic authorization boundary —
- * deliberately NOT a reuse of `canExportData`/`canImportData`
- * (src/lib/export/authorization.ts, src/lib/import/authorization.ts)
- * merely because their OWNER+ADMIN role set currently happens to match.
- * Export/Import gate "may this Staff member move bulk data in/out of the
- * app"; Reports gates "may this Staff member see aggregate financial/
- * business numbers about the organization" — two different concerns that
- * should be free to diverge independently in the future (e.g. a later
- * stage loosening Export to include MEMBER must never accidentally loosen
- * Reports too, and vice versa). Mirrors src/lib/analytics/authorization.ts
- * exactly in shape — Reports is a close sibling of Analytics in
- * sensitivity (aggregate business data, not a single record on screen),
- * not of ordinary Client/Lead/Time Entry CRUD, which stays open to every
- * Staff role including MEMBER.
- *
- * MEMBER is a hard block. Client Portal identities never reach this at
- * all — every future Reports call site lives under the `(dashboard)`
- * route group, whose layout already redirects any Portal-only identity to
- * `/portal` before any Reports code is ever called (same guarantee
- * Analytics' own authorization.ts documents).
+ * Reports Phase 1, now resolver-backed by Roles / Permissions V1 (locked
+ * spec §9/§21). Still its own semantic authorization boundary — the
+ * REPORTS_VIEW catalog key, deliberately NOT the same key as
+ * ANALYTICS_VIEW/DATA_IMPORT/DATA_EXPORT despite sharing the same
+ * OWNER/ADMIN default, for the exact reason this module already
+ * documented pre-V1: Reports/Analytics/Export/Import are four
+ * independently-configurable concerns that should be free to diverge per
+ * organization (an OWNER loosening one must never accidentally loosen
+ * the others). With zero overrides this reproduces the exact pre-V1
+ * OWNER/ADMIN-only behavior (locked spec §6). Client Portal identities
+ * never reach this at all — every future Reports call site lives under
+ * the `(dashboard)` route group, whose layout already redirects any
+ * Portal-only identity to `/portal` before any Reports code is ever
+ * called.
  */
 export class ReportsAccessError extends Error {
   constructor() {
@@ -30,13 +25,13 @@ export class ReportsAccessError extends Error {
   }
 }
 
-export function canViewReports(role: Role): boolean {
-  return role === "OWNER" || role === "ADMIN";
+export async function canViewReports(organizationId: string, role: Role): Promise<boolean> {
+  return getEffectivePermission({ organizationId, role, permissionKey: "REPORTS_VIEW" });
 }
 
-/** Throws `ReportsAccessError` for MEMBER — every Reports query entry point calls this first, so no query below it ever runs for an unauthorized role. */
-export function assertCanViewReports(role: Role): void {
-  if (!canViewReports(role)) {
+/** Throws `ReportsAccessError` when the effective REPORTS_VIEW permission is denied — every Reports query entry point calls this first, so no query below it ever runs for an unauthorized caller. */
+export async function assertCanViewReports(organizationId: string, role: Role): Promise<void> {
+  if (!(await canViewReports(organizationId, role))) {
     throw new ReportsAccessError();
   }
 }

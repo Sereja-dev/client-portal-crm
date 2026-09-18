@@ -266,6 +266,25 @@ enum ActivityEntityType {
   // triggers.ts's own trigger list has no CALENDAR_EVENT entry either,
   // so no Workflow Automation can ever fire from it.
   CALENDAR_EVENT
+
+  // Roles / Permissions V1. A change to an organization's ADMIN or
+  // MEMBER permission set is an org+role-scoped policy change, never
+  // about one specific Membership row -- deliberately NOT recorded as
+  // MEMBERSHIP (that entityType's own formatter/precedent is always
+  // about a single member's own role/removal, e.g. ROLE_CHANGED/
+  // MEMBER_REMOVED -- reusing it here would misrepresent an org-wide
+  // policy change as if it were about one person). Unlike LEAD/QUOTE/
+  // CLIENT_REQUEST/etc above, this ships with its own real formatter
+  // (buildRolePermissionModel in format-activity.ts) from day one rather
+  // than relying on the FALLBACK safety net, since a raw "Activity
+  // recorded" line would not satisfy this feature's own audit-readability
+  // requirement. Uses the existing ActivityAction.UPDATED (a permission
+  // grant/revoke is a plain attribute change, not a distinctive named
+  // transition the way ROLE_CHANGED/OWNERSHIP_TRANSFERRED are for
+  // MEMBERSHIP) -- no new ActivityAction is added here. notification-
+  // rules.ts's own RULES map has no ROLE_PERMISSION entry -- locked spec
+  // §15/§28: no email notification in V1.
+  ROLE_PERMISSION
 }
 
 enum ActivityAction {
@@ -700,6 +719,14 @@ model Organization {
   // have. Enforced by PresetApplication.organizationId's own @unique
   // below, not merely assumed here.
   presetApplication PresetApplication?
+
+  // Roles / Permissions V1 (docs: architecture lock validation). A real
+  // "list of child rows" shape (unlike presetApplication above) -- an
+  // organization can have any number of sparse deviations from the
+  // catalog defaults, one row per (role, permissionKey) it has ever
+  // overridden. See RolePermissionOverride's own doc comment for the
+  // full invariant.
+  rolePermissionOverrides RolePermissionOverride[]
 }
 
 // Platform Admin Organization Suspension, PR 1. Deliberately separate
@@ -4383,4 +4410,79 @@ model PresetApplication {
   // B-tree index in Postgres); a second plain index on the same single
   // column would be a pure duplicate (same convention Lead's own
   // convertedClientId comment already documents for the identical case).
+}
+
+// Roles / Permissions V1 (architecture lock validation, locked spec §4/§7).
+// Sparse deviations from the code-defined permission catalog's own
+// OWNER/ADMIN/MEMBER defaults (src/lib/permissions/catalog.ts) -- a row
+// exists here ONLY when an organization's OWNER has explicitly overridden
+// one (role, permissionKey) pair away from its catalog default. Zero rows
+// for an organization reproduces pre-V1 Production behavior exactly (see
+// getEffectivePermission()'s own doc comment in src/lib/permissions/
+// resolver.ts). `role` reuses the existing Role enum rather than a new
+// one -- these rows are never anything other than ADMIN or MEMBER, see
+// below.
+//
+// `permissionKey` is a plain String, not a Prisma/Postgres enum,
+// deliberately: a new permission key must never require a database
+// migration, only a catalog addition -- src/lib/permissions/catalog.ts is
+// the sole source of truth for which keys are meaningful. The resolver
+// (getEffectivePermission) always validates a key against that catalog
+// before ever querying this table, so a row for a retired/unknown key is
+// simply inert (never matched by any real query) rather than a dangling
+// reference needing its own cleanup migration.
+//
+// OWNER must never have a row here -- OWNER's access to every catalog
+// permission is immutable and unconditional (getEffectivePermission
+// short-circuits to `true` for role === OWNER before ever reading this
+// table). Prisma's schema DSL has no CHECK-constraint attribute (the same
+// documented gap CustomStatusDefinition's own deferrable-FK comment
+// already notes for a different constraint shape) -- so this invariant is
+// declared here for readability but the actual enforcement is a
+// hand-written `CHECK ("role" <> 'OWNER')` added directly to this table's
+// migration SQL, not expressible in this file. Application code
+// (src/lib/permissions/management.ts) never constructs an OWNER row
+// either way -- this CHECK is defense in depth, not the only guard.
+//
+// INTENTIONAL DRIFT: the applied database has a real CHECK constraint,
+// "RolePermissionOverride_role_not_owner_check" (role <> 'OWNER'), that
+// this model can never represent, for the same reason noted just above --
+// Prisma's DSL simply has no attribute for it. Because schema.prisma is
+// silent about it, a future `prisma migrate dev` / `prisma migrate diff`
+// run may propose a migration that DROPS
+// "RolePermissionOverride_role_not_owner_check". Do not accept that DROP
+// as ordinary drift cleanup -- it must be manually stripped from any
+// generated migration, the same discipline this repo already applies to
+// the Custom Status/Custom Field deferrable-FK drift (see
+// 20261005000000_add_role_permission_overrides/migration.sql's own
+// header for the full reasoning), unless the Roles / Permissions
+// architecture is deliberately changed to no longer require this
+// constraint. This is security-relevant: the CHECK is the sole
+// database-level guarantee that an OWNER override row can never exist.
+model RolePermissionOverride {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  role          Role
+  permissionKey String
+
+  allowed Boolean
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The one query shape every real read/write against this table ever
+  // uses (getEffectivePermission's own point lookup, and
+  // updateRolePermissionsAction's own whole-role deleteMany/createMany
+  // replace) -- also the uniqueness invariant itself (at most one
+  // override per organization+role+permissionKey). No separate
+  // @@index([organizationId, role]) -- this unique index's own leftmost
+  // (organizationId) and (organizationId, role) prefixes already serve
+  // any narrower query, the same "a second index on a prefix already
+  // covered by a unique index would be a pure duplicate" reasoning
+  // PresetApplication's own organizationId @unique comment already
+  // documents for the identical case.
+  @@unique([organizationId, role, permissionKey])
 }

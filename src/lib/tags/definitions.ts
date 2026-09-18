@@ -3,6 +3,7 @@ import { Prisma } from "@/generated/prisma/client";
 import type { Tag } from "@/generated/prisma/client";
 import type { CustomStatusColor, Role } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
+import { getEffectivePermission } from "@/lib/permissions/resolver";
 import type { PrismaClientOrTx } from "./types";
 import { normalizeTagName } from "./normalize";
 
@@ -26,8 +27,19 @@ import { normalizeTagName } from "./normalize";
 
 export type TagActor = { id: string; name: string; role: Role };
 
-function isPrivileged(role: Role): boolean {
-  return role === "OWNER" || role === "ADMIN";
+/**
+ * Roles / Permissions V1 (locked spec §9/§21) — resolver-backed by the
+ * TAGS_MANAGE catalog key. Governs create/rename/archive ONLY — getTag/
+ * listTags below are deliberately never gated by this (or any)
+ * permission (locked spec §9's own explicit "must NOT gate tag list/get"
+ * requirement) — reads stay open to every Staff role exactly as before,
+ * so assigning an existing tag to a Client/Lead/etc (src/lib/tags/
+ * assignments.ts, unrelated to this module) is completely unaffected by
+ * this permission. With zero overrides this reproduces the exact pre-V1
+ * OWNER/ADMIN-only behavior for management (locked spec §6).
+ */
+async function isPrivileged(organizationId: string, role: Role): Promise<boolean> {
+  return getEffectivePermission({ organizationId, role, permissionKey: "TAGS_MANAGE" });
 }
 
 type DriverAdapterMeta = {
@@ -69,7 +81,7 @@ export async function createTag(
   // Authorization checked first, before any DB read — a MEMBER never
   // learns whether a submitted name is even well-formed, matching
   // createRecurringInvoice/createWorkflowAutomation's own ordering.
-  if (!isPrivileged(actor.role)) {
+  if (!(await isPrivileged(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 
@@ -129,7 +141,7 @@ export async function renameTag(
   input: RenameTagInput,
   client: PrismaClientOrTx = prisma,
 ): Promise<RenameTagResult> {
-  if (!isPrivileged(actor.role)) {
+  if (!(await isPrivileged(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 
@@ -193,7 +205,7 @@ export async function archiveTag(
   actor: TagActor,
   client: PrismaClientOrTx = prisma,
 ): Promise<ArchiveTagResult> {
-  if (!isPrivileged(actor.role)) {
+  if (!(await isPrivileged(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 

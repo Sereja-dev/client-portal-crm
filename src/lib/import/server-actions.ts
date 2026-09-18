@@ -81,7 +81,7 @@ export type UploadImportResult =
 
 export async function uploadImportFileAction(entityType: ImportEntityType, formData: FormData): Promise<UploadImportResult> {
   const { user, organizationId, membership } = await getCurrentMembership();
-  if (!canImportData(membership.role)) {
+  if (!(await canImportData(organizationId, membership.role))) {
     return { ok: false, reason: "forbidden" };
   }
 
@@ -152,7 +152,7 @@ export async function previewImportAction(
   mapping: WireMappingEntry[],
 ): Promise<PreviewImportResult> {
   const { organizationId, membership } = await getCurrentMembership();
-  if (!canImportData(membership.role)) {
+  if (!(await canImportData(organizationId, membership.role))) {
     return { ok: false, reason: "forbidden" };
   }
 
@@ -261,7 +261,7 @@ export type ExecuteImportResult =
 
 export async function executeImportAction(importJobId: string, entityType: ImportEntityType): Promise<ExecuteImportResult> {
   const { user, organizationId, membership } = await getCurrentMembership();
-  if (!canImportData(membership.role)) {
+  if (!(await canImportData(organizationId, membership.role))) {
     return { ok: false, reason: "forbidden" };
   }
 

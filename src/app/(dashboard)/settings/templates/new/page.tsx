@@ -17,8 +17,8 @@ import { createQuoteTemplateAction } from "../actions";
  * action" discipline.
  */
 export default async function NewQuoteTemplatePage() {
-  const { membership } = await getCurrentMembership();
-  if (!canManageQuoteTemplates(membership.role)) {
+  const { organizationId, membership } = await getCurrentMembership();
+  if (!(await canManageQuoteTemplates(organizationId, membership.role))) {
     redirect("/settings/templates");
   }
 

@@ -1,5 +1,6 @@
 import { getCurrentMembership } from "@/lib/current-user";
 import { canAccessPaymentDetails } from "@/lib/organization-setup/authorization";
+import { getCachedEffectivePermissionSet } from "@/lib/permissions/resolver";
 import { SettingsNav } from "@/components/settings/settings-nav";
 
 /**
@@ -28,22 +29,23 @@ export default async function SettingsLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { membership } = await getCurrentMembership();
+  const { organizationId, membership } = await getCurrentMembership();
   const canAccessPayment = canAccessPaymentDetails(membership.role);
-  // Workflow Automations V1 — same OWNER/ADMIN gate the domain layer
-  // itself enforces (isPrivileged() in src/lib/workflow-automations/
-  // automations.ts) — inlined here rather than via a shared helper since
-  // this exact two-role check has no dedicated organization-setup/
-  // authorization.ts entry of its own yet (unlike canAccessPaymentDetails).
-  const canManageWorkflowAutomations = membership.role === "OWNER" || membership.role === "ADMIN";
-  // Tags V2 — same OWNER/ADMIN gate as Workflow Automations immediately
-  // above (mirrors src/lib/tags/definitions.ts's own isPrivileged()).
-  const canManageTags = membership.role === "OWNER" || membership.role === "ADMIN";
-  // Quote Templates Phase 2 — same OWNER/ADMIN gate as Workflow
-  // Automations/Tags immediately above (mirrors the Phase 1 domain
-  // layer's own canManageQuoteTemplates() in
-  // src/lib/quote-templates/authorization.ts).
-  const canManageQuoteTemplates = membership.role === "OWNER" || membership.role === "ADMIN";
+  // Roles / Permissions V1 — Workflow Automations/Tags/Quote Templates
+  // nav visibility is now the effective WORKFLOW_AUTOMATIONS_MANAGE/
+  // TAGS_MANAGE/QUOTE_TEMPLATES_MANAGE permission (locked spec §12),
+  // configurable by the OWNER at /team/permissions, rather than a fixed
+  // inline OWNER/ADMIN check — one bounded, request-scoped resolution
+  // (getCachedEffectivePermissionSet, React's own per-request cache())
+  // for all three, never three separate queries. With zero overrides
+  // this reproduces the exact pre-V1 OWNER/ADMIN-only nav visibility
+  // (locked spec §6). Still discoverability only — every page under
+  // each of these three routes independently re-verifies the same
+  // effective permission server-side, unchanged.
+  const effectivePermissions = await getCachedEffectivePermissionSet(organizationId, membership.role);
+  const canManageWorkflowAutomations = effectivePermissions.WORKFLOW_AUTOMATIONS_MANAGE;
+  const canManageTags = effectivePermissions.TAGS_MANAGE;
+  const canManageQuoteTemplates = effectivePermissions.QUOTE_TEMPLATES_MANAGE;
 
   return (
     <div>

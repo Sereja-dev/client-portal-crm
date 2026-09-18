@@ -50,7 +50,7 @@ export async function getOrganizationAnalytics(
   now: Date = new Date(),
   client: PrismaClientOrTx = prisma,
 ): Promise<AnalyticsSnapshot> {
-  assertCanViewAnalytics(role);
+  await assertCanViewAnalytics(organizationId, role);
 
   const growthTimeRange = timeRange === "allTime" ? DEFAULT_GROWTH_TIME_RANGE : timeRange;
   const growthBounds = getTimeRangeBounds(growthTimeRange, now);

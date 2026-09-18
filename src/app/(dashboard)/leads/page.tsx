@@ -106,8 +106,8 @@ export default async function LeadsPage({
   // same href is used from either view (Pipeline's own filters are a
   // subset of List's — an unset stage/tag simply never appears in the
   // query string either way).
-  const canExport = canExportData(membership.role);
-  const canImport = canImportData(membership.role);
+  const canExport = await canExportData(organizationId, membership.role);
+  const canImport = await canImportData(organizationId, membership.role);
   const exportFilterParams = {
     ...(listParams.q ? { q: listParams.q } : {}),
     ...(listParams.stage ? { stage: listParams.stage } : {}),

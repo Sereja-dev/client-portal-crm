@@ -30,7 +30,7 @@ import { updateQuoteTemplateAction } from "../actions";
 export default async function EditQuoteTemplatePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const { organizationId, membership } = await getCurrentMembership();
-  if (!canManageQuoteTemplates(membership.role)) {
+  if (!(await canManageQuoteTemplates(organizationId, membership.role))) {
     redirect("/settings/templates");
   }
 

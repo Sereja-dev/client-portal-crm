@@ -2,6 +2,7 @@ import "server-only";
 import type { RecurringInvoice, RecurringInvoiceLineItem } from "@/generated/prisma/client";
 import type { Role } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
+import { getEffectivePermission } from "@/lib/permissions/resolver";
 import type { PrismaClientOrTx } from "./types";
 import { resolveRecurringInvoiceTarget } from "./target";
 import { deriveAnchorDay } from "./date-math";
@@ -57,8 +58,21 @@ import {
 
 export type RecurringInvoiceActor = { id: string; name: string; role: Role };
 
-function isPrivileged(role: Role): boolean {
-  return role === "OWNER" || role === "ADMIN";
+/**
+ * Roles / Permissions V1 (locked spec §9/§21) — resolver-backed by the
+ * RECURRING_INVOICES_MANAGE catalog key. Despite the name, this key
+ * governs the ENTIRE Recurring Invoices feature for MEMBER, not just
+ * mutations — get/list are gated exactly the same as create/update/
+ * pause/resume/archive below (locked spec §9's own explicit note on this
+ * feature's shape). With zero overrides this reproduces the exact pre-V1
+ * OWNER/ADMIN-only behavior for every one of these functions (locked
+ * spec §6). The CRON_SECRET-authenticated due-batch job
+ * (src/app/api/cron/recurring-invoices/route.ts) never calls any of
+ * these actor-gated functions — it has no Staff actor/role at all, and
+ * is entirely unaffected by this permission.
+ */
+async function isPrivileged(organizationId: string, role: Role): Promise<boolean> {
+  return getEffectivePermission({ organizationId, role, permissionKey: "RECURRING_INVOICES_MANAGE" });
 }
 
 const LINE_ITEMS_ORDER = { lineItems: { orderBy: { position: "asc" as const } } };
@@ -104,7 +118,7 @@ export async function createRecurringInvoice(
 ): Promise<CreateRecurringInvoiceResult> {
   // Authorization checked first, before any DB read — a MEMBER never
   // learns whether a submitted clientId/projectId even exist.
-  if (!isPrivileged(actor.role)) {
+  if (!(await isPrivileged(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 
@@ -232,7 +246,7 @@ export async function updateRecurringInvoice(
   input: UpdateRecurringInvoiceInput,
   client: PrismaClientOrTx = prisma,
 ): Promise<UpdateRecurringInvoiceResult> {
-  if (!isPrivileged(actor.role)) {
+  if (!(await isPrivileged(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 
@@ -384,7 +398,7 @@ export async function getRecurringInvoice(
   actor: RecurringInvoiceActor,
   client: PrismaClientOrTx = prisma,
 ): Promise<{ ok: true; recurringInvoice: RecurringInvoiceWithLineItems | null } | { ok: false; reason: "FORBIDDEN" }> {
-  if (!isPrivileged(actor.role)) {
+  if (!(await isPrivileged(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
   const recurringInvoice = await client.recurringInvoice.findFirst({
@@ -405,7 +419,7 @@ export async function listRecurringInvoices(
   options: ListRecurringInvoicesOptions = {},
   client: PrismaClientOrTx = prisma,
 ): Promise<{ ok: true; recurringInvoices: RecurringInvoiceWithLineItems[] } | { ok: false; reason: "FORBIDDEN" }> {
-  if (!isPrivileged(actor.role)) {
+  if (!(await isPrivileged(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
   const recurringInvoices = await client.recurringInvoice.findMany({
@@ -438,7 +452,7 @@ async function setStatus(
   allowedFrom: readonly ("ACTIVE" | "PAUSED" | "ARCHIVED")[],
   client: PrismaClientOrTx,
 ): Promise<RecurringInvoiceLifecycleResult> {
-  if (!isPrivileged(actor.role)) {
+  if (!(await isPrivileged(organizationId, actor.role))) {
     return { ok: false, reason: "FORBIDDEN" };
   }
 

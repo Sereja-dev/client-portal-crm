@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { siteConfig } from "@/config/site";
-import type { Role } from "@/generated/prisma/enums";
 
 const BASE_LINKS = [
   { href: "/dashboard", label: "Dashboard" },
@@ -31,28 +30,32 @@ const BASE_LINKS = [
   { href: "/contracts", label: "Contracts" },
 ];
 
-// Recurring Invoices Phase 2A — OWNER/ADMIN-only, same "the whole feature
-// is privileged-only, not just its write paths" rule the Phase 1 domain
-// layer already enforces (getRecurringInvoice/listRecurringInvoices are
-// FORBIDDEN for a MEMBER too). This is a UI convenience only — every
-// Recurring Invoices route/Server Action independently re-verifies the
-// actual role server-side regardless of whether this link is rendered; a
-// MEMBER navigating to /recurring-invoices directly still gets denied by
-// the page itself, never by relying on this link being hidden.
+// Recurring Invoices Phase 2A — gated by the effective
+// RECURRING_INVOICES_MANAGE permission as of Roles / Permissions V1
+// (locked spec §12), matching the Phase 1 domain layer's own "the whole
+// feature is privileged-only, not just its write paths" gate
+// (getRecurringInvoice/listRecurringInvoices are denied the same as
+// create/update). This is a UI convenience only — every Recurring
+// Invoices route/Server Action independently re-verifies the effective
+// permission server-side regardless of whether this link is rendered; a
+// denied Staff member navigating to /recurring-invoices directly still
+// gets denied by the page itself, never by relying on this link being
+// hidden.
 const RECURRING_INVOICES_LINK = { href: "/recurring-invoices", label: "Recurring Invoices" };
 
 const TRAILING_LINKS = [
   { href: "/team", label: "Team" },
   { href: "/activity", label: "Activity" },
   { href: "/analytics", label: "Analytics" },
-  // Reports Phase 2 — placed immediately after Analytics, un-role-gated
-  // in the sidebar exactly like Analytics itself: this app's own existing
-  // precedent for an OWNER/ADMIN-only page is to show the link to every
-  // role and let the page's own server-side authorization check render
-  // an Access denied state for MEMBER (see AnalyticsAccessDenied and
-  // src/app/(dashboard)/reports/page.tsx's own identical pattern) —
-  // never a client-only nav-hiding gate, which would be unsafe on its
-  // own and inconsistent with how Analytics already does this.
+  // Reports Phase 2, now gated by the effective REPORTS_VIEW permission
+  // (locked spec §12) — placed immediately after Analytics, same
+  // treatment. This resolves the pre-V1 "show the link to everyone, let
+  // the page deny" inconsistency Analytics/Reports used to be the sole
+  // exception for (every other OWNER/ADMIN-only nav item already hid
+  // its own link) — the page's own server-side check
+  // (AnalyticsAccessDenied/ReportsAccessDenied) remains the real,
+  // independent security boundary either way; this only changes
+  // discoverability.
   { href: "/reports", label: "Reports" },
   { href: "/settings/notifications", label: "Settings" },
   { href: "/settings/billing", label: "Billing" },
@@ -63,21 +66,46 @@ function isActive(pathname: string, href: string): boolean {
 }
 
 /**
+ * Roles / Permissions V1 — already-resolved effective permission flags
+ * (locked spec §9's own "request-local resolution, passed through the
+ * render tree" recommendation), never a Role or an async call made
+ * inside this function itself — the caller (DashboardLayout) resolves
+ * these once per request via getEffectivePermissionSet and passes them
+ * down, keeping buildSidebarLinks a plain, synchronously-testable
+ * function exactly as before.
+ */
+export type SidebarPermissionFlags = {
+  recurringInvoicesManage: boolean;
+  analyticsView: boolean;
+  reportsView: boolean;
+};
+
+/**
  * Exported as a pure function for direct unit testing (items 41/42) — the
  * Sidebar component itself calls next/navigation's usePathname(), which
  * throws under renderToStaticMarkup (same "no DOM/component-interaction
  * harness" limitation StaffRequestControls' own render.test.tsx already
- * documents), so the actual role-gating decision lives here instead,
+ * documents), so the actual gating decision lives here instead,
  * independent of the component that consumes it.
  */
-export function buildSidebarLinks(role: Role): { href: string; label: string }[] {
-  const isPrivileged = role === "OWNER" || role === "ADMIN";
-  return [...BASE_LINKS, ...(isPrivileged ? [RECURRING_INVOICES_LINK] : []), ...TRAILING_LINKS];
+export function buildSidebarLinks(flags: SidebarPermissionFlags): { href: string; label: string }[] {
+  const trailing = TRAILING_LINKS.filter((link) => {
+    if (link.href === "/analytics") return flags.analyticsView;
+    if (link.href === "/reports") return flags.reportsView;
+    return true;
+  });
+  return [...BASE_LINKS, ...(flags.recurringInvoicesManage ? [RECURRING_INVOICES_LINK] : []), ...trailing];
 }
 
-export function Sidebar({ disablePrefetch = false, role }: { disablePrefetch?: boolean; role: Role }) {
+export function Sidebar({
+  disablePrefetch = false,
+  permissions,
+}: {
+  disablePrefetch?: boolean;
+  permissions: SidebarPermissionFlags;
+}) {
   const pathname = usePathname();
-  const links = buildSidebarLinks(role);
+  const links = buildSidebarLinks(permissions);
 
   return (
     <nav

@@ -77,6 +77,8 @@ export default async function ClientsPage({
   const { organizationId, membership } = await getCurrentMembership();
   const resolvedSearchParams = await searchParams;
   const listParams = parseClientListParams(resolvedSearchParams);
+  const canImport = await canImportData(organizationId, membership.role);
+  const canExport = await canExportData(organizationId, membership.role);
 
   const where = await buildClientWhere(organizationId, listParams);
   const orderBy = buildClientOrderBy(listParams);
@@ -143,12 +145,12 @@ export default async function ClientsPage({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {canImportData(membership.role) && (
+          {canImport && (
             <Link href="/clients/import" className={SECONDARY_LINK_CLASSES}>
               Import CSV
             </Link>
           )}
-          {canExportData(membership.role) && (
+          {canExport && (
             <a href={exportHref} className={SECONDARY_LINK_CLASSES}>
               Export CSV
             </a>
