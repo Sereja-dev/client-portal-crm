@@ -14,22 +14,12 @@ const BATCH_LIMIT = 200;
 
 /**
  * Integrations V1 (Slack Incoming Webhook only -- architecture lock
- * validation, locked spec §25). Vercel Cron sends a GET with
- * `Authorization: Bearer <CRON_SECRET>` — CRON_SECRET is the entire auth
- * boundary, same as every other /api/cron/* route.
+ * validation, locked spec §25). Registered in vercel.json, scheduled
+ * daily at 35 5 * * *.
  *
- * Deliberately NOT added to vercel.json's own `crons` list in this
- * commit — this repo's own established convention (see
- * src/app/api/cron/invoice-pdf-reconciliation/route.ts, added in a
- * separate, later commit than the route itself: `git log -- vercel.json`
- * shows "chore: activate invoice PDF reconciliation cron" as its own
- * distinct commit) ships a cron route first and registers its schedule
- * only as a deliberate, separate follow-up once it's been manually
- * verified — never auto-registered merely because the route exists.
- * Until that follow-up, this route is reachable only via a manual,
- * authorized (CRON_SECRET-bearing) call — the exact same "ship first,
- * activate later" state that route's own history already establishes as
- * normal for this codebase, not a gap introduced here.
+ * Vercel Cron sends a GET with `Authorization: Bearer <CRON_SECRET>` —
+ * CRON_SECRET is the entire auth boundary, same as every other
+ * /api/cron/* route.
  */
 export async function GET(request: Request) {
   const authError = requireCronAuth(request);
