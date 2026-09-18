@@ -12,14 +12,13 @@ vi.mock("server-only", () => ({}));
 const { GET: recurringInvoicesGet } = await import("@/app/api/cron/recurring-invoices/route");
 
 /**
- * Recurring Invoices Phase 2B-1 — the new cron route (test items 26-31).
+ * Recurring Invoices Phase 2B-1 — the cron route (test items 26-31).
  * Mirrors test/integration/cron/routes.test.ts's own exact pattern (real
  * requireCronAuth, real Route Handler, TEST_CRON_SECRET override).
  *
- * IMPORTANT: this route is NOT registered in vercel.json in this phase —
- * these tests only prove the route itself is correct and safely
- * authenticated; they say nothing about scheduling, which remains a
- * separate, deliberate follow-up.
+ * The route is registered in vercel.json (daily, 0 6 * * *) — these tests
+ * exercise the route itself directly (auth, response shape, behavior),
+ * not Vercel's own scheduling.
  */
 
 const ORIGINAL_CRON_SECRET = process.env.CRON_SECRET;

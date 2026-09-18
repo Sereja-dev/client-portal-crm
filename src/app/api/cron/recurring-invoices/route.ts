@@ -16,14 +16,10 @@ export const maxDuration = 60;
 /**
  * Recurring Invoices Phase 2B-1 — the due-batch cron route.
  *
- * CRITICAL: this route is intentionally NOT registered in vercel.json yet.
- * It exists and is reachable/authenticated, but nothing schedules it —
- * unattended Vercel Cron is deliberately deferred to a separate follow-up
- * commit, only after a manual, authenticated Production invocation of
- * this exact route has been verified. See the Phase 2B rollout plan.
+ * Registered in vercel.json, scheduled daily at 0 6 * * *.
  *
- * Vercel Cron (once registered), or a manual authorized call, sends a GET
- * with `Authorization: Bearer <CRON_SECRET>`. No session, Membership, or
+ * Vercel Cron, or a manual authorized call, sends a GET with
+ * `Authorization: Bearer <CRON_SECRET>`. No session, Membership, or
  * portal cookie is ever read here — CRON_SECRET remains the complete auth
  * boundary, checked once via the shared helper before anything else runs.
  * `now` is resolved exactly once here and threaded through the entire
