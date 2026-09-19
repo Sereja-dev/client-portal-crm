@@ -3,8 +3,8 @@ import { grep, report } from "./lib.mjs";
 
 // Analytics — Stage 1 (docs/analytics-architecture.md §7). Structural
 // guards for this subsystem's own explicit security requirement
-// (OWNER/ADMIN only, MEMBER hard-blocked, Client Portal never reaches it
-// at all) and its "no external event pipeline" constraint.
+// (access gated by the ANALYTICS_VIEW permission, Client Portal never
+// reaches it at all) and its "no external event pipeline" constraint.
 
 let ok = true;
 
@@ -13,7 +13,6 @@ const QUERIES_DIR = "src/lib/analytics/queries";
 const CALCULATIONS_DIR = "src/lib/analytics/calculations";
 const PAGE_FILE = "src/app/(dashboard)/analytics/page.tsx";
 const SERVICE_FILE = "src/lib/analytics/services/analytics-service.ts";
-const AUTH_FILE = "src/lib/analytics/authorization.ts";
 
 // 1. The one public service entry point calls assertCanViewAnalytics
 // before running any query — never after, never optionally.
@@ -24,14 +23,15 @@ ok = report(
   serviceSource ? "" : "service file not found",
 ) && ok;
 
-// 2. The authorization module hard-blocks MEMBER (not a reduced/read-only
-// view like Billing's own page — an explicit exclusion).
-const authSource = existsSync(AUTH_FILE) ? readFileSync(AUTH_FILE, "utf8") : "";
-ok = report(
-  "canViewAnalytics excludes MEMBER (only OWNER/ADMIN return true)",
-  /role === "OWNER" \|\| role === "ADMIN"/.test(authSource) && !/role === "MEMBER"/.test(authSource.split("canViewAnalytics")[1] ?? ""),
-  authSource ? "" : "authorization file not found",
-) && ok;
+// 2. (Removed) "canViewAnalytics excludes MEMBER" was Analytics' own
+// pre-Roles/Permissions-V1 invariant -- canViewAnalytics now delegates to
+// getEffectivePermission with permissionKey ANALYTICS_VIEW (Roles /
+// Permissions V1), under which a MEMBER can be explicitly granted access
+// and an ADMIN can be explicitly denied it, by organization-scoped OWNER
+// configuration. That delegation-shape guarantee (and the "no local role
+// comparison" invariant that replaces the old hard-block) is now owned by
+// scripts/security-checks/check-permissions-security.mjs's own table-
+// driven 9-domain assertion, not duplicated here.
 
 // 3. The Analytics page never re-implements the authorization decision
 // itself — it only catches the service's own AnalyticsAccessError
