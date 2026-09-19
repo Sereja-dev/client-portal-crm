@@ -228,6 +228,8 @@ const portalUserFields = portalUserBlock ? fieldNames(stripLineComments(portalUs
 // concern, per its own message below). Neither exposes anything about a
 // PortalUser's own login/access history; both are plain FK back-relations,
 // the exact same shape PortalUser.client already had before this phase.
+// Contracts Phase 1 added acceptedContracts the same way — a plain
+// Contract[] back-relation, not an auth/session tracking field.
 const PORTAL_USER_ALLOWED_FIELDS = [
   "id",
   "clientId",
@@ -240,6 +242,7 @@ const PORTAL_USER_ALLOWED_FIELDS = [
   "updatedAt",
   "clientRequests",
   "clientRequestMessages",
+  "acceptedContracts",
 ];
 ok = report(
   "PortalUser has exactly the approved field set, including exactly one login-tracking field (lastLoginAt) and no login-history/event field",
