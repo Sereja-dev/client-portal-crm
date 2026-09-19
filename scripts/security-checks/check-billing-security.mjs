@@ -141,19 +141,60 @@ ok = report(
 // refactoring one of these files) would silently re-open the limit this
 // stage exists to close. Checks for the actual assert* import, not just
 // any mention of "billing", so a stray comment can't produce a false pass.
-const ENFORCEMENT_CALL_SITES = [
+//
+// Team/Projects/Attachments: unchanged — the assertion is called
+// directly, in the mutation-path file itself.
+const DIRECT_ENFORCEMENT_CALL_SITES = [
   { file: "src/app/(dashboard)/team/actions.ts", assertion: "assertCanInviteMember" },
-  { file: "src/app/(dashboard)/clients/new/actions.ts", assertion: "assertCanCreateClient" },
   { file: "src/app/(dashboard)/projects/new/actions.ts", assertion: "assertCanCreateProject" },
   { file: "src/lib/attachments/attachment-mutations.ts", assertion: "assertCanUploadAttachment" },
 ];
-const missingEnforcement = ENFORCEMENT_CALL_SITES.filter(({ file, assertion }) => {
+const missingDirectEnforcement = DIRECT_ENFORCEMENT_CALL_SITES.filter(({ file, assertion }) => {
   if (!existsSync(file)) return true;
   const content = readFileSync(file, "utf8");
   return !content.includes(`@/lib/billing/enforcement`) || !content.includes(assertion);
 });
+
+// Clients: CSV Import Phase 2 (src/lib/clients/create-core.ts) factored
+// the direct assertCanCreateClient call out of clients/new/actions.ts
+// into the shared createClientCore() — both interactive create and CSV
+// import now reuse the one invariant-preserving core (see that file's own
+// doc comment), so the assertion is no longer literally present in
+// clients/new/actions.ts itself. This is the ONE reviewed indirection
+// this check accepts, tied specifically and only to createClientCore /
+// src/lib/clients/create-core.ts by name — never a generic "any helper"
+// or "any function containing entitlement" allowance. Three conditions,
+// all required: (1) clients/new/actions.ts genuinely imports AND calls
+// createClientCore; (2) create-core.ts genuinely imports
+// assertCanCreateClient from @/lib/billing/enforcement; (3) inside
+// create-core.ts, the assertCanCreateClient call occurs strictly before
+// the Client row write (ordering, not just presence — same "guard index
+// < write index" discipline check 32 below already uses for TEST_MODE-
+// before-Paddle).
+const CLIENT_CREATE_ACTION_FILE = "src/app/(dashboard)/clients/new/actions.ts";
+const CLIENT_CREATE_CORE_FILE = "src/lib/clients/create-core.ts";
+const clientActionSource = existsSync(CLIENT_CREATE_ACTION_FILE) ? readFileSync(CLIENT_CREATE_ACTION_FILE, "utf8") : "";
+const clientCoreSource = existsSync(CLIENT_CREATE_CORE_FILE) ? readFileSync(CLIENT_CREATE_CORE_FILE, "utf8") : "";
+const actionRoutesThroughCreateCore =
+  /from\s+"@\/lib\/clients\/create-core"/.test(clientActionSource) && /createClientCore\(/.test(clientActionSource);
+const coreImportsEnforcement =
+  clientCoreSource.includes("@/lib/billing/enforcement") && clientCoreSource.includes("assertCanCreateClient");
+const clientAssertIndex = clientCoreSource.indexOf("assertCanCreateClient(");
+const clientWriteIndex = clientCoreSource.indexOf("tx.client.create(");
+const clientCoreAssertsBeforeWrite = clientAssertIndex !== -1 && clientWriteIndex !== -1 && clientAssertIndex < clientWriteIndex;
+const clientEntitlementOk =
+  clientActionSource !== "" &&
+  clientCoreSource !== "" &&
+  actionRoutesThroughCreateCore &&
+  coreImportsEnforcement &&
+  clientCoreAssertsBeforeWrite;
+
+const missingEnforcement = [
+  ...missingDirectEnforcement,
+  ...(clientEntitlementOk ? [] : [{ file: CLIENT_CREATE_ACTION_FILE }]),
+];
 ok = report(
-  "entitlement checks are present in every approved Stage 2 mutation path",
+  "entitlement checks are present in every approved Stage 2 mutation path (Clients via the reviewed createClientCore indirection)",
   missingEnforcement.length === 0,
   missingEnforcement.map((m) => m.file).join(", "),
 ) && ok;
