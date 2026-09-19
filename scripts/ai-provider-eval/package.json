@@ -12,7 +12,8 @@
     "validate": "tsx index.ts --validate",
     "eval": "tsx index.ts",
     "report": "tsx index.ts --report",
-    "run": "tsx index.ts --run"
+    "run": "tsx index.ts --run",
+    "canary": "tsx index.ts --canary"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",

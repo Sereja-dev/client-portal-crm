@@ -40,14 +40,30 @@ describe("no-live-by-default — static proof: index.ts cannot statically reach 
     }
   });
 
-  test("the dynamic provider imports live inside runLiveBenchmark, not inside runOfflinePipeline/runStructuralValidation", () => {
-    const offlineSection = source.slice(source.indexOf("async function runOfflinePipeline"), source.indexOf("async function runLiveBenchmark"));
+  test("the dynamic provider imports live inside runLiveBenchmark (and runCanary), never inside runOfflinePipeline/runStructuralValidation", () => {
+    // Sliced to the NEXT "async function" after runOfflinePipeline's own
+    // start, whichever function that happens to be — not hardcoded to
+    // "runLiveBenchmark" by name, since runCanary() (added by the bounded
+    // live canary feature) is now another live-capable sibling function
+    // that may sit between the two in file order. This isolates JUST
+    // runOfflinePipeline's own body regardless of what's declared after it.
+    const offlineStart = source.indexOf("async function runOfflinePipeline");
+    const nextFunctionAfterOffline = source.indexOf("async function ", offlineStart + "async function runOfflinePipeline".length);
+    const offlineSection = source.slice(offlineStart, nextFunctionAfterOffline);
     assert.equal(offlineSection.includes("providers/anthropic"), false);
     assert.equal(offlineSection.includes("providers/openai"), false);
 
     const liveSection = source.slice(source.indexOf("async function runLiveBenchmark"), source.indexOf("async function main"));
     assert.ok(liveSection.includes("providers/anthropic.js"));
     assert.ok(liveSection.includes("providers/openai.js"));
+
+    // runCanary() is the second live-capable sibling — it must ALSO reach
+    // both providers only via dynamic import(), never statically (see the
+    // top-level static-import test above, which already covers the whole
+    // file regardless of function).
+    const canarySection = source.slice(source.indexOf("async function runCanary"), source.indexOf("async function main"));
+    assert.ok(canarySection.includes("providers/anthropic.js"));
+    assert.ok(canarySection.includes("providers/openai.js"));
   });
 });
 

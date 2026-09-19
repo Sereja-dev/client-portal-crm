@@ -31,12 +31,13 @@ import type { BenchmarkProviderId, RunResult } from "./result-types.js";
 import type { CaseScore } from "./scoring.js";
 import { BENCHMARK_DEFINITION_VERSION } from "./benchmark-version.js";
 import { createRunTraceCollector, buildForensicTraceRow, writeForensicTrace, type ForensicTraceRow, type RowBuildResult, FORENSIC_TRACE_SCHEMA_VERSION } from "./forensic-trace.js";
+import { CANARY_CASE_ID, CANARY_MAX_PROVIDER_CALLS, executeCanarySweep, writeCanaryReport } from "./canary.js";
 
 const SNAPSHOT_PATH = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "tool-contracts.snapshot.json");
 
 const DEFAULT_REPETITIONS = 3;
 
-type Mode = "dry-run" | "validate" | "run" | "report";
+type Mode = "dry-run" | "validate" | "run" | "report" | "canary";
 
 function parseArgs(argv: string[]): { mode: Mode; repetitions: number; withForensicTrace: boolean } {
   const hasFlag = (flag: string) => argv.includes(flag);
@@ -48,6 +49,12 @@ function parseArgs(argv: string[]): { mode: Mode; repetitions: number; withForen
   // toggle — see README.md's own "Forensic trace observability" section).
   const withForensicTrace = hasFlag("--with-forensic-trace");
 
+  // Checked BEFORE --run so a caller who (mistakenly) passes both gets the
+  // narrower, cheaper canary mode rather than the full sweep — canary is
+  // never affected by --repetitions (its own repetition count is always
+  // exactly 1, hardcoded in runCanary()), so `repetitions` here is unused
+  // by that branch.
+  if (hasFlag("--canary")) return { mode: "canary", repetitions, withForensicTrace };
   if (hasFlag("--run")) return { mode: "run", repetitions, withForensicTrace };
   if (hasFlag("--validate")) return { mode: "validate", repetitions: DEFAULT_REPETITIONS, withForensicTrace };
   if (hasFlag("--report")) return { mode: "report", repetitions: DEFAULT_REPETITIONS, withForensicTrace };
@@ -135,6 +142,72 @@ function enforceResultsDirEmptyOrExit(): boolean {
     return false;
   }
   return true;
+}
+
+/**
+ * Bounded live protocol canary CLI entry — see this file's own header
+ * comment on --canary and README.md's own "Live protocol canary"
+ * section. All of the actual sweep/classification/artifact-writing logic
+ * lives in canary.ts, imported above — kept out of this file so that
+ * module stays free of index.ts's own top-level main() side effect and
+ * remains directly, safely importable from test/canary.test.ts (see
+ * canary.ts's own header comment for exactly why). This function's own
+ * job is only: enforce the fail-closed ordering, perform the real
+ * dynamic provider imports, and call executeCanarySweep()/writeCanaryReport().
+ */
+async function runCanary(): Promise<void> {
+  // Same fail-closed ordering discipline as runLiveBenchmark(): freshness,
+  // then the fixed case, then credentials, then (and only then) a dynamic
+  // provider import and any network call. Never weakened or bypassed for
+  // canary.
+  if (!enforceSnapshotFreshnessOrExit()) {
+    return;
+  }
+
+  const caseDef = BENCHMARK_CASES.find((c) => c.id === CANARY_CASE_ID);
+  if (!caseDef) {
+    console.error(`CANARY_CASE_NOT_FOUND — "${CANARY_CASE_ID}" is not present in BENCHMARK_CASES. No provider call was made.`);
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!hasAnthropicEvalApiKey() || !hasOpenAiEvalApiKey()) {
+    console.error(
+      "CREDENTIAL_MISSING — AQENRA_EVAL_ANTHROPIC_API_KEY and/or AQENRA_EVAL_OPENAI_API_KEY is not set. See README.md's own \"Secret handling\" section. No request was made.",
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  // Dynamic import, deliberately inside this function and reached only
+  // after the freshness+case+credential checks above — mirrors
+  // runLiveBenchmark()'s own identical discipline (see this file's own
+  // header comment on why no static import path may ever reach a real
+  // client constructor).
+  const { completeWithAnthropic } = await import("./providers/anthropic.js");
+  const { completeWithOpenAi } = await import("./providers/openai.js");
+  const { ANTHROPIC_MODEL_ID, OPENAI_MODEL_ID } = await import("./pricing.js");
+
+  console.log(`Running bounded live canary — case "${CANARY_CASE_ID}", max ${CANARY_MAX_PROVIDER_CALLS} provider calls per provider (absolute ceiling: ${CANARY_MAX_PROVIDER_CALLS * 2} live requests).`);
+
+  // OpenAI first, Anthropic second — Anthropic still runs even if OpenAI
+  // fails deterministically. Each provider is fully independent evidence
+  // within this one bounded authorization; skipping the second provider
+  // on the first one's failure would mean a second live invocation is
+  // needed just to learn about it, at no safety benefit (see the design
+  // audit's own §K reasoning) — see executeCanarySweep()'s own doc
+  // comment, which enforces this by always iterating every spec.
+  const sweep = await executeCanarySweep(caseDef, [
+    { id: "openai", model: OPENAI_MODEL_ID, complete: completeWithOpenAi, estimateCostUsd: estimateOpenAiCostUsd },
+    { id: "anthropic", model: ANTHROPIC_MODEL_ID, complete: completeWithAnthropic, estimateCostUsd: estimateAnthropicCostUsd },
+  ]);
+
+  const written = writeCanaryReport(sweep.providers);
+  console.log(`Canary artifact written to ${written.path}`);
+  console.log(`Overall: ${written.overall}`);
+  if (written.overall !== "PASS") {
+    process.exitCode = 1;
+  }
 }
 
 async function runLiveBenchmark(repetitions: number, withForensicTrace: boolean): Promise<void> {
@@ -339,6 +412,15 @@ async function main(): Promise<void> {
 
   if (mode === "report") {
     console.log("Pass --run to generate a fresh report, or inspect results/report.md directly if one already exists (gitignored, local-only).");
+    return;
+  }
+
+  if (mode === "canary") {
+    // Deliberately a SEPARATE branch from "run" below — never falls
+    // through to runLiveBenchmark(), never shares its repetitions/
+    // withForensicTrace handling. See runCanary()'s own header comment.
+    runStructuralValidation();
+    await runCanary();
     return;
   }
 

@@ -19,3 +19,9 @@ node_modules/
 # definitions themselves are NOT covered by this pattern — they live
 # under fixtures/ and cases.ts, both committed intentionally.
 /results/
+
+# Bounded live protocol canary output (--canary / npm run canary) — a
+# separate, narrower artifact than /results/ above, and never written to
+# it (see README's own "Live protocol canary" section). Synthetic-
+# fixture-derived, local-only, same reasoning as /results/.
+/canary-results/

@@ -69,6 +69,20 @@ export type RunBenchmarkTurnInput = {
   timeoutMs?: number;
   /** Optional, observation-only (see result-types.ts's own TraceSink doc comment). Omitted by every call site that doesn't opt into forensic tracing — behavior is byte-identical to before this field existed in that case. */
   traceSink?: TraceSink;
+  /**
+   * Optional per-turn override for the provider-call ceiling, falling back
+   * to the real MAX_PROVIDER_CALLS_PER_TURN when omitted. Every official
+   * --run call site (index.ts's own runLiveBenchmark()) never sets this,
+   * so the full 36-case sweep's own ceiling is byte-for-byte unchanged —
+   * the ONLY call site that ever passes a value is index.ts's own
+   * runCanary(), which passes 2 to bound a single protocol-preflight turn
+   * to "tool call, then final text" without risking the full 6-call
+   * ceiling. If the model requests a tool call beyond this tighter
+   * ceiling, the existing terminal protocol_violation path below fires
+   * exactly as it already does at the real ceiling — no new control-flow
+   * branch, no duplicated loop, no third provider call is ever issued.
+   */
+  maxProviderCalls?: number;
 };
 
 async function callWithTimeout(complete: ProviderCompleteFn, request: AiRequest, timeoutMs: number): Promise<{ turn: NormalizedProviderTurn; timedOut: boolean }> {
@@ -141,6 +155,10 @@ function safeEmitTraceEvent(sink: TraceSink | undefined, emit: (sink: TraceSink)
 export async function runBenchmarkTurn(input: RunBenchmarkTurnInput): Promise<RunResult> {
   const { provider, model, complete, userMessage, estimateCostUsd, traceSink } = input;
   const timeoutMs = input.timeoutMs ?? PROVIDER_CALL_TIMEOUT_MS;
+  // Falls back to the real ceiling whenever omitted — see this field's own
+  // doc comment on RunBenchmarkTurnInput for why only runCanary() ever
+  // overrides it.
+  const effectiveMaxProviderCalls = input.maxProviderCalls ?? MAX_PROVIDER_CALLS_PER_TURN;
   const startedAt = performance.now();
 
   const messages: AiMessage[] = [{ role: "user", content: userMessage }];
@@ -172,7 +190,7 @@ export async function runBenchmarkTurn(input: RunBenchmarkTurnInput): Promise<Ru
     if (performance.now() - startedAt > ORCHESTRATION_DEADLINE_MS) {
       return finish(null, false, "timeout");
     }
-    if (providerCallCount >= MAX_PROVIDER_CALLS_PER_TURN) {
+    if (providerCallCount >= effectiveMaxProviderCalls) {
       return finish(null, false, "protocol_violation");
     }
 

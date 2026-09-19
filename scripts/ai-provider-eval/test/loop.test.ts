@@ -2,6 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { runBenchmarkTurn, type ProviderCompleteFn } from "../loop.js";
 import type { NormalizedProviderTurn } from "../result-types.js";
+import { MAX_PROVIDER_CALLS_PER_TURN } from "../../../src/lib/ai/orchestration-limits.js";
 
 const ZERO_COST = () => 0;
 const USAGE = { promptTokens: 1, completionTokens: 1, totalTokens: 2 };
@@ -89,5 +90,52 @@ describe("loop.ts — benchmark-only minimal orchestration loop", () => {
     assert.equal(result.totalUsage.completionTokens, 13);
     assert.equal(result.totalUsage.totalTokens, 43);
     assert.ok(result.estimatedCostUsd > 0);
+  });
+
+  describe("maxProviderCalls (canary-only override)", () => {
+    test("omitted behaves identically to explicitly passing MAX_PROVIDER_CALLS_PER_TURN", async () => {
+      const toolCallTurn: NormalizedProviderTurn = { kind: "ok", response: { kind: "toolCall", call: { toolName: "searchClients", args: {} }, usage: USAGE } };
+      const turns = Array.from({ length: 7 }, () => toolCallTurn);
+
+      const omitted = await runBenchmarkTurn({ provider: "anthropic", model: "m", complete: scripted(turns), userMessage: "x", estimateCostUsd: ZERO_COST });
+      const explicit = await runBenchmarkTurn({
+        provider: "anthropic",
+        model: "m",
+        complete: scripted(turns),
+        userMessage: "x",
+        estimateCostUsd: ZERO_COST,
+        maxProviderCalls: MAX_PROVIDER_CALLS_PER_TURN,
+      });
+
+      assert.equal(omitted.errorClass, explicit.errorClass);
+      assert.equal(omitted.protocolViolation, explicit.protocolViolation);
+      assert.equal(omitted.toolCalls.length, explicit.toolCalls.length);
+      assert.equal(omitted.providerCalls.length, explicit.providerCalls.length);
+    });
+
+    test("maxProviderCalls: 2 — a second consecutive tool call ends the turn as a protocol violation, and complete() is never invoked a third time", async () => {
+      let completeCallCount = 0;
+      const toolCallTurn: NormalizedProviderTurn = { kind: "ok", response: { kind: "toolCall", call: { toolName: "getOrganizationSummary", args: {} }, usage: USAGE } };
+      const complete: ProviderCompleteFn = async () => {
+        completeCallCount += 1;
+        return toolCallTurn;
+      };
+      const result = await runBenchmarkTurn({ provider: "openai", model: "m", complete, userMessage: "x", estimateCostUsd: ZERO_COST, maxProviderCalls: 2 });
+      assert.equal(completeCallCount, 2, "complete() must be invoked exactly twice, never a third time");
+      assert.equal(result.errorClass, "protocol_violation");
+      assert.equal(result.finalText, null);
+    });
+
+    test("maxProviderCalls: 2 — a tool call followed by final text completes successfully within the cap", async () => {
+      const complete = scripted([
+        { kind: "ok", response: { kind: "toolCall", call: { toolName: "getOrganizationSummary", args: {} }, usage: USAGE } },
+        { kind: "ok", response: { kind: "text", text: "Summary text.", usage: USAGE } },
+      ]);
+      const result = await runBenchmarkTurn({ provider: "openai", model: "m", complete, userMessage: "x", estimateCostUsd: ZERO_COST, maxProviderCalls: 2 });
+      assert.equal(result.finalText, "Summary text.");
+      assert.equal(result.providerCalls.length, 2);
+      assert.equal(result.protocolViolation, false);
+      assert.equal(result.errorClass, null);
+    });
   });
 });
