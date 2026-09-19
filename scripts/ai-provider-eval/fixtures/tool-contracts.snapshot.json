@@ -1,8 +1,8 @@
 {
   "$schemaNote": "Aqenra AI provider benchmark — tool-contract snapshot. Extracted from src/lib/ai/tools/registry.ts's own getRegisteredAiTools(). Contains ONLY name/description/inputSchema per tool — no execute implementation, no database metadata, no organizationId, no fixture data, no secrets. Regenerate with: npx tsx scripts/ai-provider-eval/extract-fixtures.ts (from the repo root). sourceFingerprint is the hard official-run freshness gate (content-addressed, not commit-addressed — see snapshot-freshness.ts); extractedFromGitSha below is informational reproducibility metadata only, never the gate.",
-  "extractedFromGitSha": "1becc75e03484ef9affa0d0e52ccfdfd77086389",
+  "extractedFromGitSha": "0254b6248e0a7dd38ac2577247117869c834a949",
   "fingerprintAlgorithm": "sha256-v1",
-  "sourceFingerprint": "cc74d26f4f3b8b9936883c4bc112ffb0c2197914deba260f9aaf5d0d87a7c439",
+  "sourceFingerprint": "9d9a253e261f4c3750f1aee9d51f5a6202ac8eeec7cb8d5d42a8a050baa15d37",
   "tools": [
     {
       "description": "Returns structured detail for one client, given a ref from searchClients: name, company, status, created date, and project/invoice counts.",
