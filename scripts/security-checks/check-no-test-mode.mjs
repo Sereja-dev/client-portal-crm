@@ -36,28 +36,56 @@ ok = report(
   rawCheckLines.join("\n"),
 ) && ok;
 
-// 3. Every other file that needs the gate imports the shared constant,
-// never hardcodes NODE_ENV/TEST_MODE logic of its own.
+// 3. Every src/** importer of the shared gate is accounted for, in BOTH
+// directions — expectedConsumers is exhaustive, not a spot-checked
+// subset: any file that imports TEST_MODE from "@/lib/test-mode" belongs
+// here, no exemption for a test-only/mock surface (its own TEST_MODE
+// check is frequently the ONLY thing keeping it unreachable in a real
+// deployment, so it needs this guarantee at least as much as a
+// security-critical consumer does — never hardcode NODE_ENV/TEST_MODE
+// logic of its own instead). Mirrors rule 7's own bidirectional
+// missing+unexpected shape exactly, so a future PR that adds a new
+// TEST_MODE consumer without registering it here fails loudly instead of
+// silently drifting the way this list once did (it grew from 7 entries to
+// 22 actual consumers, one-directionally unnoticed, before this rule was
+// hardened).
 const consumers = grep("from \"@/lib/test-mode\"", "src/");
 const consumerFiles = consumers
   .trim()
   .split("\n")
   .filter(Boolean)
   .map((line) => line.split(":")[0]);
+const uniqueConsumerFiles = [...new Set(consumerFiles)];
 const expectedConsumers = [
-  "src/lib/supabase/server.ts",
-  "src/lib/supabase/middleware.ts",
+  "src/app/(dashboard)/layout.tsx",
+  "src/app/api/e2e-test-storage/[...path]/route.ts",
+  "src/app/auth/confirm/route.ts",
+  "src/app/billing/mock/checkout/actions.ts",
+  "src/app/billing/mock/checkout/page.tsx",
+  "src/app/billing/mock/portal/actions.ts",
+  "src/app/billing/mock/portal/page.tsx",
+  "src/app/test-only/theme/page.tsx",
+  "src/lib/ai/providers/provider-factory.ts",
+  "src/lib/auth/recovery-token.ts",
+  "src/lib/billing/provider/mock-provider.ts",
+  "src/lib/billing/provider/provider.ts",
+  "src/lib/email/resend-client.ts",
+  "src/lib/integrations/slack-client.ts",
+  "src/lib/invoices/email/trusted-origin.ts",
+  "src/lib/invoices/pdf/logo.ts",
+  "src/lib/invoices/pdf/storage.ts",
   "src/lib/storage/attachments-storage.ts",
   "src/lib/storage/logo-storage.ts",
   "src/lib/storage/test-storage.ts",
-  "src/app/api/e2e-test-storage/[...path]/route.ts",
-  "src/lib/email/resend-client.ts",
+  "src/lib/supabase/middleware.ts",
+  "src/lib/supabase/server.ts",
 ];
-const missing = expectedConsumers.filter((f) => !consumerFiles.includes(f));
+const missingConsumers = expectedConsumers.filter((f) => !uniqueConsumerFiles.includes(f));
+const unexpectedConsumers = uniqueConsumerFiles.filter((f) => !expectedConsumers.includes(f));
 ok = report(
-  `TEST_MODE consumers import the shared gate (${expectedConsumers.join(", ")})`,
-  missing.length === 0,
-  missing.join("\n"),
+  "expectedConsumers exactly matches every actual src/** importer of the shared TEST_MODE gate (bidirectional)",
+  missingConsumers.length === 0 && unexpectedConsumers.length === 0,
+  [...missingConsumers.map((f) => `missing: ${f}`), ...unexpectedConsumers.map((f) => `unexpected: ${f}`)].join("\n"),
 ) && ok;
 
 // 4. The test-only cookie name never appears in a .tsx file (this app's
