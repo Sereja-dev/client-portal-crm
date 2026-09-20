@@ -32,6 +32,16 @@ import type { CaseScore } from "./scoring.js";
 import { BENCHMARK_DEFINITION_VERSION } from "./benchmark-version.js";
 import { createRunTraceCollector, buildForensicTraceRow, writeForensicTrace, type ForensicTraceRow, type RowBuildResult, FORENSIC_TRACE_SCHEMA_VERSION } from "./forensic-trace.js";
 import { CANARY_CASE_ID, CANARY_MAX_PROVIDER_CALLS, executeCanarySweep, writeCanaryReport } from "./canary.js";
+import {
+  parseSubsetSelectionArgs,
+  checkSubsetOutputDirEmpty,
+  buildSubsetPreview,
+  executeSubsetSweep,
+  buildSubsetArtifact,
+  writeSubsetArtifacts,
+  isWorkingTreeDirty,
+  type SubsetProviderSpec,
+} from "./subset.js";
 
 const CANONICAL_SNAPSHOT_PATH = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "tool-contracts.snapshot.json");
 
@@ -95,7 +105,7 @@ function enforceTestNoLiveOrExit(): boolean {
 
 const DEFAULT_REPETITIONS = 3;
 
-type Mode = "dry-run" | "validate" | "run" | "report" | "canary";
+type Mode = "dry-run" | "validate" | "run" | "report" | "canary" | "subset" | "subset-preview";
 
 function parseArgs(argv: string[]): { mode: Mode; repetitions: number; withForensicTrace: boolean } {
   const hasFlag = (flag: string) => argv.includes(flag);
@@ -106,6 +116,17 @@ function parseArgs(argv: string[]): { mode: Mode; repetitions: number; withForen
   // inert warning and otherwise ignores it, never a hidden env/config
   // toggle — see README.md's own "Forensic trace observability" section).
   const withForensicTrace = hasFlag("--with-forensic-trace");
+
+  // Checked before --canary/--run: --subset-preview and --subset are
+  // their own distinct, explicit modes (never an overload of --run,
+  // --canary, or --dry-run — see subset.ts's own header comment and
+  // README.md's own "Bounded live validation subset" section). Neither
+  // ever falls through to any other branch below. `repetitions` here is
+  // unused by either branch — both resolve their own --repetitions=
+  // strictly via subset.ts's own parseSubsetSelectionArgs(), which
+  // enforces MAX_SUBSET_REPETITIONS and requires the flag be explicit.
+  if (hasFlag("--subset-preview")) return { mode: "subset-preview", repetitions, withForensicTrace };
+  if (hasFlag("--subset")) return { mode: "subset", repetitions, withForensicTrace };
 
   // Checked BEFORE --run so a caller who (mistakenly) passes both gets the
   // narrower, cheaper canary mode rather than the full sweep — canary is
@@ -270,6 +291,141 @@ async function runCanary(): Promise<void> {
   console.log(`Overall: ${written.overall}`);
   if (written.overall !== "PASS") {
     process.exitCode = 1;
+  }
+}
+
+/**
+ * `--subset-preview` — the required operator confirmation step before a
+ * future live `--subset` run (see subset.ts's own buildSubsetPreview()
+ * doc comment). Parses and fully validates the exact same selection
+ * `--subset` would use, resolves the output path, and prints every
+ * value a `--subset` run would act on — WITHOUT requiring credentials,
+ * WITHOUT any dynamic provider import, and WITHOUT writing any artifact.
+ * This function never reaches enforceTestNoLiveOrExit()/a dynamic
+ * import at all, by construction — there is no code path from here to
+ * either.
+ */
+async function runSubsetPreview(argv: string[]): Promise<void> {
+  const parsed = parseSubsetSelectionArgs(argv);
+  if (!parsed.ok) {
+    console.error(`SUBSET_SELECTION_INVALID — ${parsed.reason}`);
+    process.exitCode = 1;
+    return;
+  }
+  const preview = buildSubsetPreview(parsed.selection);
+  console.log(JSON.stringify(preview, null, 2));
+  console.log(`\nPreview complete — no network call was made, no credentials were required, and no artifact was written. Pass --subset (with the required AQENRA_EVAL_*_API_KEY env vars for every selected provider) to execute this exact plan live.`);
+}
+
+/**
+ * `--subset` — the bounded, non-official live validation subset runner
+ * (see subset.ts's own header comment). Mirrors runCanary()'s own
+ * fail-closed gate ORDERING exactly: selection validation (pure, no I/O
+ * beyond the run-id's own path arithmetic) -> snapshot freshness ->
+ * output-directory preflight -> working-tree dirtiness -> credentials
+ * (ALL selected providers validated together, before touching any) ->
+ * AQENRA_EVAL_TEST_NO_LIVE -> only THEN a dynamic provider import, and
+ * only for the providers actually selected. All orchestration/gating
+ * logic lives here, in index.ts, exactly like runCanary()/
+ * runLiveBenchmark() — subset.ts itself owns only the injectable,
+ * test-importable core (selection parsing, the sweep, artifact writing).
+ */
+async function runSubset(argv: string[]): Promise<void> {
+  const parsed = parseSubsetSelectionArgs(argv);
+  if (!parsed.ok) {
+    console.error(`SUBSET_SELECTION_INVALID — ${parsed.reason}`);
+    process.exitCode = 1;
+    return;
+  }
+  const selection = parsed.selection;
+
+  if (!enforceSnapshotFreshnessOrExit()) {
+    return;
+  }
+
+  const dirCheck = checkSubsetOutputDirEmpty(selection.outputDir);
+  if (!dirCheck.ok) {
+    console.error(`SUBSET_OUTPUT_DIR_NOT_EMPTY — ${dirCheck.reason}`);
+    process.exitCode = 1;
+    return;
+  }
+
+  // Fail-closed on a DEFINITE dirty tree; a git failure ("unknown") is
+  // reported loudly but never blocks — mirrors safeGitSha()'s own
+  // fail-open convention for git-command failures elsewhere in this
+  // package (report.ts), since refusing to run over an infrastructure
+  // hiccup (git itself unavailable) would be a worse failure mode than a
+  // clearly-labeled best-effort warning. Skipped entirely when
+  // AQENRA_EVAL_TEST_NO_LIVE=1 is already set — mirrors this file's own
+  // resolveSnapshotPath() precedent (a test-isolation seam that only
+  // ever activates once TEST_NO_LIVE has ALREADY guaranteed this
+  // invocation can never reach a real provider no matter what): this
+  // package's own repo working tree is routinely non-clean during active
+  // development/CI, and every credential/TEST_NO_LIVE regression test
+  // below needs to deterministically reach ITS OWN target gate
+  // regardless of that — weakening a real-run-only convenience check
+  // under an already-absolute safety boundary is safe; weakening
+  // enforceTestNoLiveOrExit() itself (below) would not be, and is never
+  // done anywhere in this codebase.
+  if (!isTestNoLiveActive()) {
+    const dirty = isWorkingTreeDirty();
+    if (dirty === true) {
+      console.error("SUBSET_DIRTY_WORKING_TREE — refusing to run a live bounded subset with uncommitted local changes present (git status --porcelain is non-empty). Commit, stash, or discard local changes first. No provider was touched.");
+      process.exitCode = 1;
+      return;
+    }
+    if (dirty === "unknown") {
+      console.warn("WARNING: could not determine working-tree cleanliness (git status --porcelain failed) — proceeding, but the recorded gitSha in this run's own artifact may not fully describe what was executed.");
+    }
+  }
+
+  if (selection.providers.includes("anthropic") && !hasAnthropicEvalApiKey()) {
+    console.error("Missing AQENRA_EVAL_ANTHROPIC_API_KEY for a selected provider (anthropic). See README.md's own \"Secret handling\" section. No request was made.");
+    process.exitCode = 1;
+    return;
+  }
+  if (selection.providers.includes("openai") && !hasOpenAiEvalApiKey()) {
+    console.error("Missing AQENRA_EVAL_OPENAI_API_KEY for a selected provider (openai). See README.md's own \"Secret handling\" section. No request was made.");
+    process.exitCode = 1;
+    return;
+  }
+
+  if (!enforceTestNoLiveOrExit()) {
+    return;
+  }
+
+  const providerSpecsById: Partial<Record<BenchmarkProviderId, SubsetProviderSpec>> = {};
+  if (selection.providers.includes("anthropic")) {
+    const { completeWithAnthropic } = await import("./providers/anthropic.js");
+    const { ANTHROPIC_MODEL_ID } = await import("./pricing.js");
+    providerSpecsById.anthropic = { id: "anthropic", model: ANTHROPIC_MODEL_ID, complete: completeWithAnthropic, estimateCostUsd: estimateAnthropicCostUsd };
+  }
+  if (selection.providers.includes("openai")) {
+    const { completeWithOpenAi } = await import("./providers/openai.js");
+    const { OPENAI_MODEL_ID } = await import("./pricing.js");
+    providerSpecsById.openai = { id: "openai", model: OPENAI_MODEL_ID, complete: completeWithOpenAi, estimateCostUsd: estimateOpenAiCostUsd };
+  }
+
+  console.log(`Running bounded live subset — run-id "${selection.runId}", ${selection.cases.length} cases × ${selection.providers.length} providers × ${selection.repetitions} repetitions = ${selection.totalTurns} planned turns (absolute provider-call ceiling: ${selection.absoluteProviderCallCeiling}).`);
+  console.log(`BOUNDED LIVE VALIDATION — NOT AN OFFICIAL BENCHMARK RESULT. Output: ${selection.outputDir}`);
+
+  const outcome = await executeSubsetSweep(selection, providerSpecsById as Record<BenchmarkProviderId, SubsetProviderSpec>);
+  const artifact = buildSubsetArtifact(selection, outcome);
+  const written = writeSubsetArtifacts(selection.outputDir, artifact, outcome.forensicTraceRows, BENCHMARK_CASES);
+
+  if (outcome.aborted) {
+    console.error(`SUBSET_ABORTED — ${outcome.abortReason}`);
+    console.error(`Completed ${outcome.completedTurns} of ${outcome.plannedTurns} planned turns before stopping.`);
+    process.exitCode = 1;
+  } else {
+    console.log(`Subset complete — ${outcome.completedTurns}/${outcome.plannedTurns} turns, ${outcome.providerCallsUsed} provider calls used (ceiling ${selection.absoluteProviderCallCeiling}).`);
+  }
+  console.log(`Results written to ${written.jsonPath}`);
+  console.log(`Report written to ${written.markdownPath}`);
+  if (written.forensicTracePath) {
+    console.log(`Forensic trace written to ${written.forensicTracePath}`);
+  } else if (outcome.forensicTraceCaptureFailures.length > 0) {
+    console.error(`Forensic trace capture failed for ${outcome.forensicTraceCaptureFailures.length} row(s) — see subset-report.md for details. This never invalidates subset-results.json.`);
   }
 }
 
@@ -489,6 +645,21 @@ async function main(): Promise<void> {
     // withForensicTrace handling. See runCanary()'s own header comment.
     runStructuralValidation();
     await runCanary();
+    return;
+  }
+
+  if (mode === "subset-preview") {
+    // Deliberately never calls runStructuralValidation() — preview must
+    // never import/execute anything beyond selection parsing and a
+    // read-only directory/git check (see runSubsetPreview()'s own doc
+    // comment: zero credentials, zero provider imports, zero artifacts).
+    await runSubsetPreview(process.argv.slice(2));
+    return;
+  }
+
+  if (mode === "subset") {
+    runStructuralValidation();
+    await runSubset(process.argv.slice(2));
     return;
   }
 

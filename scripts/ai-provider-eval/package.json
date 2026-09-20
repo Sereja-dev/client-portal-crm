@@ -13,7 +13,9 @@
     "eval": "tsx index.ts",
     "report": "tsx index.ts --report",
     "run": "tsx index.ts --run",
-    "canary": "tsx index.ts --canary"
+    "canary": "tsx index.ts --canary",
+    "subset:preview": "tsx index.ts --subset-preview",
+    "subset": "tsx index.ts --subset"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.123.0",
