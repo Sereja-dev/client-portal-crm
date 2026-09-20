@@ -23,8 +23,8 @@ describe("benchmark-version.ts — BENCHMARK_DEFINITION_VERSION", () => {
     assert.match(BENCHMARK_DEFINITION_VERSION, SEMVER_PATTERN);
   });
 
-  test("is not the pre-versioning placeholder — this PR's own migration must have bumped it to 1.1.0", () => {
-    assert.equal(BENCHMARK_DEFINITION_VERSION, "1.1.0");
+  test("is the current, post-temporal-grounding version", () => {
+    assert.equal(BENCHMARK_DEFINITION_VERSION, "1.2.0");
   });
 
   test("buildReproducibilityMetadata() includes it", () => {

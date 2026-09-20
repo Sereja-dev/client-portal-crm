@@ -17,6 +17,11 @@
  *     case depends on, a synthetic data value a case's expectation is
  *     keyed to)
  *   - the scorer's interpretation of an existing rule changes
+ *   - the provider-visible request content changes (e.g. a system-prompt
+ *     addition such as authoritative temporal grounding) — every one of
+ *     216 turns' own literal wire bytes differs, which is exactly the
+ *     kind of change that makes two runs non-comparable without a version
+ *     boundary
  *
  * Do NOT bump for:
  *   - comments/docs-only changes
@@ -47,5 +52,20 @@
  *     test. No threshold, tie-rule, repetition-count, provider-call
  *     ceiling, output-token ceiling, model ID, reasoning_effort, system
  *     prompt, tool description, or provider-adapter change.
+ *   - 1.2.0: authoritative temporal grounding — every turn's own
+ *     provider-visible systemPrompt now carries a short, server-authored
+ *     temporal suffix (src/lib/ai/temporal-context.ts's own
+ *     buildEffectiveSystemPrompt()), appended to the still byte-identical
+ *     static AI_ASSISTANT_SYSTEM_PROMPT. The benchmark's own suffix is
+ *     built from the fixed, reproducible ANCHOR_NOW anchor and a fixed
+ *     "UTC" timezone — never wall-clock, never the machine's own
+ *     timezone — so 1.2.0 runs remain exactly as reproducible as 1.1.0's
+ *     own. No case wording, scoring rule, tie rule, threshold, repetition
+ *     count, provider-call ceiling, output-token ceiling, model ID,
+ *     reasoning_effort, tool description/schema, or provider-adapter
+ *     change. 1.1.0's own official run and archived evidence remain
+ *     valid, immutable, and comparable only against other 1.1.0 runs —
+ *     never against a 1.2.0 run, whose provider-visible request bytes
+ *     genuinely differ.
  */
-export const BENCHMARK_DEFINITION_VERSION = "1.1.0";
+export const BENCHMARK_DEFINITION_VERSION = "1.2.0";

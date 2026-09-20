@@ -23,6 +23,8 @@ import { OPENAI_REASONING_EFFORT } from "./openai-compat.js";
 import { BENCHMARK_DEFINITION_VERSION } from "./benchmark-version.js";
 import { getAiAssistantSystemPrompt } from "../../src/lib/ai/system-prompt.js";
 import { MAX_OUTPUT_TOKENS, MAX_PROVIDER_CALLS_PER_TURN, MAX_TOOL_CALLS_PER_TURN } from "../../src/lib/ai/orchestration-limits.js";
+import { ANCHOR_NOW } from "./fixtures/organization.js";
+import { BENCHMARK_TIMEZONE } from "./loop.js";
 
 const PACKAGE_DIR = dirname(fileURLToPath(import.meta.url));
 export const RESULTS_DIR = join(PACKAGE_DIR, "results");
@@ -114,6 +116,17 @@ export type ReproducibilityMetadata = {
    * operator explicitly asked for this evidence.
    */
   forensicTraceStatus: "captured" | "requested_but_failed" | "not_requested";
+  /**
+   * The exact temporal-grounding anchor/timezone fed into every turn's
+   * own buildEffectiveSystemPrompt() call (see loop.ts) — always the
+   * fixed ANCHOR_NOW/"UTC" pair, never a wall-clock value, so a future
+   * run under the same benchmark version is byte-for-byte reproducible.
+   * `systemPromptHash` above is unaffected by this — it continues to
+   * hash ONLY the static base narrative prompt, so it still answers "did
+   * the instructional text change" independently of "what anchor was
+   * used."
+   */
+  temporalContext: { anchorIso: string; timezone: string };
 };
 
 export function buildReproducibilityMetadata(input: {
@@ -147,6 +160,7 @@ export function buildReproducibilityMetadata(input: {
     pricingFreshnessWarning: getPricingFreshnessWarning(),
     forensicTraceEnabled: input.forensicTraceEnabled ?? false,
     forensicTraceStatus: input.forensicTraceStatus ?? "not_requested",
+    temporalContext: { anchorIso: ANCHOR_NOW.toISOString(), timezone: BENCHMARK_TIMEZONE },
   };
 }
 

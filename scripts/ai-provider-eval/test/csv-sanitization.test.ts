@@ -81,6 +81,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)",
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
       forensicTraceEnabled: false, forensicTraceStatus: "not_requested",
+      temporalContext: { anchorIso: "2026-09-01T00:00:00.000Z", timezone: "UTC" },
     };
 
     const tempDir = mkdtempSync(join(tmpdir(), "aqenra-csv-test-"));
@@ -114,6 +115,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)",
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
       forensicTraceEnabled: false, forensicTraceStatus: "not_requested",
+      temporalContext: { anchorIso: "2026-09-01T00:00:00.000Z", timezone: "UTC" },
     };
     const tempDir = mkdtempSync(join(tmpdir(), "aqenra-csv-test-"));
     try {
@@ -141,6 +143,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)",
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
       forensicTraceEnabled: false, forensicTraceStatus: "not_requested",
+      temporalContext: { anchorIso: "2026-09-01T00:00:00.000Z", timezone: "UTC" },
     };
     const tempDir = mkdtempSync(join(tmpdir(), "aqenra-csv-test-"));
     try {
@@ -169,6 +172,7 @@ describe("report.ts — CSV round-trip (sanitization does not break normal escap
       samplingParams: "vendor-default (temperature/top_p/top_k intentionally omitted for both providers — see README.md's own Sampling section)",
       anthropicSdkVersion: "x", openaiSdkVersion: "x", officialRun: true, pricingFreshnessWarning: null,
       forensicTraceEnabled: false, forensicTraceStatus: "not_requested",
+      temporalContext: { anchorIso: "2026-09-01T00:00:00.000Z", timezone: "UTC" },
     };
     const tempDir = mkdtempSync(join(tmpdir(), "aqenra-csv-test-"));
     try {

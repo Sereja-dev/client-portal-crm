@@ -5,6 +5,7 @@ import type { MockAiScriptedStep } from "@/lib/ai/providers/mock";
 import { runAiAssistantTurn } from "@/lib/ai/orchestrate";
 import { validateAiAssistantRequestBody } from "@/lib/ai/request-schema";
 import { checkRateLimit, AI_ASSISTANT_LIMIT, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
+import { getOrganizationTimezone } from "@/lib/calendar-events/queries";
 
 /**
  * AI Assistant orchestration + Route Handler batch. The one, POST-only,
@@ -96,10 +97,18 @@ export async function POST(request: Request) {
   // E. Orchestration, F. generic response mapping.
   try {
     const provider = getAiProviderAdapter(ROUTE_MOCK_SCRIPT);
+    // Authoritative temporal grounding (see src/lib/ai/temporal-context.ts):
+    // resolved here, server-side, from the caller's own already-authorized
+    // organizationId — never from user input, a request header, or the
+    // client. getOrganizationTimezone() already falls back to "UTC" when
+    // the organization has no OrganizationProfile.
+    const organizationTimezone = await getOrganizationTimezone(context.organizationId);
     const result = await runAiAssistantTurn({
       organizationId: context.organizationId,
       provider,
       userMessage: validated.message,
+      now: new Date(),
+      timezone: organizationTimezone,
     });
 
     if (!result.ok) {

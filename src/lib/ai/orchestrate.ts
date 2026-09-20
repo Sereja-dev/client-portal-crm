@@ -4,6 +4,7 @@ import type { AiToolResult as ProviderAiToolResult } from "./provider";
 import { AiProviderError } from "./provider";
 import { getAiToolByName, getRegisteredAiTools } from "./tools/registry";
 import { getAiAssistantSystemPrompt } from "./system-prompt";
+import { buildEffectiveSystemPrompt } from "./temporal-context";
 import { generateAiRequestCorrelationId, logAiAssistantEvent } from "./logging-policy";
 import {
   MAX_OUTPUT_TOKENS,
@@ -198,8 +199,32 @@ export async function runAiAssistantTurn(input: {
   organizationId: string;
   provider: AiProvider;
   userMessage: string;
+  /**
+   * Authoritative current instant for temporal grounding (see
+   * temporal-context.ts) — resolved by the caller, never derived here.
+   * The Route Handler (route.ts) always passes the real `new Date()`;
+   * defaults to it when omitted only for callers (existing unit/
+   * integration tests) that don't care about temporal precision, never
+   * as a hidden production behavior.
+   */
+  now?: Date;
+  /**
+   * Already-resolved IANA time zone (route.ts resolves it via the
+   * existing getOrganizationTimezone(organizationId), never here — this
+   * function never touches Prisma, matching its own "does not mutate/
+   * read the database" discipline above). Defaults to "UTC" when
+   * omitted, mirroring getOrganizationTimezone()'s own fallback.
+   */
+  timezone?: string;
 }): Promise<AiOrchestrationResult> {
   const { organizationId, provider, userMessage } = input;
+  const now = input.now ?? new Date();
+  const timezone = input.timezone ?? "UTC";
+  // Computed exactly once per turn — every provider call below reuses
+  // this same effective prompt, never a re-derived one, so a turn that
+  // spans a real-clock boundary (e.g. midnight) never observes two
+  // different "today"s mid-turn.
+  const effectiveSystemPrompt = buildEffectiveSystemPrompt({ basePrompt: getAiAssistantSystemPrompt(), now, timezone });
 
   const correlationId = generateAiRequestCorrelationId();
   const startedAt = Date.now();
@@ -259,7 +284,7 @@ export async function runAiAssistantTurn(input: {
     const effectiveCallTimeoutMs = Math.min(PROVIDER_CALL_TIMEOUT_MS, remainingBudgetMs);
 
     const request: AiRequest = {
-      systemPrompt: getAiAssistantSystemPrompt(),
+      systemPrompt: effectiveSystemPrompt,
       // A fresh snapshot on every call — messages is mutated in place as
       // the loop progresses (each tool call appends two entries), and a
       // provider is free to retain the AiRequest it was given for

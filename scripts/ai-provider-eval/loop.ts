@@ -42,6 +42,8 @@
 
 import type { AiMessage, AiRequest, AiToolCall } from "../../src/lib/ai/provider.js";
 import { getAiAssistantSystemPrompt } from "../../src/lib/ai/system-prompt.js";
+import { buildEffectiveSystemPrompt } from "../../src/lib/ai/temporal-context.js";
+import { ANCHOR_NOW } from "./fixtures/organization.js";
 import {
   MAX_OUTPUT_TOKENS,
   MAX_PROVIDER_CALLS_PER_TURN,
@@ -56,6 +58,15 @@ import { redactPotentialSecrets } from "./secrets.js";
 
 /** Fixed, arbitrary — the fixture tool executors ignore it entirely (see tool-runtime.ts, which operates on one single hardcoded synthetic organization), but every AiToolDefinition.execute() still requires a first argument, matching production's own signature exactly. */
 const BENCHMARK_ORGANIZATION_ID = "benchmark-fixture-org";
+
+/**
+ * Fixed benchmark timezone for temporal grounding (see
+ * src/lib/ai/temporal-context.ts) — UTC, matching ANCHOR_NOW's own UTC
+ * instant and every fixture due-date comparison in tool-runtime.ts (a
+ * pure UTC-instant comparison, never timezone-converted). Never wall-clock,
+ * never the machine's own local timezone.
+ */
+export const BENCHMARK_TIMEZONE = "UTC";
 
 export type ProviderCompleteFn = (request: AiRequest, options: { signal?: AbortSignal }) => Promise<NormalizedProviderTurn>;
 
@@ -160,6 +171,12 @@ export async function runBenchmarkTurn(input: RunBenchmarkTurnInput): Promise<Ru
   // overrides it.
   const effectiveMaxProviderCalls = input.maxProviderCalls ?? MAX_PROVIDER_CALLS_PER_TURN;
   const startedAt = performance.now();
+  // Computed exactly once per turn, from the fixed reproducible anchor —
+  // never Date.now()/new Date(), never recomputed per provider-call
+  // iteration below (see this module's own header comment and
+  // src/lib/ai/temporal-context.ts's own doc comment on why product and
+  // benchmark must share this exact function).
+  const effectiveSystemPrompt = buildEffectiveSystemPrompt({ basePrompt: getAiAssistantSystemPrompt(), now: ANCHOR_NOW, timezone: BENCHMARK_TIMEZONE });
 
   const messages: AiMessage[] = [{ role: "user", content: userMessage }];
   const providerCalls: ProviderCallTrace[] = [];
@@ -195,7 +212,7 @@ export async function runBenchmarkTurn(input: RunBenchmarkTurnInput): Promise<Ru
     }
 
     const request: AiRequest = {
-      systemPrompt: getAiAssistantSystemPrompt(),
+      systemPrompt: effectiveSystemPrompt,
       messages: [...messages],
       tools: BENCHMARK_TOOLS.map((tool) => ({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema })),
       maxOutputTokens: MAX_OUTPUT_TOKENS,
