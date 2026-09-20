@@ -33,7 +33,65 @@ import { BENCHMARK_DEFINITION_VERSION } from "./benchmark-version.js";
 import { createRunTraceCollector, buildForensicTraceRow, writeForensicTrace, type ForensicTraceRow, type RowBuildResult, FORENSIC_TRACE_SCHEMA_VERSION } from "./forensic-trace.js";
 import { CANARY_CASE_ID, CANARY_MAX_PROVIDER_CALLS, executeCanarySweep, writeCanaryReport } from "./canary.js";
 
-const SNAPSHOT_PATH = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "tool-contracts.snapshot.json");
+const CANONICAL_SNAPSHOT_PATH = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "tool-contracts.snapshot.json");
+
+/**
+ * Eval-test isolation seam (never a live-user feature — see README.md's
+ * own "Secret handling"/canary sections for the real, credential-based
+ * gates this is layered on top of, never a replacement for).
+ *
+ * `AQENRA_EVAL_TEST_NO_LIVE=1` is the PRIMARY mechanical boundary that
+ * makes an ordinary eval-test subprocess incapable of reaching a real
+ * provider, independent of whatever credential values (real, empty, or
+ * realistic-looking sentinel strings) happen to be present in its own
+ * env — see enforceTestNoLiveOrExit() below for exactly where this is
+ * checked. `AQENRA_EVAL_TEST_SNAPSHOT_PATH` lets a test point the
+ * freshness gate at an isolated temp-file copy instead of the real,
+ * committed snapshot, so a "stale snapshot" ordering test never has to
+ * mutate (and race other tests over) the one real
+ * fixtures/tool-contracts.snapshot.json file. Deliberately gated on
+ * AQENRA_EVAL_TEST_NO_LIVE also being "1": a snapshot-path override is
+ * only ever honored inside an already-no-live-guaranteed invocation, so
+ * this seam can never be used to weaken real --run/--canary freshness
+ * enforcement — see resolveSnapshotPath() below.
+ */
+function isTestNoLiveActive(): boolean {
+  return process.env.AQENRA_EVAL_TEST_NO_LIVE === "1";
+}
+
+function resolveSnapshotPath(): string {
+  const override = process.env.AQENRA_EVAL_TEST_SNAPSHOT_PATH;
+  if (isTestNoLiveActive() && override) {
+    return override;
+  }
+  return CANONICAL_SNAPSHOT_PATH;
+}
+
+/**
+ * The LATEST safe point before any provider-touching code — called
+ * immediately before the dynamic `import("./providers/...")` in both
+ * runCanary() and runLiveBenchmark(), i.e. strictly AFTER every ordering
+ * preflight (snapshot freshness, results-dir emptiness, credential
+ * presence) has already had its own chance to fire its own specific
+ * message first. This is deliberate: an eval-test subprocess whose whole
+ * purpose is to prove one of those earlier orderings must still be able
+ * to observe that check's real behavior — this guard's only job is to
+ * guarantee that even if every earlier check is somehow satisfied (a
+ * fresh-looking snapshot, an empty/absent results dir, real-shaped
+ * present credentials), a test carrying AQENRA_EVAL_TEST_NO_LIVE=1 can
+ * never cross into a dynamic provider import, client construction, or
+ * network call. Never depends on credential state, snapshot state, or
+ * results-dir state — it fires unconditionally once reached, purely from
+ * this one env var.
+ */
+function enforceTestNoLiveOrExit(): boolean {
+  if (isTestNoLiveActive()) {
+    console.error("TEST_NO_LIVE — refusing to proceed into provider code: AQENRA_EVAL_TEST_NO_LIVE=1 is set. This is an eval-test isolation boundary, never a live-user gate. No provider import, client construction, or request was made.");
+    process.exitCode = 1;
+    return false;
+  }
+  return true;
+}
 
 const DEFAULT_REPETITIONS = 3;
 
@@ -100,11 +158,12 @@ async function runOfflinePipeline(): Promise<void> {
  * ordering proof).
  */
 function enforceSnapshotFreshnessOrExit(): boolean {
+  const snapshotPath = resolveSnapshotPath();
   let raw: string;
   try {
-    raw = readFileSync(SNAPSHOT_PATH, "utf8");
+    raw = readFileSync(snapshotPath, "utf8");
   } catch {
-    console.error(`Could not read the tool-contract snapshot at ${SNAPSHOT_PATH}. Refresh it from the repository root: npx tsx scripts/ai-provider-eval/extract-fixtures.ts`);
+    console.error(`Could not read the tool-contract snapshot at ${snapshotPath}. Refresh it from the repository root: npx tsx scripts/ai-provider-eval/extract-fixtures.ts`);
     process.exitCode = 1;
     return false;
   }
@@ -179,11 +238,15 @@ async function runCanary(): Promise<void> {
     return;
   }
 
+  if (!enforceTestNoLiveOrExit()) {
+    return;
+  }
+
   // Dynamic import, deliberately inside this function and reached only
-  // after the freshness+case+credential checks above — mirrors
-  // runLiveBenchmark()'s own identical discipline (see this file's own
-  // header comment on why no static import path may ever reach a real
-  // client constructor).
+  // after the freshness+case+credential+test-no-live checks above —
+  // mirrors runLiveBenchmark()'s own identical discipline (see this
+  // file's own header comment on why no static import path may ever
+  // reach a real client constructor).
   const { completeWithAnthropic } = await import("./providers/anthropic.js");
   const { completeWithOpenAi } = await import("./providers/openai.js");
   const { ANTHROPIC_MODEL_ID, OPENAI_MODEL_ID } = await import("./pricing.js");
@@ -227,9 +290,14 @@ async function runLiveBenchmark(repetitions: number, withForensicTrace: boolean)
     return;
   }
 
+  if (!enforceTestNoLiveOrExit()) {
+    return;
+  }
+
   // Dynamic import, deliberately INSIDE this function (only reached from
-  // the --run branch, and only after the freshness+secret checks above)
-  // — see this file's own header comment for why.
+  // the --run branch, and only after the freshness+results-dir+secret+
+  // test-no-live checks above) — see this file's own header comment for
+  // why.
   const { completeWithAnthropic } = await import("./providers/anthropic.js");
   const { completeWithOpenAi } = await import("./providers/openai.js");
   const { ANTHROPIC_MODEL_ID, OPENAI_MODEL_ID } = await import("./pricing.js");

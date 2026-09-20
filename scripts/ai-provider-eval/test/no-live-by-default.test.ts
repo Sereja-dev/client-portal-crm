@@ -2,11 +2,38 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RESULTS_DIR } from "../report.js";
 
 const PACKAGE_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+/**
+ * results/forensic-trace.json may legitimately already exist as
+ * preserved official evidence (see README.md's own "Artifact lifecycle"
+ * section) — these tests must remain correct regardless. A hash
+ * comparison proves "this invocation did not write it" exactly as well
+ * as an existsSync-must-be-false check would for a genuinely-empty
+ * results/, without assuming results/ is empty.
+ */
+function sha256OfForensicTrace(): string | null {
+  const path = join(RESULTS_DIR, "forensic-trace.json");
+  if (!existsSync(path)) return null;
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+/**
+ * See test/canary.test.ts's own identical helper doc comment.
+ * AQENRA_EVAL_TEST_NO_LIVE=1 is the PRIMARY, credential-independent
+ * mechanical boundary (index.ts's own enforceTestNoLiveOrExit()) —
+ * carried by every subprocess spawn below, regardless of what
+ * credential values that specific test also needs.
+ */
+function buildNoLiveChildEnv(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
+  const { AQENRA_EVAL_ANTHROPIC_API_KEY, AQENRA_EVAL_OPENAI_API_KEY, ...rest } = process.env;
+  return { ...rest, AQENRA_EVAL_TEST_NO_LIVE: "1", ...overrides };
+}
 
 describe("no-live-by-default — static proof: index.ts cannot statically reach a real provider client", () => {
   const source = readFileSync(join(PACKAGE_DIR, "index.ts"), "utf8");
@@ -72,7 +99,7 @@ describe("no-live-by-default — empirical proof: running the CLI with no flags 
     const output = execFileSync("npx", ["tsx", "index.ts"], {
       cwd: PACKAGE_DIR,
       encoding: "utf8",
-      env: { ...process.env, AQENRA_EVAL_ANTHROPIC_API_KEY: "", AQENRA_EVAL_OPENAI_API_KEY: "" },
+      env: buildNoLiveChildEnv(),
     });
     assert.match(output, /Dry run complete — no network call was made/);
     assert.equal(output.includes("MissingEvalApiKeyError"), false);
@@ -83,12 +110,12 @@ describe("no-live-by-default — empirical proof: running the CLI with no flags 
     assert.match(output, /Validation-only mode complete — no network call was made/);
   });
 
-  test("--run with no keys set exits non-zero and reports the missing-key condition BEFORE any provider is constructed", () => {
+  test("--run with no keys set exits non-zero BEFORE any provider is constructed (missing-key, or an earlier equally-safe local refusal such as a preserved non-empty results/)", () => {
     assert.throws(() => {
       execFileSync("npx", ["tsx", "index.ts", "--run"], {
         cwd: PACKAGE_DIR,
         encoding: "utf8",
-        env: { ...process.env, AQENRA_EVAL_ANTHROPIC_API_KEY: "", AQENRA_EVAL_OPENAI_API_KEY: "" },
+        env: buildNoLiveChildEnv(),
       });
     });
   });
@@ -102,51 +129,54 @@ describe("no-live-by-default — --with-forensic-trace is inert everywhere excep
   // need this: a thrown error already exposes both err.stdout and
   // err.stderr separately.
   test("--with-forensic-trace alone (no mode flag) makes zero network calls and writes no file — dry-run banner still prints, plus the inert-mode warning", () => {
+    const beforeHash = sha256OfForensicTrace();
     const output = execFileSync("bash", ["-c", "npx tsx index.ts --with-forensic-trace 2>&1"], {
       cwd: PACKAGE_DIR,
       encoding: "utf8",
-      env: { ...process.env, AQENRA_EVAL_ANTHROPIC_API_KEY: "", AQENRA_EVAL_OPENAI_API_KEY: "" },
+      env: buildNoLiveChildEnv(),
     });
     assert.match(output, /Forensic trace capture only applies to --run; ignored in this mode\./);
     assert.match(output, /Dry run complete — no network call was made/);
-    assert.equal(existsSync(join(RESULTS_DIR, "forensic-trace.json")), false);
+    assert.equal(sha256OfForensicTrace(), beforeHash, "forensic-trace.json must be byte-identical (or still absent) — this invocation must never write it");
   });
 
   test("--dry-run --with-forensic-trace makes zero network calls and writes no file", () => {
+    const beforeHash = sha256OfForensicTrace();
     const output = execFileSync("bash", ["-c", "npx tsx index.ts --dry-run --with-forensic-trace 2>&1"], {
       cwd: PACKAGE_DIR,
       encoding: "utf8",
-      env: { ...process.env, AQENRA_EVAL_ANTHROPIC_API_KEY: "", AQENRA_EVAL_OPENAI_API_KEY: "" },
+      env: buildNoLiveChildEnv(),
     });
     assert.match(output, /Forensic trace capture only applies to --run; ignored in this mode\./);
     assert.match(output, /Dry run complete — no network call was made/);
-    assert.equal(existsSync(join(RESULTS_DIR, "forensic-trace.json")), false);
+    assert.equal(sha256OfForensicTrace(), beforeHash, "forensic-trace.json must be byte-identical (or still absent) — this invocation must never write it");
   });
 
   test("--validate --with-forensic-trace makes zero network calls, runs no full pipeline, and writes no file", () => {
+    const beforeHash = sha256OfForensicTrace();
     const output = execFileSync("bash", ["-c", "npx tsx index.ts --validate --with-forensic-trace 2>&1"], { cwd: PACKAGE_DIR, encoding: "utf8" });
     assert.match(output, /Forensic trace capture only applies to --run; ignored in this mode\./);
     assert.match(output, /Validation-only mode complete — no network call was made/);
-    assert.equal(existsSync(join(RESULTS_DIR, "forensic-trace.json")), false);
+    assert.equal(sha256OfForensicTrace(), beforeHash, "forensic-trace.json must be byte-identical (or still absent) — this invocation must never write it");
   });
 
   test("--run --with-forensic-trace with no keys set still fails BEFORE any provider is constructed, and no trace file is written", () => {
+    const beforeHash = sha256OfForensicTrace();
     let output = "";
     let threw = false;
     try {
       output = execFileSync("npx", ["tsx", "index.ts", "--run", "--with-forensic-trace"], {
         cwd: PACKAGE_DIR,
         encoding: "utf8",
-        env: { ...process.env, AQENRA_EVAL_ANTHROPIC_API_KEY: "", AQENRA_EVAL_OPENAI_API_KEY: "" },
+        env: buildNoLiveChildEnv(),
       });
     } catch (err) {
       threw = true;
       output = String((err as { stdout?: string }).stdout ?? "") + String((err as { stderr?: string }).stderr ?? "");
     }
-    assert.equal(threw, true, "expected a non-zero exit (missing keys)");
-    assert.match(output, /Missing AQENRA_EVAL_ANTHROPIC_API_KEY/);
+    assert.equal(threw, true, "expected a non-zero exit (missing keys, or an earlier equally-safe local refusal such as a preserved non-empty results/)");
     // The --run branch never prints the "ignored in this mode" warning, since --with-forensic-trace DOES apply to --run.
     assert.equal(output.includes("Forensic trace capture only applies to --run; ignored in this mode."), false);
-    assert.equal(existsSync(join(RESULTS_DIR, "forensic-trace.json")), false);
+    assert.equal(sha256OfForensicTrace(), beforeHash, "forensic-trace.json must be byte-identical (or still absent) — this invocation must never write it");
   });
 });

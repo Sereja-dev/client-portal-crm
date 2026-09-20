@@ -2,6 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -29,10 +30,38 @@ import type { NormalizedProviderTurn } from "../result-types.js";
  */
 
 const PACKAGE_DIR = join(dirname(fileURLToPath(import.meta.url)), "..");
+const CANONICAL_SNAPSHOT_PATH = join(PACKAGE_DIR, "fixtures", "tool-contracts.snapshot.json");
+const CANARY_ARTIFACT_PATH = join(CANARY_RESULTS_DIR, "canary-result.json");
 const USAGE = { promptTokens: 1, completionTokens: 1, totalTokens: 2 };
 const ZERO_COST = () => 0;
 
 const CANARY_CASE = BENCHMARK_CASES.find((c) => c.id === CANARY_CASE_ID)!;
+
+/**
+ * Builds a child env for a subprocess spawn of index.ts's own --canary
+ * mode, WITHOUT ever forwarding this process's own real
+ * AQENRA_EVAL_ANTHROPIC_API_KEY/AQENRA_EVAL_OPENAI_API_KEY (destructured
+ * out, never merely set to ""), and always carrying
+ * AQENRA_EVAL_TEST_NO_LIVE=1 — the PRIMARY, credential-independent
+ * mechanical boundary (see index.ts's own enforceTestNoLiveOrExit() doc
+ * comment) that makes it impossible for this subprocess to ever reach a
+ * dynamic provider import, client construction, or network call, no
+ * matter what `overrides` below supplies (including a real-shaped
+ * present sentinel credential, for the one ordering test that needs
+ * one). `overrides` layers on top for exactly what one specific test
+ * needs (a sentinel credential pair, a AQENRA_EVAL_TEST_SNAPSHOT_PATH
+ * pointing at an isolated temp file — never the real credentials, never
+ * a write to the canonical snapshot).
+ */
+function buildNoLiveChildEnv(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
+  const { AQENRA_EVAL_ANTHROPIC_API_KEY, AQENRA_EVAL_OPENAI_API_KEY, ...rest } = process.env;
+  return { ...rest, AQENRA_EVAL_TEST_NO_LIVE: "1", ...overrides };
+}
+
+function sha256OfFile(path: string): string | null {
+  if (!existsSync(path)) return null;
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
 
 function scripted(turns: NormalizedProviderTurn[]) {
   let cursor = 0;
@@ -258,15 +287,16 @@ describe("canary.ts — classifyCanaryProviderResult is exported and pure (no I/
   });
 });
 
-describe("index.ts --canary — real subprocess, no network (items 7, 8, 9, 10, 15)", () => {
+describe("index.ts --canary — real subprocess, mechanically no-live (items 7, 8, 9, 10, 15)", () => {
   test("7. missing eval credentials fails closed before any provider execution, no artifact written", () => {
+    const beforeArtifactHash = sha256OfFile(CANARY_ARTIFACT_PATH);
     let output = "";
     let threw = false;
     try {
       output = execFileSync("npx", ["tsx", "index.ts", "--canary"], {
         cwd: PACKAGE_DIR,
         encoding: "utf8",
-        env: { ...process.env, AQENRA_EVAL_ANTHROPIC_API_KEY: "", AQENRA_EVAL_OPENAI_API_KEY: "" },
+        env: buildNoLiveChildEnv(),
       });
     } catch (err) {
       threw = true;
@@ -275,15 +305,19 @@ describe("index.ts --canary — real subprocess, no network (items 7, 8, 9, 10, 
     assert.equal(threw, true, "expected a non-zero exit (missing credentials)");
     assert.match(output, /CREDENTIAL_MISSING/);
     assert.equal(output.includes("canary turn"), false, "no provider turn was ever started");
+    assert.equal(sha256OfFile(CANARY_ARTIFACT_PATH), beforeArtifactHash, "the real canary artifact must be byte-identical before/after");
   });
 
-  test("8. a stale snapshot fails before the credential check, even with fake-but-present keys, and no artifact is written", () => {
-    const snapshotPath = join(PACKAGE_DIR, "fixtures", "tool-contracts.snapshot.json");
-    const original = readFileSync(snapshotPath, "utf8");
+  test("8. a stale snapshot fails before the credential check, even with fake-but-present keys, and no artifact is written — using an isolated temp snapshot copy, never the canonical file", () => {
+    const beforeCanonicalHash = sha256OfFile(CANONICAL_SNAPSHOT_PATH);
+    const beforeArtifactHash = sha256OfFile(CANARY_ARTIFACT_PATH);
+    const tempDir = mkdtempSync(join(tmpdir(), "aqenra-canary-stale-snapshot-"));
     try {
+      const original = readFileSync(CANONICAL_SNAPSHOT_PATH, "utf8"); // read-only — the canonical file is never opened for write by this test
       const corrupted = JSON.parse(original);
       corrupted.sourceFingerprint = "deadbeef".repeat(8);
-      writeFileSync(snapshotPath, JSON.stringify(corrupted, null, 2) + "\n", "utf8");
+      const tempSnapshotPath = join(tempDir, "stale-tool-contracts.snapshot.json");
+      writeFileSync(tempSnapshotPath, JSON.stringify(corrupted, null, 2) + "\n", "utf8");
 
       let output = "";
       let threw = false;
@@ -291,7 +325,20 @@ describe("index.ts --canary — real subprocess, no network (items 7, 8, 9, 10, 
         output = execFileSync("npx", ["tsx", "index.ts", "--canary"], {
           cwd: PACKAGE_DIR,
           encoding: "utf8",
-          env: { ...process.env, AQENRA_EVAL_ANTHROPIC_API_KEY: "sk-ant-CANARY-ORDERING-SENTINEL", AQENRA_EVAL_OPENAI_API_KEY: "sk-CANARY-ORDERING-SENTINEL" },
+          // AQENRA_EVAL_TEST_NO_LIVE=1 (via buildNoLiveChildEnv) is the
+          // PRIMARY boundary here — it alone guarantees no live call can
+          // happen even if this test's own stale-snapshot setup fails for
+          // any reason. The sentinel credentials below exist ONLY to
+          // prove the freshness-before-credential ordering; they are
+          // never real, and AQENRA_EVAL_TEST_SNAPSHOT_PATH is only ever
+          // honored by index.ts because AQENRA_EVAL_TEST_NO_LIVE=1 is set
+          // (see index.ts's own resolveSnapshotPath()) — it can never
+          // weaken a real --canary invocation's freshness enforcement.
+          env: buildNoLiveChildEnv({
+            AQENRA_EVAL_TEST_SNAPSHOT_PATH: tempSnapshotPath,
+            AQENRA_EVAL_ANTHROPIC_API_KEY: "sk-ant-CANARY-ORDERING-SENTINEL",
+            AQENRA_EVAL_OPENAI_API_KEY: "sk-CANARY-ORDERING-SENTINEL",
+          }),
         });
       } catch (err) {
         threw = true;
@@ -302,17 +349,24 @@ describe("index.ts --canary — real subprocess, no network (items 7, 8, 9, 10, 
       assert.equal(output.includes("CREDENTIAL_MISSING"), false, "must never reach the credential check after a freshness failure");
       assert.equal(output.includes("CANARY-ORDERING-SENTINEL"), false, "must never print a key value");
     } finally {
-      writeFileSync(snapshotPath, original, "utf8");
+      rmSync(tempDir, { recursive: true, force: true });
     }
+    // The canonical snapshot and the real canary artifact were never
+    // opened for write by this test at all — asserted anyway as a
+    // regression guard, not because anything above could plausibly have
+    // touched them.
+    assert.equal(sha256OfFile(CANONICAL_SNAPSHOT_PATH), beforeCanonicalHash, "the canonical snapshot must be byte-identical before/after — this test never writes to it");
+    assert.equal(sha256OfFile(CANARY_ARTIFACT_PATH), beforeArtifactHash, "the real canary artifact must be byte-identical before/after");
   });
 
-  test("9 & 10. official results/ is never touched by --canary, and canary-results/ is never created when the canary never reaches a provider call", () => {
+  test("9 & 10. official results/ is never touched by --canary, and the real canary-results/ artifact is never created or modified when the canary never reaches a provider call", () => {
     const beforeResults = existsSync(RESULTS_DIR) ? readdirSync(RESULTS_DIR).sort() : null;
+    const beforeArtifactHash = sha256OfFile(CANARY_ARTIFACT_PATH);
     try {
       execFileSync("npx", ["tsx", "index.ts", "--canary"], {
         cwd: PACKAGE_DIR,
         encoding: "utf8",
-        env: { ...process.env, AQENRA_EVAL_ANTHROPIC_API_KEY: "", AQENRA_EVAL_OPENAI_API_KEY: "" },
+        env: buildNoLiveChildEnv(),
       });
     } catch {
       // Expected — no credentials set, non-zero exit. Only the
@@ -320,7 +374,11 @@ describe("index.ts --canary — real subprocess, no network (items 7, 8, 9, 10, 
     }
     const afterResults = existsSync(RESULTS_DIR) ? readdirSync(RESULTS_DIR).sort() : null;
     assert.deepEqual(beforeResults, afterResults, "results/ directory listing unchanged");
-    assert.equal(existsSync(CANARY_RESULTS_DIR), false, "canary-results/ was not created by a run that never reached a provider call");
+    // Deliberately a hash comparison, never an existsSync(...) === false
+    // assumption — canary-results/canary-result.json legitimately
+    // pre-exists as preserved evidence from an authorized live run, and
+    // this test must remain correct regardless of whether it does.
+    assert.equal(sha256OfFile(CANARY_ARTIFACT_PATH), beforeArtifactHash, "the real canary artifact must be byte-identical before/after a run that never reached a provider call");
   });
 });
 
