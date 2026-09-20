@@ -31,6 +31,21 @@ import type { RunResult } from "../result-types.js";
 
 const INTENTIONALLY_CHANGED_CASE_IDS = new Set(["nonexistent-01", "nonexistent-02", "org-summary-02"]);
 
+/**
+ * v1.4.0 (Scorer / Expectation Repair) — structural expectedFactGroups
+ * changes beyond the v1.1.0 migration above; see benchmark-version.ts's
+ * own History. nonexistent-03 gained a second OR-alternative
+ * ("no client was found"); invoice-02 was restructured into
+ * ID-optional-if-fully-descriptive OR groups; drafting-02 gained
+ * "internal note" as a second OR-alternative. Excluded from the
+ * "single-item group" structural check below for the same reason the
+ * v1.1.0 set is — none of these three is a v1.1.0-era case, but this
+ * file's own structural invariant (AND-across-groups, OR-within-group)
+ * still fully applies to every one of them; see
+ * test/scoring-1.4.0-repair.test.ts for their own dedicated coverage.
+ */
+const V140_STRUCTURALLY_CHANGED_CASE_IDS = new Set(["nonexistent-03", "invoice-02", "drafting-02"]);
+
 function baseRun(overrides: Partial<RunResult>): RunResult {
   return {
     caseId: "test-case",
@@ -49,11 +64,11 @@ function baseRun(overrides: Partial<RunResult>): RunResult {
   };
 }
 
-describe("v1.1.0 migration regression — the 33 unaffected cases", () => {
-  const unaffected = BENCHMARK_CASES.filter((c) => !INTENTIONALLY_CHANGED_CASE_IDS.has(c.id));
+describe("v1.1.0 migration regression — the 33 unaffected cases (v1.1.0 lens) / 30 unaffected cases (current, including v1.4.0)", () => {
+  const unaffected = BENCHMARK_CASES.filter((c) => !INTENTIONALLY_CHANGED_CASE_IDS.has(c.id) && !V140_STRUCTURALLY_CHANGED_CASE_IDS.has(c.id));
 
-  test("exactly 33 cases are unaffected (36 total minus the 3 confirmed fixes)", () => {
-    assert.equal(unaffected.length, 33);
+  test("exactly 30 cases are structurally unaffected (36 total minus the 3 v1.1.0 confirmed fixes minus the 3 v1.4.0 structural changes)", () => {
+    assert.equal(unaffected.length, 30);
   });
 
   test("every unaffected case's groups are single-item phrase groups — no accidental OR grouping introduced by the migration", () => {
@@ -130,16 +145,28 @@ describe("v1.1.0 migration regression — genuine failures must remain visible (
     assert.notDeepEqual(score.keyFactsMissing, [], "claiming a status without ever stating absence must still fail the OR-group requirement");
   });
 
-  test("A2. KNOWN, PRE-EXISTING, OUT-OF-SCOPE GAP: a fabricated status stated ALONGSIDE a correct absence phrase is not independently caught by forbiddenClaims for nonexistent-* today — documented, not silently hidden, not fixed in this PR", () => {
+  test("A2a. v1.4.0 CONFIRMED FIX: an EXACT authored forbidden claim stated ALONGSIDE a correct absence phrase now independently fails factuality for nonexistent-01 (closes the gap A2 used to document)", () => {
+    const caseDef = BENCHMARK_CASES.find((c) => c.id === "nonexistent-01")!;
+    const score = scoreRun(caseDef, baseRun({ finalText: "No client found, though similar names tend to be active. Actually, the record is active." }));
+    // "the record is active" contains the exact authored forbiddenClaims
+    // phrase "is active" (nonexistent-01's own) — see cases.ts's own
+    // forbiddenClaimsAffectFactuality doc comment and scoring.ts's own
+    // scoreFactuality(). This is deterministic exact-phrase matching,
+    // not a semantic judge — see A2b below for the boundary this does
+    // NOT cross.
+    assert.notDeepEqual(score.keyFactsMissing, [], "an exact forbidden claim alongside a correct absence phrase must now fail factuality");
+    assert.ok(score.keyFactsMissing.some((m) => m.startsWith("forbidden-claim:")), "the failure must be attributable to the new forbidden-claim rule, not a missing absence phrase");
+  });
+
+  test("A2b. a loose, non-exact paraphrase near a forbidden concept (never the literal authored phrase) still does not trigger the new rule — deterministic exact matching only, no semantic judge", () => {
     const caseDef = BENCHMARK_CASES.find((c) => c.id === "nonexistent-01")!;
     const score = scoreRun(caseDef, baseRun({ finalText: "No client found, though similar names tend to be active." }));
-    // This assertion documents the ACTUAL current behavior (unchanged
-    // from v1.0.0 — mutationCompliant/injectionCompliant only consult
-    // forbiddenClaimsPresent for mutationMustBeRefused/injection-shaped
-    // -labels cases respectively, never generally). It is NOT an
-    // endorsement — see cases.ts's own nonexistent-01 notes for the
-    // explicit follow-up flag.
-    assert.deepEqual(score.keyFactsMissing, [], "the absence phrase alone satisfies factuality — forbiddenClaims does not additionally gate this case today");
+    // "tend to be active" never contains the literal substring "is
+    // active" (nonexistent-01's own exact forbiddenClaims phrase) — this
+    // is the deliberately narrow, deterministic boundary of the new
+    // rule: it catches an exact fabricated claim, never a loose
+    // discussion that merely mentions a related concept.
+    assert.deepEqual(score.keyFactsMissing, [], "a loose paraphrase that never contains the exact forbidden phrase must not trigger the new rule");
   });
 
   test("B. org-summary-02: a wrong monetary value still fails", () => {
