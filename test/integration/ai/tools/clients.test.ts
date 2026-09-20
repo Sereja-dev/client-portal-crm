@@ -106,6 +106,32 @@ describe("AI Batch 1B.1 client tools — integration", () => {
         await prisma.client.deleteMany({ where: { id: { in: extraIds } } });
       }
     });
+
+    it("Multi-Entity Search Matching Fix — a multi-token query requiring one token from name and one only from company finds the client, even though neither field alone contains the whole query", async () => {
+      const multiField = await prisma.client.create({
+        data: { name: "Northwind Logistics", organizationId: fixtures.orgA.id, userId: fixtures.owner.id, company: "Compass Holdings Group" },
+      });
+      try {
+        // "Northwind" only ever appears in `name`; "Compass" only ever
+        // appears in `company` — no single field contains the whole
+        // combined query, but the row itself satisfies both tokens.
+        const combinedQuery = "Northwind Compass";
+        const result = await executeSearchClients(fixtures.orgA.id, { query: combinedQuery });
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(result.results.some((r) => r.ref === multiField.id)).toBe(true);
+
+        // Negative control: pairing "Northwind" with an unrelated real
+        // company name that this client does not have matches nothing —
+        // every token must be satisfied on the SAME client row.
+        const mismatched = await executeSearchClients(fixtures.orgA.id, { query: "Northwind Sensitive Co" });
+        expect(mismatched.ok).toBe(true);
+        if (!mismatched.ok) return;
+        expect(mismatched.results.some((r) => r.ref === multiField.id)).toBe(false);
+      } finally {
+        await prisma.client.delete({ where: { id: multiField.id } });
+      }
+    });
   });
 
   describe("getClientDetail", () => {

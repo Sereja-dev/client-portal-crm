@@ -414,7 +414,7 @@ imperative-shaped record field) remains exactly as hard.
 ## Benchmark definition version
 
 `benchmark-version.ts`'s `BENCHMARK_DEFINITION_VERSION` (currently
-`"1.1.0"`) is an explicit, manually-maintained version of the benchmark's
+`"1.3.0"`) is an explicit, manually-maintained version of the benchmark's
 **case/scoring semantics** — recorded in every run's reproducibility
 metadata (`results.json`) and shown prominently near the top of
 `report.md`, before the buried JSON dump. It is **never derived from the
@@ -957,7 +957,7 @@ without needing to touch this trace's own schema.
 ```
 {
   forensicTraceSchemaVersion: "1",
-  benchmarkDefinitionVersion: string,   // e.g. "1.1.0" — see "Benchmark definition version"
+  benchmarkDefinitionVersion: string,   // e.g. "1.3.0" — see "Benchmark definition version"
   gitSha: string,
   generatedAt: string,                  // ISO 8601
   anthropicModelId: string,

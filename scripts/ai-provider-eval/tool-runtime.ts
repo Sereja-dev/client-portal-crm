@@ -33,6 +33,7 @@ import {
   isValidOptionalRef,
   isValidOptionalIsoDate,
 } from "../../src/lib/ai/tools/validation";
+import { tokenizeAiSearchQuery } from "../../src/lib/ai/tools/query-match";
 import { toolOk, toolError, type AiToolResult } from "../../src/lib/ai/tools/result";
 import { assertExactKeys, assertExactKeysList } from "../../src/lib/ai/tools/output-projection";
 import { SEARCH_CLIENTS_LIMIT, SEARCH_PROJECTS_LIMIT, SEARCH_TASKS_LIMIT, SEARCH_INVOICES_LIMIT } from "../../src/lib/ai/tools/limits";
@@ -152,11 +153,27 @@ const SEARCH_CLIENTS_CONTRACT = contractFor(snapshot, "searchClients");
 const CLIENT_STATUSES = enumFromSchema(SEARCH_CLIENTS_CONTRACT.inputSchema, "status");
 const SEARCH_CLIENTS_ITEM_KEYS = ["ref", "name", "company", "status"] as const;
 
+/**
+ * Multi-Entity Search Matching Fix — mirrors every Product AI search
+ * tool's own identical semantics exactly (src/lib/ai/tools/{invoices,
+ * projects,tasks,clients}.ts's own AND-of-per-token-OR Prisma `where`
+ * construction): every token of `query` (from the SAME shared
+ * tokenizeAiSearchQuery() Product itself uses) must be found, case-
+ * insensitively, in at least one of `haystacks` — an AND across tokens,
+ * an OR across fields, never the other way around. A single-token query
+ * is semantically identical to the prior single-field-substring
+ * behavior (one token, checked against every haystack) — this only ever
+ * broadens which queries can match, never which records exist to match
+ * against. See tool-runtime.test.ts / invoice-03's own regression case.
+ */
 function matchesQuery(haystacks: (string | null)[], query: string | undefined): boolean {
   if (!query) return true;
-  const needle = query.trim().toLowerCase();
-  if (!needle) return true;
-  return haystacks.some((h) => h !== null && h.toLowerCase().includes(needle));
+  const tokens = tokenizeAiSearchQuery(query);
+  if (tokens.length === 0) return true;
+  return tokens.every((token) => {
+    const needle = token.toLowerCase();
+    return haystacks.some((h) => h !== null && h.toLowerCase().includes(needle));
+  });
 }
 
 async function executeSearchClients(_organizationId: string, rawInput: unknown): Promise<AiToolResult<Record<string, unknown>>> {

@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { INVOICE_STATUSES } from "@/lib/validation/invoice";
 import { escapeLikePattern } from "@/lib/search/normalize-query";
+import { tokenizeAiSearchQuery } from "./query-match";
 import { isPlainObject, hasOnlyAllowedKeys, isValidOptionalQuery, isValidOptionalEnum } from "./validation";
 import { assertExactKeysList } from "./output-projection";
 import { toolError, toolOk, type AiToolResult } from "./result";
@@ -77,17 +78,31 @@ export async function executeSearchInvoices(organizationId: string, rawInput: un
 
   try {
     const trimmedQuery = validated.query?.trim();
+    // Multi-Entity Search Matching Fix — every query TOKEN must match
+    // somewhere across invoiceNumber/client.name/project.name on the
+    // SAME invoice row (an AND of per-token ORs), replacing the prior
+    // "the whole trimmed query must be a substring of one single field"
+    // rule that could never satisfy a natural query naming both a
+    // client and a project (e.g. "Brightline Robotics Warehouse
+    // Automation Pilot" — see this fix's own architecture audit). A
+    // single-token query is semantically identical to the prior
+    // behavior (one OR block, same three fields, same escapeLikePattern/
+    // mode:"insensitive" discipline) — this only ever broadens which
+    // queries can match, never which records exist to match against.
+    const tokens = trimmedQuery ? tokenizeAiSearchQuery(trimmedQuery) : [];
     const rows = await prisma.invoice.findMany({
       where: {
         organizationId,
         ...(validated.status ? { status: validated.status as (typeof INVOICE_STATUSES)[number] } : {}),
-        ...(trimmedQuery
+        ...(tokens.length > 0
           ? {
-              OR: [
-                { invoiceNumber: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } },
-                { client: { name: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } } },
-                { project: { name: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } } },
-              ],
+              AND: tokens.map((token) => ({
+                OR: [
+                  { invoiceNumber: { contains: escapeLikePattern(token), mode: "insensitive" as const } },
+                  { client: { name: { contains: escapeLikePattern(token), mode: "insensitive" as const } } },
+                  { project: { name: { contains: escapeLikePattern(token), mode: "insensitive" as const } } },
+                ],
+              })),
             }
           : {}),
       },

@@ -104,3 +104,74 @@ describe("tool-runtime.ts — exact six fixture-backed tools", () => {
     assert.deepEqual(first, second);
   });
 });
+
+describe("tool-runtime.ts — Multi-Entity Search Matching Fix (invoice-03 and cross-tool parity)", () => {
+  test("invoice-03's exact natural query — 'Brightline Robotics Warehouse Automation Pilot' — now finds INV-1004", async () => {
+    const tool = getBenchmarkToolByName("searchInvoices")!;
+    const result = (await tool.execute("org", { query: "Brightline Robotics Warehouse Automation Pilot" })) as {
+      ok: boolean;
+      results: { invoiceNumber: string }[];
+    };
+    assert.equal(result.ok, true);
+    assert.ok(result.results.some((r) => r.invoiceNumber === "INV-1004"), "expected INV-1004 in results");
+  });
+
+  test("single-field queries for the same invoice still work (client name alone, project name alone, invoice number alone)", async () => {
+    const tool = getBenchmarkToolByName("searchInvoices")!;
+    for (const query of ["Brightline Robotics", "Warehouse Automation Pilot", "INV-1004"]) {
+      const result = (await tool.execute("org", { query })) as { ok: boolean; results: { invoiceNumber: string }[] };
+      assert.equal(result.ok, true, `query "${query}" should succeed`);
+      assert.ok(result.results.some((r) => r.invoiceNumber === "INV-1004"), `expected INV-1004 for query "${query}"`);
+    }
+  });
+
+  test("a mixed unrelated client/project token set matches neither INV-1004 nor any other invoice — every token must be satisfied on the SAME row, never aggregated across rows", async () => {
+    const tool = getBenchmarkToolByName("searchInvoices")!;
+    // "Brightline Robotics" (INV-1004's own client) paired with "Mobile
+    // App Revamp" (a DIFFERENT client's project, INV-1003's own project)
+    // — no single invoice row has both.
+    const result = (await tool.execute("org", { query: "Brightline Robotics Mobile App Revamp" })) as {
+      ok: boolean;
+      results: unknown[];
+    };
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.results, []);
+  });
+
+  test("cross-tool parity — searchProjects: a combined client-name + project-name query finds the project", async () => {
+    const tool = getBenchmarkToolByName("searchProjects")!;
+    const result = (await tool.execute("org", { query: "Brightline Robotics Warehouse Automation Pilot" })) as {
+      ok: boolean;
+      results: { name: string }[];
+    };
+    assert.equal(result.ok, true);
+    assert.ok(result.results.some((r) => r.name === "Warehouse Automation Pilot"));
+  });
+
+  test("cross-tool parity — searchTasks: a combined project-name + task-title query finds the task, even though neither field alone contains the whole query", async () => {
+    const tool = getBenchmarkToolByName("searchTasks")!;
+    const result = (await tool.execute("org", { query: "Conveyor Warehouse Automation Pilot" })) as {
+      ok: boolean;
+      results: { title: string }[];
+    };
+    assert.equal(result.ok, true);
+    assert.ok(result.results.some((r) => r.title === "Conveyor calibration test"));
+  });
+
+  test("cross-tool parity — searchClients: a multi-token name query still works (single-entity field, unchanged behavior)", async () => {
+    const tool = getBenchmarkToolByName("searchClients")!;
+    const result = (await tool.execute("org", { query: "Brightline Robotics" })) as { ok: boolean; results: { name: string }[] };
+    assert.equal(result.ok, true);
+    assert.ok(result.results.some((r) => r.name === "Brightline Robotics"));
+  });
+
+  test("all-token matching never degrades into any-token matching — a query combining a real token with a genuinely nonexistent one matches nothing", async () => {
+    const tool = getBenchmarkToolByName("searchInvoices")!;
+    const result = (await tool.execute("org", { query: "Brightline zzz-genuinely-nonexistent-token-zzz" })) as {
+      ok: boolean;
+      results: unknown[];
+    };
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.results, [], "a real token ('Brightline') must not be enough on its own to satisfy an ALL-token match");
+  });
+});

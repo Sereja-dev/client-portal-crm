@@ -23,8 +23,8 @@ describe("benchmark-version.ts — BENCHMARK_DEFINITION_VERSION", () => {
     assert.match(BENCHMARK_DEFINITION_VERSION, SEMVER_PATTERN);
   });
 
-  test("is the current, post-temporal-grounding version", () => {
-    assert.equal(BENCHMARK_DEFINITION_VERSION, "1.2.0");
+  test("is the current, post-multi-entity-search-matching-fix version", () => {
+    assert.equal(BENCHMARK_DEFINITION_VERSION, "1.3.0");
   });
 
   test("buildReproducibilityMetadata() includes it", () => {

@@ -89,4 +89,27 @@ describe("executeSearchProjects — integration", () => {
       await prisma.project.deleteMany({ where: { id: { in: extraIds } } });
     }
   });
+
+  it("Multi-Entity Search Matching Fix — a combined client-name + project-name query finds the project, even though neither field alone contains the whole query", async () => {
+    const client = await prisma.client.findUniqueOrThrow({ where: { id: fixtures.clientA.id } });
+    const project = await prisma.project.findUniqueOrThrow({ where: { id: fixtures.project.id } });
+    const combinedQuery = `${client.name} ${project.name}`; // e.g. "Test Client A Test Project"
+    expect(combinedQuery.length).toBeLessThanOrEqual(100);
+
+    const result = await executeSearchProjects(fixtures.orgA.id, { query: combinedQuery });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.results.some((r) => r.ref === fixtures.project.id)).toBe(true);
+  });
+
+  it("a combined query pairing an unrelated client with a real project name matches nothing — every token must be satisfied on the SAME project row, never aggregated across rows", async () => {
+    const clientB = await prisma.client.findUniqueOrThrow({ where: { id: fixtures.clientB.id } });
+    const project = await prisma.project.findUniqueOrThrow({ where: { id: fixtures.project.id } });
+    // clientB has no project of its own in this fixture, and `project`
+    // belongs only to clientA — no single project row can ever satisfy
+    // both "clientB.name" and "project.name" tokens at once.
+    const mismatchedQuery = `${clientB.name} ${project.name}`;
+    const result = await executeSearchProjects(fixtures.orgA.id, { query: mismatchedQuery });
+    expect(result).toEqual({ ok: true, results: [] });
+  });
 });

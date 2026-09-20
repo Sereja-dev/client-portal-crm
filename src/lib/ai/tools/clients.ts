@@ -2,6 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { CLIENT_STATUSES } from "@/lib/validation/client";
 import { escapeLikePattern } from "@/lib/search/normalize-query";
+import { tokenizeAiSearchQuery } from "./query-match";
 import { isPlainObject, hasOnlyAllowedKeys, isValidOptionalQuery, isValidOptionalEnum, isValidRef } from "./validation";
 import { assertExactKeys, assertExactKeysList } from "./output-projection";
 import { toolError, toolOk, type AiToolResult } from "./result";
@@ -92,14 +93,29 @@ export async function executeSearchClients(organizationId: string, rawInput: unk
     // of two `OR` keys would silently keep only the last one (the exact
     // bug src/app/(dashboard)/leads/query.ts's own buildLeadWhere found
     // and fixed during Phase 2A — same shape here).
-    const searchFilter: Prisma.ClientWhereInput = trimmedQuery
-      ? {
-          OR: [
-            { name: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } },
-            { company: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } },
-          ],
-        }
-      : {};
+    //
+    // Multi-Entity Search Matching Fix — every query TOKEN must match
+    // somewhere across name/company on the SAME client row (an AND of
+    // per-token ORs), replacing the prior "the whole trimmed query must
+    // be a substring of one single field" rule — see invoices.ts's own
+    // identical comment and this fix's own architecture audit. Practical
+    // multi-entity risk is lower here (name/company usually overlap
+    // heavily for one client), but this tool exposes the same
+    // multi-field query contract, so the shared semantics stay
+    // consistent across every AI search tool. A single-token query is
+    // semantically identical to the prior behavior.
+    const tokens = trimmedQuery ? tokenizeAiSearchQuery(trimmedQuery) : [];
+    const searchFilter: Prisma.ClientWhereInput =
+      tokens.length > 0
+        ? {
+            AND: tokens.map((token) => ({
+              OR: [
+                { name: { contains: escapeLikePattern(token), mode: "insensitive" as const } },
+                { company: { contains: escapeLikePattern(token), mode: "insensitive" as const } },
+              ],
+            })),
+          }
+        : {};
 
     const rows = await prisma.client.findMany({
       where: { organizationId, AND: [statusFilter, searchFilter] },

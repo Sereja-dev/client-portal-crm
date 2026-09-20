@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { TASK_STATUSES, TASK_PRIORITIES } from "@/lib/validation/task";
 import { escapeLikePattern } from "@/lib/search/normalize-query";
+import { tokenizeAiSearchQuery } from "./query-match";
 import {
   isPlainObject,
   hasOnlyAllowedKeys,
@@ -69,18 +70,28 @@ export async function executeSearchTasks(organizationId: string, rawInput: unkno
 
   try {
     const trimmedQuery = validated.query?.trim();
+    // Multi-Entity Search Matching Fix — every query TOKEN must match
+    // somewhere across title/project.name on the SAME task row (an AND
+    // of per-token ORs), replacing the prior "the whole trimmed query
+    // must be a substring of one single field" rule — see invoices.ts's
+    // own identical comment and this fix's own architecture audit. A
+    // single-token query is semantically identical to the prior
+    // behavior.
+    const tokens = trimmedQuery ? tokenizeAiSearchQuery(trimmedQuery) : [];
     const rows = await prisma.task.findMany({
       where: {
         project: { organizationId },
         ...(validated.status ? { status: validated.status as (typeof TASK_STATUSES)[number] } : {}),
         ...(validated.priority ? { priority: validated.priority as (typeof TASK_PRIORITIES)[number] } : {}),
         ...(validated.dueBefore ? { dueDate: { lte: new Date(validated.dueBefore) } } : {}),
-        ...(trimmedQuery
+        ...(tokens.length > 0
           ? {
-              OR: [
-                { title: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } },
-                { project: { name: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } } },
-              ],
+              AND: tokens.map((token) => ({
+                OR: [
+                  { title: { contains: escapeLikePattern(token), mode: "insensitive" as const } },
+                  { project: { name: { contains: escapeLikePattern(token), mode: "insensitive" as const } } },
+                ],
+              })),
             }
           : {}),
       },

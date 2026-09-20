@@ -70,8 +70,16 @@ describe("loop.ts — benchmark temporal grounding wiring", () => {
 });
 
 describe("benchmark-version.ts — 1.2.0 temporal-grounding bump", () => {
-  test("BENCHMARK_DEFINITION_VERSION is exactly 1.2.0", () => {
-    assert.equal(BENCHMARK_DEFINITION_VERSION, "1.2.0");
+  test("BENCHMARK_DEFINITION_VERSION reflects the temporal-grounding bump and every bump since (currently 1.3.0 — Multi-Entity Search Matching Fix, see benchmark-version.ts's own History)", () => {
+    // Not a bare "!== 1.1.0" comparison: this repo's own versioning
+    // discipline is a strictly monotonic bump-per-semantic-change
+    // sequence (see benchmark-version.ts's own History), so asserting
+    // the exact current value here is equally precise and keeps this
+    // test doing real work — a future bump updates this one literal
+    // alongside benchmark-version.ts's own constant, same as every other
+    // call site in this package that references the live import instead
+    // of re-deriving it.
+    assert.equal(BENCHMARK_DEFINITION_VERSION, "1.3.0");
   });
 
   test("reproducibility metadata records the exact temporal anchor and timezone, with no wall-clock value", () => {

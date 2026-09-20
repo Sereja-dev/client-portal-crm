@@ -67,5 +67,33 @@
  *     valid, immutable, and comparable only against other 1.1.0 runs —
  *     never against a 1.2.0 run, whose provider-visible request bytes
  *     genuinely differ.
+ *   - 1.3.0: Multi-Entity Search Matching Fix — tool-runtime.ts's
+ *     matchesQuery() (searchClients/searchProjects/searchTasks/
+ *     searchInvoices) now requires every query TOKEN (shared
+ *     tokenizeAiSearchQuery(), also used by the real Product tools under
+ *     src/lib/ai/tools/) to be found, case-insensitively, in at least
+ *     one of that record's own searchable fields — an AND across
+ *     tokens, an OR across fields — replacing the prior rule that the
+ *     ENTIRE trimmed query had to be a substring of one single field. A
+ *     single-token query is semantically identical to the prior
+ *     behavior; only a multi-token query naming more than one entity
+ *     (e.g. invoice-03's own "Brightline Robotics Warehouse Automation
+ *     Pilot", a client name plus a project name) can now match where it
+ *     previously could not — this changes invoice-03's own evaluated
+ *     tool result (`results: []` -> `[INV-1004]`), which is exactly "a
+ *     fixture change alters the evaluated challenge" per this file's own
+ *     "BUMP when" rule above, independent of and in addition to the
+ *     separate tool-contract-snapshot fingerprint refresh this change
+ *     also requires (see extract-fixtures.ts's own mechanism — the real
+ *     Product tool files' bytes changed even though their own name/
+ *     description/inputSchema did not). No case wording, scoring rule,
+ *     tie rule, threshold, repetition count, provider-call ceiling,
+ *     output-token ceiling, model ID, reasoning_effort, system prompt,
+ *     tool name/description/schema, or provider-adapter change. 1.1.0's
+ *     and 1.2.0's own semantics remain exactly as defined above — 1.2.0
+ *     itself never had an official live run, so nothing under it is
+ *     reinterpreted, but its own code-level definition (pre-this-fix
+ *     tool-runtime.ts matching behavior) remains a distinct, valid
+ *     historical definition, never silently absorbed into 1.3.0.
  */
-export const BENCHMARK_DEFINITION_VERSION = "1.2.0";
+export const BENCHMARK_DEFINITION_VERSION = "1.3.0";

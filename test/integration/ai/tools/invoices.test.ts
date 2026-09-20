@@ -216,4 +216,27 @@ describe("executeSearchInvoices — integration", () => {
     const second = await executeSearchInvoices(fixtures.orgA.id, {});
     expect(first).toEqual(second);
   });
+
+  it("I. Multi-Entity Search Matching Fix — a combined client-name + project-name query finds the invoice, even though neither field alone contains the whole query", async () => {
+    const client = await prisma.client.findUniqueOrThrow({ where: { id: fixtures.clientA.id } });
+    const project = await prisma.project.findUniqueOrThrow({ where: { id: fixtures.project.id } });
+    const combinedQuery = `${client.name} ${project.name}`; // e.g. "Test Client A Test Project"
+    expect(combinedQuery.length).toBeLessThanOrEqual(100);
+
+    const result = await executeSearchInvoices(fixtures.orgA.id, { query: combinedQuery });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.results.some((r) => r.invoiceNumber === fixtures.invoice.invoiceNumber)).toBe(true);
+  });
+
+  it("J. a combined query pairing an unrelated client with a real project name matches nothing — every token must be satisfied on the SAME invoice row, never aggregated across rows", async () => {
+    const clientB = await prisma.client.findUniqueOrThrow({ where: { id: fixtures.clientB.id } });
+    const project = await prisma.project.findUniqueOrThrow({ where: { id: fixtures.project.id } });
+    // clientB has no invoice/project of its own in this fixture, and
+    // `project` belongs only to clientA — no single invoice row can ever
+    // satisfy both "clientB.name" and "project.name" tokens at once.
+    const mismatchedQuery = `${clientB.name} ${project.name}`;
+    const result = await executeSearchInvoices(fixtures.orgA.id, { query: mismatchedQuery });
+    expect(result).toEqual({ ok: true, results: [] });
+  });
 });

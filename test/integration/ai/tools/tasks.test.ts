@@ -127,4 +127,24 @@ describe("executeSearchTasks — integration", () => {
     const second = await executeSearchTasks(fixtures.orgA.id, { query: "Sensitive Task" });
     expect(first).toEqual(second);
   });
+
+  it("Multi-Entity Search Matching Fix — a combined task-title + project-name query finds the task, even though neither field alone contains the whole query", async () => {
+    const project = await prisma.project.findUniqueOrThrow({ where: { id: fixtures.project.id } });
+    const combinedQuery = `${fixtures.task.title} ${project.name}`; // e.g. "Test Task Test Project"
+    expect(combinedQuery.length).toBeLessThanOrEqual(100);
+
+    const result = await executeSearchTasks(fixtures.orgA.id, { query: combinedQuery });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.results.some((r) => r.ref === fixtures.task.id)).toBe(true);
+  });
+
+  it("a combined query pairing the real task title with an unrelated client name matches nothing — every token must be satisfied on the SAME task row, never aggregated across rows", async () => {
+    const clientB = await prisma.client.findUniqueOrThrow({ where: { id: fixtures.clientB.id } });
+    // clientB's own name never appears in this task's own title or its
+    // project's own name — no single task row can ever satisfy both.
+    const mismatchedQuery = `${fixtures.task.title} ${clientB.name}`;
+    const result = await executeSearchTasks(fixtures.orgA.id, { query: mismatchedQuery });
+    expect(result).toEqual({ ok: true, results: [] });
+  });
 });

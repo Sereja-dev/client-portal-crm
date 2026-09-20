@@ -2,6 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { PROJECT_STATUSES } from "@/lib/validation/project";
 import { escapeLikePattern } from "@/lib/search/normalize-query";
+import { tokenizeAiSearchQuery } from "./query-match";
 import { isPlainObject, hasOnlyAllowedKeys, isValidOptionalQuery, isValidOptionalEnum, isValidOptionalRef } from "./validation";
 import { assertExactKeysList } from "./output-projection";
 import { toolError, toolOk, type AiToolResult } from "./result";
@@ -84,15 +85,29 @@ export async function executeSearchProjects(organizationId: string, rawInput: un
   try {
     const trimmedQuery = validated.query?.trim();
     const statusFilter = await buildStatusFilter(organizationId, validated.status);
-    // AND, not a spread-`OR` — see clients.ts's own identical comment.
-    const searchFilter: Prisma.ProjectWhereInput = trimmedQuery
-      ? {
-          OR: [
-            { name: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } },
-            { client: { name: { contains: escapeLikePattern(trimmedQuery), mode: "insensitive" } } },
-          ],
-        }
-      : {};
+    // Multi-Entity Search Matching Fix — every query TOKEN must match
+    // somewhere across name/client.name on the SAME project row (an AND
+    // of per-token ORs), replacing the prior "the whole trimmed query
+    // must be a substring of one single field" rule — see invoices.ts's
+    // own identical comment and this fix's own architecture audit. A
+    // single-token query is semantically identical to the prior
+    // behavior. This nested `AND` (searchFilter's own) combines with the
+    // outer `AND: [statusFilter, searchFilter]` below by simple array
+    // nesting, not by a second sibling `OR`/`AND` key — still AND, not a
+    // spread-`OR` — see clients.ts's own identical comment on why a
+    // plain object spread of two `OR` keys would silently collide.
+    const tokens = trimmedQuery ? tokenizeAiSearchQuery(trimmedQuery) : [];
+    const searchFilter: Prisma.ProjectWhereInput =
+      tokens.length > 0
+        ? {
+            AND: tokens.map((token) => ({
+              OR: [
+                { name: { contains: escapeLikePattern(token), mode: "insensitive" as const } },
+                { client: { name: { contains: escapeLikePattern(token), mode: "insensitive" as const } } },
+              ],
+            })),
+          }
+        : {};
 
     const rows = await prisma.project.findMany({
       where: {
