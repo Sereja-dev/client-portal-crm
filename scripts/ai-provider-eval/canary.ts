@@ -100,14 +100,30 @@ export type CanaryProviderResult = {
  *     but run.protocolViolation is false — i.e. the model asked for a
  *     THIRD tool call instead of returning final text within
  *     CANARY_MAX_PROVIDER_CALLS), an unregistered tool was attempted, a
- *     tool call's own arguments were invalid, or no final text was ever
- *     produced for any other reason -> TOOL_PROTOCOL_FAILURE: the raw
- *     request/response protocol itself worked, but the tool-calling
- *     round trip didn't converge the way this canary expects.
+ *     tool call's own arguments were invalid, the actual tool sequence
+ *     didn't exactly match the fixed case's own `expectedToolSequence`
+ *     (score.fullSequenceMatch === false — covers a wrong-but-registered
+ *     tool with valid arguments, no tool call at all before final text,
+ *     and any extra/short sequence, not just an outright protocol error),
+ *     or no final text was ever produced for any other reason
+ *     -> TOOL_PROTOCOL_FAILURE: the raw request/response protocol itself
+ *     worked, but the tool-calling round trip didn't converge the way
+ *     this canary expects.
  *   - anything else -> PASS.
  * A raw UUID leak is folded into PROTOCOL_FAILURE rather than added as a
  * fifth classification, keeping this function's return type exactly the
  * four values the locked design specifies.
+ *
+ * The expected-tool-sequence check below is deliberately protocol-only,
+ * never factuality-based: it reuses score.fullSequenceMatch (already
+ * computed by the unmodified scoreRun()/scoreToolSelection(), comparing
+ * run.toolCalls's own tool names against caseDef.expectedToolSequence —
+ * never against expectedFactGroups/keyFactsConfirmed). A PASS therefore
+ * still says nothing about answer quality, only that the fixed case's
+ * required tool was actually called, once, exactly as expected — the one
+ * guarantee this canary case exists to exercise. See
+ * test/canary.test.ts's own "wrong-but-valid tool" and "no tool call"
+ * adversarial cases for the exact scenarios this closes.
  */
 export function classifyCanaryProviderResult(run: RunResult, score: CaseScore): CanaryClassification {
   if (run.errorClass && CANARY_TRANSPORT_ERROR_CLASSES.has(run.errorClass)) {
@@ -131,6 +147,15 @@ export function classifyCanaryProviderResult(run: RunResult, score: CaseScore): 
     return "TOOL_PROTOCOL_FAILURE";
   }
   if (score.argumentOutcomes.some((outcome) => outcome !== "valid")) {
+    return "TOOL_PROTOCOL_FAILURE";
+  }
+  if (!score.fullSequenceMatch) {
+    // The actual tool-call sequence didn't exactly match the fixed
+    // case's own expectedToolSequence — a wrong-but-registered tool with
+    // valid arguments, no tool call at all, or an extra/short sequence.
+    // Every one of those is otherwise indistinguishable from a genuine
+    // protocol success by the checks above alone, which is exactly the
+    // gap this check closes.
     return "TOOL_PROTOCOL_FAILURE";
   }
   if (run.finalText === null) {

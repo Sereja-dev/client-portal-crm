@@ -155,6 +155,58 @@ describe("canary.ts — classification mapping", () => {
   });
 });
 
+describe("canary.ts — PASS requires the fixed case's exact expected tool sequence (pre-push review §I fix)", () => {
+  test("a WRONG but registered tool, called with valid arguments, followed by final text, maps to TOOL_PROTOCOL_FAILURE, not PASS", async () => {
+    const wrongToolThenText: NormalizedProviderTurn[] = [
+      { kind: "ok", response: { kind: "toolCall", call: { toolName: "searchClients", args: {} }, usage: USAGE } },
+      { kind: "ok", response: { kind: "text", text: "Here are the clients.", usage: USAGE } },
+    ];
+    const openai = fakeSpec("openai", wrongToolThenText);
+
+    const sweep = await executeCanarySweep(CANARY_CASE, [openai]);
+
+    assert.equal(sweep.providers[0].classification, "TOOL_PROTOCOL_FAILURE", "searchClients is registered and validly-argued, but is not the expected getOrganizationSummary — must not PASS");
+    assert.equal(sweep.overall, "FAIL");
+    assert.equal(sweep.providers[0].providerCallCount, 2, "exactly 2 provider calls — no call 3");
+    assert.equal(sweep.providers[0].toolSelected, "searchClients", "the wrong tool is still recorded diagnostically in the artifact");
+  });
+
+  test("final text with NO tool call at all maps to TOOL_PROTOCOL_FAILURE, not PASS", async () => {
+    const noToolThenText: NormalizedProviderTurn[] = [{ kind: "ok", response: { kind: "text", text: "The organization is doing fine.", usage: USAGE } }];
+    const openai = fakeSpec("openai", noToolThenText);
+
+    const sweep = await executeCanarySweep(CANARY_CASE, [openai]);
+
+    assert.equal(sweep.providers[0].classification, "TOOL_PROTOCOL_FAILURE", "final text alone, with no getOrganizationSummary call, must not PASS");
+    assert.equal(sweep.overall, "FAIL");
+    assert.equal(sweep.providers[0].providerCallCount, 1);
+    assert.equal(sweep.providers[0].toolSelected, null);
+  });
+
+  test("happy path — the correct single tool call followed by final text still maps to PASS, with score.fullSequenceMatch true", async () => {
+    const { scoreRun } = await import("../scoring.js");
+    const { runBenchmarkTurn } = await import("../loop.js");
+    const run = {
+      ...(await runBenchmarkTurn({
+        provider: "openai",
+        model: "m",
+        complete: scripted(SUCCESSFUL_TOOL_ROUND_TRIP),
+        userMessage: CANARY_CASE.prompt,
+        estimateCostUsd: ZERO_COST,
+        maxProviderCalls: CANARY_MAX_PROVIDER_CALLS,
+      })),
+      caseId: CANARY_CASE.id,
+      repetition: 1,
+    };
+    const score = scoreRun(CANARY_CASE, run);
+    assert.equal(score.fullSequenceMatch, true, "the scripted round trip calls exactly getOrganizationSummary once, matching expectedToolSequence");
+    assert.equal(classifyCanaryProviderResult(run, score), "PASS");
+
+    const sweep = await executeCanarySweep(CANARY_CASE, [fakeSpec("openai", SUCCESSFUL_TOOL_ROUND_TRIP)]);
+    assert.equal(sweep.providers[0].classification, "PASS");
+  });
+});
+
 describe("canary.ts — artifact shape (item 11, 12)", () => {
   test("11. runKind === \"canary\", and no SelectionOutcome/winner field exists anywhere in the artifact", async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), "aqenra-canary-artifact-test-"));
