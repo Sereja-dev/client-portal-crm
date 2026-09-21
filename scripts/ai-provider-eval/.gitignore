@@ -25,3 +25,12 @@ node_modules/
 # it (see README's own "Live protocol canary" section). Synthetic-
 # fixture-derived, local-only, same reasoning as /results/.
 /canary-results/
+
+# Bounded live validation subset output (--subset / npm run subset) — one
+# subdirectory per operator-supplied --run-id, each holding
+# subset-results.json/subset-report.md/subset-forensic-trace.json (see
+# README's own "Bounded live validation subset" section). A third,
+# separate artifact root from /results/ and /canary-results/ above,
+# never written to either — same reasoning: synthetic-fixture-derived,
+# local-only, never an official comparison artifact.
+/subset-results/
