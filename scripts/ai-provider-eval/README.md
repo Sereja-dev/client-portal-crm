@@ -524,10 +524,54 @@ earlier version is reinterpreted or rescored — the 1.1.0 live run
 referenced above remains immutable and valid only under 1.1.0's own
 semantics.
 
+**v1.5.0 — Post-Subset Scorer / Expectation Repair.** Two evidence-backed
+corrections, both derived from real output collected by the bounded live
+validation subset run `v1.4.0-bounded-20260920T154643Z` (see "Bounded
+live validation subset" above):
+
+- **`invoice-03`'s ID-optional-if-fully-descriptive repair.** Restructured,
+  mirroring `invoice-02`'s own v1.4.0 shape, into `[ID or client] AND [ID
+  or project] AND [ID or amount]`. Real subset evidence (OpenAI, 2/2
+  reps) correctly, completely identified the invoice by client + project
+  + amount ("Brightline Robotics" / "Warehouse Automation Pilot" /
+  $15,750.50), with no literal invoice number ever mentioned, yet failed
+  the prior single-required-literal check. A companion guard
+  (`allowedInvoiceIds: ["INV-1004"]`, reusing `scoring.ts`'s existing
+  `findDisallowedInvoiceIds()` unmodified) fails any response containing
+  a fabricated invoice-shaped identifier, so the relaxation can never be
+  satisfied by a wrong ID alongside correct descriptive facts. Status and
+  due date are deliberately **not** accepted as alternative identity
+  branches — both are redundant once client + project + amount already
+  establish identity.
+- **`nonexistent-02`'s absence-phrase repair.** Gained exactly two new
+  OR-alternatives, `"didn't return any results"` / `"did not return any
+  results"`. Real subset evidence (Anthropic, 1 rep) correctly,
+  unambiguously reported absence ("The search didn't return any results
+  for a project called 'Apollo Launch'.") using a verb none of the
+  existing accepted phrases contained. Deliberately **not** broadened to
+  generic phrasings like `"no results"`/`"no results found"` — neither is
+  evidenced by real output, and both false-positive against a constructed
+  adversarial sentence such as "there are no results because the tool
+  failed."
+
+No change to `normalizePhraseText()`, the `forbiddenClaims`/
+`forbiddenClaimsAffectFactuality` mechanism, `decision.ts`'s frozen
+thresholds, `invoice-01`/`invoice-02`'s own semantics, or any other case.
+Product runtime, `tool-runtime.ts`, and every fixture are byte-for-byte
+unchanged — the fresh subset evidence itself already confirmed
+`searchInvoices` correctly returns `INV-1004` and `searchProjects`
+correctly returns no results for a genuinely nonexistent project, so no
+Product-side defect was implicated. The `v1.4.0-bounded-20260920T154643Z`
+bounded-subset run above remains valid evidence **only** under its own
+1.4.0 definition — it is the evidence that motivated this bump, never
+retroactively relabeled as 1.5.0 evidence itself. **No fresh live run
+under 1.5.0 has yet been performed** — see "Bounded live validation
+subset" above before treating 1.5.0 as validated for an official sweep.
+
 ## Benchmark definition version
 
 `benchmark-version.ts`'s `BENCHMARK_DEFINITION_VERSION` (currently
-`"1.4.0"`) is an explicit, manually-maintained version of the benchmark's
+`"1.5.0"`) is an explicit, manually-maintained version of the benchmark's
 **case/scoring semantics** — recorded in every run's reproducibility
 metadata (`results.json`) and shown prominently near the top of
 `report.md`, before the buried JSON dump. It is **never derived from the
@@ -1070,7 +1114,7 @@ without needing to touch this trace's own schema.
 ```
 {
   forensicTraceSchemaVersion: "1",
-  benchmarkDefinitionVersion: string,   // e.g. "1.4.0" — see "Benchmark definition version"
+  benchmarkDefinitionVersion: string,   // e.g. "1.5.0" — see "Benchmark definition version"
   gitSha: string,
   generatedAt: string,                  // ISO 8601
   anthropicModelId: string,

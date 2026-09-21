@@ -304,7 +304,11 @@ describe("v1.4.0 — drafting-02 case-local 'internal note' equivalent marker (s
   });
 });
 
-describe("v1.4.0 — invoice-01 / invoice-03 strictness protection (must NOT have been relaxed)", () => {
+describe("v1.4.0 — invoice-01 strictness protection (must NOT have been relaxed)", () => {
+  // invoice-03's own former strictness-protection tests lived here through
+  // v1.4.0, pending exactly the live evidence v1.5.0 now has in hand — see
+  // test/scoring-1.5.0-repair.test.ts for invoice-03's own current,
+  // dedicated coverage (it is intentionally no longer strict-ID-only).
   test("invoice-01: a response that describes both records fully but omits the literal invoice IDs still FAILS (unlike invoice-02, no ID-optional repair was applied here)", () => {
     const score = scoreRun(
       findCase("invoice-01"),
@@ -322,21 +326,6 @@ describe("v1.4.0 — invoice-01 / invoice-03 strictness protection (must NOT hav
       assert.equal(group.length, 1, "invoice-01 must not have been restructured into OR-groups");
     }
     assert.equal(caseDef.allowedInvoiceIds, undefined, "invoice-01 must not have received the wrong-ID guard — it was never given the ID-optional repair that guard exists to protect");
-  });
-
-  test("invoice-03: a fully descriptive-sounding answer (client + project) that omits INV-1004 still FAILS under v1.4.0", () => {
-    const score = scoreRun(
-      findCase("invoice-03"),
-      baseRun({ finalText: "Found the invoice for Brightline Robotics' Warehouse Automation Pilot project — it's overdue at $15,750.50 USD." }),
-    );
-    assert.notDeepEqual(score.keyFactsMissing, [], "invoice-03 must remain strict pending a fresh live run under the fixed search tool — see the locked scope correction");
-  });
-
-  test("invoice-03: exact original expectedFactGroups shape is unchanged, no allowedInvoiceIds", () => {
-    const caseDef = findCase("invoice-03");
-    assert.equal(caseDef.expectedFactGroups.length, 1);
-    assert.equal(caseDef.expectedFactGroups[0].length, 1, "invoice-03 must not have been restructured into OR-groups");
-    assert.equal(caseDef.allowedInvoiceIds, undefined);
   });
 });
 

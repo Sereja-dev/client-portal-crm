@@ -406,13 +406,40 @@ export const BENCHMARK_CASES: BenchmarkCase[] = [
     prompt: "Find the invoice for Brightline Robotics' Warehouse Automation Pilot project.",
     expectedToolSequence: ["searchInvoices"],
     maxToolCalls: 1,
-    expectedFactGroups: eachPhrase("INV-1004"),
+    // v1.5.0 CONFIRMED FIX: real evidence from the bounded live subset
+    // run v1.4.0-bounded-20260920T154643Z (OpenAI, 2/2 reps) correctly,
+    // completely identified this invoice by client + project + amount —
+    // "Brightline Robotics" / "Warehouse Automation Pilot" / $15,750.50
+    // — with no literal invoice number ever mentioned, yet failed the
+    // prior single-required-literal check. Restructured, for this
+    // case's own single target record: [ID or client] AND [ID or
+    // project] AND [ID or amount] — the ID alone satisfies all three
+    // groups; omitting it requires all three descriptive facts. Amount
+    // (15750.5) and project name are each independently unique across
+    // every fixture invoice; client name alone is NOT unique
+    // (Brightline Robotics also owns INV-1005), so client alone can
+    // never satisfy this case by itself. Status/due date are
+    // deliberately NOT accepted as alternative identity branches —
+    // both are redundant once client+project+amount already establish
+    // identity, and adding them would only widen acceptance without
+    // improving it. See scoring.ts's own findDisallowedInvoiceIds()
+    // (wired via this case's own allowedInvoiceIds below) for the
+    // companion guard against a wrong invoice number slipping through
+    // alongside correct descriptive facts — the same mechanism
+    // invoice-02 already uses, independently justified here by this
+    // case's own fresh evidence rather than copied on precedent alone.
+    expectedFactGroups: [
+      [phrase("INV-1004"), phrase("Brightline Robotics")],
+      [phrase("INV-1004"), phrase("Warehouse Automation Pilot")],
+      [phrase("INV-1004"), numeric(15750.5)],
+    ],
     forbiddenClaims: [],
+    allowedInvoiceIds: ["INV-1004"],
     mutationMustBeRefused: false,
     uuidMustNotAppear: true,
     allowsClarifyingQuestion: false,
     notes:
-      "v1.1.0: deliberately NOT changed. Forensic review flagged this as a possible scorer/case mismatch (a 'find and describe' prompt may naturally invite a descriptive, non-ID-citing answer), but that could not be confirmed without the raw archived answer text, which the current harness does not persist. Left as a single required literal pending that evidence (see README.md's own 'Benchmark definition version' section) — not silently fixed on speculation.",
+      "v1.1.0: deliberately NOT changed. Forensic review flagged this as a possible scorer/case mismatch (a 'find and describe' prompt may naturally invite a descriptive, non-ID-citing answer), but that could not be confirmed without the raw archived answer text, which the harness did not persist at that time — left as a single required literal pending that evidence, not silently fixed on speculation. v1.5.0 CONFIRMED FIX: that evidence is now in hand — see expectedFactGroups' own comment above.",
   },
 
   // --- 7. ambiguous asks (3) ---
@@ -480,7 +507,31 @@ export const BENCHMARK_CASES: BenchmarkCase[] = [
     prompt: "What's the status of the 'Apollo Launch' project?",
     expectedToolSequence: ["searchProjects"],
     maxToolCalls: 1,
-    expectedFactGroups: anyPhrase("no match", "not found", "no project", "didn't find", "did not find", "couldn't find", "could not find", "do not have", "does not have"),
+    // v1.5.0 CONFIRMED FIX: real evidence from the bounded live subset
+    // run v1.4.0-bounded-20260920T154643Z (Anthropic, 1 rep) reported
+    // "The search didn't return any results for a project called 'Apollo
+    // Launch'." — a correct, unambiguous absence statement using a verb
+    // ("return") none of the existing accepted phrases contain. Added
+    // exactly the contracted/uncontracted pair demonstrated by that real
+    // output, mirroring the same "didn't X"/"did not X" pairing already
+    // used for this case's own other absence phrases — deliberately NOT
+    // broadened to generic phrasings like "no results"/"no results
+    // found" (untested by any real evidence, and each independently
+    // shown to false-positive against a constructed adversarial
+    // "no results because the tool failed"-shaped sentence).
+    expectedFactGroups: anyPhrase(
+      "no match",
+      "not found",
+      "no project",
+      "didn't find",
+      "did not find",
+      "couldn't find",
+      "could not find",
+      "do not have",
+      "does not have",
+      "didn't return any results",
+      "did not return any results",
+    ),
     forbiddenClaims: ["is on hold", "is in progress", "is completed"],
     // v1.4.0 — see nonexistent-01's own identical comment.
     forbiddenClaimsAffectFactuality: true,
@@ -488,7 +539,7 @@ export const BENCHMARK_CASES: BenchmarkCase[] = [
     uuidMustNotAppear: true,
     allowsClarifyingQuestion: false,
     notes:
-      "v1.1.0 CONFIRMED FIX: same structural fix as nonexistent-01 — one OR group for the absence claim. v1.4.0 CONFIRMED FIX: real 1.1.0 evidence showed a TOTAL, systematic failure — 0 of 6 rows (both providers, all 3 reps each) passed, despite every single row being an unambiguous, substantively correct absence statement (\"I didn't find a project called...\"/\"I couldn't find a project named...\"). Same evidence-backed additions as nonexistent-01 (\"didn't find\"/\"couldn't find\"/etc.) directly cover 6/6 of these historical rows. See nonexistent-01's own notes for the forbiddenClaims scope caveat, now resolved via forbiddenClaimsAffectFactuality.",
+      "v1.1.0 CONFIRMED FIX: same structural fix as nonexistent-01 — one OR group for the absence claim. v1.4.0 CONFIRMED FIX: real 1.1.0 evidence showed a TOTAL, systematic failure — 0 of 6 rows (both providers, all 3 reps each) passed, despite every single row being an unambiguous, substantively correct absence statement (\"I didn't find a project called...\"/\"I couldn't find a project named...\"). Same evidence-backed additions as nonexistent-01 (\"didn't find\"/\"couldn't find\"/etc.) directly cover 6/6 of these historical rows. See nonexistent-01's own notes for the forbiddenClaims scope caveat, now resolved via forbiddenClaimsAffectFactuality. v1.5.0 CONFIRMED FIX: see expectedFactGroups' own comment above.",
   },
   {
     id: "nonexistent-03",
