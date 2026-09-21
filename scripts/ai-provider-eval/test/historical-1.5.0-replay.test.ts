@@ -2,13 +2,19 @@
  * Benchmark definition v1.5.0 — historical diagnostic replay.
  *
  * DIAGNOSTIC ONLY — NOT AN OFFICIAL RESULT. Replays the preserved,
- * immutable 1.1.0 live-run artifact (`results/forensic-trace.json`)
- * through the CURRENT (v1.5.0) scorer, entirely offline and read-only.
- * Never writes to `results/`, never mutates any preserved artifact, and
- * never produces a new official result — the real 1.1.0 archive
- * (`results/results.json`, `officialRun: true`) remains untouched and is
- * the only authoritative record of that run's own outcome under its own
- * (1.1.0) semantics.
+ * immutable 1.1.0 live-run evidence through the CURRENT (v1.5.0) scorer,
+ * entirely offline. Never writes to `results/`, never mutates any
+ * preserved artifact, and never produces a new official result — the
+ * real 1.1.0 archive (`results/results.json`, `officialRun: true`)
+ * remains untouched and is the only authoritative record of that run's
+ * own outcome under its own (1.1.0) semantics.
+ *
+ * SOURCE: test/historical-1.1.0-evidence.ts — see that file's own header
+ * comment for exact provenance/hashes and why this file no longer reads
+ * `results/` directly (results/ is the single, fixed, mutable workspace
+ * `--run` reuses for every official sweep — see this package's own
+ * official-run readiness audit). This migration changes only where the
+ * data comes from — every assertion below is byte-for-byte unchanged.
  *
  * Only TWO cases changed in v1.5.0 (invoice-03, nonexistent-02) — see
  * benchmark-version.ts's own History and README.md's own "v1.5.0" entry.
@@ -21,21 +27,10 @@
  */
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { scoreRun } from "../scoring.js";
 import { BENCHMARK_CASES } from "../cases.js";
-import { RESULTS_DIR } from "../report.js";
 import type { RunResult } from "../result-types.js";
-
-type ForensicTraceRow = {
-  caseId: string;
-  provider: "anthropic" | "openai";
-  repetition: number;
-  finalText: string | null;
-  scorerDecision: { keyFactsMissing: string[] };
-};
-type ForensicTrace = { rowCount: number; complete: boolean; rows: ForensicTraceRow[] };
+import { HISTORICAL_ROW_COUNT, HISTORICAL_COMPLETE, HISTORICAL_ROW_METADATA, HISTORICAL_REAL_FINAL_TEXT } from "./historical-1.1.0-evidence.js";
 
 const IN_SCOPE_CASE_IDS = new Set(["invoice-03", "nonexistent-02"]);
 
@@ -59,22 +54,22 @@ function baseRun(finalText: string | null): RunResult {
 type ReplayRow = { caseId: string; provider: "anthropic" | "openai"; repetition: number; oldFail: boolean; newFail: boolean };
 
 function replay(): ReplayRow[] {
-  const raw = readFileSync(join(RESULTS_DIR, "forensic-trace.json"), "utf8");
-  const trace = JSON.parse(raw) as ForensicTrace;
-  assert.equal(trace.rowCount, 216, "sanity check: the preserved forensic trace must have exactly 216 rows");
-  assert.equal(trace.complete, true, "sanity check: the preserved forensic trace must be marked complete");
+  assert.equal(HISTORICAL_ROW_COUNT, 216, "sanity check: the preserved forensic trace must have exactly 216 rows");
+  assert.equal(HISTORICAL_COMPLETE, true, "sanity check: the preserved forensic trace must be marked complete");
+  assert.equal(HISTORICAL_ROW_METADATA.length, 216, "sanity check: the embedded fixture must carry all 216 rows' metadata");
 
   const caseById = new Map(BENCHMARK_CASES.map((c) => [c.id, c]));
 
-  return trace.rows.map((row): ReplayRow => {
-    const oldFail = row.scorerDecision.keyFactsMissing.length > 0;
+  return HISTORICAL_ROW_METADATA.map((row): ReplayRow => {
+    const oldFail = row.keyFactsMissing.length > 0;
     if (!IN_SCOPE_CASE_IDS.has(row.caseId)) {
       return { caseId: row.caseId, provider: row.provider, repetition: row.repetition, oldFail, newFail: oldFail };
     }
     const caseDef = caseById.get(row.caseId);
     if (!caseDef) throw new Error(`historical replay: no current case definition for "${row.caseId}"`);
-    if (row.finalText === null) throw new Error(`historical replay: no real finalText available for in-scope row ${row.caseId}/${row.provider}/rep${row.repetition}`);
-    const newScore = scoreRun(caseDef, baseRun(row.finalText));
+    const realText = HISTORICAL_REAL_FINAL_TEXT[`${row.caseId}|${row.provider}|${row.repetition}`];
+    if (realText === undefined) throw new Error(`historical replay: no real finalText available for in-scope row ${row.caseId}/${row.provider}/rep${row.repetition}`);
+    const newScore = scoreRun(caseDef, baseRun(realText));
     return { caseId: row.caseId, provider: row.provider, repetition: row.repetition, oldFail, newFail: newScore.keyFactsMissing.length > 0 };
   });
 }

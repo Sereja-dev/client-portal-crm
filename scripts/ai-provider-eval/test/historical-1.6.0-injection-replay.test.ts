@@ -8,15 +8,14 @@
  * through the CURRENT (v1.6.0) scorer, entirely offline.
  *
  * Two evidence sources:
- *   1. The preserved official 1.1.0 archive (`results/forensic-trace.json`,
- *      18 rows across injection-01/02/03) — read directly at test time,
- *      matching this repo's own existing convention for that one
- *      specific file (see test/historical-1.4.0-replay.test.ts /
- *      test/historical-1.5.0-replay.test.ts, both of which read it the
- *      same way; results/ is gitignored, but this file is treated as
- *      preserved evidence the local/CI environment is expected to have
- *      — see README.md's own "Known data loss"/"Test output isolation"
- *      sections). Never mutated.
+ *   1. The preserved official 1.1.0 archive — 18 rows across
+ *      injection-01/02/03 — sourced from test/historical-1.1.0-evidence.ts
+ *      (see that file's own header comment for exact provenance/hashes
+ *      and why this file no longer reads `results/` directly: results/
+ *      is the single, fixed, mutable workspace `--run` reuses for every
+ *      official sweep — see this package's own official-run readiness
+ *      audit). This migration changes only where the data comes from —
+ *      every assertion below is byte-for-byte unchanged.
  *   2. The completed bounded live subset run
  *      `v1.4.0-bounded-20260920T154643Z` — its own 4 injection-02 rows
  *      (2 providers x 2 reps), manually transcribed verbatim below with
@@ -25,25 +24,15 @@
  *      test/bounded-1.4.0-subset-replay.test.ts's own established
  *      convention). Source file SHA-256 at transcription time:
  *      `b3effb7c7ade665a5a827965367d5a616f7b2ad69f0534647868ef41566c278c`
- *      (that run's own subset-forensic-trace.json).
+ *      (that run's own subset-forensic-trace.json). Unchanged by this
+ *      migration.
  */
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { scoreRun } from "../scoring.js";
 import { BENCHMARK_CASES } from "../cases.js";
-import { RESULTS_DIR } from "../report.js";
 import type { RunResult } from "../result-types.js";
-
-type ForensicTraceRow = {
-  caseId: string;
-  provider: "anthropic" | "openai";
-  repetition: number;
-  finalText: string | null;
-  scorerDecision: { injectionCompliant: boolean; forbiddenClaimsPresent: string[] };
-};
-type ForensicTrace = { rowCount: number; complete: boolean; rows: ForensicTraceRow[] };
+import { HISTORICAL_ROW_COUNT, HISTORICAL_COMPLETE, HISTORICAL_ROW_METADATA, HISTORICAL_REAL_FINAL_TEXT } from "./historical-1.1.0-evidence.js";
 
 function baseRun(finalText: string | null): RunResult {
   return {
@@ -65,25 +54,24 @@ function baseRun(finalText: string | null): RunResult {
 const caseById = new Map(BENCHMARK_CASES.map((c) => [c.id, c]));
 
 describe("v1.6.0 historical 1.1.0 injection-category replay — DIAGNOSTIC ONLY, NOT AN OFFICIAL RESULT", () => {
-  const raw = readFileSync(join(RESULTS_DIR, "forensic-trace.json"), "utf8");
-  const trace = JSON.parse(raw) as ForensicTrace;
-
   test("sanity: the preserved forensic trace has exactly 216 rows and is marked complete", () => {
-    assert.equal(trace.rowCount, 216);
-    assert.equal(trace.complete, true);
+    assert.equal(HISTORICAL_ROW_COUNT, 216);
+    assert.equal(HISTORICAL_COMPLETE, true);
+    assert.equal(HISTORICAL_ROW_METADATA.length, 216);
   });
 
   test("all 18 historical injection-category rows (injection-01/02/03 x 2 providers x 3 reps) remain injectionCompliant=true under v1.6.0 — exact delta 0", () => {
-    const injectionRows = trace.rows.filter((r) => r.caseId.startsWith("injection-"));
+    const injectionRows = HISTORICAL_ROW_METADATA.filter((r) => r.caseId.startsWith("injection-"));
     assert.equal(injectionRows.length, 18, "sanity: exactly 18 historical injection-category rows must exist");
 
     let passToFail = 0;
     for (const row of injectionRows) {
-      const oldCompliant = row.scorerDecision.injectionCompliant;
+      const oldCompliant = row.injectionCompliant;
       assert.equal(oldCompliant, true, `sanity: every historical injection row was originally recorded as compliant (${row.caseId}/${row.provider}/rep${row.repetition})`);
       const caseDef = caseById.get(row.caseId)!;
-      if (row.finalText === null) throw new Error(`no finalText for ${row.caseId}/${row.provider}/rep${row.repetition}`);
-      const newScore = scoreRun(caseDef, baseRun(row.finalText));
+      const realText = HISTORICAL_REAL_FINAL_TEXT[`${row.caseId}|${row.provider}|${row.repetition}`];
+      if (realText === undefined) throw new Error(`no finalText for ${row.caseId}/${row.provider}/rep${row.repetition}`);
+      const newScore = scoreRun(caseDef, baseRun(realText));
       if (oldCompliant && !newScore.injectionCompliant) passToFail++;
       assert.equal(newScore.injectionCompliant, true, `${row.caseId}/${row.provider}/rep${row.repetition} must remain injectionCompliant=true under v1.6.0`);
     }

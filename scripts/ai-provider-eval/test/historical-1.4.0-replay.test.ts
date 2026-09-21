@@ -2,16 +2,26 @@
  * Benchmark definition v1.4.0 — historical diagnostic replay.
  *
  * DIAGNOSTIC ONLY — NOT AN OFFICIAL RESULT. This file replays the
- * preserved, immutable 1.1.0 live-run artifacts (`results/forensic-trace.json`
- * plus `results/drafting-blind-packet.json`/`drafting-blind-mapping.json`
- * for the drafting-category rows the forensic trace itself redacts)
- * through the CURRENT (v1.4.0) scorer, entirely offline and read-only.
- * It never writes to `results/`, never mutates any preserved artifact,
- * and never produces a new official result — the real 1.1.0 archive
- * (`results/results.json`, `officialRun: true`) remains untouched and
- * is the only authoritative record of that run's own outcome under its
- * own (1.1.0) semantics. See README.md's own "Benchmark definition
- * version" section on why archived evidence is never reinterpreted.
+ * preserved, immutable 1.1.0 live-run evidence through the CURRENT
+ * (v1.4.0) scorer, entirely offline. It never writes to `results/`,
+ * never mutates any preserved artifact, and never produces a new
+ * official result — the real 1.1.0 archive (`results/results.json`,
+ * `officialRun: true`) remains untouched and is the only authoritative
+ * record of that run's own outcome under its own (1.1.0) semantics. See
+ * README.md's own "Benchmark definition version" section on why
+ * archived evidence is never reinterpreted.
+ *
+ * SOURCE: test/historical-1.1.0-evidence.ts — an embedded, provenance-
+ * documented fixture of the exact fields this file needs from the
+ * preserved 1.1.0 archive (see that file's own header comment for exact
+ * hashes/provenance). This file no longer reads `results/` at all — see
+ * this package's own official-run readiness audit for why: `results/`
+ * is the single, fixed, mutable workspace `--run` reuses for every
+ * official sweep, so a live read here would silently start reading a
+ * DIFFERENT dataset (or throw) the moment a future official run's own
+ * evidence occupies that same path. This migration changes only where
+ * the data comes from — every assertion below is byte-for-byte
+ * unchanged from before it.
  *
  * For the 28 of 36 cases this revision's scoring changes cannot
  * possibly affect (no absence-phrase/normalization/ID/forbiddenClaims
@@ -20,34 +30,14 @@
  * would require the row's own raw finalText, which the forensic trace
  * deliberately never persists for drafting-category rows and which is
  * unnecessary here (nothing about those 28 cases' own scoring changed).
- * For the 8 cases genuinely in scope, the real finalText is used —
- * pulled from the forensic trace directly where present, or (for
- * drafting-01/02/03, whose finalText the trace redacts) joined from the
- * blind packet + its provider-reversal mapping.
+ * For the 8 cases genuinely in scope, the real finalText is used.
  */
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { scoreRun } from "../scoring.js";
 import { BENCHMARK_CASES } from "../cases.js";
-import { RESULTS_DIR } from "../report.js";
 import type { RunResult } from "../result-types.js";
-
-type ForensicTraceRow = {
-  caseId: string;
-  provider: "anthropic" | "openai";
-  repetition: number;
-  finalText: string | null;
-  scorerDecision: { keyFactsMissing: string[] };
-};
-
-type ForensicTrace = { rowCount: number; complete: boolean; rows: ForensicTraceRow[] };
-
-type BlindPacketEntry = { caseId: string; repetition: number; slot: string; blindId?: string; finalText: string };
-type BlindPacket = { entries: BlindPacketEntry[] };
-type BlindMappingEntry = { blindId: string; provider: "anthropic" | "openai" };
-type BlindMapping = { entries: BlindMappingEntry[] };
+import { HISTORICAL_ROW_COUNT, HISTORICAL_COMPLETE, HISTORICAL_ROW_METADATA, HISTORICAL_REAL_FINAL_TEXT } from "./historical-1.1.0-evidence.js";
 
 // Cases genuinely in scope for a v1.4.0 recompute — the only ones whose
 // own real finalText we actually need (see this file's own header
@@ -79,25 +69,6 @@ const NO_FACT_CASE_IDS = new Set([
 ]);
 const AMBIGUOUS_CASE_IDS = new Set(["ambiguous-01", "ambiguous-02", "ambiguous-03"]);
 
-function loadForensicTrace(): ForensicTrace {
-  const raw = readFileSync(join(RESULTS_DIR, "forensic-trace.json"), "utf8");
-  return JSON.parse(raw) as ForensicTrace;
-}
-
-function loadDraftingRealText(): Map<string, string> {
-  const packet = JSON.parse(readFileSync(join(RESULTS_DIR, "drafting-blind-packet.json"), "utf8")) as BlindPacket;
-  const mapping = JSON.parse(readFileSync(join(RESULTS_DIR, "drafting-blind-mapping.json"), "utf8")) as BlindMapping;
-  const providerByBlindId = new Map(mapping.entries.map((e) => [e.blindId, e.provider]));
-  const byKey = new Map<string, string>();
-  for (const entry of packet.entries) {
-    const blindId = entry.blindId ?? `${entry.caseId}-rep${entry.repetition}-${entry.slot}`;
-    const provider = providerByBlindId.get(blindId);
-    if (!provider) continue;
-    byKey.set(`${entry.caseId}|${provider}|${entry.repetition}`, entry.finalText);
-  }
-  return byKey;
-}
-
 function baseRun(finalText: string | null): RunResult {
   return {
     caseId: "",
@@ -126,33 +97,28 @@ type ReplayRow = {
 };
 
 function replay(): ReplayRow[] {
-  const trace = loadForensicTrace();
-  assert.equal(trace.rowCount, 216, "sanity check: the preserved forensic trace must have exactly 216 rows");
-  assert.equal(trace.complete, true, "sanity check: the preserved forensic trace must be marked complete");
+  assert.equal(HISTORICAL_ROW_COUNT, 216, "sanity check: the preserved forensic trace must have exactly 216 rows");
+  assert.equal(HISTORICAL_COMPLETE, true, "sanity check: the preserved forensic trace must be marked complete");
+  assert.equal(HISTORICAL_ROW_METADATA.length, 216, "sanity check: the embedded fixture must carry all 216 rows' metadata");
 
-  const draftingRealText = loadDraftingRealText();
   const caseById = new Map(BENCHMARK_CASES.map((c) => [c.id, c]));
-  // Raw rows carry factualityNeedsHumanReview, which the narrower
-  // ForensicTraceRow type above omits (only keyFactsMissing is declared
-  // there, all this file otherwise needs).
-  const rawRows = trace.rows as unknown as (ForensicTraceRow & { scorerDecision: { factualityNeedsHumanReview?: boolean } })[];
 
-  return rawRows.map((row): ReplayRow => {
+  return HISTORICAL_ROW_METADATA.map((row): ReplayRow => {
     const caseDef = caseById.get(row.caseId);
     if (!caseDef) throw new Error(`historical replay: no current case definition for "${row.caseId}"`);
 
-    const oldFail = row.scorerDecision.keyFactsMissing.length > 0;
-    const oldNeedsHumanReview = Boolean(row.scorerDecision.factualityNeedsHumanReview);
+    const oldFail = row.keyFactsMissing.length > 0;
+    const oldNeedsHumanReview = row.factualityNeedsHumanReview;
 
     if (!IN_SCOPE_CASE_IDS.has(row.caseId)) {
       // Not in scope for this revision's changes — the original
       // recorded outcome IS the current outcome; no recompute needed
-      // or possible (raw text may not even be available).
+      // or possible (raw text isn't embedded for out-of-scope rows).
       return { caseId: row.caseId, provider: row.provider, repetition: row.repetition, oldFail, newFail: oldFail, needsHumanReview: oldNeedsHumanReview, newlyFixedByForbiddenClaimRule: false };
     }
 
-    const realText = row.finalText ?? draftingRealText.get(`${row.caseId}|${row.provider}|${row.repetition}`) ?? null;
-    if (realText === null) {
+    const realText = HISTORICAL_REAL_FINAL_TEXT[`${row.caseId}|${row.provider}|${row.repetition}`];
+    if (realText === undefined) {
       throw new Error(`historical replay: no real finalText available for in-scope row ${row.caseId}/${row.provider}/rep${row.repetition}`);
     }
 
