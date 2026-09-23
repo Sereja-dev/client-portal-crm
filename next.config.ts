@@ -7,21 +7,29 @@ import type { NextConfig } from "next";
 // Every directive here is justified by what this app actually does, not
 // copied blindly:
 //   - script-src/style-src 'unsafe-inline': Next.js injects its own inline
-//     <script> for RSC/hydration payloads on every page, and two dashboard
-//     components (revenue-chart.tsx, breakdown-card.tsx) use inline
-//     style={{...}} for data-driven bar/percentage widths. Neither can be
-//     removed without a nonce-based setup, which would require middleware
-//     changes this stage deliberately avoids.
-//   - script-src 'unsafe-eval': kept for Next.js App Router's own runtime
-//     needs; not verified removable without risking hydration breakage.
-//   - font-src allows https: broadly, but nothing external is actually
-//     loaded today: next/font/google (Geist/Geist Mono) downloads at build
-//     time and self-hosts from /_next/static/media — confirmed via the
-//     production Link preload header — so no fonts.gstatic.com request
-//     ever happens. img-src's blob:/https: (still no next/image usage
-//     anywhere) are both load-bearing as of Sale-Ready Phase A.1 PR5's
-//     logo upload widget: blob: for the client-side pre-upload preview,
-//     https: for the persisted logo's real Supabase Storage public URL.
+//     <script> for RSC/hydration payloads on every page, and several
+//     data-driven dashboard/reporting/billing widgets (bar/percentage
+//     bars, a brand-color swatch, the lead-capture form's honeypot field)
+//     use inline style={{...}} — a genuine, recurring category, not a
+//     fixed/exhaustive file list. Neither can be removed without a
+//     nonce-based setup, which would require middleware changes this
+//     stage deliberately avoids (CSP Hardening audit: nonces would also
+//     force every currently-static route into dynamic rendering).
+//   - script-src 'unsafe-eval': development-only (buildContentSecurityPolicy
+//     below), matching Next's own documented guidance — React's dev-mode
+//     error-stack reconstruction needs eval; neither React nor Next.js use
+//     it in production. Never present in the Production-served policy.
+//   - font-src is 'self' data: only — next/font/google (Geist/Geist Mono)
+//     downloads at build time and self-hosts from /_next/static/media —
+//     confirmed via the production Link preload header — so no
+//     fonts.gstatic.com request ever happens; no broad https: allowance is
+//     needed. img-src's blob:/https://*.supabase.co (still no next/image
+//     usage anywhere) are both load-bearing as of Sale-Ready Phase A.1
+//     PR5's logo upload widget: blob: for the client-side pre-upload
+//     preview, the scoped Supabase origin for the persisted logo's real
+//     Storage public URL — narrowed to that exact origin rather than a
+//     bare https: (CSP Hardening audit: no other external image origin is
+//     used anywhere in the app).
 //   - connect-src includes https://*.supabase.co and wss://*.supabase.co:
 //     this is the app's real Supabase project domain (confirmed from the
 //     session cookie name), not an invented origin. The only place the
@@ -36,21 +44,33 @@ import type { NextConfig } from "next";
 //     <embed> tags anywhere in the app (grep confirmed).
 //   - worker-src 'self' blob:: no Worker/SharedWorker/ServiceWorker usage
 //     exists today; kept as a safe default matching the audited template.
-const CONTENT_SECURITY_POLICY = [
-  "default-src 'self'",
-  "base-uri 'self'",
-  "object-src 'none'",
-  "frame-ancestors 'none'",
-  "form-action 'self'",
-  "img-src 'self' data: blob: https:",
-  "font-src 'self' https: data:",
-  "style-src 'self' 'unsafe-inline' https:",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
-  "worker-src 'self' blob:",
-  "frame-src 'none'",
-  "upgrade-insecure-requests",
-].join("; ");
+//
+// buildContentSecurityPolicy() is a pure function of `isDevelopment` (never
+// reading process.env itself) so scripts/security-checks/
+// check-security-headers.mjs can import and exercise both the
+// Production-equivalent and development-equivalent policy directly,
+// against this exact source, rather than duplicating the string into a
+// second, driftable copy.
+export function buildContentSecurityPolicy(isDevelopment: boolean): string {
+  return [
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    "img-src 'self' data: blob: https://*.supabase.co",
+    "font-src 'self' data:",
+    "style-src 'self' 'unsafe-inline' https:",
+    `script-src 'self' 'unsafe-inline'${isDevelopment ? " 'unsafe-eval'" : ""}`,
+    "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
+    "worker-src 'self' blob:",
+    "frame-src 'none'",
+    "upgrade-insecure-requests",
+  ].join("; ");
+}
+
+const isDevelopment = process.env.NODE_ENV === "development";
+const CONTENT_SECURITY_POLICY = buildContentSecurityPolicy(isDevelopment);
 
 const PERMISSIONS_POLICY = [
   "camera=()",
