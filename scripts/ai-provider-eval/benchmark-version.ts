@@ -301,5 +301,34 @@
  *     unaffected by this repair) — NO_MODEL_PASSES_QUALITY_GATE remains
  *     the diagnostic outcome. No fresh live run under 1.7.0 has yet
  *     been performed.
+ *   - 1.8.0: Overdue-Task Status-Filter Hardening — the shared Product/
+ *     eval base system prompt (src/lib/ai/system-prompt.ts's own
+ *     AI_ASSISTANT_SYSTEM_PROMPT — see this file's own header comment
+ *     and loop.ts's own identical import for why this text is not a
+ *     benchmark-local fork) gained one new rule: a generic overdue-task
+ *     query must filter only by due date, never assuming a specific
+ *     status such as "to do" unless the user names one, and a task
+ *     that is already done is never overdue regardless of its due
+ *     date. Motivated by official 1.6.0 evidence — 8 real rows across
+ *     both providers (org-summary-03/openai x3, task-03/anthropic x3,
+ *     task-03/openai x2) called searchTasks with a self-added
+ *     status:"TODO" filter, silently excluding real overdue tasks
+ *     whose actual status was IN_REVIEW/IN_PROGRESS — see the overdue-
+ *     query status-over-filter architecture audit for the full root-
+ *     cause reconstruction and the canonical Product business rule
+ *     this codifies (src/app/(dashboard)/dashboard/query.ts's own
+ *     `status: { not: "DONE" }, dueDate: { lt: now }` — the same rule
+ *     getOrganizationSummary already implements server-side).
+ *     This changes provider-visible request content — every one of a
+ *     future official run's own 216 turns' literal wire bytes differs
+ *     from every 1.7.0-and-earlier run, exactly the "BUMP when" trigger
+ *     above — so 1.6.0/1.7.0 runs remain valid and comparable only
+ *     against each other, never against a 1.8.0 run. No change to
+ *     cases.ts, scoring.ts, decision.ts, tool-runtime.ts, searchTasks's
+ *     own schema/runtime, provider adapters, or any other Product
+ *     query/business-logic file — this is a prompt-text-only change.
+ *     No fresh live run under 1.8.0 has yet been performed — this bump
+ *     records a shipped, offline-verified prompt change only, never an
+ *     implied quality improvement or a new official result.
  */
-export const BENCHMARK_DEFINITION_VERSION = "1.7.0";
+export const BENCHMARK_DEFINITION_VERSION = "1.8.0";

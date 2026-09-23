@@ -611,10 +611,46 @@ valid evidence **only** under its own 1.5.0 definition — it is the
 evidence that motivated this bump, never retroactively relabeled.
 **No fresh live run under 1.6.0 has yet been performed.**
 
+**v1.8.0 — Overdue-Task Status-Filter Hardening.** This is a
+**provider-visible shared Product/eval system-prompt change**, not a
+case/scorer/tool change: the shared base system prompt
+(`src/lib/ai/system-prompt.ts`'s own `AI_ASSISTANT_SYSTEM_PROMPT` —
+imported unmodified by both `src/lib/ai/orchestrate.ts` for Product and
+this package's own `loop.ts` for every benchmark turn, never a
+benchmark-local fork) gained one new rule: a generic overdue-task query
+must filter only by due date, never assuming a specific status such as
+"to do" unless the user names one, and a task that is already done is
+never overdue regardless of its due date. The exact behavior being
+hardened: 8 real official 1.6.0 rows across both providers
+(`org-summary-03`/openai x3, `task-03`/anthropic x3, `task-03`/openai
+x2) called `searchTasks` with a self-added `status:"TODO"` filter,
+silently excluding real overdue tasks whose actual status was
+`IN_REVIEW`/`IN_PROGRESS`. The canonical Product meaning of "overdue"
+this rule codifies — `status != DONE` and `dueDate < now` — is not new
+policy invented for this prompt; it is the exact, pre-existing rule
+`src/app/(dashboard)/dashboard/query.ts` already uses for the
+Dashboard's own overdue widget and that `getOrganizationSummary`
+already returns server-side. No change to `cases.ts`, `scoring.ts`,
+`decision.ts`, `tool-runtime.ts`, `searchTasks`'s own schema/runtime,
+or provider adapters — this is a prompt-text-only change. Every one of
+a future official run's own 216 turns' literal wire bytes differs from
+every 1.7.0-and-earlier run (the same "provider-visible request
+content changes" trigger the v1.2.0 temporal-grounding bump used), so
+1.6.0/1.7.0 evidence remains valid and comparable only against itself,
+never against a 1.8.0 run. **No fresh live run under 1.8.0 has yet been
+performed** — this bump records a shipped, offline-verified prompt
+change only, never an implied quality improvement or a new official
+result. Prior official 1.6.0 evidence
+(`~/aqenra-eval-archive/20260921T120454Z-v1.6.0-official-1d60d4d/`) and
+the 1.7.0-ready shipped-state archive
+(`~/aqenra-eval-archive/20260923T070216Z-v1.7.0-ready-d0649ea/`) remain
+historical/diagnostic evidence only — neither is rewritten or
+relabeled by this bump.
+
 ## Benchmark definition version
 
 `benchmark-version.ts`'s `BENCHMARK_DEFINITION_VERSION` (currently
-`"1.6.0"`) is an explicit, manually-maintained version of the benchmark's
+`"1.8.0"`) is an explicit, manually-maintained version of the benchmark's
 **case/scoring semantics** — recorded in every run's reproducibility
 metadata (`results.json`) and shown prominently near the top of
 `report.md`, before the buried JSON dump. It is **never derived from the
