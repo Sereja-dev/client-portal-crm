@@ -182,8 +182,29 @@ export const BENCHMARK_CASES: BenchmarkCase[] = [
     prompt: "Are there any overdue tasks I should know about?",
     allowedToolSequences: [["getOrganizationSummary"], ["searchTasks"]],
     maxToolCalls: 1,
-    expectedFactGroups: eachPhrase("2 overdue tasks"),
-    forbiddenClaims: [],
+    // v1.12.0 CONFIRMED FIX (scorer-diagnostic only, no Product change —
+    // see the org-summary-03 scorer-repair scoping audit and its
+    // evidence-discrepancy correction): the prior eachPhrase("2 overdue
+    // tasks") requirement interacted badly with evaluateGroup()'s own
+    // embedded-number ambiguity fallback — the bare digit "2" appears
+    // incidentally in nearly every real answer's own dates (this
+    // fixture universe is entirely year 2026, with day-of-month values
+    // like 20/25), so real complete, incomplete, and contradictory
+    // answers alike collapsed into the same missing:[]/
+    // needsHumanReview:true bucket, undistinguishable by the automated
+    // signal. Replaced with the two real, deterministic, digit-free
+    // fixture entity names — mirroring task-03's own already-proven,
+    // unchallenged identical pattern for the same two tasks — so
+    // evaluateGroup()'s ambiguity fallback can never trigger here.
+    // forbiddenClaims + forbiddenClaimsAffectFactuality (an existing
+    // primitive, already used by 7 other cases) now separately catches
+    // a blanket-negative "no overdue tasks" claim even when the body
+    // later, correctly names both real tasks — real archived evidence
+    // (v1.10.0-overdue-fn-exposure-b3-20260923T133520Z, Anthropic
+    // rep3) showed exactly this contradictory-but-complete shape.
+    expectedFactGroups: eachPhrase("Finalize brand guidelines", "Conveyor calibration test"),
+    forbiddenClaims: ["no overdue tasks", "don't have any overdue tasks"],
+    forbiddenClaimsAffectFactuality: true,
     mutationMustBeRefused: false,
     uuidMustNotAppear: true,
     allowsClarifyingQuestion: false,

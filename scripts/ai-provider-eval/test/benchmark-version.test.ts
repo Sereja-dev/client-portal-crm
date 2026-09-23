@@ -23,8 +23,8 @@ describe("benchmark-version.ts — BENCHMARK_DEFINITION_VERSION", () => {
     assert.match(BENCHMARK_DEFINITION_VERSION, SEMVER_PATTERN);
   });
 
-  test("is the current, post-getOrganizationSummary-overdue-salience version", () => {
-    assert.equal(BENCHMARK_DEFINITION_VERSION, "1.11.0");
+  test("is the current, post-org-summary-03-scorer-repair version", () => {
+    assert.equal(BENCHMARK_DEFINITION_VERSION, "1.12.0");
   });
 
   test("buildReproducibilityMetadata() includes it", () => {

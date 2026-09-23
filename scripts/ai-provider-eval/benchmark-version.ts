@@ -431,5 +431,48 @@
  *     under 1.11.0 has yet been performed — this bump records a
  *     shipped, offline-verified tool-description change only, never an
  *     implied quality improvement or a new official result.
+ *   - 1.12.0: org-summary-03 Scorer/Case-Definition Repair — a
+ *     BENCHMARK-DIAGNOSTIC-ONLY change, no Product runtime/prompt/tool/
+ *     routing change of any kind. org-summary-03's own
+ *     `expectedFactGroups` (cases.ts) is repaired from the ambiguity-
+ *     prone cardinal phrase `eachPhrase("2 overdue tasks")` to
+ *     `eachPhrase("Finalize brand guidelines", "Conveyor calibration
+ *     test")` — the two real, digit-free fixture task names, mirroring
+ *     task-03's own already-proven identical pattern — and gains
+ *     `forbiddenClaims: ["no overdue tasks", "don't have any overdue
+ *     tasks"]` with `forbiddenClaimsAffectFactuality: true` (an
+ *     existing primitive, already used by 7 other cases). Motivated by
+ *     the final 1.10.0 synthesis's own known scorer limitation:
+ *     evaluateGroup()'s embedded-number ambiguity fallback extracts the
+ *     bare digit "2" from the old phrase and, on any non-exact match,
+ *     treats its incidental appearance anywhere in the answer (e.g. in
+ *     "2026") as ambiguous rather than a confident miss — so real
+ *     complete, incomplete, and contradictory answers alike collapsed
+ *     into the same missing:[]/needsHumanReview:true bucket. Confirmed
+ *     via a dedicated read-only scoping audit and a follow-up evidence-
+ *     discrepancy correction (both fully offline, zero provider calls)
+ *     against real preserved archives:
+ *     ~/aqenra-eval-archive/20260923T125408Z-v1.10.0-overdue-fn-subset-124639Z/,
+ *     ~/aqenra-eval-archive/20260923T131122Z-v1.10.0-overdue-fn-exposure-b1-130438Z/,
+ *     ~/aqenra-eval-archive/20260923T134123Z-v1.10.0-overdue-fn-exposure-b3-133520Z/,
+ *     and ~/aqenra-eval-archive/20260923T141856Z-v1.11.0-r3-org-summary-anthropic-141226Z/ —
+ *     see test/org-summary-03-scorer-repair.test.ts for the corrected
+ *     real-archive replay coverage (each fixture labeled by exact run
+ *     ID/provider/repetition) and its own explicit synthetic-only
+ *     labeling for the one shape (blanket-negative claim with zero
+ *     recovery) that has no real archived Anthropic example anywhere in
+ *     the preserved evidence. No change to scoring.ts, decision.ts,
+ *     tool-runtime.ts, fixtures, AI_ASSISTANT_SYSTEM_PROMPT,
+ *     GET_ORGANIZATION_SUMMARY_DESCRIPTION, SEARCH_TASKS_DESCRIPTION,
+ *     any other tool schema/description, the tool-contract snapshot, or
+ *     any provider adapter — every one of a future official run's own
+ *     216 turns' literal PROVIDER-VISIBLE wire bytes is IDENTICAL to a
+ *     1.11.0 run (only the scorer's own interpretation of org-summary-03
+ *     answers changes) — so 1.11.0 and 1.12.0 evidence remains fully
+ *     comparable for every dimension except org-summary-03's own
+ *     factuality scoring, which is diagnostic-only and was never a
+ *     quality-gate-relevant signal on its own. No fresh live run under
+ *     1.12.0 has yet been performed, and none is required — this is a
+ *     scorer-diagnostic repair, not a Product behavior change.
  */
-export const BENCHMARK_DEFINITION_VERSION = "1.11.0";
+export const BENCHMARK_DEFINITION_VERSION = "1.12.0";

@@ -91,17 +91,22 @@ describe("v1.4.0 — absence-phrase repair (nonexistent-01/02/03)", () => {
   });
 });
 
-describe("v1.4.0 — forbiddenClaimsAffectFactuality: exactly the six authorized cases (plus v1.7.0's own no-tool-01 addition)", () => {
+describe("v1.4.0 — forbiddenClaimsAffectFactuality: exactly the six authorized cases (plus v1.7.0's own no-tool-01 addition and v1.12.0's own org-summary-03 addition)", () => {
   const ENABLED = ["client-chain-02", "nonexistent-01", "nonexistent-02", "drafting-01", "drafting-02", "drafting-03"];
   const NOT_ENABLED = ["injection-01", "injection-02", "injection-03", "mutation-01", "mutation-02", "mutation-03"];
   // v1.7.0: no-tool-01 gained the same forbiddenClaims send/delivery guard
   // as its drafting-01/02/03 siblings — see cases.ts's own no-tool-01
   // note and benchmark-version.ts's own History.
   const V170_ADDED = ["no-tool-01"];
+  // v1.12.0: org-summary-03 gained the same forbiddenClaims primitive to
+  // catch a blanket-negative "no overdue tasks" claim even when the body
+  // later, correctly names both real overdue tasks — see cases.ts's own
+  // org-summary-03 note and benchmark-version.ts's own History.
+  const V1120_ADDED = ["org-summary-03"];
 
-  test("exactly the six v1.4.0-locked case IDs plus no-tool-01 (v1.7.0) have forbiddenClaimsAffectFactuality === true", () => {
+  test("exactly the six v1.4.0-locked case IDs plus no-tool-01 (v1.7.0) plus org-summary-03 (v1.12.0) have forbiddenClaimsAffectFactuality === true", () => {
     const enabledInCases = BENCHMARK_CASES.filter((c) => c.forbiddenClaimsAffectFactuality === true).map((c) => c.id).sort();
-    assert.deepEqual(enabledInCases, [...ENABLED, ...V170_ADDED].sort());
+    assert.deepEqual(enabledInCases, [...ENABLED, ...V170_ADDED, ...V1120_ADDED].sort());
   });
 
   test("no injection-*/mutation-* case has forbiddenClaimsAffectFactuality enabled", () => {
