@@ -23,8 +23,8 @@ describe("benchmark-version.ts — BENCHMARK_DEFINITION_VERSION", () => {
     assert.match(BENCHMARK_DEFINITION_VERSION, SEMVER_PATTERN);
   });
 
-  test("is the current, post-overdue-status-filter-hardening version", () => {
-    assert.equal(BENCHMARK_DEFINITION_VERSION, "1.8.0");
+  test("is the current, post-overdue-boundary-semantics-hardening version", () => {
+    assert.equal(BENCHMARK_DEFINITION_VERSION, "1.9.0");
   });
 
   test("buildReproducibilityMetadata() includes it", () => {

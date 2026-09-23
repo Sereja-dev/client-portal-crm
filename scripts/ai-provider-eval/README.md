@@ -667,10 +667,39 @@ the 1.7.0-ready shipped-state archive
 historical/diagnostic evidence only — neither is rewritten or
 relabeled by this bump.
 
+**v1.9.0 — Overdue Boundary-Semantics Hardening.** Another
+**provider-visible shared Product/eval system-prompt change only** —
+one further sentence appended to the existing overdue-task rule in
+`src/lib/ai/system-prompt.ts`'s own `AI_ASSISTANT_SYSTEM_PROMPT`: a
+task is overdue only if its due date/time are strictly before the
+current moment, so a task due exactly at the current boundary, or
+later today, is not yet overdue. Motivated by a read-only residual
+audit of the `v1.8.0-overdue-20260923T074445Z` bounded live subset
+(archived at
+`~/aqenra-eval-archive/20260923T075411Z-v1.8.0-overdue-subset-074445Z/`):
+2/3 Anthropic `org-summary-03` reps characterized a task due exactly
+at the fixed temporal anchor (`2026-09-01T00:00:00.000Z`) as
+"overdue" rather than "due today" — the 1.8.0 prompt text addressed
+status-assumption and DONE-exclusion but never defined the exact
+boundary comparison. That same subset's separate 1/3
+`status:"TODO"` recurrence was independently classified as ordinary
+provider stochastic non-compliance against already-explicit 1.8.0
+prompt text, not a specification gap — the 1.8.0 status-filter rule
+is unchanged by this bump. No change to `cases.ts`, `scoring.ts`,
+`decision.ts`, `tool-runtime.ts`, `searchTasks`'s own schema/runtime,
+provider adapters, or the temporal-context suffix implementation —
+prompt semantics only. Every one of a future official run's own 216
+turns' literal wire bytes differs from every 1.8.0-and-earlier run, so
+1.8.0 and earlier evidence remains valid and comparable only against
+itself, never against a 1.9.0 run. **No fresh live run under 1.9.0 has
+yet been performed** — this bump records a shipped, offline-verified
+prompt change only, never an implied quality improvement or a new
+official result.
+
 ## Benchmark definition version
 
 `benchmark-version.ts`'s `BENCHMARK_DEFINITION_VERSION` (currently
-`"1.8.0"`) is an explicit, manually-maintained version of the benchmark's
+`"1.9.0"`) is an explicit, manually-maintained version of the benchmark's
 **case/scoring semantics** — recorded in every run's reproducibility
 metadata (`results.json`) and shown prominently near the top of
 `report.md`, before the buried JSON dump. It is **never derived from the

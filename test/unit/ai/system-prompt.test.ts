@@ -3,19 +3,21 @@ import { getAiAssistantSystemPrompt } from "@/lib/ai/system-prompt";
 import { buildEffectiveSystemPrompt } from "@/lib/ai/temporal-context";
 
 /**
- * AI Assistant — base system prompt, overdue-task status-filter rule.
+ * AI Assistant — base system prompt, overdue-task status-filter and
+ * boundary-semantics rules.
  *
- * OFFLINE PROOF ONLY — this file proves the new instruction's literal
+ * OFFLINE PROOF ONLY — this file proves the new instructions' literal
  * text exists in the Product runtime's own system prompt (and survives
  * into the effective, temporal-suffixed prompt every orchestrated turn
  * actually sends). It does NOT, and cannot, prove that a real provider
- * (OpenAI or Anthropic) actually changes its own tool-call behavior in
- * response to this instruction — Product has no deterministic planner
- * of its own; tool selection is entirely the model's own inference.
- * That can only be proven by a later live validation run (a bounded
- * subset targeting org-summary-03/task-03, see the overdue-query
- * hardening audit and scripts/ai-provider-eval/benchmark-version.ts's
- * own 1.8.0 History entry) — never by a test in this file.
+ * (OpenAI or Anthropic) actually changes its own tool-call or
+ * characterization behavior in response to these instructions —
+ * Product has no deterministic planner of its own; tool selection and
+ * final-text reasoning are entirely the model's own inference. That
+ * can only be proven by a later live validation run (a bounded subset
+ * targeting org-summary-03/task-03, see the overdue-query hardening
+ * audit and scripts/ai-provider-eval/benchmark-version.ts's own 1.8.0
+ * and 1.9.0 History entries) — never by a test in this file.
  *
  * Uses this repo's own established prompt-assertion convention
  * (test/unit/ai/temporal-context.test.ts's own toContain(...) style)
@@ -52,6 +54,46 @@ describe("getAiAssistantSystemPrompt — overdue-task status-filter rule", () =>
   });
 });
 
+describe("getAiAssistantSystemPrompt — overdue-task boundary-semantics rule (1.9.0)", () => {
+  it("(A) the existing status-filter rule is unchanged, verbatim", () => {
+    const prompt = getAiAssistantSystemPrompt();
+    expect(prompt).toContain(
+      `When answering a question about overdue tasks, filter only by due date — never assume a specific status such as "to do" unless the user names one.`,
+    );
+  });
+
+  it("(B) the existing done-task rule is unchanged, verbatim", () => {
+    const prompt = getAiAssistantSystemPrompt();
+    expect(prompt).toContain("A task that is already done is not overdue, regardless of its due date.");
+  });
+
+  it("(C) contains the exact new strict-boundary instruction, verbatim", () => {
+    const prompt = getAiAssistantSystemPrompt();
+    expect(prompt).toContain(
+      "A task is overdue only if its due date and time are strictly before the current moment — a task due exactly now, or later today, is not yet overdue.",
+    );
+  });
+
+  it("(D) explicitly states a task due exactly at the current moment is not overdue", () => {
+    const prompt = getAiAssistantSystemPrompt();
+    expect(prompt).toContain("a task due exactly now, or later today, is not yet overdue");
+  });
+
+  it("(E) explicitly states a task due later today is not yet overdue", () => {
+    const prompt = getAiAssistantSystemPrompt();
+    expect(prompt).toContain("or later today, is not yet overdue");
+  });
+
+  it("the new boundary sentence appears immediately after the existing overdue guidance, within the same bullet", () => {
+    const prompt = getAiAssistantSystemPrompt();
+    const doneRuleIndex = prompt.indexOf("A task that is already done is not overdue, regardless of its due date.");
+    const boundaryRuleIndex = prompt.indexOf("A task is overdue only if its due date and time are strictly before the current moment");
+    expect(doneRuleIndex).toBeGreaterThan(-1);
+    expect(boundaryRuleIndex).toBeGreaterThan(-1);
+    expect(boundaryRuleIndex).toBeGreaterThan(doneRuleIndex);
+  });
+});
+
 describe("buildEffectiveSystemPrompt(getAiAssistantSystemPrompt()) — overdue rule survives temporal-suffix composition", () => {
   it("the effective (temporal-suffixed) prompt still contains the exact overdue instruction, unmodified", () => {
     const effective = buildEffectiveSystemPrompt({
@@ -60,7 +102,7 @@ describe("buildEffectiveSystemPrompt(getAiAssistantSystemPrompt()) — overdue r
       timezone: "UTC",
     });
     expect(effective).toContain(
-      `When answering a question about overdue tasks, filter only by due date — never assume a specific status such as "to do" unless the user names one. A task that is already done is not overdue, regardless of its due date.`,
+      `When answering a question about overdue tasks, filter only by due date — never assume a specific status such as "to do" unless the user names one. A task that is already done is not overdue, regardless of its due date. A task is overdue only if its due date and time are strictly before the current moment — a task due exactly now, or later today, is not yet overdue.`,
     );
   });
 
