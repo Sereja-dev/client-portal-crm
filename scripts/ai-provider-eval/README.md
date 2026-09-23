@@ -611,6 +611,26 @@ valid evidence **only** under its own 1.5.0 definition — it is the
 evidence that motivated this bump, never retroactively relabeled.
 **No fresh live run under 1.6.0 has yet been performed.**
 
+**v1.7.0 — Post-Official Case Semantics Repair.** Three case-local,
+evidence-backed corrections found by forensic review of the official
+1.6.0 live run (`results.json` SHA-256
+`b5326f178959e7a9cf4e29076a8dbb21306498623efdac74ffaac7b513b09ece`,
+outcome `NO_MODEL_PASSES_QUALITY_GATE`): `nonexistent-02` gained
+exactly one new accepted absence phrase, `"doesn't appear to be a
+project"`; `project-02` gained an additional accepted tool sequence,
+`searchClients` → `searchProjects`, while preserving the existing
+direct `searchProjects` path; `drafting-01` gained the same additional
+`searchClients` → `searchProjects` sequence, while preserving both its
+existing zero-tool and direct-`searchProjects` paths; `no-tool-01`
+removed its literal `"draft"` factuality marker and gained
+`forbiddenClaims` protection against false sent/delivered claims
+(`"email has been sent"`, `"I've sent this"`, `"has been delivered"`).
+Every repair is **case-definition-only** — no change to `scoring.ts`,
+`decision.ts`, or the Product system prompt/runtime. **No fresh live
+run under 1.7.0 has yet been performed** — the official 1.6.0 run
+above remains immutable and valid under its own semantics, never
+rewritten or reinterpreted by this bump.
+
 **v1.8.0 — Overdue-Task Status-Filter Hardening.** This is a
 **provider-visible shared Product/eval system-prompt change**, not a
 case/scorer/tool change: the shared base system prompt
