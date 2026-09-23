@@ -64,8 +64,9 @@ const V150_STRUCTURALLY_CHANGED_CASE_IDS = new Set(["invoice-03"]);
 /**
  * v1.7.0 (Post-Official Case Semantics Repair) — no-tool-01's own
  * expectedFactGroups was emptied entirely (removing the literal-"draft"
- * requirement); see benchmark-version.ts's own History and
- * test/scoring-1.7.0-case-repair.test.ts for its own dedicated coverage.
+ * requirement); see cases.ts's own note, test/scoring-1.4.0-repair.test.ts's
+ * own field-level assertions, and test/historical-1.7.0-replay.test.ts's
+ * own real-evidence replay for its dedicated coverage.
  * project-02/drafting-01 also changed in v1.7.0, but only their tool-
  * sequence fields (allowedToolSequences/maxToolCalls) — their own
  * expectedFactGroups shape is untouched, so neither needs an exclusion

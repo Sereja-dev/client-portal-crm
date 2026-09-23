@@ -187,7 +187,7 @@ describe("v1.5.0 — nonexistent-02 new absence-phrase alternatives", () => {
     assert.notDeepEqual(score.keyFactsMissing, [], "\"no results\" alone was deliberately NOT added — only the two exact evidenced phrases were");
   });
 
-  test("case metadata: exactly the 9 original phrases plus the 2 v1.5.0 phrases (as of v1.5.0 — one further v1.7.0 addition is covered in test/scoring-1.7.0-case-repair.test.ts), in one OR-group, no other change", () => {
+  test("case metadata: exactly the 9 original phrases plus the 2 v1.5.0 phrases (as of v1.5.0 — one further v1.7.0 addition is covered in test/official-1.6.0-to-1.7.0-replay.test.ts, which owns the direct official-evidence positive proof of that addition), in one OR-group, no other change", () => {
     const caseDef = findCase("nonexistent-02");
     assert.equal(caseDef.expectedFactGroups.length, 1, "still a single OR-group, no structural change");
     const group = caseDef.expectedFactGroups[0];

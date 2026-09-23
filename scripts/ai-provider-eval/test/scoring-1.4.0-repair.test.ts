@@ -300,7 +300,7 @@ describe("v1.4.0 — drafting-02 case-local 'internal note' equivalent marker (s
     assert.notDeepEqual(score.keyFactsMissing, []);
   });
 
-  test("'internal note' is scoped to drafting-02 only — drafting-01/drafting-03 still require the literal 'draft' (no-tool-01 no longer requires any literal marker at all as of v1.7.0 — see its own dedicated coverage in test/scoring-1.7.0-case-repair.test.ts)", () => {
+  test("'internal note' is scoped to drafting-02 only — drafting-01/drafting-03 still require the literal 'draft' (no-tool-01 no longer requires any literal marker at all as of v1.7.0 — see this file's own 'no-tool-01 / drafting-01 / drafting-03' describe block below for its current field values)", () => {
     for (const id of ["drafting-01", "drafting-03"]) {
       const score = scoreRun(findCase(id), baseRun({ finalText: "Internal note — here is the finished, ready-to-use content." }));
       assert.notDeepEqual(score.keyFactsMissing, [], `${id} must NOT accept "internal note" as a substitute for "draft" — that equivalence is drafting-02-local only`);
@@ -336,10 +336,10 @@ describe("v1.4.0 — invoice-01 strictness protection (must NOT have been relaxe
 describe("v1.4.0 — no-tool-01 / drafting-01 / drafting-03 unchanged (no-tool-01 was true through v1.6.0; see v1.7.0 note below)", () => {
   // no-tool-01's own literal-"draft" requirement was removed in v1.7.0
   // (Post-Official Case Semantics Repair) — see cases.ts's own note and
-  // test/scoring-1.7.0-case-repair.test.ts for its full, current, dedicated
-  // coverage. This test file's own name/history refers to what was true
-  // through v1.6.0; the assertion below reflects the CURRENT (v1.7.0) shape
-  // so this file stays factually accurate rather than silently stale.
+  // the test immediately below for its full, current, dedicated coverage.
+  // This test file's own name/history refers to what was true through
+  // v1.6.0; the assertion below reflects the CURRENT (v1.7.0) shape so
+  // this file stays factually accurate rather than silently stale.
   test("no-tool-01's expectedFactGroups is now empty (v1.7.0) — no literal marker required, but forbiddenClaimsAffectFactuality is now enabled", () => {
     const caseDef = findCase("no-tool-01");
     assert.deepEqual(caseDef.expectedFactGroups, []);
