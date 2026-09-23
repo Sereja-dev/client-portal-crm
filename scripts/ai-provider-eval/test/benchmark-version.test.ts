@@ -23,8 +23,8 @@ describe("benchmark-version.ts — BENCHMARK_DEFINITION_VERSION", () => {
     assert.match(BENCHMARK_DEFINITION_VERSION, SEMVER_PATTERN);
   });
 
-  test("is the current, post-scorer-expectation-repair version", () => {
-    assert.equal(BENCHMARK_DEFINITION_VERSION, "1.6.0");
+  test("is the current, post-case-semantics-repair version", () => {
+    assert.equal(BENCHMARK_DEFINITION_VERSION, "1.7.0");
   });
 
   test("buildReproducibilityMetadata() includes it", () => {

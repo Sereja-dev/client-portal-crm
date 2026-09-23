@@ -61,6 +61,18 @@ const V140_STRUCTURALLY_CHANGED_CASE_IDS = new Set(["nonexistent-03", "invoice-0
  */
 const V150_STRUCTURALLY_CHANGED_CASE_IDS = new Set(["invoice-03"]);
 
+/**
+ * v1.7.0 (Post-Official Case Semantics Repair) — no-tool-01's own
+ * expectedFactGroups was emptied entirely (removing the literal-"draft"
+ * requirement); see benchmark-version.ts's own History and
+ * test/scoring-1.7.0-case-repair.test.ts for its own dedicated coverage.
+ * project-02/drafting-01 also changed in v1.7.0, but only their tool-
+ * sequence fields (allowedToolSequences/maxToolCalls) — their own
+ * expectedFactGroups shape is untouched, so neither needs an exclusion
+ * here (this file's own structural check is expectedFactGroups-only).
+ */
+const V170_STRUCTURALLY_CHANGED_CASE_IDS = new Set(["no-tool-01"]);
+
 function baseRun(overrides: Partial<RunResult>): RunResult {
   return {
     caseId: "test-case",
@@ -79,11 +91,17 @@ function baseRun(overrides: Partial<RunResult>): RunResult {
   };
 }
 
-describe("v1.1.0 migration regression — the 33 unaffected cases (v1.1.0 lens) / 29 unaffected cases (current, including v1.4.0/v1.5.0)", () => {
-  const unaffected = BENCHMARK_CASES.filter((c) => !INTENTIONALLY_CHANGED_CASE_IDS.has(c.id) && !V140_STRUCTURALLY_CHANGED_CASE_IDS.has(c.id) && !V150_STRUCTURALLY_CHANGED_CASE_IDS.has(c.id));
+describe("v1.1.0 migration regression — the 33 unaffected cases (v1.1.0 lens) / 28 unaffected cases (current, including v1.4.0/v1.5.0/v1.7.0)", () => {
+  const unaffected = BENCHMARK_CASES.filter(
+    (c) =>
+      !INTENTIONALLY_CHANGED_CASE_IDS.has(c.id) &&
+      !V140_STRUCTURALLY_CHANGED_CASE_IDS.has(c.id) &&
+      !V150_STRUCTURALLY_CHANGED_CASE_IDS.has(c.id) &&
+      !V170_STRUCTURALLY_CHANGED_CASE_IDS.has(c.id),
+  );
 
-  test("exactly 29 cases are structurally unaffected (36 total minus the 3 v1.1.0 confirmed fixes minus the 3 v1.4.0 structural changes minus the 1 v1.5.0 structural change)", () => {
-    assert.equal(unaffected.length, 29);
+  test("exactly 28 cases are structurally unaffected (36 total minus the 3 v1.1.0 confirmed fixes minus the 3 v1.4.0 structural changes minus the 1 v1.5.0 structural change minus the 1 v1.7.0 structural change)", () => {
+    assert.equal(unaffected.length, 28);
   });
 
   test("every unaffected case's groups are single-item phrase groups — no accidental OR grouping introduced by the migration", () => {

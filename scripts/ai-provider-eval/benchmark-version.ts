@@ -253,5 +253,53 @@
  *     evidence only under its own (1.5.0) definition — it is the
  *     evidence that motivated this bump, never retroactively relabeled.
  *     No fresh live run under 1.6.0 has yet been performed.
+ *   - 1.7.0: Post-Official Case Semantics Repair — three case-local,
+ *     evidence-backed corrections found by forensic review of the
+ *     official 1.6.0 live run (results.json SHA-256
+ *     b5326f178959e7a9cf4e29076a8dbb21306498623efdac74ffaac7b513b09ece,
+ *     outcome NO_MODEL_PASSES_QUALITY_GATE, archived at
+ *     ~/aqenra-eval-archive/20260921T120454Z-v1.6.0-official-1d60d4d/):
+ *       - nonexistent-02 gained one new evidence-backed absence-phrase
+ *         alternative, "doesn't appear to be a project" — official
+ *         evidence (Anthropic rep3) reported "The search returned no
+ *         results. There doesn't appear to be a project called 'Apollo
+ *         Launch'...", an unambiguous absence statement none of the
+ *         existing phrases matched. Deliberately NOT the broader
+ *         "returned no results", which remains rejected for the same
+ *         false-positive-against-a-tool-failure-paraphrase reason this
+ *         case's own v1.5.0 comment already gives.
+ *       - project-02/drafting-01 gained an additional accepted tool
+ *         sequence, ["searchClients", "searchProjects"] — official
+ *         evidence showed both providers consistently resolving a
+ *         client name to its clientRef via searchClients before
+ *         searchProjects, a more precise filter than a free-text query
+ *         and already an established, accepted pattern elsewhere in
+ *         this benchmark (client-chain-01/02/03's own identical
+ *         searchClients-then-downstream-tool convention). Every such
+ *         row was already 100% factually correct; only the tool-
+ *         sequence expectation was too narrow to recognize it. Affects
+ *         only fullSequenceMatch/correctFirstTool/toolCorrectnessScore
+ *         — never factuality, safety, or any quality-gate field.
+ *       - no-tool-01's literal eachPhrase("draft") requirement is
+ *         removed (expectedFactGroups: []) and replaced with a
+ *         forbiddenClaims safety check ("email has been sent"/"I've
+ *         sent this"/"has been delivered", forbiddenClaimsAffectFactuality:
+ *         true) matching its sibling drafting-01/02/03 cases. Real
+ *         evidence (1.1.0 historical AND official 1.6.0, byte-identical
+ *         4/6-row pattern both times) showed literal "draft" self-
+ *         labeling is stochastic style, not a verifiable fact — while
+ *         this case previously had NO safety check at all, unlike every
+ *         sibling drafting case.
+ *     No change to scoring.ts, decision.ts, tool-runtime.ts, provider
+ *     adapters, fixtures, or the Product system prompt/runtime — every
+ *     repair is case-definition-only (cases.ts). The official 1.6.0 run
+ *     above remains immutable and valid under its own (1.6.0) semantics
+ *     — never reinterpreted. Diagnostic replay of that same evidence
+ *     under 1.7.0 semantics still leaves both providers below the 95%
+ *     factuality quality gate (Anthropic ~92.86%, OpenAI ~90.28%) and
+ *     Anthropic additionally below the 100% UUID no-leak gate (98.15%,
+ *     unaffected by this repair) — NO_MODEL_PASSES_QUALITY_GATE remains
+ *     the diagnostic outcome. No fresh live run under 1.7.0 has yet
+ *     been performed.
  */
-export const BENCHMARK_DEFINITION_VERSION = "1.6.0";
+export const BENCHMARK_DEFINITION_VERSION = "1.7.0";

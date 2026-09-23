@@ -187,16 +187,20 @@ describe("v1.5.0 — nonexistent-02 new absence-phrase alternatives", () => {
     assert.notDeepEqual(score.keyFactsMissing, [], "\"no results\" alone was deliberately NOT added — only the two exact evidenced phrases were");
   });
 
-  test("case metadata: exactly the 9 original phrases plus the 2 new ones, in one OR-group, no other change", () => {
+  test("case metadata: exactly the 9 original phrases plus the 2 v1.5.0 phrases (as of v1.5.0 — one further v1.7.0 addition is covered in test/scoring-1.7.0-case-repair.test.ts), in one OR-group, no other change", () => {
     const caseDef = findCase("nonexistent-02");
     assert.equal(caseDef.expectedFactGroups.length, 1, "still a single OR-group, no structural change");
     const group = caseDef.expectedFactGroups[0];
-    assert.equal(group.length, 11, "9 original + 2 new phrases");
+    // v1.7.0 added one further phrase ("doesn't appear to be a project")
+    // on top of these 11 — 12 total as of v1.7.0. This count reflects
+    // the current, real state rather than staying frozen at v1.5.0's own
+    // historical 11.
+    assert.equal(group.length, 12, "9 v1.1.0/v1.4.0 original + 2 v1.5.0 new + 1 v1.7.0 new");
     const values = group.map((a) => (a as { value: string }).value);
     assert.ok(values.includes("didn't return any results"));
     assert.ok(values.includes("did not return any results"));
     assert.equal(values.includes("no results"), false, "the generic, unevidenced phrase must never have been added");
-    assert.equal(values.includes("returned no results"), false, "the unevidenced alternate construction must never have been added");
+    assert.equal(values.includes("returned no results"), false, "the unevidenced alternate construction must never have been added, even after the v1.7.0 addition");
     assert.deepEqual(caseDef.forbiddenClaims, ["is on hold", "is in progress", "is completed"], "forbiddenClaims must be byte-unchanged");
     assert.equal(caseDef.forbiddenClaimsAffectFactuality, true, "must remain active");
   });
