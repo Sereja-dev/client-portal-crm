@@ -292,3 +292,114 @@ the page changed or removed the manual queries.
   sender/domain readiness and an explicit operator-recipient decision are
   both established; or the Vercel plan changes in a way that makes log
   retention or an external drain practical.
+
+## 11. AI Assistant Monitoring V1
+
+**Purpose.** A separate, narrower pull-based monitoring surface for the
+staff AI Assistant (`src/lib/ai/**`, `/api/ai/assistant`) — same
+read-only, aggregate-only, Platform-Admin-only posture as §9's own page,
+now covering AI runtime health instead of billing/invoice/PDF failures.
+Rendered as a new "AI Assistant" section on the same
+`/platform-admin/observability` page (`src/lib/platform-admin/queries/
+ai-assistant-monitoring.ts`), not a new route.
+
+**What is persisted.** Exactly one new model,
+`AiAssistantTurnTelemetry` (`prisma/schema.prisma`) — one row per
+**completed** `runAiAssistantTurn()` orchestration turn
+(`src/lib/ai/orchestrate.ts`), written by a dedicated best-effort
+persistence helper (`src/lib/ai/telemetry-policy.ts`) alongside — never
+instead of — the existing ephemeral `logAiAssistantEvent()` console log
+(`src/lib/ai/logging-policy.ts`, unchanged). Fields: `provider`, `model`,
+`outcome` (the full, un-collapsed orchestration outcome — `SUCCESS` or
+one of `LIMIT_EXCEEDED`/`TIMEOUT`/`PROVIDER_ERROR`/`INVALID_RESPONSE`/
+`EMPTY_ANSWER`/`REF_LEAK`, deliberately more precise than the existing
+console log's own lossier `errorKind` mapping), `latencyMs`,
+`providerCalls`, `toolCalls`, `toolNames` (a bounded JSON array of tool
+**names** only, in call order), `inputTokens`, `outputTokens`,
+`correlationId`, `createdAt`.
+
+**Explicitly excluded — never persisted, at the schema level and the
+call-site level (see `scripts/security-checks/check-ai-assistant-
+security.mjs`'s own rules 29/29a/29b/29c):**
+
+- **No 503 (availability-rejected) persistence, and no 429
+  (rate-limit-rejected) persistence.** Both branches in
+  `src/app/api/ai/assistant/route.ts` return before
+  `runAiAssistantTurn()` is ever called — the route file has no import
+  path to `telemetry-policy.ts` at all, so this is structural, not
+  merely a current behavior. This is what keeps this table's write
+  volume bounded by `AI_ASSISTANT_LIMIT` (20/user/hour,
+  `src/lib/rate-limit/limits.ts`) rather than by unauthenticated or
+  saturated-limiter request volume — an unauthenticated caller hitting
+  the 503 gate, or a saturated user retrying past 429, can never create
+  a row.
+- **No `organizationId`/`userId`** — carrying forward
+  `logging-policy.ts`'s own existing restriction on its console log;
+  tenant/user-level AI monitoring would need its own separate,
+  explicitly reviewed pseudonymization design, not introduced here.
+- **No raw prompt, response, tool arguments, or tool results** — ever.
+- **No `estimatedCost`** — see "Cost monitoring deferred" below.
+
+**Live availability status** (not persisted at all): the new section's
+"Current status" block reads `isAiAssistantAvailable()`
+(`providers/provider-factory.ts`) and `getOpenAiProviderConfig().status`
+(`providers/openai-config.ts`) directly, synchronously, at page-render
+time — the same already-safe, side-effect-free functions the route
+itself gates on. Shows Available/Unavailable and
+configured/disabled/misconfigured independently and truthfully (they
+can legitimately disagree — e.g. under `TEST_MODE`) — never an API key,
+never an env var value, never a secret-presence detail beyond that
+existing three-value status abstraction. Provider/model are shown only
+when `configStatus` is `"configured"`.
+
+**Persistence is best-effort and observational only.** Mirrors
+`src/lib/client-portal/analytics-events.ts`'s own already-Production
+pattern exactly: awaited, wrapped in its own `try`/`catch` (in both
+`telemetry-policy.ts` itself and, as deliberate defense-in-depth, again
+at `orchestrate.ts`'s own call site), never rethrown, a boolean return
+the caller never inspects. A write failure can never change the AI
+Assistant's HTTP status or answer, never consumes an extra provider or
+tool call, and never affects the existing console log event. On
+failure, exactly one fixed, sanitized fallback log line —
+
+```
+[ai-monitoring] Failed to record AI assistant turn telemetry.
+```
+
+— plus one bounded, two-value classification (`known_error` |
+`unexpected`, the same shape `analytics-events.ts`'s own
+`classifyAnalyticsFailure()` already established) — never the raw
+thrown error, its message, or any identifier.
+
+**Default lookback.** 7 days, matching §9's own existing convention —
+no date picker, no custom range.
+
+**No alerting.** Same pull-only posture and same accepted limitations as
+§2/§10 above — nothing here pushes a notification anywhere.
+
+**Deferred, not built in this V1:**
+
+- **Rate-limit saturation monitoring.** Durable AI rate-limit telemetry
+  is deferred to the separately tracked rate-limiter durability /
+  bounded-counter design — `src/lib/rate-limit/store.ts` and the limiter
+  itself are unchanged by this V1. The current in-memory limiter cannot
+  even distinguish a window's first rejection from its hundredth (its
+  own internal counter freezes at the limit on first overflow), which is
+  exactly why neither a per-rejection log nor a per-rejection persisted
+  row was added here — see the design-hardening audit this V1 was built
+  from for the full reasoning.
+- **Cost monitoring.** Tokens (`inputTokens`/`outputTokens`) are
+  persisted; a cost figure is deliberately not stored or shown. Product
+  has no reviewed runtime pricing table today — the only pricing
+  snapshot in this repository lives in the isolated, diagnostic-only
+  `scripts/ai-provider-eval/` package and must never be imported into
+  `src/`.
+- **Per-tool failure breakdown and per-tenant/organization monitoring**
+  — no clean, non-`$queryRaw` way to aggregate the JSON `toolNames`
+  column exists today (`check-platform-admin-security.mjs` forbids raw
+  queries under `src/lib/platform-admin`), and no organizationId/userId
+  column exists to break down by.
+- **The AI quality/benchmark system** (`scripts/ai-provider-eval/`) is a
+  completely separate, isolated, diagnostic-only harness with its own
+  versioning and archive discipline — it is never Production telemetry,
+  and nothing in this section reflects or depends on it.

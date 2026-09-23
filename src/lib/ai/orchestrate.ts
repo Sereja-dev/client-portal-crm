@@ -6,6 +6,8 @@ import { getAiToolByName, getRegisteredAiTools } from "./tools/registry";
 import { getAiAssistantSystemPrompt } from "./system-prompt";
 import { buildEffectiveSystemPrompt } from "./temporal-context";
 import { generateAiRequestCorrelationId, logAiAssistantEvent } from "./logging-policy";
+import { recordAiAssistantTurnTelemetry } from "./telemetry-policy";
+import type { AiAssistantTurnOutcome } from "@/generated/prisma/enums";
 import {
   MAX_OUTPUT_TOKENS,
   MAX_PROVIDER_CALLS_PER_TURN,
@@ -26,7 +28,11 @@ import {
  * hard tool-call/provider-call ceilings, per-call timeout and the total
  * turn deadline, usage aggregation, final-answer validation (empty-answer
  * and raw-identifier guards), the one metadata-only log event for this
- * turn, and the normalized AiOrchestrationResult this function returns.
+ * turn, the one best-effort AiAssistantTurnTelemetry row this turn
+ * attempts to persist (see telemetry-policy.ts — AI Production
+ * Monitoring V1, observational only, never able to affect the value this
+ * function returns), and the normalized AiOrchestrationResult this
+ * function returns.
  *
  * Deliberately does NOT: authenticate anyone, resolve an organization or
  * session (organizationId arrives as a plain parameter, exactly like
@@ -34,9 +40,12 @@ import {
  * re-derived from anything here), mutate the database (it only ever
  * calls a registered tool's own already-read-only execute()), call any
  * Server Action, import any vendor SDK (it only ever holds the AiProvider
- * reference its caller passes in), or persist any conversation state
- * (nothing here writes to Prisma or any store — a fresh in-memory
- * `messages` array exists only for the lifetime of one call).
+ * reference its caller passes in), or persist any conversation state or
+ * business data (the one Prisma write this file makes — via
+ * telemetry-policy.ts — is bounded, best-effort, metadata-only turn
+ * telemetry; a fresh in-memory `messages` array holding the actual
+ * conversation still exists only for the lifetime of one call and is
+ * never itself written anywhere).
  */
 
 export type AiOrchestrationErrorKind =
@@ -195,6 +204,34 @@ function toErrorKindForLog(kind: AiOrchestrationErrorKind, providerErrorKind: Ai
   return undefined;
 }
 
+/**
+ * AI Production Monitoring V1 — the full, un-collapsed mapping from
+ * AiOrchestrationErrorKind to AiAssistantTurnOutcome, read directly by
+ * finish() below BEFORE toErrorKindForLog() runs. Deliberately a
+ * separate, exhaustive mapping rather than reusing toErrorKindForLog()'s
+ * own output: that function's job is picking the least-misleading
+ * AiProviderErrorKind for the existing console log event and collapses
+ * "invalid_response"/"empty_answer"/"ref_leak" down to a shared
+ * "unknown" — this table's own outcome column exists specifically to be
+ * more precise than that, so it must never inherit the same collapse.
+ */
+function toTelemetryOutcome(kind: AiOrchestrationErrorKind): AiAssistantTurnOutcome {
+  switch (kind) {
+    case "limit_exceeded":
+      return "LIMIT_EXCEEDED";
+    case "timeout":
+      return "TIMEOUT";
+    case "provider_error":
+      return "PROVIDER_ERROR";
+    case "invalid_response":
+      return "INVALID_RESPONSE";
+    case "empty_answer":
+      return "EMPTY_ANSWER";
+    case "ref_leak":
+      return "REF_LEAK";
+  }
+}
+
 export async function runAiAssistantTurn(input: {
   organizationId: string;
   provider: AiProvider;
@@ -211,9 +248,11 @@ export async function runAiAssistantTurn(input: {
   /**
    * Already-resolved IANA time zone (route.ts resolves it via the
    * existing getOrganizationTimezone(organizationId), never here — this
-   * function never touches Prisma, matching its own "does not mutate/
-   * read the database" discipline above). Defaults to "UTC" when
-   * omitted, mirroring getOrganizationTimezone()'s own fallback.
+   * function never reads any business-data table, matching its own
+   * "does not mutate/read the database" discipline above; its one Prisma
+   * write is the bounded, best-effort telemetry row described above, not
+   * a business-data read). Defaults to "UTC" when omitted, mirroring
+   * getOrganizationTimezone()'s own fallback.
    */
   timezone?: string;
 }): Promise<AiOrchestrationResult> {
@@ -230,10 +269,16 @@ export async function runAiAssistantTurn(input: {
   const startedAt = Date.now();
   const usage: AiUsage = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
   let lastToolName: string | undefined;
+  // AI Production Monitoring V1 — every dispatched tool NAME, in call
+  // order, never args/results. Bounded by construction: the
+  // toolCallCount > MAX_TOOL_CALLS_PER_TURN check below returns before
+  // ever pushing a 6th entry, so this array can never exceed
+  // MAX_TOOL_CALLS_PER_TURN (orchestration-limits.ts) in length.
+  const toolNames: string[] = [];
   let providerCallCount = 0;
   let toolCallCount = 0;
 
-  function finish(result: AiOrchestrationResult, providerErrorKind?: AiProviderErrorKind): AiOrchestrationResult {
+  async function finish(result: AiOrchestrationResult, providerErrorKind?: AiProviderErrorKind): Promise<AiOrchestrationResult> {
     const latencyMs = Date.now() - startedAt;
     const errorKind = result.ok ? undefined : toErrorKindForLog(result.kind, providerErrorKind);
     logAiAssistantEvent({
@@ -249,6 +294,48 @@ export async function runAiAssistantTurn(input: {
       ...(errorKind ? { errorKind } : {}),
       correlationId,
     });
+    // AI Production Monitoring V1 — best-effort, observational only (see
+    // telemetry-policy.ts's own doc comment). Awaited here, strictly
+    // after `result` is already fully determined and after the existing
+    // log event has already fired, so a telemetry write failure can
+    // never influence `result` itself, and the existing log event above
+    // is completely unaffected by anything below it. Its own boolean
+    // return is intentionally never inspected — the caller (this
+    // function) has nothing to do differently on a persistence failure.
+    //
+    // The try/catch below is deliberate defense-in-depth, not a
+    // duplicate of telemetry-policy.ts's own internal safety:
+    // recordAiAssistantTurnTelemetry() already never rejects for a real
+    // Prisma write failure (its own try/catch guarantees that — see its
+    // own doc comment and test/unit/ai/telemetry-policy.test.ts's own
+    // "never rethrows" case), so this catch is not expected to ever
+    // actually fire in normal operation. It exists so the structural
+    // guarantee — "a telemetry failure can never fail this turn" — holds
+    // by construction at THIS call site too, not only by trusting that
+    // module's own contract, the same "don't rely on a single layer"
+    // discipline tools/output-projection.ts's own doc comment already
+    // establishes elsewhere in this codebase. Deliberately no console
+    // output here — telemetry-policy.ts already owns the one fixed
+    // fallback log line for a genuine write failure; a second log point
+    // here would only ever fire for a contract violation in that module
+    // itself, which is a bug to fix, not a runtime condition to log.
+    try {
+      await recordAiAssistantTurnTelemetry({
+        provider: provider.providerId ?? "unknown",
+        model: provider.modelId ?? "unknown",
+        outcome: result.ok ? "SUCCESS" : toTelemetryOutcome(result.kind),
+        latencyMs,
+        providerCalls: providerCallCount,
+        toolCalls: toolCallCount,
+        toolNames,
+        inputTokens: usage.promptTokens,
+        outputTokens: usage.completionTokens,
+        correlationId,
+      });
+    } catch {
+      // See the comment above — never rethrown, never allowed to affect
+      // `result`.
+    }
     return result;
   }
 
@@ -339,6 +426,7 @@ export async function runAiAssistantTurn(input: {
 
     const call = response.call;
     lastToolName = call.toolName;
+    toolNames.push(call.toolName);
 
     // Assistant/provider progression kept structurally separate from
     // both the system prompt and the tool's own result — this message's

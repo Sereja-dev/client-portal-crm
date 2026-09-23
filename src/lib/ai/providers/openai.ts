@@ -49,7 +49,13 @@ import { AiProviderError } from "../provider";
  * ever escapes complete()'s own return value or thrown error.
  */
 
-const OPENAI_MODEL_ID = "gpt-5.6-luna";
+// Exported (additive, no behavior change) so AI Production Monitoring
+// V1's own live status read (src/lib/platform-admin/queries/
+// ai-assistant-monitoring.ts) can show the exact configured model
+// string without duplicating this constant — see that module's own doc
+// comment. Nothing about this adapter's own request/response behavior
+// changes by exporting it.
+export const OPENAI_MODEL_ID = "gpt-5.6-luna";
 
 /**
  * `gpt-5.6-luna` is a reasoning model that rejects `tools` on

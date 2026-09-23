@@ -4684,8 +4684,8 @@ model IntegrationDelivery {
   organizationId String       @db.Uuid
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  integrationConnectionId String                 @db.Uuid
-  integrationConnection   IntegrationConnection  @relation(fields: [integrationConnectionId], references: [id], onDelete: Cascade)
+  integrationConnectionId String                @db.Uuid
+  integrationConnection   IntegrationConnection @relation(fields: [integrationConnectionId], references: [id], onDelete: Cascade)
 
   activityId String   @db.Uuid
   activity   Activity @relation(fields: [activityId], references: [id], onDelete: Cascade)
@@ -4715,4 +4715,84 @@ model IntegrationDelivery {
   @@unique([integrationConnectionId, activityId, eventKey])
   @@index([status, nextAttemptAt])
   @@index([status, lockedAt])
+}
+
+// AI Production Monitoring V1 — bounded orchestration-turn telemetry
+// only (see docs/production-observability-runbook.md's own AI Monitoring
+// V1 section for the full design). Every row here is a real, already-
+// completed runAiAssistantTurn() outcome — never a rejected request: the
+// pre-auth 503 availability gate and the post-auth 429 rate-limit
+// rejection in src/app/api/ai/assistant/route.ts both return before
+// orchestration ever starts, so neither can ever reach this table (see
+// that route's own doc comment and the runbook section's own explicit
+// "no 503/429 persistence" statement) — this is what keeps this table's
+// write volume bounded by AI_ASSISTANT_LIMIT (src/lib/rate-limit/limits.ts)
+// rather than by unauthenticated or saturated-limiter request volume.
+//
+// Deliberately no organizationId/userId column, and deliberately no
+// relation to Organization/User: src/lib/ai/logging-policy.ts's own doc
+// comment already establishes that tenant-level correlation "needs its
+// own explicit, reviewed pseudonymization design — not introduced here"
+// for the existing console log event this table's own writer runs
+// alongside; this table carries that same restriction forward rather
+// than quietly relaxing it just because a durable store now exists.
+// Every field below is either an opaque, already-safe identifier
+// (provider/model/correlationId — see AiLogMetadata's own field
+// comments), a plain count/duration, or the closed outcome taxonomy
+// below — never a prompt, a response, a tool argument, a tool result, or
+// any customer-data value.
+model AiAssistantTurnTelemetry {
+  id String @id @default(uuid()) @db.Uuid
+
+  createdAt DateTime @default(now())
+
+  // Opaque provider/model identifiers only — e.g. "openai"/"gpt-5.6-luna"
+  // in Production, "mock"/"mock" under TEST_MODE — never a vendor SDK
+  // object, request, or response body. Mirrors AiLogMetadata.provider/
+  // model exactly (src/lib/ai/logging-policy.ts).
+  provider String
+  model    String
+
+  // The full, un-collapsed AiOrchestrationResult outcome
+  // (src/lib/ai/orchestrate.ts) — SUCCESS for `{ ok: true }`, and the
+  // exact matching value of AiOrchestrationErrorKind otherwise. Never
+  // reuses the existing console log event's own lossier errorKind
+  // mapping (toErrorKindForLog() there collapses INVALID_RESPONSE/
+  // EMPTY_ANSWER/REF_LEAK down to a shared "unknown" and omits
+  // LIMIT_EXCEEDED entirely) — this table's own writer reads
+  // AiOrchestrationResult.kind directly, before that collapse happens.
+  outcome AiAssistantTurnOutcome
+
+  latencyMs     Int
+  providerCalls Int
+  toolCalls     Int
+
+  // A plain JSON array of tool-name strings only, in call order — never
+  // args/results. Matches Activity.metadata's own "Json, snapshot data
+  // only" convention rather than introducing this schema's first native
+  // Postgres array column. Bounded by construction: orchestrate.ts's own
+  // MAX_TOOL_CALLS_PER_TURN ceiling (orchestration-limits.ts) means this
+  // array can never hold more than that many entries.
+  toolNames Json @default("[]")
+
+  inputTokens  Int
+  outputTokens Int
+
+  // A fresh, random, non-reversible value generated once per turn by the
+  // same generateAiRequestCorrelationId() the existing console log event
+  // already uses (src/lib/ai/logging-policy.ts) — never derived from
+  // organizationId/userId, and never itself identifying.
+  correlationId String
+
+  @@index([createdAt])
+}
+
+enum AiAssistantTurnOutcome {
+  SUCCESS
+  LIMIT_EXCEEDED
+  TIMEOUT
+  PROVIDER_ERROR
+  INVALID_RESPONSE
+  EMPTY_ANSWER
+  REF_LEAK
 }

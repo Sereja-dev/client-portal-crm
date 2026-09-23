@@ -4,6 +4,7 @@ import type { AiRequest, AiResponse } from "@/lib/ai/provider";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { runAiAssistantTurn } from "@/lib/ai/orchestrate";
 import { MockAiProvider } from "@/lib/ai/providers/mock";
+import { prisma } from "@/lib/prisma";
 
 /**
  * AI Assistant orchestration + Route Handler batch — integration tier.
@@ -137,5 +138,47 @@ describe("runAiAssistantTurn — real tools, real DB", () => {
     expect(raw).not.toContain("notes");
     expect(raw).not.toContain("email");
     expect(raw).not.toContain("phone");
+  });
+});
+
+describe("runAiAssistantTurn — AI Production Monitoring V1, real Prisma telemetry write", () => {
+  let fixtures: TestFixtures;
+
+  beforeAll(async () => {
+    fixtures = await seedTestData();
+  });
+
+  afterAll(async () => {
+    await cleanupTestData(fixtures);
+  });
+
+  it("a real turn using a real tool genuinely writes one AiAssistantTurnTelemetry row, correctly shaped — end to end, no mocked persistence layer anywhere", async () => {
+    const before = await prisma.aiAssistantTurnTelemetry.count();
+
+    const provider = new MockAiProvider([
+      { kind: "toolCall", call: { toolName: "searchClients", args: {} } },
+      { kind: "text", text: "Your organization has clients on file." },
+    ]);
+    const result = await runAiAssistantTurn({ organizationId: fixtures.orgA.id, provider, userMessage: "who are my clients?" });
+    expect(result).toEqual({ ok: true, answer: "Your organization has clients on file." });
+
+    const after = await prisma.aiAssistantTurnTelemetry.count();
+    expect(after).toBe(before + 1);
+
+    const row = await prisma.aiAssistantTurnTelemetry.findFirst({ orderBy: { createdAt: "desc" } });
+    expect(row).not.toBeNull();
+    expect(row!.outcome).toBe("SUCCESS");
+    expect(row!.toolCalls).toBe(1);
+    expect(row!.toolNames).toEqual(["searchClients"]);
+    expect(row!.providerCalls).toBe(2);
+
+    // Structural privacy proof, not just field-by-field: the whole row,
+    // serialized, never contains this organization's own id, name, or
+    // any client data the turn actually touched.
+    const serialized = JSON.stringify(row);
+    expect(serialized).not.toContain(fixtures.orgA.id);
+    expect(serialized).not.toContain(fixtures.clientA.name);
+
+    await prisma.aiAssistantTurnTelemetry.deleteMany({ where: { id: row!.id } });
   });
 });

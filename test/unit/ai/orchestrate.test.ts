@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AiProviderError } from "@/lib/ai/provider";
 import type { AiProvider, AiRequest, AiResponse } from "@/lib/ai/provider";
 import type { AiToolDefinition } from "@/lib/ai/tools/types";
 import { MockAiProvider } from "@/lib/ai/providers/mock";
@@ -84,7 +85,23 @@ vi.mock("@/lib/ai/tools/registry", () => ({
   getRegisteredAiTools: () => Object.values(FAKE_TOOLS),
 }));
 
-// Imported AFTER the mock is declared (vi.mock is hoisted by vitest, so
+// AI Production Monitoring V1 — orchestrate.ts now calls
+// recordAiAssistantTurnTelemetry() once per turn; mocked here the same
+// way the tool registry above is, so this file stays a pure, offline
+// unit tier with zero real Prisma/DB access (see
+// test/integration/ai/orchestrate-integration.test.ts for the real-DB
+// proof that a genuine row is written). telemetryWrites collects every
+// call's own input for direct assertion.
+const telemetryWrites: Record<string, unknown>[] = [];
+const recordAiAssistantTurnTelemetryMock = vi.fn(async (input: Record<string, unknown>) => {
+  telemetryWrites.push(input);
+  return true;
+});
+vi.mock("@/lib/ai/telemetry-policy", () => ({
+  recordAiAssistantTurnTelemetry: (input: Record<string, unknown>) => recordAiAssistantTurnTelemetryMock(input),
+}));
+
+// Imported AFTER the mocks are declared (vi.mock is hoisted by vitest, so
 // this ordering in source is fine either way, but kept last for clarity).
 const { runAiAssistantTurn } = await import("@/lib/ai/orchestrate");
 
@@ -95,6 +112,8 @@ beforeEach(() => {
   throwingExecute.mockClear();
   oversizedExecute.mockClear();
   invalidArgsExecute.mockClear();
+  recordAiAssistantTurnTelemetryMock.mockClear();
+  telemetryWrites.length = 0;
   consoleLogSpy = vi.spyOn(console, "log").mockImplementation(() => {});
 });
 
@@ -691,5 +710,136 @@ describe("runAiAssistantTurn — authoritative temporal grounding", () => {
     });
     expect(capturedRequest?.systemPrompt).toContain("2026-09-20");
     expect(capturedRequest?.systemPrompt).not.toContain("2019-01-01");
+  });
+});
+
+describe("runAiAssistantTurn — AI Production Monitoring V1 telemetry", () => {
+  it("a successful turn attempts exactly one telemetry write, with outcome SUCCESS and correct counts/tokens/tool names", async () => {
+    const provider = new MockAiProvider([
+      { kind: "toolCall", call: { toolName: "echoTool", args: { q: "acme" } } },
+      { kind: "text", text: "Done." },
+    ]);
+    const result = await runAiAssistantTurn({ organizationId: ORG_ID, provider, userMessage: "look up acme" });
+    expect(result).toEqual({ ok: true, answer: "Done." });
+
+    expect(recordAiAssistantTurnTelemetryMock).toHaveBeenCalledTimes(1);
+    const write = telemetryWrites[0];
+    expect(write.outcome).toBe("SUCCESS");
+    expect(write.providerCalls).toBe(2);
+    expect(write.toolCalls).toBe(1);
+    expect(write.toolNames).toEqual(["echoTool"]);
+    expect(typeof write.latencyMs).toBe("number");
+    expect(typeof write.inputTokens).toBe("number");
+    expect(typeof write.outputTokens).toBe("number");
+    expect(typeof write.correlationId).toBe("string");
+    expect((write.correlationId as string).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    { kind: "empty_answer" as const, outcome: "EMPTY_ANSWER", script: [{ kind: "text" as const, text: "" }] },
+    {
+      kind: "ref_leak" as const,
+      outcome: "REF_LEAK",
+      script: [{ kind: "text" as const, text: "See ref 11111111-1111-1111-1111-111111111111." }],
+    },
+  ])("a $kind failure persists the exact uncollapsed outcome $outcome — never the console log's own lossier mapping", async ({ outcome, script }) => {
+    const provider = new MockAiProvider(script);
+    const result = await runAiAssistantTurn({ organizationId: ORG_ID, provider, userMessage: "x" });
+    expect(result.ok).toBe(false);
+
+    expect(recordAiAssistantTurnTelemetryMock).toHaveBeenCalledTimes(1);
+    expect(telemetryWrites[0].outcome).toBe(outcome);
+
+    // The existing console log event, by contrast, collapses both of
+    // these down to the shared "unknown" AiProviderErrorKind (see
+    // orchestrate.ts's own toErrorKindForLog()) — proving the telemetry
+    // outcome is genuinely more precise, not a re-derivation of the log.
+    const logged = loggedPayload();
+    expect(logged.errorKind).toBe("unknown");
+  });
+
+  it("a limit_exceeded failure (tool-call ceiling) persists outcome LIMIT_EXCEEDED, which the console log omits errorKind for entirely", async () => {
+    const steps = Array.from({ length: MAX_TOOL_CALLS_PER_TURN + 1 }, () => ({
+      kind: "toolCall" as const,
+      call: { toolName: "echoTool", args: {} },
+    }));
+    const provider = new MockAiProvider(steps);
+    const result = await runAiAssistantTurn({ organizationId: ORG_ID, provider, userMessage: "loop" });
+    expect(result).toEqual({ ok: false, kind: "limit_exceeded" });
+
+    expect(telemetryWrites[0].outcome).toBe("LIMIT_EXCEEDED");
+    const logged = loggedPayload();
+    expect(logged.errorKind).toBeUndefined();
+  });
+
+  it("a provider_error failure persists outcome PROVIDER_ERROR", async () => {
+    const provider: AiProvider = {
+      complete: async () => {
+        throw new AiProviderError("unavailable");
+      },
+    };
+    const result = await runAiAssistantTurn({ organizationId: ORG_ID, provider, userMessage: "x" });
+    expect(result).toEqual({ ok: false, kind: "provider_error" });
+    expect(telemetryWrites[0].outcome).toBe("PROVIDER_ERROR");
+  });
+
+  it("multiple tool calls are captured as a bounded, ordered tool-name sequence, not just the last one", async () => {
+    const provider = new MockAiProvider([
+      { kind: "toolCall", call: { toolName: "echoTool", args: { step: 1 } } },
+      { kind: "toolCall", call: { toolName: "throwingTool", args: {} } },
+      { kind: "toolCall", call: { toolName: "echoTool", args: { step: 3 } } },
+      { kind: "text", text: "All done." },
+    ]);
+    const result = await runAiAssistantTurn({ organizationId: ORG_ID, provider, userMessage: "multi-step" });
+    expect(result).toEqual({ ok: true, answer: "All done." });
+
+    expect(telemetryWrites[0].toolNames).toEqual(["echoTool", "throwingTool", "echoTool"]);
+    expect(telemetryWrites[0].toolCalls).toBe(3);
+  });
+
+  it("a text-only turn (no tool call) persists an empty toolNames array", async () => {
+    const provider = new MockAiProvider([{ kind: "text", text: "Hello." }]);
+    await runAiAssistantTurn({ organizationId: ORG_ID, provider, userMessage: "hi" });
+    expect(telemetryWrites[0].toolNames).toEqual([]);
+    expect(telemetryWrites[0].toolCalls).toBe(0);
+  });
+
+  it("a telemetry persistence failure never changes the final orchestration result, never consumes an extra provider call, and never executes an extra tool call", async () => {
+    // telemetry-policy.ts's own real contract already guarantees it never
+    // rejects for a genuine Prisma failure (test/unit/ai/telemetry-policy.
+    // test.ts's own "never rethrows" case) — this mock deliberately
+    // simulates an even worse, contract-violating failure (a raw reject)
+    // to prove orchestrate.ts's own call site is ALSO defensively safe by
+    // construction (its own try/catch around the telemetry call), not
+    // merely safe because the real module happens to behave well.
+    recordAiAssistantTurnTelemetryMock.mockRejectedValueOnce(new Error("simulated telemetry DB outage"));
+    const provider = new MockAiProvider([
+      { kind: "toolCall", call: { toolName: "echoTool", args: {} } },
+      { kind: "text", text: "Done despite telemetry failure." },
+    ]);
+
+    const result = await runAiAssistantTurn({ organizationId: ORG_ID, provider, userMessage: "x" });
+
+    expect(result).toEqual({ ok: true, answer: "Done despite telemetry failure." });
+    expect(echoExecute).toHaveBeenCalledTimes(1); // no extra tool call
+    expect(recordAiAssistantTurnTelemetryMock).toHaveBeenCalledTimes(1); // no retry
+  });
+
+  it("a telemetry persistence failure never changes the HTTP-facing error kind either, for a turn that already failed on its own", async () => {
+    recordAiAssistantTurnTelemetryMock.mockRejectedValueOnce(new Error("simulated telemetry DB outage"));
+    const provider = new MockAiProvider([{ kind: "text", text: "" }]); // empty_answer
+
+    const result = await runAiAssistantTurn({ organizationId: ORG_ID, provider, userMessage: "x" });
+
+    expect(result).toEqual({ ok: false, kind: "empty_answer" });
+  });
+
+  it("the existing console log event is completely unaffected by telemetry persistence failing", async () => {
+    recordAiAssistantTurnTelemetryMock.mockResolvedValueOnce(false);
+    const provider = new MockAiProvider([{ kind: "text", text: "ok" }]);
+    const result = await runAiAssistantTurn({ organizationId: ORG_ID, provider, userMessage: "x" });
+    expect(result).toEqual({ ok: true, answer: "ok" });
+    const logged = loggedPayload();
+    expect(logged.category).toBe("success");
   });
 });

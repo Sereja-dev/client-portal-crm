@@ -47,7 +47,7 @@ test("an authenticated but non-allowlisted staff user is redirected to /dashboar
   await expect(page.getByText("Access denied")).toHaveCount(0);
 });
 
-test("the allowlisted identity reaches Observability from the nav, sees all five sections, a Read-only indicator, and only well-formed aggregate values", async ({ context, baseURL }) => {
+test("the allowlisted identity reaches Observability from the nav, sees all six sections, a Read-only indicator, and only well-formed aggregate values", async ({ context, baseURL }) => {
   await injectTestSession(context, { id: "e2e-platform-admin-observability", email: PLATFORM_ADMIN_EMAIL }, baseURL!);
   const page = await context.newPage();
 
@@ -64,6 +64,7 @@ test("the allowlisted identity reaches Observability from the nav, sees all five
     "Invoice email delivery failures and unknown outcomes",
     "Stale invoice email attempts",
     "PDF archive reconciliation",
+    "AI Assistant",
   ]) {
     await expect(page.getByRole("heading", { name: heading, level: 2 })).toBeVisible();
   }
@@ -90,6 +91,46 @@ test("the allowlisted identity reaches Observability from the nav, sees all five
   const pdfArchiveSectionText = await pdfArchiveSection.innerText();
   expect(pdfArchiveSectionText).toMatch(/\d+\s+manual-review-pending PDF archive objects?|No PDF archive objects pending manual review\./);
   expect(pdfArchiveSectionText).toMatch(/\d+\s+claim-inconsistent PDF archive objects?|No PDF archive objects with an inconsistent claim state\./);
+});
+
+test("the AI Assistant section shows live status (TEST_MODE available, unconfigured real provider) and a valid turn-telemetry zero/data state — never rate-limit or tenant-level telemetry, never a benchmark UI", async ({
+  context,
+  baseURL,
+}) => {
+  await injectTestSession(context, { id: "e2e-platform-admin-observability-ai", email: PLATFORM_ADMIN_EMAIL }, baseURL!);
+  const page = await context.newPage();
+
+  await page.goto("/platform-admin/observability");
+  const aiSection = page.locator("section", { has: page.getByRole("heading", { name: "AI Assistant", level: 2 }) });
+  await expect(aiSection).toBeVisible();
+
+  // TEST_MODE=1 is set for the whole E2E webServer (playwright.config.ts)
+  // — isAiAssistantAvailable() is therefore true even though AI_PROVIDER
+  // is never set, so getOpenAiProviderConfig().status reads "disabled".
+  // Both facts are shown independently and truthfully, never reconciled
+  // into one misleading combined state — see the query module's own
+  // AiAssistantLiveStatus doc comment.
+  const sectionText = await aiSection.innerText();
+  expect(sectionText).toMatch(/Available/);
+  expect(sectionText).toMatch(/Disabled/);
+
+  // Turn telemetry: either the explicit zero-state copy, or well-formed
+  // aggregate values — the shared E2E database's real turn history is not
+  // controlled by this test.
+  expect(sectionText).toMatch(/No AI Assistant turns recorded in the last 7 days\.|Total turns/);
+
+  // Never implies rate-limit telemetry or tenant/org-level monitoring
+  // actually exist (a real count/value next to either term).
+  expect(sectionText).not.toMatch(/rate.?limit(ed)? (saturation|events?|count)\s*[:=]?\s*\d/i);
+  expect(sectionText).not.toMatch(/per[- ]tenant|per[- ]organization|organizationId|userId/i);
+
+  // The section's own disclaimer legitimately explains that the AI
+  // quality benchmark (scripts/ai-provider-eval/) is a separate,
+  // non-Production system in prose — so this proves the ABSENCE of real
+  // benchmark UI/data (a quality-gate outcome, a per-case score, a
+  // provider-vs-provider comparison), not the absence of the word
+  // "benchmark" itself.
+  expect(sectionText).not.toMatch(/quality gate|factual correctness|tool correctness|NO_MODEL_PASSES|case-\d|claude-|gpt-5\.6-luna vs/i);
 });
 
 test("the page never renders an email address, a storage path, or a raw UUID, and has no mutation control", async ({ context, baseURL }) => {

@@ -31,6 +31,10 @@ const TOOLS_TYPES_FILE = `${TOOLS_DIR}/types.ts`;
 const REGISTRY_FILE = `${TOOLS_DIR}/registry.ts`;
 const PRIVACY_POLICY_FILE = `${AI_DIR}/privacy-policy.ts`;
 const LOGGING_POLICY_FILE = `${AI_DIR}/logging-policy.ts`;
+// AI Production Monitoring V1 — the one new module allowed to import
+// Prisma (see rule 29's own updated comment below for the full
+// reasoning).
+const TELEMETRY_POLICY_FILE = `${AI_DIR}/telemetry-policy.ts`;
 
 // Orchestration + Route Handler batch.
 const API_AI_DIR = "src/app/api/ai";
@@ -431,13 +435,32 @@ ok = report(
 // NEW_FILES_NO_PRISMA below) — a file that cannot import Prisma cannot
 // possibly call a real Prisma mutation method, so this substring check
 // would only ever be a strictly weaker, redundant proxy for that file.
+//
+// telemetry-policy.ts (AI Production Monitoring V1) is ALSO excluded
+// here, for a genuinely different reason than openai.ts's own false
+// positive above: its one `prisma.aiAssistantTurnTelemetry.create(...)`
+// call is a real, intentional, reviewed mutation — the one deliberate
+// exception to "src/lib/ai never mutates the database" this whole rule
+// otherwise enforces. This rule is the wrong layer to re-verify that
+// exception's own safety (it only checks for the absence of a mutation
+// method call, not what a permitted one is allowed to write) — that
+// safety is proven instead by rule 29 (only telemetry-policy.ts may
+// import Prisma at all), rule 29b (the call site carries no
+// prompt/answer/tool/organizationId/userId content), rule 29c (the
+// target model itself has no such column), and this module's own
+// dedicated unit tests (test/unit/ai/telemetry-policy.test.ts).
 const mutationMethodPattern = "\\.(create|update|delete|upsert|createMany|updateMany|deleteMany)\\(";
+const MUTATION_METHOD_EXCLUDED_FILES = new Set([`${PROVIDERS_DIR}/openai.ts`, TELEMETRY_POLICY_FILE]);
 const mutationMethodUsage = grep(mutationMethodPattern, AI_DIR)
   .split("\n")
   .filter(Boolean)
-  .filter((line) => line.split(":")[0] !== `${PROVIDERS_DIR}/openai.ts`)
+  .filter((line) => !MUTATION_METHOD_EXCLUDED_FILES.has(line.split(":")[0]))
   .join("\n");
-ok = report("no mutation-capable Prisma method (create/update/delete/upsert/*Many) anywhere under src/lib/ai (providers/openai.ts excluded — see this rule's own comment)", mutationMethodUsage === "", mutationMethodUsage) && ok;
+ok = report(
+  "no mutation-capable Prisma method (create/update/delete/upsert/*Many) anywhere under src/lib/ai (providers/openai.ts and telemetry-policy.ts excluded — see this rule's own comment)",
+  mutationMethodUsage === "",
+  mutationMethodUsage,
+) && ok;
 
 // 10e. invoices.ts never imports invoice lifecycle/send/archive/PDF/email/
 // storage/billing code — it is a pure read, and must have no path to any
@@ -534,17 +557,24 @@ ok = report(
 ) && ok;
 
 // 12. No console logging anywhere under src/lib/ai except inside
-// logging-policy.ts's own single, metadata-only logAiAssistantEvent() —
-// the same "no query/business-content logging" discipline
+// logging-policy.ts's own single, metadata-only logAiAssistantEvent(),
+// and (AI Production Monitoring V1) telemetry-policy.ts's own single,
+// fixed-message, bounded-classification console.error fallback — the
+// same "no query/business-content logging" discipline
 // check-search-security.mjs already enforces for Search, adapted here to
-// allow exactly one reviewed, type-constrained exception rather than a
-// blanket zero.
+// allow exactly two reviewed, type-constrained exceptions rather than a
+// blanket zero. telemetry-policy.ts's own exact shape (fixed message,
+// classification-only, never the raw error) is proven by
+// test/unit/ai/telemetry-policy.test.ts, not by this static check alone
+// — mirrors how logging-policy.ts's own runtime validator is the real
+// enforcement and this rule is only the source-level backstop.
 const consoleCalls = grep("console\\.(log|error|warn|info|debug)\\(", AI_DIR)
   .split("\n")
   .filter(Boolean)
-  .filter((line) => !line.startsWith(`${LOGGING_POLICY_FILE}:`));
+  .filter((line) => !line.startsWith(`${LOGGING_POLICY_FILE}:`))
+  .filter((line) => !line.startsWith(`${TELEMETRY_POLICY_FILE}:`));
 ok = report(
-  "no console logging anywhere under src/lib/ai except logging-policy.ts's own metadata-only logAiAssistantEvent()",
+  "no console logging anywhere under src/lib/ai except logging-policy.ts's own metadata-only logAiAssistantEvent() and telemetry-policy.ts's own fallback",
   consoleCalls.length === 0,
   consoleCalls.join("\n"),
 ) && ok;
@@ -811,9 +841,23 @@ ok = report(
   "",
 ) && ok;
 
-// 29. No schema persistence: none of the new orchestration/route files
-// import Prisma directly — nothing here writes or reads a conversation
-// row (no such model exists, and none may be added in this batch).
+// 29. Schema persistence boundary — AI Production Monitoring V1 (rule
+// inverted here, the same "deliberate, explained rule change" discipline
+// rule 8/13's own comments already established, not a silent drop): this
+// batch deliberately introduces exactly ONE new file allowed to import
+// Prisma, telemetry-policy.ts, for exactly one purpose, bounded
+// orchestration-turn telemetry — never conversation persistence (no such
+// model exists, and none may be added by this or any future change to
+// this rule's own file list). Every other file in this list — critically
+// including the route itself — must still NEVER import Prisma directly,
+// which is what structurally guarantees the route's own pre-orchestration
+// branches (the 503 availability gate, the 429 rate-limit rejection, the
+// 400 validation rejection) can never write anything: they have no
+// import path to a Prisma client at all. orchestrate.ts itself is also
+// still required to never import Prisma directly — it may only reach
+// persistence through telemetry-policy.ts's own single, already-audited,
+// best-effort recordAiAssistantTurnTelemetry() function (see rule 29b
+// below), never `@/lib/prisma`/`@/generated/prisma` itself.
 const NEW_FILES_NO_PRISMA = [
   ORCHESTRATE_FILE,
   REQUEST_SCHEMA_FILE,
@@ -825,13 +869,70 @@ const NEW_FILES_NO_PRISMA = [
   `${PROVIDERS_DIR}/openai.ts`,
   `${PROVIDERS_DIR}/openai-config.ts`,
 ];
+// Deliberately does NOT flag `@/generated/prisma/enums` — that module is
+// pure generated string-constant exports (see src/generated/prisma/
+// enums.ts), never a PrismaClient, never I/O-capable; orchestrate.ts's
+// own `import type { AiAssistantTurnOutcome } from
+// "@/generated/prisma/enums"` is a type-only reference to the closed
+// outcome taxonomy, not a database access path, and must not trip this
+// rule the same way importing the real client (`@/lib/prisma`) or the
+// generated client package (`@/generated/prisma/client`) would.
+const prismaRuntimeImportPattern = /from\s*"@\/lib\/prisma"|from\s*"@\/generated\/prisma\/client"/;
 const prismaImportHits = NEW_FILES_NO_PRISMA.filter(existsSync).filter((file) =>
-  /from\s*"@\/lib\/prisma"|from\s*"@\/generated\/prisma/.test(stripComments(readIfExists(file))),
+  prismaRuntimeImportPattern.test(stripComments(readIfExists(file))),
 );
 ok = report(
-  "none of the new orchestration/route files import Prisma directly (no conversation persistence in this batch)",
+  "none of the orchestration/route files import Prisma directly — only telemetry-policy.ts may (bounded turn telemetry, never conversation persistence)",
   prismaImportHits.length === 0,
   prismaImportHits.join("\n"),
+) && ok;
+
+// 29a. The route itself never imports telemetry-policy.ts (or its
+// exported recordAiAssistantTurnTelemetry) at all — the direct,
+// file-boundary-level proof that the 503/429/400 branches (all of which
+// return before orchestrate.ts's own runAiAssistantTurn() is ever
+// called) structurally cannot write a telemetry row, not merely that
+// they happen not to today.
+const routeImportsTelemetry = /telemetry-policy|recordAiAssistantTurnTelemetry/.test(routeStripped);
+ok = report(
+  "the approved AI route never imports telemetry-policy.ts — the 503/429/400 branches have no telemetry write path at all",
+  !routeImportsTelemetry,
+  "",
+) && ok;
+
+// 29b. The one allowed recordAiAssistantTurnTelemetry() call site (inside
+// orchestrate.ts) never references the user's message, the final answer,
+// tool args, tool results, the raw messages array, organizationId, or
+// userId — the same rule-24 discipline (below) applied to this new call
+// site, defense in depth alongside telemetry-policy.ts's own hardened
+// runtime validator (assertValidTelemetryInput(), which already throws
+// on any unexpected key/shape at runtime).
+const telemetryCallBlocks = extractBalancedBlocks(orchestrateContent, "recordAiAssistantTurnTelemetry\\(\\{");
+const forbiddenTelemetryContentPattern = /\buserMessage\b|\banswer\b|\btoolArgs\b|\btoolResult\b|\bmessages\b|\borganizationId\b|\buserId\b/;
+const hasForbiddenTelemetryContent = telemetryCallBlocks.some((block) => forbiddenTelemetryContentPattern.test(block));
+ok = report(
+  "orchestrate.ts's own recordAiAssistantTurnTelemetry() call never references userMessage/answer/toolArgs/toolResult/messages/organizationId/userId",
+  telemetryCallBlocks.length > 0 && !hasForbiddenTelemetryContent,
+  telemetryCallBlocks.join("\n---\n"),
+) && ok;
+
+// 29c. The persisted telemetry model itself has no organizationId/userId
+// column and no raw-content-shaped column — the schema-level guarantee
+// underneath 29b's own call-site-level one. Read directly from
+// prisma/schema.prisma's own AiAssistantTurnTelemetry block.
+// stripComments() first — schema.prisma's own doc comment on this model
+// legitimately discusses organizationId/userId/prompt/response in prose
+// (explaining why they're deliberately absent), which would otherwise
+// false-positive against the exact same field-name pattern this rule
+// looks for in real column declarations.
+const schemaContent = stripComments(readIfExists("prisma/schema.prisma"));
+const telemetryModelMatch = schemaContent.match(/model AiAssistantTurnTelemetry \{[\s\S]*?\n\}/);
+const telemetryModelBlock = telemetryModelMatch ? telemetryModelMatch[0] : "";
+const forbiddenTelemetryFieldPattern = /\borganizationId\b|\buserId\b|\bprompt\b|\bresponse\b|\btoolArgs\b|\btoolResult\b|\bestimatedCost\b/i;
+ok = report(
+  "the AiAssistantTurnTelemetry model has no organizationId/userId/prompt/response/toolArgs/toolResult/estimatedCost field",
+  telemetryModelBlock.length > 0 && !forbiddenTelemetryFieldPattern.test(telemetryModelBlock),
+  telemetryModelBlock,
 ) && ok;
 
 // 30. Rate limit: the new AI_ASSISTANT_LIMIT scope exists and is applied

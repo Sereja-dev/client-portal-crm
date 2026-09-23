@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
 import { formatStatusLabel } from "@/lib/format";
-import { DetailSection } from "@/components/platform-admin/detail-section";
+import { DetailSection, Field } from "@/components/platform-admin/detail-section";
 import {
   getFailureMonitoringSummary,
   type InvoiceEmailFailureBucket,
   type WebhookFailureBucket,
 } from "@/lib/platform-admin/queries/failure-monitoring";
+import {
+  getAiAssistantMonitoringSummary,
+  type AiAssistantOutcomeBucket,
+} from "@/lib/platform-admin/queries/ai-assistant-monitoring";
 
 export const metadata: Metadata = {
   title: "Observability — Platform Admin",
@@ -32,6 +36,7 @@ function formatCategoryLabel(value: string | null): string {
  */
 export default async function PlatformAdminObservabilityPage() {
   const summary = await getFailureMonitoringSummary();
+  const aiSummary = await getAiAssistantMonitoringSummary();
 
   return (
     <div className="space-y-8">
@@ -127,6 +132,54 @@ export default async function PlatformAdminObservabilityPage() {
         </div>
       </DetailSection>
 
+      <DetailSection id="ai-assistant" title="AI Assistant">
+        <SectionIntro>
+          Bounded orchestration-turn telemetry only — AI Production Monitoring V1 (see the runbook). A rejected
+          request never reaches this table at all: the pre-auth availability check and the post-auth rate limit both
+          return before a turn ever starts, so neither can appear here, by construction, not merely by convention.
+          Rate-limit saturation has no durable monitoring yet; see the note below.
+        </SectionIntro>
+
+        <h3 className="text-text-primary text-sm font-semibold">Current status</h3>
+        <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <Field label="AI Assistant" value={aiSummary.liveStatus.available ? "Available" : "Unavailable"} />
+          <Field label="Configuration" value={formatStatusLabel(aiSummary.liveStatus.configStatus)} />
+          <Field label="Provider" value={aiSummary.liveStatus.provider ?? "—"} />
+          <Field label="Model" value={aiSummary.liveStatus.model ?? "—"} />
+        </dl>
+
+        <h3 className="text-text-primary mt-6 text-sm font-semibold">Recent turns (last 7 days)</h3>
+        {aiSummary.turnAggregates.totalTurns === 0 ? (
+          <p className="text-text-secondary mt-3 text-sm">No AI Assistant turns recorded in the last 7 days.</p>
+        ) : (
+          <>
+            <dl className="mt-3 grid grid-cols-2 gap-4 sm:grid-cols-4">
+              <Field label="Total turns" value={aiSummary.turnAggregates.totalTurns} />
+              <Field
+                label="Success rate"
+                value={`${aiSummary.turnAggregates.successRatePct}% (${aiSummary.turnAggregates.successCount}/${aiSummary.turnAggregates.totalTurns})`}
+              />
+              <Field label="Average latency" value={`${aiSummary.turnAggregates.averageLatencyMs} ms`} />
+              <Field label="Ref-leak guard events" value={aiSummary.turnAggregates.refLeakCount} />
+              <Field label="Input tokens" value={aiSummary.turnAggregates.totalInputTokens} />
+              <Field label="Output tokens" value={aiSummary.turnAggregates.totalOutputTokens} />
+              <Field label="Provider calls" value={aiSummary.turnAggregates.totalProviderCalls} />
+              <Field label="Tool calls" value={aiSummary.turnAggregates.totalToolCalls} />
+            </dl>
+
+            <h4 className="text-text-secondary mt-5 text-xs font-medium">Outcome breakdown</h4>
+            <OutcomeBucketList buckets={aiSummary.turnAggregates.outcomeBreakdown} />
+          </>
+        )}
+
+        <p className="text-text-muted mt-4 text-xs">
+          Durable AI rate-limit saturation monitoring is deferred to the separately tracked rate-limiter durability /
+          bounded-counter design. Tool-level failure breakdown and per-tenant monitoring are not implemented in this
+          V1. AI quality/benchmark results are a separate diagnostic system (scripts/ai-provider-eval/) and are never
+          Production telemetry — nothing above reflects that system.
+        </p>
+      </DetailSection>
+
       <p className="text-text-muted text-xs">
         For the exact SQL behind these figures, a fallback manual check, and known limitations (short Vercel log
         retention, no automated alerting), see{" "}
@@ -139,6 +192,22 @@ export default async function PlatformAdminObservabilityPage() {
 
 function SectionIntro({ children }: { children: React.ReactNode }) {
   return <p className="text-text-secondary mb-4 text-sm">{children}</p>;
+}
+
+function OutcomeBucketList({ buckets }: { buckets: AiAssistantOutcomeBucket[] }) {
+  if (buckets.length === 0) {
+    return <p className="text-text-secondary mt-2 text-sm">No turns in this window.</p>;
+  }
+  return (
+    <ul className="divide-border-default border-border-default mt-2 divide-y rounded-md border">
+      {buckets.map((bucket) => (
+        <li key={bucket.outcome} className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+          <span className="text-text-primary">{formatStatusLabel(bucket.outcome)}</span>
+          <span className="text-text-primary font-medium tabular-nums">{bucket.count}</span>
+        </li>
+      ))}
+    </ul>
+  );
 }
 
 function FailureBucketList({
