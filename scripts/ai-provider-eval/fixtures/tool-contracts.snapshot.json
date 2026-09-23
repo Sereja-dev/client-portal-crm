@@ -1,8 +1,8 @@
 {
   "$schemaNote": "Aqenra AI provider benchmark — tool-contract snapshot. Extracted from src/lib/ai/tools/registry.ts's own getRegisteredAiTools(). Contains ONLY name/description/inputSchema per tool — no execute implementation, no database metadata, no organizationId, no fixture data, no secrets. Regenerate with: npx tsx scripts/ai-provider-eval/extract-fixtures.ts (from the repo root). sourceFingerprint is the hard official-run freshness gate (content-addressed, not commit-addressed — see snapshot-freshness.ts); extractedFromGitSha below is informational reproducibility metadata only, never the gate.",
-  "extractedFromGitSha": "80e959c5c410c7528aee7fb4a2e791ca5c01f52d",
+  "extractedFromGitSha": "unrecorded — pass AQENRA_EVAL_EXTRACT_GIT_SHA=$(git rev-parse HEAD) to record it",
   "fingerprintAlgorithm": "sha256-v1",
-  "sourceFingerprint": "932dd220c4e9abe5cf36d3306979e95659b6456c3581aab9a6e9159e75f189df",
+  "sourceFingerprint": "798c6f8a01be520603ee7aba3b9c87307adf1b464a7b3127ff11ff14360f6c77",
   "tools": [
     {
       "description": "Returns structured detail for one client, given a ref from searchClients: name, company, status, created date, and project/invoice counts.",
@@ -22,7 +22,7 @@
       "name": "getClientDetail"
     },
     {
-      "description": "Returns a summary of the current organization's business state: client/project/task/invoice counts and status breakdowns, recent invoices, and upcoming/overdue tasks. Takes no arguments.",
+      "description": "Returns a summary of the current organization's business state, including overdue-task counts and an overview of which tasks are overdue: client/project/task/invoice counts and status breakdowns, recent invoices, and upcoming/overdue tasks. Takes no arguments.",
       "inputSchema": {
         "additionalProperties": false,
         "description": "Takes no arguments.",

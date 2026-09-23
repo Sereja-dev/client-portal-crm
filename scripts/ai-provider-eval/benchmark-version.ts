@@ -401,5 +401,35 @@
  *     1.10.0 has yet been performed — this bump records a shipped,
  *     offline-verified prompt change only, never an implied quality
  *     improvement or a new official result.
+ *   - 1.11.0: getOrganizationSummary Overdue-Summary Salience (R3) —
+ *     a tool-description-only change: GET_ORGANIZATION_SUMMARY_DESCRIPTION
+ *     (src/lib/ai/tools/organization-summary.ts) gained one inserted
+ *     clause naming overdue-task counts/overview explicitly, up front,
+ *     rather than only as the last item in a five-category list. No
+ *     change to AI_ASSISTANT_SYSTEM_PROMPT, any other tool's own
+ *     description/schema/implementation (searchTasks's own description
+ *     remains byte-identical), orchestration, routing, or provider
+ *     adapters — this does not add tool_choice, forced-tool selection,
+ *     an intent classifier, deterministic pre-routing, or any
+ *     restriction on searchTasks; tool selection remains entirely the
+ *     model's own inference. Motivated by the final 1.10.0 read-only
+ *     synthesis across the original 12-turn run and three exposure
+ *     batches (12 total Anthropic org-summary-03 rows): 0/12 rows ever
+ *     selected getOrganizationSummary despite it being case-legitimate
+ *     and structurally immune to the observed status-overfilter (8/12),
+ *     blanket-negative-guard-noncompliance (2/4 of testable rows), and
+ *     factual-completeness-omission (3/4 of testable rows) defects, all
+ *     three of which occur only within the searchTasks reasoning path.
+ *     See the R3 scoping audit for the full candidate-wording comparison
+ *     and truthfulness check against getDashboardAnalytics's own
+ *     overdueTasksCount/overdueTasks fields. This changes
+ *     provider-visible request content (the tools[] array sent on every
+ *     call) — every one of a future official run's own 216 turns'
+ *     literal wire bytes differs from every 1.10.0-and-earlier run — so
+ *     1.10.0 and earlier evidence remains valid and comparable only
+ *     against itself, never against a 1.11.0 run. No fresh live run
+ *     under 1.11.0 has yet been performed — this bump records a
+ *     shipped, offline-verified tool-description change only, never an
+ *     implied quality improvement or a new official result.
  */
-export const BENCHMARK_DEFINITION_VERSION = "1.10.0";
+export const BENCHMARK_DEFINITION_VERSION = "1.11.0";

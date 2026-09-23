@@ -164,4 +164,4 @@ export const GET_ORGANIZATION_SUMMARY_INPUT_SCHEMA = {
 } as const;
 
 export const GET_ORGANIZATION_SUMMARY_DESCRIPTION =
-  "Returns a summary of the current organization's business state: client/project/task/invoice counts and status breakdowns, recent invoices, and upcoming/overdue tasks. Takes no arguments.";
+  "Returns a summary of the current organization's business state, including overdue-task counts and an overview of which tasks are overdue: client/project/task/invoice counts and status breakdowns, recent invoices, and upcoming/overdue tasks. Takes no arguments.";
