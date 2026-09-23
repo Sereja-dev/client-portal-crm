@@ -362,5 +362,44 @@
  *     performed — this bump records a shipped, offline-verified prompt
  *     change only, never an implied quality improvement or a new
  *     official result.
+ *   - 1.10.0: Overdue False-Negative Summary Guard — the same shared
+ *     Product/eval base system prompt (src/lib/ai/system-prompt.ts's
+ *     own AI_ASSISTANT_SYSTEM_PROMPT) gained one further sentence,
+ *     appended to the existing overdue-task rule: the assistant must
+ *     never state or imply there are no overdue tasks if the returned
+ *     task data includes any task that is not done and is due strictly
+ *     before the current moment. Motivated by a pooled n=9 Anthropic
+ *     org-summary-03 causal audit (existing v1.9.0-overdue-boundary-
+ *     20260923T112519Z run plus two independent fresh Anthropic-only
+ *     runs, v1.9.0-anthropic-rate-a-20260923T120325Z and
+ *     v1.9.0-anthropic-rate-b-20260923T120447Z; archived at
+ *     ~/aqenra-eval-archive/20260923T113645Z-v1.9.0-overdue-boundary-subset-112519Z/,
+ *     ~/aqenra-eval-archive/20260923T121424Z-v1.9.0-anthropic-rate-a-subset-120325Z/,
+ *     and ~/aqenra-eval-archive/20260923T121425Z-v1.9.0-anthropic-rate-b-subset-120447Z/):
+ *     4/9 pooled rows made a blanket-negative "no overdue tasks" (or
+ *     equivalent) claim despite the returned data containing at least
+ *     one non-DONE task due before the boundary — 2/9 non-recoverable,
+ *     2/9 recoverable elsewhere in the same answer. The failure
+ *     mechanism varied (DONE-rule over-generalization, boundary-
+ *     vocabulary over-generalization, status-implies-active
+ *     conflation) but every instance shared the same observable shape:
+ *     a qualifying overdue row was present in the data, yet the answer
+ *     still made a blanket-negative aggregate claim. The 1.8.0
+ *     status-filter rule and the 1.9.0 strict-boundary rule are both
+ *     untouched by this bump — this sentence addresses only the
+ *     aggregate-claim/summarization step, a distinct failure mode from
+ *     either prior rule's own target. This changes provider-visible
+ *     request content — every one of a future official run's own 216
+ *     turns' literal wire bytes differs from every 1.9.0-and-earlier
+ *     run — so 1.9.0 and earlier evidence remains valid and comparable
+ *     only against itself, never against a 1.10.0 run. No change to
+ *     cases.ts, scoring.ts, decision.ts, tool-runtime.ts, searchTasks's
+ *     or getOrganizationSummary's own schema/runtime, provider
+ *     adapters, orchestration logic, or the temporal-context suffix
+ *     implementation — this is a prompt-text-only change, semantics
+ *     only, no other Product behavior touched. No fresh live run under
+ *     1.10.0 has yet been performed — this bump records a shipped,
+ *     offline-verified prompt change only, never an implied quality
+ *     improvement or a new official result.
  */
-export const BENCHMARK_DEFINITION_VERSION = "1.9.0";
+export const BENCHMARK_DEFINITION_VERSION = "1.10.0";
