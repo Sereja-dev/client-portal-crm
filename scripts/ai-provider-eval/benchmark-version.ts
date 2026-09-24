@@ -474,5 +474,46 @@
  *     quality-gate-relevant signal on its own. No fresh live run under
  *     1.12.0 has yet been performed, and none is required — this is a
  *     scorer-diagnostic repair, not a Product behavior change.
+ *   - 1.13.0: AI Benchmark Mixed-Currency Paid Revenue fix — a FIXTURE-
+ *     ONLY correction, no Product runtime/prompt/tool/routing change of
+ *     any kind. fixtures/organization.ts's PAID_REVENUE previously summed
+ *     every PAID invoice's amount across whatever currency each happened
+ *     to use (USD 4200 + EUR 9800 + USD 4200 = 18200) with no currency
+ *     scoping and no FX conversion — an invalid blended financial fact,
+ *     the exact same cross-currency-aggregation class already confirmed
+ *     and fixed in Product's own equivalent aggregate
+ *     (src/app/(dashboard)/dashboard/query.ts, commit ea6b847). Both
+ *     OUTSTANDING_AMOUNT and PAID_REVENUE are now scoped, by construction,
+ *     to one new named constant, FINANCIAL_SUMMARY_CURRENCY = "USD" — the
+ *     canonical currency this fixture organization resolves to under the
+ *     real Product's own resolveReportsCurrency rule for a profile-less
+ *     organization (no OrganizationProfile-equivalent exists in this
+ *     fixture; its default falls back to "USD", which is already present
+ *     among its own invoices). This changes PAID_REVENUE from 18200 to
+ *     8400 (INV-1001 + INV-1010, USD only — INV-1007's 9800 EUR is now
+ *     correctly excluded, never converted). OUTSTANDING_AMOUNT's own
+ *     numeric value is unchanged at 24250.5 (every SENT/OVERDUE row in
+ *     this fixture already happened to be USD), but its computation is
+ *     now currency-scoped by construction rather than by coincidence, so
+ *     a future fixture edit adding a non-USD SENT/OVERDUE invoice can
+ *     never silently reintroduce this same defect. This is exactly "a
+ *     fixture change alters the evaluated challenge... a synthetic data
+ *     value a case's expectation is keyed to" per this file's own "BUMP
+ *     when" rule: org-summary-02's own numeric(PAID_REVENUE) expectation
+ *     is keyed directly to this constant, so what counts as a correct
+ *     answer to that case's prompt changes. No other case references
+ *     either constant (verified by direct inspection of every
+ *     PAID_REVENUE/OUTSTANDING_AMOUNT occurrence in cases.ts). No change
+ *     to tool-runtime.ts's own execute() logic (it already imports these
+ *     constants rather than recomputing them locally — nothing there
+ *     needed to change), scoring.ts, decision.ts, cases.ts's own
+ *     executable semantics (only the constants org-summary-02 already
+ *     referenced by name changed value — no line in cases.ts itself was
+ *     edited), the tool-contract snapshot (fixtures/organization.ts and
+ *     tool-runtime.ts are both outside FRESHNESS_SOURCE_FILES — confirmed,
+ *     no refresh required), any provider adapter, or any archived
+ *     evidence. No fresh live run under 1.13.0 has yet been performed,
+ *     and none is required — this is a fixture-definition repair, not a
+ *     Product behavior change.
  */
-export const BENCHMARK_DEFINITION_VERSION = "1.12.0";
+export const BENCHMARK_DEFINITION_VERSION = "1.13.0";

@@ -156,17 +156,48 @@ export const INVOICES: FixtureInvoice[] = [
 export const NONEXISTENT_REFS = [ref("nonexistent", 1), ref("nonexistent", 2)];
 
 /**
+ * AI Benchmark Mixed-Currency Paid Revenue fix (v1.13.0) — the one
+ * canonical currency every organization-summary financial aggregate
+ * below is scoped to, mirroring the real Product's own resolved-currency
+ * rule (src/lib/reports/currency.ts's resolveReportsCurrency): this
+ * fixture models an organization with no OrganizationProfile-equivalent
+ * currency configuration at all, so its canonical default is "USD" —
+ * the same fallback resolveInvoiceCurrencyDefault(null) always produces
+ * — which is also already present among this fixture's own invoices, so
+ * the alphabetical-fallback step of that real rule is never reached
+ * here. No FX conversion exists or is ever performed anywhere in this
+ * benchmark; a currency this constant doesn't equal is simply excluded,
+ * never converted.
+ */
+export const FINANCIAL_SUMMARY_CURRENCY = "USD";
+
+/**
  * The exact organization-summary aggregates getOrganizationSummary
  * computes at runtime (tool-runtime.ts imports these SAME constants
  * rather than recomputing them locally) — a single source of truth so
  * cases.ts's own org-summary-02 numeric expectations and the synthetic
- * tool's actual output can never silently drift apart. Fixture
- * simplification, documented here rather than silently assumed: amounts
- * are summed across currencies with no conversion (see
- * tool-runtime.ts's own doc comment on this same point).
+ * tool's actual output can never silently drift apart.
+ *
+ * Both aggregates are scoped to FINANCIAL_SUMMARY_CURRENCY by
+ * construction, never by coincidence — a naive SUM across every
+ * currency this fixture's invoices happen to use would silently blend
+ * incompatible units into one meaningless number (a $100 USD invoice +
+ * a €100 EUR invoice is not "200" of anything real), exactly the class
+ * of defect already found and fixed in Product's own equivalent
+ * aggregate (src/app/(dashboard)/dashboard/query.ts). OUTSTANDING_AMOUNT's
+ * own numeric value happens to be unchanged by this scoping (every
+ * SENT/OVERDUE row in this fixture is already USD), but the currency
+ * filter is still applied explicitly here so a future fixture edit that
+ * adds a non-USD SENT/OVERDUE invoice can never silently reintroduce
+ * this same class of defect.
  */
-export const OUTSTANDING_AMOUNT = INVOICES.filter((i) => i.status === "SENT" || i.status === "OVERDUE").reduce((sum, i) => sum + i.amount, 0);
-export const PAID_REVENUE = INVOICES.filter((i) => i.status === "PAID").reduce((sum, i) => sum + i.amount, 0);
+export const OUTSTANDING_AMOUNT = INVOICES.filter(
+  (i) => (i.status === "SENT" || i.status === "OVERDUE") && i.currency === FINANCIAL_SUMMARY_CURRENCY,
+).reduce((sum, i) => sum + i.amount, 0);
+export const PAID_REVENUE = INVOICES.filter((i) => i.status === "PAID" && i.currency === FINANCIAL_SUMMARY_CURRENCY).reduce(
+  (sum, i) => sum + i.amount,
+  0,
+);
 
 export function findClientByRef(clientRef: string): FixtureClient | undefined {
   return CLIENTS.find((c) => c.ref === clientRef);

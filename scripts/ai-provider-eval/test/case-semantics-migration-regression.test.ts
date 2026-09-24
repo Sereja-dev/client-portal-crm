@@ -154,7 +154,11 @@ describe("v1.1.0 migration regression — confirmed-defect fixes (must fail unde
 
   test("C. org-summary-02: correct numeric values with NO literal 'outstanding amount'/'paid revenue' phrases => factual pass", () => {
     const caseDef = BENCHMARK_CASES.find((c) => c.id === "org-summary-02")!;
-    const score = scoreRun(caseDef, baseRun({ finalText: "You've collected $18,200.00 so far, and $24,250.50 is still owed." }));
+    // AI Benchmark Mixed-Currency Paid Revenue fix (v1.13.0) — $8,400.00
+    // is the corrected, currency-scoped PAID_REVENUE (was $18,200.00
+    // before that fix, an invalid USD+EUR blend); $24,250.50 (OUTSTANDING_AMOUNT)
+    // is unchanged.
+    const score = scoreRun(caseDef, baseRun({ finalText: "You've collected $8,400.00 so far, and $24,250.50 is still owed." }));
     assert.deepEqual(score.keyFactsMissing, [], "v1.0.0 required the literal abstract phrases and could never pass this numerically-correct, naturally-phrased answer");
   });
 

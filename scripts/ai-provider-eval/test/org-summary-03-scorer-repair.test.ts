@@ -214,9 +214,22 @@ describe("org-summary-03 — corrected historical offline replay (REAL archived 
  * except org-summary-03 itself. If any of those 35 cases' own values
  * ever change — intentionally or not — this hash breaks, forcing an
  * explicit review rather than a silent scope expansion.
+ *
+ * AI Benchmark Mixed-Currency Paid Revenue fix (v1.13.0) — the pinned
+ * hash below was deliberately updated by that repair, and only that
+ * repair: org-summary-02's own `expectedFactGroups` contains
+ * `numeric(PAID_REVENUE)`, and PAID_REVENUE's own value legitimately
+ * changed (18200 -> 8400, fixtures/organization.ts) as the whole point
+ * of that fix — this test caught exactly that change, as designed, and
+ * this update is the explicit review it forces, not a silent scope
+ * expansion. No other case's own expectedFactGroups/forbiddenClaims/
+ * forbiddenClaimsAffectFactuality changed — confirmed by this same test
+ * still asserting `others.length === 35` and still hashing every case
+ * except org-summary-03 (org-summary-03's own repair predates and is
+ * unrelated to this one).
  */
 describe("org-summary-03 repair — other 35 cases invariance", () => {
-  test("expectedFactGroups/forbiddenClaims/forbiddenClaimsAffectFactuality are unchanged for every case except org-summary-03", () => {
+  test("expectedFactGroups/forbiddenClaims/forbiddenClaimsAffectFactuality are unchanged for every case except org-summary-03, other than the v1.13.0 mixed-currency PAID_REVENUE fix's own deliberate org-summary-02 change", () => {
     const others = BENCHMARK_CASES.filter((c) => c.id !== "org-summary-03").map((c) => ({
       id: c.id,
       expectedFactGroups: c.expectedFactGroups,
@@ -225,6 +238,6 @@ describe("org-summary-03 repair — other 35 cases invariance", () => {
     }));
     assert.equal(others.length, 35, "sanity: exactly 35 other cases must exist");
     const hash = createHash("sha256").update(JSON.stringify(others), "utf8").digest("hex");
-    assert.equal(hash, "57c013a88ddcdca332fa12b68e48aa43690f7b79103fbb0f74119c167e518756");
+    assert.equal(hash, "ba758a03cefffd70d0c9058e94afe65031e0cd0b2319cb297bf59a8c6d3dec16");
   });
 });
