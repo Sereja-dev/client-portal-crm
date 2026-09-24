@@ -55,7 +55,7 @@ function contractFor(snapshot: ToolContractSnapshot, name: string): { name: stri
   const found = snapshot.tools.find((t) => t.name === name);
   if (!found) {
     throw new Error(
-      `tool-runtime.ts: snapshot has no contract for "${name}" — run \`npx tsx scripts/ai-provider-eval/extract-fixtures.ts\` from the repo root to refresh it.`,
+      `tool-runtime.ts: snapshot has no contract for "${name}" — run \`npm run extract\` from scripts/ai-provider-eval/ to refresh it.`,
     );
   }
   return found;

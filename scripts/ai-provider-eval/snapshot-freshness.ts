@@ -158,12 +158,12 @@ export function checkSnapshotFreshness(snapshot: SnapshotFreshnessMetadata): Fre
 export function describeFreshnessFailure(result: Extract<FreshnessCheckResult, { fresh: false }>): string {
   switch (result.reason) {
     case "missing_source_file":
-      return `Snapshot freshness check could not read a required source file (${result.missingPath}). Refresh the snapshot from the repository root: npx tsx scripts/ai-provider-eval/extract-fixtures.ts`;
+      return `Snapshot freshness check could not read a required source file (${result.missingPath}). Refresh the snapshot: npm run extract (from scripts/ai-provider-eval/)`;
     case "snapshot_missing_fingerprint":
-      return "The committed tool-contract snapshot has no recorded sourceFingerprint. Refresh it from the repository root: npx tsx scripts/ai-provider-eval/extract-fixtures.ts";
+      return "The committed tool-contract snapshot has no recorded sourceFingerprint. Refresh it: npm run extract (from scripts/ai-provider-eval/)";
     case "algorithm_mismatch":
-      return `The committed snapshot was fingerprinted with algorithm "${result.recordedAlgorithm}", but this codebase now uses "${result.currentAlgorithm}". Refresh the snapshot from the repository root: npx tsx scripts/ai-provider-eval/extract-fixtures.ts`;
+      return `The committed snapshot was fingerprinted with algorithm "${result.recordedAlgorithm}", but this codebase now uses "${result.currentAlgorithm}". Refresh the snapshot: npm run extract (from scripts/ai-provider-eval/)`;
     case "fingerprint_mismatch":
-      return "The committed tool-contract snapshot no longer matches the current tool source files (registry.ts, the five tool-implementation files, or their enum sources have changed). Refresh the snapshot from the repository root: npx tsx scripts/ai-provider-eval/extract-fixtures.ts";
+      return "The committed tool-contract snapshot no longer matches the current tool source files (registry.ts, the five tool-implementation files, or their enum sources have changed). Refresh the snapshot: npm run extract (from scripts/ai-provider-eval/)";
   }
 }

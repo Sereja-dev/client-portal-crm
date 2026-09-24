@@ -13,11 +13,18 @@
  * header comment for the isolated, fixture-backed executors that consume
  * this snapshot's OUTPUT instead of ever importing these modules live.
  *
- * MUST be run from the REPOSITORY ROOT, not from inside
- * scripts/ai-provider-eval/ — it needs the main app's own tsconfig `@/*`
- * path alias and its `node_modules` (Prisma client included) to resolve:
+ * Run from scripts/ai-provider-eval/:
  *
- *   npx tsx scripts/ai-provider-eval/extract-fixtures.ts
+ *   npm run extract
+ *
+ * That script's own command internally changes directory to the
+ * REPOSITORY ROOT before invoking tsx — it needs the main app's own
+ * tsconfig `@/*` path alias and its `node_modules` (Prisma client
+ * included) to resolve, and it needs `--conditions=react-server` so the
+ * real registry's own transitive `import "server-only"` resolves to that
+ * marker package's own safe, empty variant rather than throwing (see
+ * package.json's own "extract" script and README.md's own "Snapshot
+ * refresh procedure" section for the full mechanism).
  *
  * It is intentionally excluded from this package's own tsconfig.json
  * (see that file's own `exclude`) and instead gets its own dedicated,
@@ -126,7 +133,7 @@ function main(): void {
   // end to end, not just within each tool contract.
   const snapshot = {
     $schemaNote:
-      "Aqenra AI provider benchmark — tool-contract snapshot. Extracted from src/lib/ai/tools/registry.ts's own getRegisteredAiTools(). Contains ONLY name/description/inputSchema per tool — no execute implementation, no database metadata, no organizationId, no fixture data, no secrets. Regenerate with: npx tsx scripts/ai-provider-eval/extract-fixtures.ts (from the repo root). sourceFingerprint is the hard official-run freshness gate (content-addressed, not commit-addressed — see snapshot-freshness.ts); extractedFromGitSha below is informational reproducibility metadata only, never the gate.",
+      "Aqenra AI provider benchmark — tool-contract snapshot. Extracted from src/lib/ai/tools/registry.ts's own getRegisteredAiTools(). Contains ONLY name/description/inputSchema per tool — no execute implementation, no database metadata, no organizationId, no fixture data, no secrets. Regenerate with: npm run extract (from scripts/ai-provider-eval/). sourceFingerprint is the hard official-run freshness gate (content-addressed, not commit-addressed — see snapshot-freshness.ts); extractedFromGitSha below is informational reproducibility metadata only, never the gate.",
     extractedFromGitSha: process.env.AQENRA_EVAL_EXTRACT_GIT_SHA ?? "unrecorded — pass AQENRA_EVAL_EXTRACT_GIT_SHA=$(git rev-parse HEAD) to record it",
     fingerprintAlgorithm: fingerprintResult.algorithm,
     sourceFingerprint: fingerprintResult.fingerprint,

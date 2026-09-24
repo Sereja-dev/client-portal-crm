@@ -205,7 +205,7 @@ describe("snapshot-freshness.ts — checkSnapshotFreshness metadata handling", (
       { fresh: false as const, reason: "fingerprint_mismatch" as const, recorded: "a".repeat(64), current: "b".repeat(64) },
     ]) {
       const message = describeFreshnessFailure(result);
-      assert.match(message, /npx tsx scripts\/ai-provider-eval\/extract-fixtures\.ts/);
+      assert.match(message, /npm run extract/);
       assert.equal(/sk-|api[_-]?key/i.test(message), false);
     }
   });

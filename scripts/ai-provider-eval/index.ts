@@ -184,7 +184,7 @@ function enforceSnapshotFreshnessOrExit(): boolean {
   try {
     raw = readFileSync(snapshotPath, "utf8");
   } catch {
-    console.error(`Could not read the tool-contract snapshot at ${snapshotPath}. Refresh it from the repository root: npx tsx scripts/ai-provider-eval/extract-fixtures.ts`);
+    console.error(`Could not read the tool-contract snapshot at ${snapshotPath}. Refresh it: npm run extract (from scripts/ai-provider-eval/)`);
     process.exitCode = 1;
     return false;
   }
