@@ -78,7 +78,7 @@ async function addMember(runId: string, organizationId: string, label: string, r
   return user;
 }
 
-/** The card is a `<section aria-labelledby="onboarding-heading">` — an accessible "region" named after its own heading, so this scopes every assertion to the card alone, never any other content on /dashboard (Upcoming tasks, Overdue items, Recent invoices). */
+/** The card is a `<section aria-labelledby="onboarding-heading">` — an accessible "region" named after its own heading, so this scopes every assertion to the card alone, never any other content on /dashboard (KPIs, Needs attention, Today, Recent activity). */
 function onboardingCard(page: Page) {
   return page.getByRole("region", { name: "Getting started" });
 }

@@ -61,10 +61,10 @@ test.afterAll(async () => {
 });
 
 // A fixed UTC-midnight fixture in the past (for overdue/list assertions)
-// and one in the future (for the Dashboard's own "upcoming" bucket,
-// which requires dueDate >= now) — both are the exact stored shape
-// parseDateOnly() itself produces, and neither depends on the current
-// date, keeping every assertion deterministic.
+// and one in the future (for Project/Portal Invoice start/end/due-date
+// assertions below) — both are the exact stored shape parseDateOnly()
+// itself produces, and neither depends on the current date, keeping
+// every assertion deterministic.
 const PAST_DATE_ONLY = new Date("2020-01-06T00:00:00.000Z");
 const FUTURE_DATE_ONLY = new Date("2099-06-15T00:00:00.000Z");
 const expectedText = (d: Date) => d.toLocaleDateString(undefined, { timeZone: "UTC" });
@@ -94,7 +94,7 @@ test.describe("Task.dueDate — no calendar-day drift", () => {
     await actAsStaff(context, baseURL!, fixtures.owner, fixtures.orgA.id);
   });
 
-  test("Dashboard Overdue items shows the correct calendar day", async ({ page }) => {
+  test("Dashboard Needs Attention (overdue tasks) shows the correct calendar day", async ({ page }) => {
     await page.goto("/dashboard");
     await expect(page.getByText("Date Drift Fixture Task")).toBeVisible();
     await expect(page.getByText(`Due ${expectedText(PAST_DATE_ONLY)}`, { exact: true })).toBeVisible();
@@ -113,34 +113,24 @@ test.describe("Task.dueDate — no calendar-day drift", () => {
   });
 });
 
-test.describe("Task.dueDate — Dashboard Upcoming tasks", () => {
-  let taskId: string;
-
-  test.beforeAll(async () => {
-    const created = await dbQuery<{ id: string }>("task", "create", {
-      data: {
-        title: "Date Drift Upcoming Fixture Task",
-        projectId: fixtures.project.id,
-        organizationId: fixtures.orgA.id,
-        status: "TODO",
-        priority: "MEDIUM",
-        dueDate: FUTURE_DATE_ONLY,
-      },
-    });
-    taskId = created.id;
-  });
-
-  test.afterAll(async () => {
-    await dbQuery("task", "deleteMany", { where: { id: taskId } });
-  });
-
-  test("Dashboard Upcoming tasks shows the correct calendar day", async ({ context, baseURL, page }) => {
-    await actAsStaff(context, baseURL!, fixtures.owner, fixtures.orgA.id);
-    await page.goto("/dashboard");
-    await expect(page.getByText("Date Drift Upcoming Fixture Task")).toBeVisible();
-    await expect(page.getByText(`Due ${expectedText(FUTURE_DATE_ONLY)}`, { exact: true })).toBeVisible();
-  });
-});
+/**
+ * Dashboard Redesign — the previous version of this file had a
+ * "Task.dueDate — Dashboard Upcoming tasks" block here, proving a
+ * future-dated task's own due-date text rendered without drift on the
+ * Dashboard's own "Upcoming tasks" card. That card (and the
+ * getDashboardAnalytics().upcomingTasks list it rendered) was removed
+ * from the Dashboard page by the redesign — the underlying query/data
+ * still exists unchanged (getOrganizationSummary's own AI-tool contract
+ * still reads it), but nothing on /dashboard displays it anymore, so
+ * there is no remaining real surface for this specific future-dated
+ * assertion to exercise there. The past-dated case is still fully
+ * covered above ("Dashboard Needs Attention (overdue tasks)" and "Task
+ * list (table)"), and formatDateOnlyForDisplay()'s own zone-independence
+ * for ANY date (past or future alike, it has no direction-specific
+ * branch) remains exhaustively proven at the unit level by
+ * test/unit/invoice-date-only.test.ts, per this file's own header
+ * comment — removing this one redundant E2E case is not a coverage gap.
+ */
 
 test.describe("Project.startDate/endDate — no calendar-day drift", () => {
   let projectId: string;

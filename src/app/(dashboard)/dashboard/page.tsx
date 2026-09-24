@@ -1,48 +1,48 @@
-import Link from "next/link";
 import { getCurrentMembership } from "@/lib/current-user";
 import { formatCurrency } from "@/lib/format";
 import { MetricCard } from "@/components/dashboard/metric-card";
-import { PeriodSelector } from "@/components/dashboard/period-selector";
-import { RevenueChart } from "@/components/dashboard/revenue-chart";
-import { BreakdownCard } from "@/components/dashboard/breakdown-card";
+import { DashboardActions } from "@/components/dashboard/dashboard-actions";
+import { NeedsAttention } from "@/components/dashboard/needs-attention";
+import { TodaySection } from "@/components/dashboard/today-section";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
-import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
-import { formatInvoiceStatusLabel } from "@/lib/invoices/status-label";
-import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
 import { OnboardingCard, ONBOARDING_DISMISS_RETURN_FOCUS_ID } from "@/components/onboarding/onboarding-card";
 import { StartWithSampleData } from "@/components/onboarding/start-with-sample-data";
-import { parseDashboardPeriod, formatDashboardPeriodLabel } from "@/lib/dashboard/period";
+import { DEFAULT_DASHBOARD_PERIOD } from "@/lib/dashboard/period";
 import { getOrganizationOnboardingSignals } from "@/lib/onboarding/progress";
 import { buildVisibleOnboardingProgress } from "@/lib/onboarding/visible-progress";
 import { isEligibleForSampleData } from "@/lib/onboarding/sample-data";
 import { getDashboardAnalytics } from "./query";
-import type { RawSearchParams } from "@/lib/list-params";
 
-const linkClass = ACTION_LINK_CLASSES;
-const itemLinkClass =
-  "text-text-primary focus-visible:ring-focus-ring rounded text-sm font-medium hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
-
-export default async function DashboardPage({
-  searchParams,
-}: {
-  searchParams: Promise<RawSearchParams>;
-}) {
-  // organizationId always comes from the session/cookie, never from
-  // searchParams — only `period` is ever read from the query string, and
-  // it's validated (with a safe fallback) before being used for anything.
-  // Onboarding Redesign — membership.role is threaded into the new
-  // visible-progress model below (never accepted from the client) so a
-  // MEMBER/ADMIN never receives a Company Profile/Invite CTA they'd be
-  // rejected from.
+/**
+ * Dashboard Redesign — an operational work center, not a reporting page.
+ * Final structure: header + quick actions, conditional Onboarding/
+ * sample-data (preserved exactly), a five-card KPI row, Needs Attention,
+ * Today, and a bounded Recent Activity preview. The old page-level period
+ * selector, Revenue-over-time chart, three status-breakdown cards, and
+ * the Upcoming-tasks/Overdue-items/Recent-invoices bottom trio are all
+ * removed from THIS page — none of their underlying data/queries were
+ * deleted (getDashboardAnalytics still computes and returns every one of
+ * them unchanged, since getOrganizationSummary's own AI-tool contract
+ * still reads several of those exact fields) — only this page's own
+ * rendering of them.
+ *
+ * `getDashboardAnalytics` still takes a `period` argument (never removed
+ * — see its own doc comment) purely because getOrganizationSummary's own
+ * existing call site still passes DEFAULT_DASHBOARD_PERIOD; this page no
+ * longer has a period selector, so it passes that exact same fixed
+ * constant rather than reading anything from searchParams. No `period`/
+ * `?period=` value is ever read from the URL here anymore.
+ */
+export default async function DashboardPage() {
+  // organizationId always comes from the session/cookie. Onboarding
+  // Redesign — membership.role is threaded into the visible-progress
+  // model below (never accepted from the client) so a MEMBER/ADMIN never
+  // receives a Company Profile/Invite CTA they'd be rejected from.
   const { organizationId, membership } = await getCurrentMembership();
-  const resolvedSearchParams = await searchParams;
-  const period = parseDashboardPeriod(resolvedSearchParams.period);
   const now = new Date();
 
   const [analytics, onboardingSignals, sampleDataEligible] = await Promise.all([
-    getDashboardAnalytics({ organizationId, period, now }),
+    getDashboardAnalytics({ organizationId, period: DEFAULT_DASHBOARD_PERIOD, now }),
     // One shared raw-signal query backs both the new 5-step visible model
     // and the dismiss check below — never a second, duplicate query, and
     // never the legacy 11-step buildOnboardingProgress() at all here (that
@@ -79,149 +79,42 @@ export default async function DashboardPage({
             An overview of your clients, projects, tasks, and invoices.
           </p>
         </div>
-        <PeriodSelector period={period} />
+        <DashboardActions />
       </div>
 
       <OnboardingCard progress={onboardingProgress} isDismissed={isOnboardingDismissed} />
       <StartWithSampleData eligible={sampleDataEligible} />
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
-        <MetricCard label="Total clients" value={analytics.kpis.totalClients} href="/clients" />
-        <MetricCard
-          label="Active projects"
-          value={analytics.kpis.activeProjects}
-          href="/projects"
-        />
+      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+        <MetricCard label="Clients" value={analytics.kpis.totalClients} href="/clients" />
+        <MetricCard label="Active projects" value={analytics.kpis.activeProjects} href="/projects" />
         <MetricCard label="Open tasks" value={analytics.kpis.openTasks} href="/tasks" />
         <MetricCard
-          label="Overdue tasks"
-          value={analytics.kpis.overdueTasksCount}
-          href="/tasks"
-        />
-        <MetricCard
-          label="Outstanding amount"
+          label="Outstanding invoices"
           value={analytics.currency ? formatCurrency(analytics.kpis.outstandingAmount, analytics.currency) : "—"}
           href="/invoices"
+          hint={`${analytics.kpis.outstandingCount} ${analytics.kpis.outstandingCount === 1 ? "invoice" : "invoices"}`}
         />
         <MetricCard
-          label="Paid revenue"
-          value={analytics.currency ? formatCurrency(analytics.kpis.paidRevenue, analytics.currency) : "—"}
+          label="Revenue"
+          value={analytics.currency ? formatCurrency(analytics.kpis.paidThisMonth, analytics.currency) : "—"}
           href="/invoices"
-          hint={formatDashboardPeriodLabel(period)}
+          hint="Paid this month"
         />
       </div>
 
-      <RevenueChart
-        buckets={analytics.revenue.buckets}
-        bucketUnit={analytics.periodRange.bucketUnit}
-        total={analytics.revenue.total}
-        period={period}
-        currency={analytics.currency}
+      <NeedsAttention
+        overdueTasksCount={analytics.kpis.overdueTasksCount}
+        overdueTasks={analytics.overdueTasks}
+        overdueInvoicesCount={analytics.needsAttention.overdueInvoicesCount}
+        overdueInvoices={analytics.needsAttention.overdueInvoices}
+        unsignedContractsCount={analytics.needsAttention.unsignedContractsCount}
+        unsignedContracts={analytics.needsAttention.unsignedContracts}
       />
 
-      <div>
-        <h2 className="text-text-primary text-lg font-semibold tracking-tight">Breakdowns</h2>
-        <div className="mt-4 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <BreakdownCard title="Invoice status" items={analytics.breakdowns.invoiceStatus} labelFormatter={formatInvoiceStatusLabel} />
-          <BreakdownCard title="Task status" items={analytics.breakdowns.taskStatus} />
-          <BreakdownCard title="Project status" items={analytics.breakdowns.projectStatus} />
-        </div>
-      </div>
+      <TodaySection tasks={analytics.today.tasks} events={analytics.today.events} />
 
       <RecentActivity items={analytics.recentActivity} />
-
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        <section className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-text-primary text-sm font-semibold">Upcoming tasks</h3>
-            <Link href="/tasks" className={linkClass}>
-              View all
-            </Link>
-          </div>
-          {analytics.upcomingTasks.length === 0 ? (
-            <p className="text-text-muted text-sm">No upcoming tasks.</p>
-          ) : (
-            <ul className="divide-border-default divide-y">
-              {analytics.upcomingTasks.map((task) => (
-                <li key={task.id} className="py-3 first:pt-0 last:pb-0">
-                  <Link href={`/tasks/${task.id}/edit`} className={itemLinkClass}>
-                    {task.title}
-                  </Link>
-                  <p className="text-text-muted text-sm">{task.projectName}</p>
-                  <p className="text-text-muted mt-1 text-xs">
-                    Due {formatDateOnlyForDisplay(task.dueDate)}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-          <h3 className="text-text-primary mb-4 text-sm font-semibold">Overdue items</h3>
-          {analytics.overdueItems.length === 0 ? (
-            <p className="text-text-muted text-sm">Nothing overdue.</p>
-          ) : (
-            <ul className="divide-border-default divide-y">
-              {analytics.overdueItems.map((item) => (
-                <li key={`${item.kind}-${item.id}`} className="py-3 first:pt-0 last:pb-0">
-                  <div className="flex items-center gap-2">
-                    <span className="bg-surface-muted text-text-secondary inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium">
-                      {item.kind === "task" ? "Task" : "Invoice"}
-                    </span>
-                    <Link
-                      href={item.kind === "task" ? `/tasks/${item.id}/edit` : `/invoices/${item.id}/edit`}
-                      className={itemLinkClass}
-                    >
-                      {item.kind === "task" ? item.title : item.invoiceNumber}
-                    </Link>
-                  </div>
-                  <p className="text-text-muted mt-1 text-sm">
-                    {item.kind === "task" ? item.projectName : item.clientName}
-                    {item.kind === "invoice" && ` · ${formatCurrency(item.amount, item.currency)}`}
-                  </p>
-                  <p className="text-danger mt-0.5 text-xs">
-                    Due {formatDateOnlyForDisplay(item.dueDate)}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        <section className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-          <div className="mb-4 flex items-center justify-between">
-            <h3 className="text-text-primary text-sm font-semibold">Recent invoices</h3>
-            <Link href="/invoices" className={linkClass}>
-              View all
-            </Link>
-          </div>
-          {analytics.recentInvoices.length === 0 ? (
-            <p className="text-text-muted text-sm">No invoices yet.</p>
-          ) : (
-            <ul className="divide-border-default divide-y">
-              {analytics.recentInvoices.map((invoice) => (
-                <li key={invoice.id} className="py-3 first:pt-0 last:pb-0">
-                  <Link href={`/invoices/${invoice.id}/edit`} className={itemLinkClass}>
-                    {invoice.invoiceNumber}
-                  </Link>
-                  <p className="text-text-muted text-sm">
-                    <Link href={`/clients/${invoice.clientId}/edit`} className={ACTION_LINK_CLASSES}>
-                      {invoice.clientName}
-                    </Link>
-                  </p>
-                  <div className="mt-1 flex items-center gap-2">
-                    <StatusBadge status={invoice.status} label={formatInvoiceStatusLabel(invoice.status)} />
-                    <span className="text-text-muted text-xs">
-                      {formatCurrency(invoice.amount, invoice.currency)}
-                    </span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
     </div>
   );
 }

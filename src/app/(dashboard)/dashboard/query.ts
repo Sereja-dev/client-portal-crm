@@ -8,17 +8,30 @@ import { bucketRevenue, type RevenueResult } from "@/lib/dashboard/revenue";
 import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import { SYSTEM_STATUS_KEYS } from "@/lib/custom-statuses/constants";
 import { resolveReportsCurrency } from "@/lib/reports/currency";
+import { getOrganizationTimezone, listCalendarEventsForRange } from "@/lib/calendar-events/queries";
+import { formatTimeInTimezone } from "@/lib/calendar-events/timezone";
 
 // PAID and CANCELLED are excluded; everything else (DRAFT, SENT, OVERDUE)
-// still represents money the client owes. Kept here as its own copy — this
-// module is the new authoritative home for dashboard query logic, but
-// dashboard/page.tsx (untouched this stage) still has its own identical
-// definition for its own, still-separate query.
+// still represents money the client owes. This module is the one
+// authoritative home for this definition — the KPI's own outstandingAmount/
+// outstandingCount below.
 const UNPAID_INVOICE_STATUSES = ["DRAFT", "SENT", "OVERDUE"] as const;
 
-const RECENT_ACTIVITY_TAKE = 8;
+// Dashboard Redesign — the Needs Attention "overdue invoices" definition is
+// deliberately BROADER than the persisted OVERDUE status alone: OVERDUE is
+// manually maintained by Staff and cannot alone represent operational
+// lateness. This operational definition instead mirrors overdue Tasks
+// exactly — derived live from dueDate, never a persisted status — so a
+// workspace that never manually flips an invoice to OVERDUE still sees
+// real overdue money here. DRAFT is excluded (no real due-date commitment
+// yet); PAID/CANCELLED are excluded (nothing outstanding).
+const NEEDS_ATTENTION_OVERDUE_INVOICE_STATUSES = ["SENT", "OVERDUE"] as const;
+
+const RECENT_ACTIVITY_TAKE = 5;
 const LIST_TAKE = 5;
-const OVERDUE_ITEMS_TAKE = 8;
+const NEEDS_ATTENTION_TAKE = 5;
+const TODAY_TASKS_TAKE = 5;
+const TODAY_EVENTS_TAKE = 5;
 
 export type StatusBreakdownItem<S extends string> = { status: S; count: number };
 
@@ -49,22 +62,33 @@ export type RecentInvoice = {
   createdAt: Date;
 };
 
-/**
- * A discriminated union rather than one flattened shape — Task and Invoice
- * are genuinely different things sharing only "has a due date that's
- * passed", and the UI needs to tell them apart, not paper over it.
- */
-export type OverdueItem =
-  | { kind: "task"; id: string; title: string; dueDate: Date; projectName: string }
-  | {
-      kind: "invoice";
-      id: string;
-      invoiceNumber: string;
-      dueDate: Date;
-      clientName: string;
-      amount: number;
-      currency: string;
-    };
+/** Needs Attention — one overdue invoice row. Never currency-filtered (unlike the KPI aggregates): each row keeps and formats its own invoice's own currency, exactly like recentInvoices above. */
+export type NeedsAttentionInvoice = {
+  id: string;
+  invoiceNumber: string;
+  dueDate: Date;
+  clientName: string;
+  amount: number;
+  currency: string;
+};
+
+/** Needs Attention — one unsigned (SENT, not yet ACCEPTED) contract row. */
+export type NeedsAttentionContract = {
+  id: string;
+  contractNumber: string;
+  title: string;
+  clientName: string;
+  sentAt: Date | null;
+};
+
+/** Today — one calendar event row. Bounded to today's organization-local calendar day by the caller (listCalendarEventsForRange). `displayTime` is pre-formatted server-side (organization timezone is already resolved here, never threaded raw into the UI layer) — `null` for an all-day event. */
+export type TodayCalendarEvent = {
+  id: string;
+  title: string;
+  allDay: boolean;
+  startsAt: Date;
+  displayTime: string | null;
+};
 
 export type DashboardAnalytics = {
   period: DashboardPeriod;
@@ -88,7 +112,11 @@ export type DashboardAnalytics = {
     openTasks: number;
     overdueTasksCount: number;
     outstandingAmount: number;
+    /** Dashboard Redesign — count of the same DRAFT/SENT/OVERDUE invoices outstandingAmount sums, for the KPI card's own optional secondary metadata. Same query, same currency scope, zero extra round trip (Prisma's own aggregate _count). */
+    outstandingCount: number;
     paidRevenue: number;
+    /** Dashboard Redesign — the new "Revenue" KPI's own value: PAID invoices whose paidAt falls within the current UTC calendar month, scoped to the same canonical currency as every other financial aggregate here. Deliberately additive, never replacing paidRevenue above (getOrganizationSummary's own existing contract still reads that field, computed exactly as before). */
+    paidThisMonth: number;
   };
   revenue: RevenueResult;
   breakdowns: {
@@ -99,10 +127,26 @@ export type DashboardAnalytics = {
   recentActivity: { id: string; display: ActivityDisplayModel }[];
   upcomingTasks: UpcomingOrOverdueTask[];
   overdueTasks: UpcomingOrOverdueTask[];
-  /** overdueTasks + overdue Invoices, merged and sorted by dueDate ascending, capped at 8. */
-  overdueItems: OverdueItem[];
   recentInvoices: RecentInvoice[];
+  /** Dashboard Redesign — the operational Needs Attention section's own two new categories (overdue tasks reuses overdueTasks/kpis.overdueTasksCount above directly — no duplication). */
+  needsAttention: {
+    overdueInvoicesCount: number;
+    overdueInvoices: NeedsAttentionInvoice[];
+    unsignedContractsCount: number;
+    unsignedContracts: NeedsAttentionContract[];
+  };
+  /** Dashboard Redesign — the operational Today section. */
+  today: {
+    tasksCount: number;
+    tasks: UpcomingOrOverdueTask[];
+    events: TodayCalendarEvent[];
+  };
 };
+
+/** UTC calendar-day start for `date` — mirrors src/lib/dashboard/revenue.ts's own private utcDayStart() exactly (same technique, kept as its own small local copy rather than exported/imported, since that module's own "no I/O, self-contained" discipline is unrelated to this one extra call site). */
+function utcDayStart(date: Date): Date {
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
 
 /**
  * Single entry point for all Dashboard Analytics data. `organizationId` must
@@ -132,6 +176,10 @@ export async function getDashboardAnalytics({
   now: Date;
 }): Promise<DashboardAnalytics> {
   const periodRange = getDashboardPeriodRange(period, now);
+  const todayStart = utcDayStart(now);
+  const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000);
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const nextMonthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
 
   // Custom Statuses Phase 2A (Section K) — the "active projects" KPI is
   // specifically the built-in IN_PROGRESS semantic status, not "any
@@ -143,7 +191,7 @@ export async function getDashboardAnalytics({
   // A custom Project status can never satisfy this count, even if its
   // own legacy compatibility value happens to still read IN_PROGRESS
   // from before a hypothetical reassignment (Section J).
-  const [inProgressDefinition, currencySelection] = await Promise.all([
+  const [inProgressDefinition, currencySelection, organizationTimezone] = await Promise.all([
     resolveSystemStatusDefinition(organizationId, "PROJECT", SYSTEM_STATUS_KEYS.PROJECT_IN_PROGRESS),
     // Dashboard Multi-Currency KPI Defect fix — reuses Reports V1's own
     // canonical "no explicit requested currency" resolution verbatim,
@@ -154,6 +202,11 @@ export async function getDashboardAnalytics({
     // or is introduced by this fix — `requestedCurrency` is always
     // undefined here.
     resolveReportsCurrency(organizationId, undefined),
+    // Dashboard Redesign — Today's calendar events need the organization's
+    // own IANA timezone (Calendar V1 locked architecture §8), resolved
+    // once here rather than inline, mirroring the existing
+    // inProgressDefinition/currencySelection pre-resolution shape exactly.
+    getOrganizationTimezone(organizationId),
   ]);
   const activeProjectsWhere: Prisma.ProjectWhereInput = inProgressDefinition
     ? {
@@ -180,14 +233,21 @@ export async function getDashboardAnalytics({
     overdueTasksCount,
     outstandingAgg,
     paidInvoicesInPeriod,
+    paidThisMonthRows,
     invoiceStatusGrouped,
     taskStatusGrouped,
     projectStatusGrouped,
     activityRows,
     upcomingTasksRows,
     overdueTasksRows,
-    overdueInvoicesRows,
     recentInvoicesRows,
+    needsAttentionOverdueInvoicesCount,
+    needsAttentionOverdueInvoicesRows,
+    unsignedContractsCount,
+    unsignedContractsRows,
+    todayTasksCount,
+    todayTasksRows,
+    todayEventsRows,
   ] = await Promise.all([
     prisma.client.count({ where: { organizationId } }),
     prisma.project.count({ where: activeProjectsWhere }),
@@ -198,6 +258,7 @@ export async function getDashboardAnalytics({
     prisma.invoice.aggregate({
       where: { organizationId, status: { in: [...UNPAID_INVOICE_STATUSES] }, ...currencyWhere },
       _sum: { amount: true },
+      _count: true,
     }),
     // Selected once, used for both the paidRevenue KPI (sum) and the
     // revenue time series (bucketing) below — never queried twice.
@@ -209,6 +270,21 @@ export async function getDashboardAnalytics({
         ...currencyWhere,
       },
       select: { amount: true, paidAt: true },
+    }),
+    // Dashboard Redesign — "Revenue" KPI: PAID, paidAt within the current
+    // UTC calendar month, same canonical currency. Deliberately a
+    // separate query from paidInvoicesInPeriod above: that one is scoped
+    // to the caller-supplied `period` (still required by
+    // getOrganizationSummary's own unchanged contract, which always
+    // passes DEFAULT_DASHBOARD_PERIOD), never a fixed calendar month.
+    prisma.invoice.findMany({
+      where: {
+        organizationId,
+        status: "PAID",
+        paidAt: { gte: monthStart, lt: nextMonthStart },
+        ...currencyWhere,
+      },
+      select: { amount: true },
     }),
     prisma.invoice.groupBy({
       by: ["status"],
@@ -243,22 +319,52 @@ export async function getDashboardAnalytics({
       take: LIST_TAKE,
       include: { project: { select: { name: true } } },
     }),
-    // Real OVERDUE status, not a re-derived "dueDate < now" check — an
-    // invoice only counts here once someone has actually marked it OVERDUE.
-    // dueDate is nullable in the schema; excluded here since a due-date-
-    // sorted list has nothing meaningful to do with a null one.
-    prisma.invoice.findMany({
-      where: { organizationId, status: "OVERDUE", dueDate: { not: null } },
-      orderBy: { dueDate: "asc" },
-      take: LIST_TAKE,
-      include: { client: { select: { name: true } } },
-    }),
     prisma.invoice.findMany({
       where: { organizationId },
       orderBy: { createdAt: "desc" },
       take: LIST_TAKE,
       include: { client: { select: { name: true } } },
     }),
+    // Needs Attention — overdue invoices: SENT or OVERDUE, dueDate < now.
+    // Deliberately broader than the OVERDUE-only query above — see this
+    // constant's own doc comment (NEEDS_ATTENTION_OVERDUE_INVOICE_STATUSES).
+    prisma.invoice.count({
+      where: { organizationId, status: { in: [...NEEDS_ATTENTION_OVERDUE_INVOICE_STATUSES] }, dueDate: { lt: now } },
+    }),
+    prisma.invoice.findMany({
+      where: { organizationId, status: { in: [...NEEDS_ATTENTION_OVERDUE_INVOICE_STATUSES] }, dueDate: { lt: now } },
+      orderBy: { dueDate: "asc" },
+      take: NEEDS_ATTENTION_TAKE,
+      include: { client: { select: { name: true } } },
+    }),
+    // Needs Attention — unsigned contracts: SENT only (approved
+    // definition — sent to the client, not yet accepted; DRAFT was never
+    // sent, so there is nothing outstanding to sign yet). Archived
+    // contracts are excluded, matching this app's own established
+    // archivedAt-aware convention elsewhere.
+    prisma.contract.count({ where: { organizationId, status: "SENT", archivedAt: null } }),
+    prisma.contract.findMany({
+      where: { organizationId, status: "SENT", archivedAt: null },
+      orderBy: { sentAt: "asc" },
+      take: NEEDS_ATTENTION_TAKE,
+      include: { client: { select: { name: true } } },
+    }),
+    // Today — tasks due today (date-only boundary, same convention as
+    // every other Task.dueDate comparison in this file).
+    prisma.task.count({
+      where: { project: { organizationId }, status: { not: "DONE" }, dueDate: { gte: todayStart, lt: todayEnd } },
+    }),
+    prisma.task.findMany({
+      where: { project: { organizationId }, status: { not: "DONE" }, dueDate: { gte: todayStart, lt: todayEnd } },
+      orderBy: [{ dueDate: "asc" }, { id: "asc" }],
+      take: TODAY_TASKS_TAKE,
+      include: { project: { select: { name: true } } },
+    }),
+    // Today — calendar events. Reuses the canonical, already-correct
+    // range query (organization-local timezone, all-day/timed
+    // distinction, archived exclusion) rather than re-deriving any of
+    // that here — see listCalendarEventsForRange's own doc comment.
+    listCalendarEventsForRange(organizationId, { from: todayStart, to: todayEnd }, organizationTimezone),
   ]);
 
   // paidInvoicesInPeriod rows are already scoped to `paidAt not null AND in
@@ -269,30 +375,10 @@ export async function getDashboardAnalytics({
     periodRange,
   );
 
-  const overdueItems: OverdueItem[] = [
-    ...overdueTasksRows.map(
-      (task): OverdueItem => ({
-        kind: "task",
-        id: task.id,
-        title: task.title,
-        dueDate: task.dueDate as Date,
-        projectName: task.project.name,
-      }),
-    ),
-    ...overdueInvoicesRows.map(
-      (invoice): OverdueItem => ({
-        kind: "invoice",
-        id: invoice.id,
-        invoiceNumber: invoice.invoiceNumber,
-        dueDate: invoice.dueDate as Date,
-        clientName: invoice.client.name,
-        amount: Number(invoice.amount),
-        currency: invoice.currency,
-      }),
-    ),
-  ]
-    .sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime())
-    .slice(0, OVERDUE_ITEMS_TAKE);
+  // Same plain-float summation technique bucketRevenue itself already
+  // uses (Number(row.amount), reduced) — this Dashboard module's own
+  // existing precision convention, not a new one introduced here.
+  const paidThisMonth = paidThisMonthRows.reduce((sum, row) => sum + Number(row.amount), 0);
 
   return {
     period,
@@ -304,7 +390,9 @@ export async function getDashboardAnalytics({
       openTasks,
       overdueTasksCount,
       outstandingAmount: Number(outstandingAgg._sum.amount ?? 0),
+      outstandingCount: outstandingAgg._count,
       paidRevenue: revenue.total,
+      paidThisMonth,
     },
     revenue,
     breakdowns: {
@@ -334,7 +422,6 @@ export async function getDashboardAnalytics({
       dueDate: task.dueDate as Date,
       projectName: task.project.name,
     })),
-    overdueItems,
     recentInvoices: recentInvoicesRows.map((invoice) => ({
       id: invoice.id,
       invoiceNumber: invoice.invoiceNumber,
@@ -345,5 +432,40 @@ export async function getDashboardAnalytics({
       clientName: invoice.client.name,
       createdAt: invoice.createdAt,
     })),
+    needsAttention: {
+      overdueInvoicesCount: needsAttentionOverdueInvoicesCount,
+      overdueInvoices: needsAttentionOverdueInvoicesRows.map((invoice) => ({
+        id: invoice.id,
+        invoiceNumber: invoice.invoiceNumber,
+        dueDate: invoice.dueDate as Date,
+        clientName: invoice.client.name,
+        amount: Number(invoice.amount),
+        currency: invoice.currency,
+      })),
+      unsignedContractsCount,
+      unsignedContracts: unsignedContractsRows.map((contract) => ({
+        id: contract.id,
+        contractNumber: contract.contractNumber,
+        title: contract.title,
+        clientName: contract.client.name,
+        sentAt: contract.sentAt,
+      })),
+    },
+    today: {
+      tasksCount: todayTasksCount,
+      tasks: todayTasksRows.map((task) => ({
+        id: task.id,
+        title: task.title,
+        dueDate: task.dueDate as Date,
+        projectName: task.project.name,
+      })),
+      events: todayEventsRows.slice(0, TODAY_EVENTS_TAKE).map((event) => ({
+        id: event.id,
+        title: event.title,
+        allDay: event.allDay,
+        startsAt: event.startsAt,
+        displayTime: event.allDay ? null : formatTimeInTimezone(event.startsAt, organizationTimezone),
+      })),
+    },
   };
 }

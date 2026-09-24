@@ -108,7 +108,11 @@ test("Client create → edit → delete works end to end, and the dashboard metr
   // playwright.config.ts's global `timeout`.
   test.setTimeout(60_000);
   await page.goto("/dashboard");
-  const totalClientsCard = page.getByRole("link", { name: /total clients/i });
+  // Dashboard Redesign — the KPI's own label changed from "Total clients"
+  // to "Clients" (locked spec §5A); still unambiguous among the five KPI
+  // cards, none of whose other labels (Active projects/Open tasks/
+  // Outstanding invoices/Revenue) contain this substring.
+  const totalClientsCard = page.getByRole("link", { name: /^clients/i });
   const before = Number((await totalClientsCard.locator("p").nth(1).innerText()).trim());
 
   // Create.

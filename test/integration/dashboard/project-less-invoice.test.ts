@@ -91,13 +91,11 @@ describe("getDashboardAnalytics — project-less Invoice inclusion (Quotes / Est
     expect(byStatus.get("OVERDUE")).toBeGreaterThan(0);
   });
 
-  it("34. overdue list includes a project-less OVERDUE invoice, with clientName from Invoice.client directly", async () => {
+  it("34. Needs Attention overdue-invoices list includes a project-less OVERDUE invoice, with clientName from Invoice.client directly", async () => {
     const analytics = await getDashboardAnalytics({ organizationId: fixtures.orgA.id, period: "30d", now: new Date() });
-    const found = analytics.overdueItems.find((item) => item.kind === "invoice" && item.id === overdueInvoice.id);
+    const found = analytics.needsAttention.overdueInvoices.find((item) => item.id === overdueInvoice.id);
     expect(found).toBeDefined();
-    if (found && found.kind === "invoice") {
-      expect(found.clientName).toBe(fixtures.clientA.name);
-    }
+    expect(found?.clientName).toBe(fixtures.clientA.name);
   });
 
   it("35. recent invoices list includes a project-less invoice, with clientName from Invoice.client directly", async () => {

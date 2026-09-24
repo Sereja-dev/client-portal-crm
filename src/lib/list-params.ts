@@ -26,6 +26,17 @@ export function parseEnumParam<T extends string>(
 }
 
 /**
+ * Dashboard Redesign / Tasks overdue filter — a strict boolean-ish list
+ * param: exactly the literal "true" is truthy; everything else (absent,
+ * "false", "1", "yes", garbage) is falsy. Mirrors parseEnumParam's own
+ * "one known-safe value or nothing" discipline — never a loose
+ * truthy-string coercion.
+ */
+export function parseBooleanParam(value: string | string[] | undefined): boolean {
+  return firstValue(value) === "true";
+}
+
+/**
  * Custom Statuses Phase 2B (Section P) — a `?status=`/`?stage=`-shaped
  * list filter param, no longer constrained to a fixed enum: lower-cased
  * so it can be resolved against a live CustomStatusDefinition's own key

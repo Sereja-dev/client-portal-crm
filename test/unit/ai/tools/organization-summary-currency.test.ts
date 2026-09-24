@@ -38,14 +38,24 @@ function baseAnalytics(overrides: Partial<DashboardAnalytics> = {}): DashboardAn
     period: "30d",
     periodRange: { start: new Date("2026-01-01"), end: new Date("2026-01-31"), bucketUnit: "day" },
     currency: "USD",
-    kpis: { totalClients: 0, activeProjects: 0, openTasks: 0, overdueTasksCount: 0, outstandingAmount: 0, paidRevenue: 0 },
+    kpis: {
+      totalClients: 0,
+      activeProjects: 0,
+      openTasks: 0,
+      overdueTasksCount: 0,
+      outstandingAmount: 0,
+      outstandingCount: 0,
+      paidRevenue: 0,
+      paidThisMonth: 0,
+    },
     revenue: { total: 0, buckets: [] },
     breakdowns: { invoiceStatus: [], taskStatus: [], projectStatus: [] },
     recentActivity: [],
     upcomingTasks: [],
     overdueTasks: [],
-    overdueItems: [],
     recentInvoices: [],
+    needsAttention: { overdueInvoicesCount: 0, overdueInvoices: [], unsignedContractsCount: 0, unsignedContracts: [] },
+    today: { tasksCount: 0, tasks: [], events: [] },
     ...overrides,
   };
 }
@@ -79,7 +89,16 @@ describe("executeGetOrganizationSummary — currency pass-through (Organization 
     mockGetDashboardAnalytics.mockResolvedValueOnce(
       baseAnalytics({
         currency: "USD",
-        kpis: { totalClients: 2, activeProjects: 1, openTasks: 3, overdueTasksCount: 0, outstandingAmount: 500, paidRevenue: 1200 },
+        kpis: {
+          totalClients: 2,
+          activeProjects: 1,
+          openTasks: 3,
+          overdueTasksCount: 0,
+          outstandingAmount: 500,
+          outstandingCount: 1,
+          paidRevenue: 1200,
+          paidThisMonth: 1200,
+        },
       }),
     );
     const result = await executeGetOrganizationSummary(ORG_ID, {});

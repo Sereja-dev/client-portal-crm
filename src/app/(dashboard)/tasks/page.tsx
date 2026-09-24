@@ -52,8 +52,9 @@ export default async function TasksPage({
   const { organizationId } = await getCurrentUserOrganization();
   const resolvedSearchParams = await searchParams;
   const listParams = parseTaskListParams(resolvedSearchParams);
+  const now = new Date();
 
-  const where = buildTaskWhere(organizationId, listParams);
+  const where = buildTaskWhere(organizationId, listParams, now);
   const orderBy = buildTaskOrderBy(listParams);
 
   const [projectCount, [tasks, total]] = await Promise.all([
@@ -74,7 +75,7 @@ export default async function TasksPage({
 
   const totalPages = getTotalPages(total);
   const hasActiveParams = Boolean(
-    listParams.q || listParams.status || listParams.priority,
+    listParams.q || listParams.status || listParams.priority || listParams.overdue,
   );
 
   return (
@@ -85,7 +86,9 @@ export default async function TasksPage({
             Tasks
           </h1>
           <p className="text-text-secondary mt-1 text-sm">
-            {total} {total === 1 ? "task" : "tasks"}
+            {listParams.overdue
+              ? `${total} overdue ${total === 1 ? "task" : "tasks"}`
+              : `${total} ${total === 1 ? "task" : "tasks"}`}
           </p>
         </div>
         {projectCount > 0 && (
@@ -128,6 +131,7 @@ export default async function TasksPage({
           ]}
           sort={{ value: listParams.sortCombined, options: SORT_OPTIONS }}
           hasActiveParams={hasActiveParams}
+          hiddenFields={listParams.overdue ? [{ name: "overdue", value: "true" }] : []}
         />
       )}
 
@@ -268,6 +272,7 @@ export default async function TasksPage({
               ...(listParams.q ? { q: listParams.q } : {}),
               ...(listParams.status ? { status: listParams.status } : {}),
               ...(listParams.priority ? { priority: listParams.priority } : {}),
+              ...(listParams.overdue ? { overdue: "true" } : {}),
               sort: listParams.sortCombined,
             }}
             page={listParams.page}
