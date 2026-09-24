@@ -56,7 +56,6 @@ function scripted(turns: NormalizedProviderTurn[]) {
 function multiTurnSpec(id: "anthropic" | "openai", sequences: NormalizedProviderTurn[][]): SubsetProviderSpec {
   let turnIndex = -1;
   let currentRunner: (() => Promise<NormalizedProviderTurn>) | null = null;
-  let currentTurnStartedAtCallCount = 0;
   let callsInCurrentTurn = 0;
   return {
     id,
