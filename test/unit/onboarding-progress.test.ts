@@ -13,6 +13,10 @@ function signals(overrides: Partial<OnboardingRawSignals> = {}): OnboardingRawSi
     hasPaymentDetails: false,
     hasDomainSettings: false,
     hasPresetApplication: false,
+    // Onboarding Redesign — additive; unread by buildOnboardingProgress/
+    // isStepDoneByData (nothing in the legacy 11-step computation this
+    // file tests uses it), only by src/lib/onboarding/visible-progress.ts.
+    hasInvoice: false,
     actedStepKeys: new Set<OnboardingStepKey>(),
     ...overrides,
   };

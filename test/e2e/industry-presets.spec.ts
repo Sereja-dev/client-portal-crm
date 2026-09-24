@@ -180,30 +180,34 @@ test.describe("Industry Presets V1 — Staff UI", () => {
       await actAsOwner(context, baseURL!);
     });
 
-    test("9. the Industry Preset onboarding step is available, Skip works, and applying from Settings marks it complete", async ({
+    /**
+     * Onboarding Redesign — Industry Preset is no longer a visible
+     * Dashboard checklist step (locked spec §3); the previous version of
+     * this test ("the Industry Preset onboarding step is available, Skip
+     * works, and applying from Settings marks it complete") asserted
+     * against that now-removed row and has no remaining UI surface to
+     * exercise — the legacy INDUSTRY_PRESET step/skip mechanism itself is
+     * completely unchanged (still backs Platform Admin's own onboarding
+     * view) and is covered generically by test/integration/onboarding/
+     * actions.test.ts. This test instead verifies only what's still true
+     * and still reachable via a real browser: applying a preset from
+     * Settings still marks the underlying (now-invisible-on-Dashboard)
+     * step complete in the database, proving the redesign didn't silently
+     * break that persistence path.
+     */
+    test("9. applying an industry preset from Settings still works end to end, independent of the Dashboard checklist", async ({
       page,
     }) => {
-      await page.goto("/dashboard");
-      const onboardingCard = page.getByRole("region", { name: "Getting started" });
-      const row = onboardingCard.getByRole("listitem").filter({ hasText: "Choose an industry preset" });
-      await expect(row).toBeVisible();
-      await expect(row.getByRole("link", { name: /Go to/ })).toBeVisible();
-
-      await row.getByRole("button", { name: /Skip/ }).click();
-      await expect(row.getByText("Skipped", { exact: true })).toBeVisible();
-
-      // Undo the skip so the apply path below is exercised from a clean NOT_STARTED state.
-      await dbQuery("organizationOnboardingStep", "deleteMany", {
-        where: { organizationId: fixtures.orgA.id, step: "INDUSTRY_PRESET" },
-      });
-
+      // The file-level afterEach (cleanupPresetArtifacts) already leaves
+      // orgA clean of any prior PresetApplication row before this test runs.
       await page.goto("/settings/industry-presets/general_services");
       await page.getByRole("button", { name: "Apply General Services" }).click();
       await expect(page.getByText("Applied", { exact: true })).toBeVisible();
 
-      await page.goto("/dashboard");
-      const rowAfter = onboardingCard.getByRole("listitem").filter({ hasText: "Choose an industry preset" });
-      await expect(rowAfter.getByText("Complete", { exact: true })).toBeVisible();
+      const applied = await dbQuery<unknown[]>("presetApplication", "findMany", {
+        where: { organizationId: fixtures.orgA.id },
+      });
+      expect(applied).toHaveLength(1);
     });
   });
 

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getCurrentUserOrganization } from "@/lib/current-user";
+import { getCurrentMembership } from "@/lib/current-user";
 import { formatCurrency } from "@/lib/format";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { PeriodSelector } from "@/components/dashboard/period-selector";
@@ -14,7 +14,8 @@ import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
 import { OnboardingCard, ONBOARDING_DISMISS_RETURN_FOCUS_ID } from "@/components/onboarding/onboarding-card";
 import { StartWithSampleData } from "@/components/onboarding/start-with-sample-data";
 import { parseDashboardPeriod, formatDashboardPeriodLabel } from "@/lib/dashboard/period";
-import { getOrganizationOnboardingProgress } from "@/lib/onboarding/progress";
+import { getOrganizationOnboardingSignals } from "@/lib/onboarding/progress";
+import { buildVisibleOnboardingProgress } from "@/lib/onboarding/visible-progress";
 import { isEligibleForSampleData } from "@/lib/onboarding/sample-data";
 import { getDashboardAnalytics } from "./query";
 import type { RawSearchParams } from "@/lib/list-params";
@@ -31,28 +32,42 @@ export default async function DashboardPage({
   // organizationId always comes from the session/cookie, never from
   // searchParams — only `period` is ever read from the query string, and
   // it's validated (with a safe fallback) before being used for anything.
-  const { organizationId } = await getCurrentUserOrganization();
+  // Onboarding Redesign — membership.role is threaded into the new
+  // visible-progress model below (never accepted from the client) so a
+  // MEMBER/ADMIN never receives a Company Profile/Invite CTA they'd be
+  // rejected from.
+  const { organizationId, membership } = await getCurrentMembership();
   const resolvedSearchParams = await searchParams;
   const period = parseDashboardPeriod(resolvedSearchParams.period);
   const now = new Date();
 
-  const [analytics, onboardingProgress, sampleDataEligible] = await Promise.all([
+  const [analytics, onboardingSignals, sampleDataEligible] = await Promise.all([
     getDashboardAnalytics({ organizationId, period, now }),
-    getOrganizationOnboardingProgress(organizationId),
+    // One shared raw-signal query backs both the new 5-step visible model
+    // and the dismiss check below — never a second, duplicate query, and
+    // never the legacy 11-step buildOnboardingProgress() at all here (that
+    // full computation still exists, unchanged, for Platform Admin/
+    // Analytics — just not needed on this page anymore).
+    getOrganizationOnboardingSignals(organizationId),
     // Demo Vs Real Workspace Separation §9 — server-resolved only; the
     // component itself never guesses its own eligibility.
     isEligibleForSampleData(organizationId),
   ]);
+
+  const onboardingProgress = buildVisibleOnboardingProgress(onboardingSignals, membership.role);
+  // The legacy FINISH row remains the one dismiss signal (locked spec §6/
+  // §10) — unchanged mechanism, just read directly off the same raw
+  // signals rather than the full legacy summary.
+  const isOnboardingDismissed = onboardingSignals.actedStepKeys.has("FINISH");
 
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           {/* Stage 6 audit fix: focus-return target for
-              DismissOnboardingButton — see onboarding-step-row.tsx's own
-              comment on why this uses plain `focus:` rather than
-              `focus-visible:` (never in the tab order, only ever
-              programmatically focused). */}
+              DismissOnboardingButton — see that component's own comment on
+              why this uses plain `focus:` rather than `focus-visible:`
+              (never in the tab order, only ever programmatically focused). */}
           <h1
             id={ONBOARDING_DISMISS_RETURN_FOCUS_ID}
             tabIndex={-1}
@@ -67,7 +82,7 @@ export default async function DashboardPage({
         <PeriodSelector period={period} />
       </div>
 
-      <OnboardingCard progress={onboardingProgress} />
+      <OnboardingCard progress={onboardingProgress} isDismissed={isOnboardingDismissed} />
       <StartWithSampleData eligible={sampleDataEligible} />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">

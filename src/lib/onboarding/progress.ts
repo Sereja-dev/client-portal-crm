@@ -85,6 +85,18 @@ export type OnboardingRawSignals = {
   hasDomainSettings: boolean;
   /** Industry Presets V1 — a PresetApplication row exists for this organization (any preset, applying any one of the four locked catalog presets satisfies this step; V1 supports only one applied preset per organization anyway — see src/lib/industry-presets/apply.ts). */
   hasPresetApplication: boolean;
+  /**
+   * Onboarding Redesign — added purely additively; no existing step in
+   * ONBOARDING_STEPS/isStepDoneByData reads this (the legacy 12-key
+   * computation below, and every one of its consumers — Platform Admin's
+   * onboarding-progress-view.ts, Analytics' OrganizationActivitySection —
+   * stay byte-identical in behavior). Consumed only by the new
+   * src/lib/onboarding/visible-progress.ts, whose own Task-or-Invoice
+   * step treats `hasTask || hasInvoice` as complete. Any Invoice at all,
+   * regardless of status — matches the same "any real record, no status
+   * filter" convention hasClient/hasProject/hasTask already use.
+   */
+  hasInvoice: boolean;
   /** The set of step keys with an existing OrganizationOnboardingStep row for this organization — each one means either "explicitly skipped" (a skippable step) or "explicitly acknowledged" (WELCOME/FINISH), never both meanings for the same key (§9's own row-existence-is-the-whole-signal model). */
   actedStepKeys: ReadonlySet<OnboardingStepKey>;
 };
@@ -263,22 +275,22 @@ function buildStepResult(
 }
 
 /**
- * The single DB-backed entry point every future caller (Stage 3's own UI,
- * Stage 4's dashboard card) should use — mirrors
- * `getOrganizationEntitlements()`'s own "one function, one call site"
- * shape from Billing. `organizationId` is always caller-resolved
- * server-side (§6/§13) — this function itself does no session/cookie
- * resolution, exactly like `getOrganizationEntitlements` doesn't either.
- *
- * Every query here is a bounded count/exists check, run concurrently via
- * one `Promise.all` (§13) — no N+1, no full-row loads where only a
- * boolean is needed, one organization per call.
+ * The one real query this whole module (and, as of Onboarding Redesign,
+ * src/lib/onboarding/visible-progress.ts too) ever runs to gather raw
+ * facts about an organization — extracted out of
+ * getOrganizationOnboardingProgress() below purely so the new visible-
+ * progress module can reuse the exact same bounded, concurrent
+ * Promise.all query rather than duplicating it. Behavior is byte-
+ * identical to before this extraction: same queries, same shape, same
+ * order — getOrganizationOnboardingProgress() itself is otherwise
+ * unchanged.
  */
-export async function getOrganizationOnboardingProgress(organizationId: string): Promise<OnboardingProgressSummary> {
+export async function getOrganizationOnboardingSignals(organizationId: string): Promise<OnboardingRawSignals> {
   const [
     clientCount,
     projectCount,
     taskCount,
+    invoiceCount,
     membershipCount,
     portalUserCount,
     hasCompanyProfileRow,
@@ -290,6 +302,7 @@ export async function getOrganizationOnboardingProgress(organizationId: string):
     prisma.client.count({ where: { organizationId } }),
     prisma.project.count({ where: { organizationId } }),
     prisma.task.count({ where: { organizationId } }),
+    prisma.invoice.count({ where: { organizationId } }),
     prisma.membership.count({ where: { organizationId } }),
     prisma.portalUser.count({ where: { client: { organizationId } } }),
     prisma.organizationProfile.findUnique({ where: { organizationId }, select: { organizationId: true } }),
@@ -304,10 +317,11 @@ export async function getOrganizationOnboardingProgress(organizationId: string):
     }),
   ]);
 
-  const signals: OnboardingRawSignals = {
+  return {
     hasClient: clientCount > 0,
     hasProject: projectCount > 0,
     hasTask: taskCount > 0,
+    hasInvoice: invoiceCount > 0,
     hasCompanyProfile: hasCompanyProfileRow !== null,
     hasPaymentDetails: hasPaymentDetailsRow !== null,
     hasDomainSettings: hasDomainSettingsRow !== null,
@@ -316,7 +330,19 @@ export async function getOrganizationOnboardingProgress(organizationId: string):
     hasPortalUser: portalUserCount > 0,
     actedStepKeys: new Set(actedRows.map((r) => r.step)),
   };
+}
 
+/**
+ * The single DB-backed entry point every legacy caller (Platform Admin's
+ * onboarding-progress-view.ts, Analytics' OrganizationActivitySection)
+ * should use — mirrors `getOrganizationEntitlements()`'s own "one
+ * function, one call site" shape from Billing. `organizationId` is
+ * always caller-resolved server-side (§6/§13) — this function itself
+ * does no session/cookie resolution, exactly like
+ * `getOrganizationEntitlements` doesn't either.
+ */
+export async function getOrganizationOnboardingProgress(organizationId: string): Promise<OnboardingProgressSummary> {
+  const signals = await getOrganizationOnboardingSignals(organizationId);
   return buildOnboardingProgress(signals);
 }
 
