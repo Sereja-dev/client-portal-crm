@@ -104,7 +104,7 @@ async function executeGetOrganizationSummary(_organizationId: string, rawInput: 
   // tool's actual output and cases.ts's own org-summary-02 numeric
   // expectations share exactly one source of truth and can never
   // silently drift apart — see that constant's own doc comment for the
-  // amounts-summed-across-currencies fixture simplification.
+  // one-canonical-currency (FINANCIAL_SUMMARY_CURRENCY) scoping.
   const outstandingAmount = OUTSTANDING_AMOUNT;
   const paidRevenue = PAID_REVENUE;
   const invoiceStatusBreakdown = countBy(INVOICES.map((i) => i.status));
