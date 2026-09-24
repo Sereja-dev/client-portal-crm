@@ -252,36 +252,58 @@ The six tools' `name`/`description`/`inputSchema` live in
 is the **one** file in this whole package allowed to import that
 registry (and, transitively, Prisma) — and only for this extraction; it
 never calls `execute()`, queries Prisma directly, authenticates, or makes
-any HTTP request. It must be run from the **repository root**, not from
-inside this directory, so it can resolve the main app's own `@/*` path
-alias and `node_modules`:
+any HTTP request. The `extract` npm script below (`package.json`) handles
+running it from the repository root itself, so it can resolve the main
+app's own `@/*` path alias and `node_modules` — run it from **this
+directory** (`scripts/ai-provider-eval/`), not from the repo root:
 
 ```bash
-# A. from the repo root, obtain current HEAD (optional — only feeds the
-#    informational extractedFromGitSha metadata field, not the gate):
-git rev-parse HEAD
+# A. run the extractor — it computes and writes the real
+#    sourceFingerprint automatically, every time, with no manual SHA
+#    bookkeeping required. AQENRA_EVAL_EXTRACT_GIT_SHA is optional —
+#    it only feeds the informational extractedFromGitSha metadata
+#    field, never the gate:
+AQENRA_EVAL_EXTRACT_GIT_SHA=$(git rev-parse HEAD) npm run extract
 
-# B. run the extractor from the repo root — it computes and writes the
-#    real sourceFingerprint automatically, every time, with no manual
-#    SHA bookkeeping required:
-AQENRA_EVAL_EXTRACT_GIT_SHA=$(git rev-parse HEAD) \
-  npx tsx scripts/ai-provider-eval/extract-fixtures.ts
-
-# C. verify the resulting diff — expect changes only if a tool's
+# B. verify the resulting diff — expect changes only if a tool's
 #    schema/description, or one of the enum-source files, actually
 #    changed:
-git diff scripts/ai-provider-eval/fixtures/tool-contracts.snapshot.json
+git diff ../../scripts/ai-provider-eval/fixtures/tool-contracts.snapshot.json
 
-# D. validate freshness offline before trusting it:
-cd scripts/ai-provider-eval && npm run validate
+# C. validate freshness offline before trusting it:
+npm run validate
 
-# then commit the refreshed snapshot if step C showed a real change (or
+# then commit the refreshed snapshot if step B showed a real change (or
 # only the informational extractedFromGitSha/generatedAt-style fields
 # advancing is fine to commit too) — committing does NOT make the
 # snapshot stale again, because sourceFingerprint depends only on the
 # tracked source files' own bytes, never on git history or the snapshot
 # file's own content.
 ```
+
+`extract`'s own underlying command (`cd ../.. && node_modules/.bin/tsx
+--conditions=react-server scripts/ai-provider-eval/extract-fixtures.ts`)
+changes directory to the repository root internally — this preserves the
+exact same root-context `@/*`/`node_modules` resolution the raw command
+always needed, it's just no longer something you have to remember or
+type by hand. `--conditions=react-server` is required because the
+registry transitively reaches a real, intentional `import "server-only"`
+inside `src/lib/reports/currency.ts` (via
+`getDashboardAnalytics`/`getOrganizationSummary`) — `server-only`'s own
+package.json (`node_modules/server-only/package.json`) declares exactly
+this conditional-exports pair: the `"react-server"` condition resolves to
+its own empty, safe module; every other condition (the unconditioned
+default this extractor would otherwise run under) resolves to the
+variant that throws. Next.js's own webpack build sets this exact
+condition when compiling real Server Components, which is why `import
+"server-only"` already works everywhere in the real app — the extractor
+is the one place in this whole package that legitimately needs to set it
+manually, since it runs outside that build. This is a native Node
+conditional-exports flag (`node --help` lists it as `-C, --conditions`),
+not a custom shim, monkeypatch, or module-resolution override of any
+kind — it changes nothing about Product code or Next.js's own real
+Client/Server Component enforcement, and only takes effect for this one
+process's own module resolution.
 
 Re-run this whenever a real tool's schema/description, or one of
 `src/lib/validation/{client,project,task,invoice}.ts`'s own
