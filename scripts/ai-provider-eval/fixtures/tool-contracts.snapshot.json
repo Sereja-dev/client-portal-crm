@@ -1,8 +1,8 @@
 {
-  "$schemaNote": "Aqenra AI provider benchmark — tool-contract snapshot. Extracted from src/lib/ai/tools/registry.ts's own getRegisteredAiTools(). Contains ONLY name/description/inputSchema per tool — no execute implementation, no database metadata, no organizationId, no fixture data, no secrets. Regenerate with: npx tsx scripts/ai-provider-eval/extract-fixtures.ts (from the repo root). sourceFingerprint is the hard official-run freshness gate (content-addressed, not commit-addressed — see snapshot-freshness.ts); extractedFromGitSha below is informational reproducibility metadata only, never the gate.",
-  "extractedFromGitSha": "unrecorded — pass AQENRA_EVAL_EXTRACT_GIT_SHA=$(git rev-parse HEAD) to record it",
+  "$schemaNote": "Aqenra AI provider benchmark — tool-contract snapshot. Extracted from src/lib/ai/tools/registry.ts's own getRegisteredAiTools(). Contains ONLY name/description/inputSchema per tool — no execute implementation, no database metadata, no organizationId, no fixture data, no secrets. Regenerate with: npm run extract (from scripts/ai-provider-eval/). sourceFingerprint is the hard official-run freshness gate (content-addressed, not commit-addressed — see snapshot-freshness.ts); extractedFromGitSha below is informational reproducibility metadata only, never the gate.",
+  "extractedFromGitSha": "2ea93935fbd883d489f1eb1ad473dce8cdbd45e5",
   "fingerprintAlgorithm": "sha256-v1",
-  "sourceFingerprint": "798c6f8a01be520603ee7aba3b9c87307adf1b464a7b3127ff11ff14360f6c77",
+  "sourceFingerprint": "6209c68571fecffc92d1ecdc79b567ca99fc5a35c8432cabdb20ae8268b971e9",
   "tools": [
     {
       "description": "Returns structured detail for one client, given a ref from searchClients: name, company, status, created date, and project/invoice counts.",

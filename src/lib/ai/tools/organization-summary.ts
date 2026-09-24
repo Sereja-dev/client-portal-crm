@@ -56,6 +56,17 @@ export type OrganizationSummaryData = {
   openTasks: number;
   overdueTasksCount: number;
   taskStatusBreakdown: OrganizationSummaryStatusCount[];
+  /**
+   * Dashboard Multi-Currency KPI Defect fix / Organization Summary
+   * Currency Contract — the one currency outstandingAmount/paidRevenue
+   * below are scoped to (DashboardAnalytics's own `currency`, unmodified
+   * — see dashboard/query.ts). `null` only in the practically
+   * unreachable case documented there (zero invoices, no resolvable
+   * default) — never coerced to a fabricated default here; a model
+   * receiving `null` gets truthful absence of unit metadata rather than
+   * a wrong label.
+   */
+  currency: string | null;
   outstandingAmount: number;
   paidRevenue: number;
   invoiceStatusBreakdown: OrganizationSummaryStatusCount[];
@@ -104,6 +115,7 @@ export async function executeGetOrganizationSummary(
         STATUS_COUNT_KEYS,
         TOOL_NAME,
       ) as OrganizationSummaryStatusCount[],
+      currency: analytics.currency,
       outstandingAmount: analytics.kpis.outstandingAmount,
       paidRevenue: analytics.kpis.paidRevenue,
       invoiceStatusBreakdown: assertExactKeysList(
