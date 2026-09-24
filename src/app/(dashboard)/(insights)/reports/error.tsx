@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
  * Reports Phase 2. Only ever reached for a genuine, unexpected failure —
  * the "access denied" state is handled inline by page.tsx itself, before
  * any error would reach this boundary (see that file's own doc comment).
- * Mirrors src/app/(dashboard)/analytics/error.tsx's own identical shape;
+ * Mirrors src/app/(dashboard)/(insights)/analytics/error.tsx's own identical shape;
  * never exposes a raw error message/stack.
  */
 export default function ReportsError({

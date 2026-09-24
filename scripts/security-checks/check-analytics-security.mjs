@@ -11,7 +11,7 @@ let ok = true;
 const ANALYTICS_LIB_DIR = "src/lib/analytics";
 const QUERIES_DIR = "src/lib/analytics/queries";
 const CALCULATIONS_DIR = "src/lib/analytics/calculations";
-const PAGE_FILE = "src/app/(dashboard)/analytics/page.tsx";
+const PAGE_FILE = "src/app/(dashboard)/(insights)/analytics/page.tsx";
 const SERVICE_FILE = "src/lib/analytics/services/analytics-service.ts";
 
 // 1. The one public service entry point calls assertCanViewAnalytics

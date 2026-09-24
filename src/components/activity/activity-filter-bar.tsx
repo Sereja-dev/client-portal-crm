@@ -3,7 +3,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { AutoSubmitSelect } from "@/components/list/auto-submit-select";
 import { formatStatusLabel } from "@/lib/format";
-import { ACTIVITY_ENTITY_TYPES } from "@/app/(dashboard)/activity/query";
+import { ACTIVITY_ENTITY_TYPES } from "@/app/(dashboard)/(insights)/activity/query";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 

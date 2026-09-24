@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
+import { WorkTabs } from "@/components/work/work-tabs";
 import { prisma } from "@/lib/prisma";
 import { parseSearchParam, type RawSearchParams } from "@/lib/list-params";
 import { isUuid } from "@/lib/validation/lead";
@@ -74,6 +75,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     const archivedEvents = await listArchivedCalendarEventsForRange(organizationId, { from: rangeFrom, to: rangeTo }, timezone);
     return (
       <div>
+        <WorkTabs />
         <CalendarHeader monthLabel={formatMonthLabel(year, month)} prevHref={monthHref(prev.year, prev.month)} nextHref={monthHref(next.year, next.month)} todayHref={todayHref} view={view} />
         {archivedEvents.length === 0 ? (
           <EmptyState title="No archived events" description="Events you archive in this month will appear here." />
@@ -115,6 +117,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
 
   return (
     <div>
+      <WorkTabs />
       <CalendarHeader monthLabel={formatMonthLabel(year, month)} prevHref={monthHref(prev.year, prev.month)} nextHref={monthHref(next.year, next.month)} todayHref={todayHref} view={view} />
 
       <form method="GET" action="/calendar" className="mt-4 flex flex-wrap items-end gap-3">

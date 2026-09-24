@@ -10,7 +10,7 @@ import { deleteComment } from "@/lib/comments/delete-comment";
 import { getMentionCandidates, MENTION_CANDIDATE_LIMIT } from "@/lib/comments/mention-candidates";
 import { resolveCommentPermissions, formatCommentViewModel } from "@/lib/comments/format-comment";
 import { formatNotification } from "@/lib/notifications/format-notification";
-import { buildActivityWhere } from "@/app/(dashboard)/activity/query";
+import { buildActivityWhere } from "@/app/(dashboard)/(insights)/activity/query";
 
 const TEST_FROM_EMAIL = "Test <test@example.com>";
 const ORIGINAL_FROM_EMAIL = process.env.INVITATION_FROM_EMAIL;

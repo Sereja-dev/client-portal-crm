@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
+import { DocumentsTabs } from "@/components/documents/documents-tabs";
 import { prisma } from "@/lib/prisma";
 import { listContracts } from "@/lib/contracts/queries";
 import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
@@ -65,6 +66,7 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
 
   return (
     <div>
+      <DocumentsTabs />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Contracts</h1>

@@ -20,7 +20,7 @@ import RootError from "@/app/error";
  * without claiming to catch a failure in src/app/layout.tsx itself
  * (global-error.tsx remains that one's only boundary) and without
  * replacing (auth)/error.tsx, (dashboard)/error.tsx,
- * (dashboard)/analytics/error.tsx, (platform-admin)/error.tsx, or
+ * (dashboard)/(insights)/analytics/error.tsx, (platform-admin)/error.tsx, or
  * portal/(app)/error.tsx — Next.js always prefers the nearest, most
  * specific matching boundary, so each of those keeps catching everything
  * inside its own pages exactly as before.
@@ -80,7 +80,7 @@ describe("src/app/error.tsx — topology contract, F2", () => {
   it("is not placed inside (auth), (dashboard), (platform-admin), or portal — those keep their own more-specific boundaries", () => {
     expect(existsSync("src/app/(auth)/error.tsx")).toBe(true);
     expect(existsSync("src/app/(dashboard)/error.tsx")).toBe(true);
-    expect(existsSync("src/app/(dashboard)/analytics/error.tsx")).toBe(true);
+    expect(existsSync("src/app/(dashboard)/(insights)/analytics/error.tsx")).toBe(true);
     expect(existsSync("src/app/(platform-admin)/error.tsx")).toBe(true);
     expect(existsSync("src/app/portal/(app)/error.tsx")).toBe(true);
     // The new boundary is exactly one file, at exactly one location — no

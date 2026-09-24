@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
+import { WorkTabs } from "@/components/work/work-tabs";
 import { prisma } from "@/lib/prisma";
 import { listTimeEntries } from "@/lib/time-entries/entries";
 import { formatDurationMinutes } from "@/lib/time-entries/duration";
@@ -65,6 +66,7 @@ export default async function TimeEntriesPage({ searchParams }: { searchParams: 
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+      <WorkTabs />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Time</h1>

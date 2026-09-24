@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { getCurrentMembership } from "@/lib/current-user";
+import { getCachedEffectivePermissionSet } from "@/lib/permissions/resolver";
+import { FinanceTabs } from "@/components/finance/finance-tabs";
 import { prisma } from "@/lib/prisma";
 import { listRecurringInvoices } from "@/lib/recurring-invoices/recurring-invoices";
 import { composeInvoiceNumberCandidate } from "@/lib/recurring-invoices/numbering";
@@ -39,14 +41,16 @@ export default async function RecurringInvoicesPage({ searchParams }: { searchPa
   const status = parseRecurringInvoiceStatusFilter(resolvedSearchParams);
   const clientId = parseRecurringInvoiceClientFilter(resolvedSearchParams);
 
-  const [listResult, clients] = await Promise.all([
+  const [listResult, clients, effectivePermissions] = await Promise.all([
     listRecurringInvoices(organizationId, actor, { status, clientId }),
     prisma.client.findMany({ where: { organizationId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    getCachedEffectivePermissionSet(organizationId, membership.role),
   ]);
 
   if (!listResult.ok) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+        <FinanceTabs recurringInvoicesManage={effectivePermissions.RECURRING_INVOICES_MANAGE} />
         <EmptyState title="Not available" description="You don't have permission to view recurring invoices." />
       </div>
     );
@@ -68,6 +72,7 @@ export default async function RecurringInvoicesPage({ searchParams }: { searchPa
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
+      <FinanceTabs recurringInvoicesManage={effectivePermissions.RECURRING_INVOICES_MANAGE} />
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Recurring Invoices</h1>

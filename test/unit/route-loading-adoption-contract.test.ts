@@ -73,7 +73,7 @@ const EXISTING_ERROR_BOUNDARIES = [
   "src/app/(auth)/error.tsx",
   "src/app/(dashboard)/error.tsx",
   "src/app/portal/(app)/error.tsx",
-  "src/app/(dashboard)/analytics/error.tsx",
+  "src/app/(dashboard)/(insights)/analytics/error.tsx",
 ];
 
 describe("route loading adoption — exactly the intended routes, no more, no fewer", () => {

@@ -30,7 +30,7 @@ const SHARED_COMPONENT_PATH = "src/components/ui/segment-error-state.tsx";
 const GLOBAL_ERROR_PATH = "src/app/global-error.tsx";
 const AUTH_ERROR_PATH = "src/app/(auth)/error.tsx";
 const DASHBOARD_ERROR_PATH = "src/app/(dashboard)/error.tsx";
-const ANALYTICS_ERROR_PATH = "src/app/(dashboard)/analytics/error.tsx";
+const ANALYTICS_ERROR_PATH = "src/app/(dashboard)/(insights)/analytics/error.tsx";
 const ROOT_ERROR_PATH = "src/app/error.tsx";
 const PLATFORM_ADMIN_ERROR_PATH = "src/app/(platform-admin)/error.tsx";
 const PORTAL_ERROR_PATH = "src/app/portal/(app)/error.tsx";
@@ -141,7 +141,7 @@ describe("Behavior — no boundary logs during server/static rendering (real, un
   });
 
   it("AnalyticsError never calls console.error during renderToStaticMarkup", async () => {
-    const { default: AnalyticsError } = await import("@/app/(dashboard)/analytics/error");
+    const { default: AnalyticsError } = await import("@/app/(dashboard)/(insights)/analytics/error");
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     renderToStaticMarkup(<AnalyticsError error={new Error("ssr")} reset={() => {}} />);
     expect(spy).not.toHaveBeenCalled();
@@ -205,7 +205,7 @@ describe("Behavior — rendered UI is byte-identical in shape and still excludes
   });
 
   it("AnalyticsError renders its exact pre-existing heading/description/button and no sensitive content", async () => {
-    const { default: AnalyticsError } = await import("@/app/(dashboard)/analytics/error");
+    const { default: AnalyticsError } = await import("@/app/(dashboard)/(insights)/analytics/error");
     vi.spyOn(console, "error").mockImplementation(() => {});
     const html = renderToStaticMarkup(<AnalyticsError error={makeSensitiveError()} reset={() => {}} />);
     expect(html).toContain("Analytics is unavailable right now");

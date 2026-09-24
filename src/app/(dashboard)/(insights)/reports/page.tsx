@@ -30,7 +30,7 @@ import type { RawSearchParams } from "@/lib/list-params";
  * deciding how to RENDER the already-server-made decision: catching
  * `ReportsAccessError` here (a real, expected, in-process outcome for a
  * MEMBER — not a bug) and rendering the dedicated Access denied state,
- * exactly mirroring src/app/(dashboard)/analytics/page.tsx's own
+ * exactly mirroring src/app/(dashboard)/(insights)/analytics/page.tsx's own
  * identical pattern (deliberately not delegated to this route's own
  * error.tsx, since Next.js redacts Server Component error messages in
  * production before they'd reach a client-side error boundary — every

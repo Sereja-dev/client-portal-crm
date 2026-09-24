@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
+import { WorkTabs } from "@/components/work/work-tabs";
 import { prisma } from "@/lib/prisma";
 import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib/list-params";
 import { listCustomStatusDefinitions } from "@/lib/custom-statuses/definitions";
@@ -104,6 +105,7 @@ export default async function ProjectsPage({
 
   return (
     <div>
+      <WorkTabs />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-text-primary text-2xl font-semibold tracking-tight">

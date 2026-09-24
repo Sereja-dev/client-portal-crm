@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { getCurrentUserOrganization } from "@/lib/current-user";
+import { getCurrentMembership } from "@/lib/current-user";
+import { getCachedEffectivePermissionSet } from "@/lib/permissions/resolver";
+import { FinanceTabs } from "@/components/finance/finance-tabs";
 import { prisma } from "@/lib/prisma";
 import { formatCurrency } from "@/lib/format";
 import { formatInvoiceStatusLabel } from "@/lib/invoices/status-label";
@@ -55,7 +57,7 @@ export default async function InvoicesPage({
 }: {
   searchParams: Promise<RawSearchParams>;
 }) {
-  const { organizationId } = await getCurrentUserOrganization();
+  const { organizationId, membership } = await getCurrentMembership();
   const resolvedSearchParams = await searchParams;
   const listParams = parseInvoiceListParams(resolvedSearchParams);
 
@@ -66,7 +68,7 @@ export default async function InvoicesPage({
   // (Invoice / Project Coupling Audit). Gating Invoice creation on
   // `clientCount` (never `projectCount`) — an org with zero Projects can
   // still fully use Invoices, as long as it has at least one Client.
-  const [clientCount, [invoices, total]] = await Promise.all([
+  const [clientCount, [invoices, total], effectivePermissions] = await Promise.all([
     prisma.client.count({ where: { organizationId } }),
     prisma.$transaction([
       prisma.invoice.findMany({
@@ -81,6 +83,7 @@ export default async function InvoicesPage({
       }),
       prisma.invoice.count({ where }),
     ]),
+    getCachedEffectivePermissionSet(organizationId, membership.role),
   ]);
 
   const totalPages = getTotalPages(total);
@@ -88,6 +91,7 @@ export default async function InvoicesPage({
 
   return (
     <div>
+      <FinanceTabs recurringInvoicesManage={effectivePermissions.RECURRING_INVOICES_MANAGE} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-text-primary text-2xl font-semibold tracking-tight">

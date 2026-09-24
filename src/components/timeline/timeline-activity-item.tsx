@@ -6,7 +6,7 @@ import type { ActivityDisplayModel } from "@/lib/activity/format-activity";
  * through the existing, safe formatter output only (ActivityDisplayModel
  * — see src/lib/activity/format-activity.ts) — this component never
  * receives or interprets raw Activity.metadata itself, matching
- * src/app/(dashboard)/activity/page.tsx's own row markup closely (same
+ * src/app/(dashboard)/(insights)/activity/page.tsx's own row markup closely (same
  * actor + action + optional "Deleted" badge + relative time + detail
  * lines shape), just without that page's own date-grouping (a single
  * entity's own history is short enough not to need it).

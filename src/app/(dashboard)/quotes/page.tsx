@@ -1,5 +1,7 @@
 import Link from "next/link";
-import { getCurrentUserOrganization } from "@/lib/current-user";
+import { getCurrentMembership } from "@/lib/current-user";
+import { getCachedEffectivePermissionSet } from "@/lib/permissions/resolver";
+import { FinanceTabs } from "@/components/finance/finance-tabs";
 import { prisma } from "@/lib/prisma";
 import { formatInvoiceCurrencyAmount } from "@/lib/invoices/currencies";
 import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
@@ -52,7 +54,7 @@ export default async function QuotesPage({
 }: {
   searchParams: Promise<RawSearchParams>;
 }) {
-  const { organizationId } = await getCurrentUserOrganization();
+  const { organizationId, membership } = await getCurrentMembership();
   const resolvedSearchParams = await searchParams;
   const listParams = parseQuoteListParams(resolvedSearchParams);
 
@@ -62,7 +64,7 @@ export default async function QuotesPage({
   // A Quote target is Lead OR Client (§B) — creation only needs at least
   // one of the two to exist at all, mirroring Invoice's own
   // clientCount-gated "Add invoice" precedent, widened to either target.
-  const [leadCount, clientCount, [quotes, total]] = await Promise.all([
+  const [leadCount, clientCount, [quotes, total], effectivePermissions] = await Promise.all([
     prisma.lead.count({ where: { organizationId, archivedAt: null } }),
     prisma.client.count({ where: { organizationId } }),
     prisma.$transaction([
@@ -79,6 +81,7 @@ export default async function QuotesPage({
       }),
       prisma.quote.count({ where }),
     ]),
+    getCachedEffectivePermissionSet(organizationId, membership.role),
   ]);
 
   const canCreate = leadCount > 0 || clientCount > 0;
@@ -95,6 +98,7 @@ export default async function QuotesPage({
 
   return (
     <div>
+      <FinanceTabs recurringInvoicesManage={effectivePermissions.RECURRING_INVOICES_MANAGE} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Quotes</h1>

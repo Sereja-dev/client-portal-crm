@@ -2,7 +2,7 @@
  * Roles / Permissions V1. Rendered by the page itself (never `error.tsx`
  * — Next.js redacts Server Component error messages in production before
  * they'd reach a client error boundary; see
- * src/app/(dashboard)/analytics/page.tsx's own doc comment for the
+ * src/app/(dashboard)/(insights)/analytics/page.tsx's own doc comment for the
  * identical reasoning) for a non-OWNER identity, mirroring
  * PaymentAccessDenied's own shape exactly.
  */

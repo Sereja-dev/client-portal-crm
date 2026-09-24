@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
+import { WorkTabs } from "@/components/work/work-tabs";
 import { prisma } from "@/lib/prisma";
 import { formatStatusLabel } from "@/lib/format";
 import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
@@ -80,6 +81,7 @@ export default async function TasksPage({
 
   return (
     <div>
+      <WorkTabs />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-text-primary text-2xl font-semibold tracking-tight">

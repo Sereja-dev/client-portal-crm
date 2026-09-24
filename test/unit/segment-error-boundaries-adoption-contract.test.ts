@@ -25,7 +25,7 @@ const SHARED_COMPONENT_PATH = "src/components/ui/segment-error-state.tsx";
 const ROOT_ERROR_PATH = "src/app/error.tsx";
 const GLOBAL_ERROR_PATH = "src/app/global-error.tsx";
 const DASHBOARD_ERROR_PATH = "src/app/(dashboard)/error.tsx";
-const ANALYTICS_ERROR_PATH = "src/app/(dashboard)/analytics/error.tsx";
+const ANALYTICS_ERROR_PATH = "src/app/(dashboard)/(insights)/analytics/error.tsx";
 const AUTH_ERROR_PATH = "src/app/(auth)/error.tsx";
 
 function readBoundarySource(path: string): string {
