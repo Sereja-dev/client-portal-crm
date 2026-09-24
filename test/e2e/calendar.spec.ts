@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext } from "@playwright/test";
-import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
+import { seedE2EFixtures, cleanupTestData, dbQuery, openSidebarGroup, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 
 // Rendered by a Server Component, in the Node.js process running the
@@ -89,7 +89,11 @@ test.describe("Calendar V1", () => {
     test("Calendar nav link exists for Staff and opens the current month", async ({ context, baseURL, page }) => {
       await actAsOwner(context, baseURL!);
       await page.goto("/dashboard");
-      await page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Calendar" }).click();
+      const nav = page.getByRole("navigation", { name: "Primary" });
+      // Sidebar Information Architecture — Calendar now lives inside the
+      // Work group (a native <details>/<summary> disclosure).
+      await openSidebarGroup(nav, "Work");
+      await nav.getByRole("link", { name: "Calendar" }).click();
       await expect(page).toHaveURL(/\/calendar$/);
       await expect(page.getByRole("heading", { name: "Calendar" })).toBeVisible();
     });

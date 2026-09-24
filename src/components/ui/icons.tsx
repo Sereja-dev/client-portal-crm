@@ -1,4 +1,4 @@
-type IconProps = {
+export type IconProps = {
   className?: string;
 };
 
@@ -137,6 +137,117 @@ export function CloseIcon({ className = "h-4 w-4" }: IconProps) {
       className={className}
     >
       <path d="M6 6l12 12M18 6 6 18" />
+    </svg>
+  );
+}
+
+// Sidebar Information Architecture — one decorative icon per top-level
+// group (Sidebar's own GROUP_SOURCE, layout/sidebar.tsx). Same conventions
+// as every icon above: viewBox 0 0 24 24, stroke="currentColor", no fill,
+// aria-hidden (the adjacent group/link label is always the real
+// accessible name — these are never the only signal).
+
+export function HomeIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M3 10.5 12 3l9 7.5" />
+      <path d="M5 9.5V20a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9.5" />
+    </svg>
+  );
+}
+
+export function SalesIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M3 17 9 11l4 4 8-8" />
+      <path d="M15 7h6v6" />
+    </svg>
+  );
+}
+
+export function ClientsIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="12" cy="8" r="3.25" />
+      <path d="M5.5 20.5c1-3.5 4-5.5 6.5-5.5s5.5 2 6.5 5.5" />
+    </svg>
+  );
+}
+
+export function WorkIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect x="3.5" y="8" width="17" height="11" rx="2" />
+      <path d="M8.5 8V6a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v2" />
+      <path d="M3.5 13h17" />
+    </svg>
+  );
+}
+
+export function FinanceIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect x="2.5" y="6" width="19" height="12" rx="2" />
+      <circle cx="12" cy="12" r="2.75" />
+      <path d="M6 9h.01M18 15h.01" />
+    </svg>
+  );
+}
+
+export function DocumentsIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M7 3.5h7l4 4V20a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1Z" />
+      <path d="M14 3.5V8h4" />
+      <path d="M8.5 13h7M8.5 16.5h7" />
+    </svg>
+  );
+}
+
+export function SupportIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="3.25" />
+      <path d="m6.3 6.3 3.3 3.3M17.7 6.3l-3.3 3.3M6.3 17.7l3.3-3.3M17.7 17.7l-3.3-3.3" />
+    </svg>
+  );
+}
+
+export function InsightsIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="M5 20V13M11 20V6M17 20v-9" />
+      <path d="M2.5 20h19" />
+    </svg>
+  );
+}
+
+export function TeamIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="9" cy="8" r="3" />
+      <circle cx="16.5" cy="9.5" r="2.5" />
+      <path d="M3.5 20c.7-3.4 3-5.5 5.5-5.5s4.8 2.1 5.5 5.5" />
+      <path d="M15 15.2c2 .3 3.6 2 4.1 4.3" />
+    </svg>
+  );
+}
+
+export function SettingsGroupIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <circle cx="12" cy="12" r="3" />
+      <path d="M12 3v2.5M12 18.5V21M3 12h2.5M18.5 12H21M5.6 5.6l1.8 1.8M16.6 16.6l1.8 1.8M5.6 18.4l1.8-1.8M16.6 7.4l1.8-1.8" />
+    </svg>
+  );
+}
+
+/** Sidebar group disclosure indicator only — rotated via group-open: on the parent <details>, never used standalone as a semantic icon. */
+export function ChevronDownIcon({ className = "h-3.5 w-3.5" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <path d="m6 9 6 6 6-6" />
     </svg>
   );
 }

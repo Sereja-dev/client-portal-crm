@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { test, expect, type BrowserContext } from "@playwright/test";
-import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
+import { seedE2EFixtures, cleanupTestData, dbQuery, openSidebarGroup, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 
 /**
@@ -78,6 +78,10 @@ test.describe("OWNER", () => {
   test("Reports link is visible in the sidebar, immediately after Analytics, and navigates to /reports", async ({ page }) => {
     await page.goto("/dashboard");
     const nav = page.getByRole("navigation", { name: "Primary" });
+    // Sidebar Information Architecture — Analytics and Reports now live
+    // together inside the Insights group (a native <details>/<summary>
+    // disclosure); both are visible together once it's open.
+    await openSidebarGroup(nav, "Insights");
     await expect(nav.getByRole("link", { name: "Analytics" })).toBeVisible();
     await nav.getByRole("link", { name: "Reports" }).click();
     await expect(page).toHaveURL(/\/reports/);
@@ -144,7 +148,11 @@ test.describe("ADMIN", () => {
   test("can access /reports and sees the sidebar link", async ({ page, context, baseURL }) => {
     await actAsMember(context, baseURL!, fixtures.admin, fixtures.orgA.id);
     await page.goto("/dashboard");
-    await expect(page.getByRole("navigation", { name: "Primary" }).getByRole("link", { name: "Reports" })).toBeVisible();
+    const nav = page.getByRole("navigation", { name: "Primary" });
+    // Sidebar Information Architecture — Reports now lives inside the
+    // Insights group (a native <details>/<summary> disclosure).
+    await openSidebarGroup(nav, "Insights");
+    await expect(nav.getByRole("link", { name: "Reports" })).toBeVisible();
     await page.goto("/reports");
     await expect(page.getByRole("heading", { name: "Reports", level: 1 })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Access denied" })).toHaveCount(0);

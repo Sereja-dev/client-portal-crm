@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext } from "@playwright/test";
-import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
+import { seedE2EFixtures, cleanupTestData, dbQuery, openSidebarGroup, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 
 /**
@@ -81,6 +81,10 @@ test.describe("OWNER", () => {
   test("Billing link is visible in the sidebar and navigates to the Billing page", async ({ page }) => {
     await page.goto("/dashboard");
     const nav = page.getByRole("navigation", { name: "Primary" });
+    // Sidebar Information Architecture — Billing now lives inside the
+    // Finance group (a native <details>/<summary> disclosure), not
+    // Settings (locked spec §7/§I).
+    await openSidebarGroup(nav, "Finance");
     await nav.getByRole("link", { name: "Billing" }).click();
     await expect(page).toHaveURL(/\/settings\/billing/);
     await expect(page.getByRole("heading", { name: "Billing", level: 1 })).toBeVisible();

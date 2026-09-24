@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { test, expect, type BrowserContext } from "@playwright/test";
-import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
+import { seedE2EFixtures, cleanupTestData, dbQuery, openSidebarGroup, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 
 /**
@@ -49,6 +49,9 @@ test.describe("OWNER", () => {
   test("Analytics link is visible in the sidebar and navigates to the Analytics page", async ({ page }) => {
     await page.goto("/dashboard");
     const nav = page.getByRole("navigation", { name: "Primary" });
+    // Sidebar Information Architecture — Analytics now lives inside the
+    // Insights group (a native <details>/<summary> disclosure).
+    await openSidebarGroup(nav, "Insights");
     await nav.getByRole("link", { name: "Analytics" }).click();
     await expect(page).toHaveURL(/\/analytics/);
     await expect(page.getByRole("heading", { name: "Analytics", level: 1 })).toBeVisible();

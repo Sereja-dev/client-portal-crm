@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
+import { seedE2EFixtures, cleanupTestData, dbQuery, openSidebarGroup, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 
 // A. Staff application — session injection (see test/support/e2e-session.ts
@@ -59,26 +59,39 @@ test("sidebar shows the product wordmark from the central branding config, not a
 test("sidebar active navigation item uses the Aqenra accent color, not the old black", async ({ page }) => {
   await page.goto("/dashboard");
   const nav = page.getByRole("navigation", { name: "Primary" });
-  const activeLink = nav.getByRole("link", { name: "Dashboard" });
+  // Sidebar Information Architecture — /dashboard's own single-destination
+  // group renders labeled "Home" (the approved top-level group name), not
+  // "Dashboard" (the underlying route's own former link label).
+  const activeLink = nav.getByRole("link", { name: "Home" });
   await expect(activeLink).toHaveCSS("background-color", "rgb(46, 42, 107)");
 });
 
 test("sidebar navigation reaches every staff section", async ({ page }) => {
+  // Sidebar Information Architecture — Clients/Team are still direct,
+  // single-destination top-level links (unchanged); Projects/Tasks
+  // (Work), Invoices (Finance), and Activity (Insights) now live inside a
+  // collapsible group and must be expanded (clicking their own <summary>,
+  // a real native <details> toggle) before their own link is visible/
+  // clickable. `group: null` marks the direct-link case.
   await page.goto("/dashboard");
   const nav = page.getByRole("navigation", { name: "Primary" });
 
-  for (const [label, path] of [
-    ["Clients", "/clients"],
-    ["Projects", "/projects"],
-    ["Tasks", "/tasks"],
+  for (const [label, path, group] of [
+    ["Clients", "/clients", null],
+    ["Projects", "/projects", "Work"],
+    ["Tasks", "/tasks", "Work"],
     // exact: true -- "Invoices" is otherwise a substring match of the
     // sidebar's own "Recurring Invoices" link (visible to this OWNER
-    // fixture), which Playwright's default non-exact name matching would
-    // also match, tripping strict mode.
-    ["Invoices", "/invoices"],
-    ["Team", "/team"],
-    ["Activity", "/activity"],
+    // fixture, in the same expanded Finance group), which Playwright's
+    // default non-exact name matching would also match, tripping strict
+    // mode.
+    ["Invoices", "/invoices", "Finance"],
+    ["Team", "/team", null],
+    ["Activity", "/activity", "Insights"],
   ] as const) {
+    if (group) {
+      await openSidebarGroup(nav, group);
+    }
     await nav.getByRole("link", { name: label, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(path.replace("/", "\\/")));
   }
