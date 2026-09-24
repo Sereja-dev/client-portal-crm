@@ -98,6 +98,9 @@ describe("signup — SaaS Signup Foundation (Stage 6.1) + signup-confirmation de
 
       const organization = await prisma.organization.findUnique({ where: { id: membership!.organizationId } });
       expect(organization?.name).toBe(organizationName);
+      // Demo Vs Real Workspace Separation — a real standalone signup must
+      // never provision a workspace already marked demo/sample.
+      expect(organization?.isDemo).toBe(false);
 
       const subscription = await prisma.subscription.findUnique({ where: { organizationId: membership!.organizationId } });
       expect(subscription?.status).toBe("TRIALING");

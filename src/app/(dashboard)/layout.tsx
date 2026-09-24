@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { getVerifiedAuthUser } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
-import { getCurrentMembership, getOrganizationSwitcherItems } from "@/lib/current-user";
+import { getCurrentMembership, getOrganizationSwitcherItems, isActiveOrganizationDemo } from "@/lib/current-user";
 import { redirectToLoginForSessionLoss } from "@/lib/auth/staff-session-redirect";
 import { getRecentNotifications, getUnreadNotificationCount } from "@/lib/notifications/queries";
 import { getDisabledInAppTypes } from "@/lib/notifications/preferences";
@@ -10,6 +10,7 @@ import type { NotificationBellItem } from "@/components/notifications/notificati
 import { Sidebar } from "@/components/layout/sidebar";
 import { getCachedEffectivePermissionSet } from "@/lib/permissions/resolver";
 import { Header } from "@/components/layout/header";
+import { DemoBanner } from "@/components/layout/demo-banner";
 import { TEST_MODE } from "@/lib/test-mode";
 import { isAiAssistantAvailable } from "@/lib/ai/providers/provider-factory";
 import { ThemePreferenceReconciler } from "@/components/theme/theme-preference-reconciler";
@@ -81,23 +82,28 @@ export default async function DashboardLayout({
   // one) re-fetching the same preference set a second time.
   const excludeTypes = await getDisabledInAppTypes(currentUser.id);
 
-  const [organizations, unreadNotificationCount, recentNotificationRows, effectivePermissions] = await Promise.all([
-    getOrganizationSwitcherItems(),
-    getUnreadNotificationCount({ organizationId, recipientId: currentUser.id, excludeTypes }),
-    getRecentNotifications({
-      organizationId,
-      recipientId: currentUser.id,
-      limit: RECENT_NOTIFICATIONS_LIMIT,
-      excludeTypes,
-    }),
-    // Roles / Permissions V1 — one bounded, request-scoped resolution
-    // for the whole Sidebar (locked spec §9/§31), never one query per
-    // gated nav item. getCachedEffectivePermissionSet is React's own
-    // per-request cache() — if anything else in this request's render
-    // tree needs the same (organizationId, role) pair, it's reused, not
-    // re-queried; never persisted across requests.
-    getCachedEffectivePermissionSet(organizationId, membership.role),
-  ]);
+  const [organizations, unreadNotificationCount, recentNotificationRows, effectivePermissions, isDemoWorkspace] =
+    await Promise.all([
+      getOrganizationSwitcherItems(),
+      getUnreadNotificationCount({ organizationId, recipientId: currentUser.id, excludeTypes }),
+      getRecentNotifications({
+        organizationId,
+        recipientId: currentUser.id,
+        limit: RECENT_NOTIFICATIONS_LIMIT,
+        excludeTypes,
+      }),
+      // Roles / Permissions V1 — one bounded, request-scoped resolution
+      // for the whole Sidebar (locked spec §9/§31), never one query per
+      // gated nav item. getCachedEffectivePermissionSet is React's own
+      // per-request cache() — if anything else in this request's render
+      // tree needs the same (organizationId, role) pair, it's reused, not
+      // re-queried; never persisted across requests.
+      getCachedEffectivePermissionSet(organizationId, membership.role),
+      // Demo Vs Real Workspace Separation — one small, server-authoritative
+      // read powering the DemoBanner below; see isActiveOrganizationDemo's
+      // own doc comment for why this isn't folded into getCurrentMembership.
+      isActiveOrganizationDemo(organizationId),
+    ]);
 
   const recentNotifications: NotificationBellItem[] = recentNotificationRows.map((row) => ({
     id: row.id,
@@ -132,59 +138,70 @@ export default async function DashboardLayout({
     // wrapper with no card of their own, so as long as it stayed raw
     // light-only, a theme-aware light-in-dark text color here produced
     // light-on-light. See each Batch-1 file's own cleanup in this PR.
-    <div className="bg-surface-recessed flex min-h-screen flex-col md:flex-row">
-      {/*
-        Aqenra Theme Persistence Phase C2 — authenticated DB -> cookie/
-        runtime reconciliation. currentUser already carries themeMode as
-        a plain scalar column (getOrCreateUser()'s own no-`select`
-        findUnique/upsert already returns every column), so this is zero
-        extra queries, not a new one. Organization switching never
-        touches this: themeMode lives on User, not Membership/
-        Organization, and this component only ever reads the prop below.
-      */}
-      <ThemePreferenceReconciler mode={dbThemeModeToRuntimeMode(currentUser.themeMode)} />
-      <Sidebar
-        disablePrefetch={TEST_MODE}
-        permissions={{
-          recurringInvoicesManage: effectivePermissions.RECURRING_INVOICES_MANAGE,
-          analyticsView: effectivePermissions.ANALYTICS_VIEW,
-          reportsView: effectivePermissions.REPORTS_VIEW,
-        }}
-      />
-      {/*
-        min-w-0: at the md breakpoint this becomes a flex row item next to
-        the now-fixed-width Sidebar. Flex items default to `min-width:
-        auto`, so without this override the item refuses to shrink below
-        its content's intrinsic width — including a wide Table's own
-        `overflow-x-auto` wrapper, which can only actually clip/scroll
-        once its ancestor chain has somewhere to shrink to. Same root
-        cause class as header.tsx's own min-w-0 fix (see that file).
-      */}
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Header
-          email={user.email ?? ""}
-          organizations={organizations}
-          unreadNotificationCount={unreadNotificationCount}
-          recentNotifications={recentNotifications}
-          aiAssistantAvailable={aiAssistantAvailable}
+    // Demo Vs Real Workspace Separation — a new outer flex-col wrapper
+    // carries min-h-screen (moved off the row-split div below it) so
+    // DemoBanner can sit as a full-width strip above BOTH the Sidebar and
+    // the Header/main column, "near the top of the authenticated
+    // workspace" regardless of viewport width, without touching Header/
+    // Sidebar's own internals. Absent entirely (renders null) for every
+    // real organization — every element below is otherwise byte-identical
+    // to before this change.
+    <div className="flex min-h-screen flex-col">
+      <DemoBanner isDemo={isDemoWorkspace} />
+      <div className="bg-surface-recessed flex flex-1 flex-col md:flex-row">
+        {/*
+          Aqenra Theme Persistence Phase C2 — authenticated DB -> cookie/
+          runtime reconciliation. currentUser already carries themeMode as
+          a plain scalar column (getOrCreateUser()'s own no-`select`
+          findUnique/upsert already returns every column), so this is zero
+          extra queries, not a new one. Organization switching never
+          touches this: themeMode lives on User, not Membership/
+          Organization, and this component only ever reads the prop below.
+        */}
+        <ThemePreferenceReconciler mode={dbThemeModeToRuntimeMode(currentUser.themeMode)} />
+        <Sidebar
+          disablePrefetch={TEST_MODE}
+          permissions={{
+            recurringInvoicesManage: effectivePermissions.RECURRING_INVOICES_MANAGE,
+            analyticsView: effectivePermissions.ANALYTICS_VIEW,
+            reportsView: effectivePermissions.REPORTS_VIEW,
+          }}
         />
         {/*
-          Design/polish: staff-app main content max-width. main itself
-          keeps its existing flex-1/p-6 responsibility unchanged; only a
-          new inner mx-auto max-w-7xl wrapper is added around children, so
-          content is centered and bounded on wide desktop viewports while
-          staying full-width (the cap never engages) on anything narrower
-          — matching the bounded-content convention Client Portal
-          ((app)/layout.tsx) and Platform Admin ((platform-admin)/
-          layout.tsx) already use, at a wider cap (7xl vs their 5xl) since
-          staff screens carry wider tables and denser operational content.
-          No individual page was touched — every existing page.tsx's own
-          className continues to apply inside this wrapper exactly as
-          before.
+          min-w-0: at the md breakpoint this becomes a flex row item next to
+          the now-fixed-width Sidebar. Flex items default to `min-width:
+          auto`, so without this override the item refuses to shrink below
+          its content's intrinsic width — including a wide Table's own
+          `overflow-x-auto` wrapper, which can only actually clip/scroll
+          once its ancestor chain has somewhere to shrink to. Same root
+          cause class as header.tsx's own min-w-0 fix (see that file).
         */}
-        <main className="flex-1 p-6">
-          <div className="mx-auto max-w-7xl">{children}</div>
-        </main>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Header
+            email={user.email ?? ""}
+            organizations={organizations}
+            unreadNotificationCount={unreadNotificationCount}
+            recentNotifications={recentNotifications}
+            aiAssistantAvailable={aiAssistantAvailable}
+          />
+          {/*
+            Design/polish: staff-app main content max-width. main itself
+            keeps its existing flex-1/p-6 responsibility unchanged; only a
+            new inner mx-auto max-w-7xl wrapper is added around children, so
+            content is centered and bounded on wide desktop viewports while
+            staying full-width (the cap never engages) on anything narrower
+            — matching the bounded-content convention Client Portal
+            ((app)/layout.tsx) and Platform Admin ((platform-admin)/
+            layout.tsx) already use, at a wider cap (7xl vs their 5xl) since
+            staff screens carry wider tables and denser operational content.
+            No individual page was touched — every existing page.tsx's own
+            className continues to apply inside this wrapper exactly as
+            before.
+          */}
+          <main className="flex-1 p-6">
+            <div className="mx-auto max-w-7xl">{children}</div>
+          </main>
+        </div>
       </div>
     </div>
   );

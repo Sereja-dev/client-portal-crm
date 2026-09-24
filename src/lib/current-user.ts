@@ -98,6 +98,28 @@ export async function getOrCreateUser(currentPath?: string) {
   }
 }
 
+/**
+ * Demo Vs Real Workspace Separation. A single, minimal, server-authoritative
+ * read of whether the given organization is marked as a demo/sample
+ * workspace (Organization.isDemo — see that field's own schema.prisma doc
+ * comment) — used only by the authenticated Staff layout
+ * ((dashboard)/layout.tsx) to decide whether to render the "Demo workspace"
+ * banner. Deliberately its own tiny query, not folded into
+ * getCurrentUserOrganization()/getCurrentMembership() themselves: almost
+ * nothing else in the app ever needs this value, and every existing caller
+ * of those two functions would otherwise pay for a column neither Portal
+ * nor most Staff pages ever read. `organizationId` is always the caller's
+ * own already-resolved active organization — never accepted from request
+ * input.
+ */
+export async function isActiveOrganizationDemo(organizationId: string): Promise<boolean> {
+  const organization = await prisma.organization.findUnique({
+    where: { id: organizationId },
+    select: { isDemo: true },
+  });
+  return organization?.isDemo ?? false;
+}
+
 function slugify(input: string): string {
   return (
     input

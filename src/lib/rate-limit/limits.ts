@@ -335,6 +335,16 @@ export const CLIENT_REQUEST_MESSAGE_LIMIT: RateLimitConfig = { scope: "client-re
 export const CLIENT_EXPORT_LIMIT: RateLimitConfig = { scope: "client-export", limit: 20, windowMs: HOUR_MS };
 export const LEAD_EXPORT_LIMIT: RateLimitConfig = { scope: "lead-export", limit: 20, windowMs: HOUR_MS };
 
+// Demo Vs Real Workspace Separation — OWNER-only, one-shot (guarded to a
+// genuinely empty workspace, see startWithSampleDataAction in
+// (dashboard)/actions.ts) sample-data bootstrap action. Per authenticated
+// staff user id, same shape as every other per-user limiter above. The
+// action's own atomic isDemo-claim + emptiness guard already makes a
+// second successful call against the same organization impossible — this
+// limiter is pure defense-in-depth against a scripted retry loop, not the
+// primary safeguard.
+export const START_SAMPLE_DATA_LIMIT: RateLimitConfig = { scope: "start-sample-data", limit: 5, windowMs: HOUR_MS };
+
 // CSV Import Phase 2 — bulk data import, per authenticated staff user id.
 // Deliberately its own coarse-grained limit on the EXECUTE step only
 // (never reused for LEAD_CREATE_LIMIT/CLIENT_CREATE_LIMIT-style

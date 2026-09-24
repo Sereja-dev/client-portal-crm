@@ -600,6 +600,23 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  // Demo Vs Real Workspace Separation. Server-authoritative only — never
+  // trusted from client input, never derived from name/slug string
+  // matching. `false` for every existing Organization today (this column
+  // is additive with a safe default, no backfill needed) and for every
+  // newly-provisioned real signup (getOrCreateOrganizationId/
+  // createPersonalOrganizationAndMembership in src/lib/current-user.ts
+  // never set this — the field simply keeps its schema default). The only
+  // writer is startWithSampleDataAction (src/app/(dashboard)/actions.ts),
+  // which flips this to `true` atomically together with creating the
+  // bounded sample dataset (src/lib/onboarding/sample-data.ts) — see that
+  // action's own doc comment for the exact claim-then-seed transaction
+  // shape. Read by the authenticated Staff layout only
+  // (isActiveOrganizationDemo() below) to render the "Demo workspace"
+  // banner; never read by Portal or Platform Admin, neither of which
+  // renders that banner.
+  isDemo Boolean @default(false)
+
   memberships   Membership[]
   invitations   Invitation[]
   activities    Activity[]

@@ -12,8 +12,10 @@ import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { formatInvoiceStatusLabel } from "@/lib/invoices/status-label";
 import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
 import { OnboardingCard, ONBOARDING_DISMISS_RETURN_FOCUS_ID } from "@/components/onboarding/onboarding-card";
+import { StartWithSampleData } from "@/components/onboarding/start-with-sample-data";
 import { parseDashboardPeriod, formatDashboardPeriodLabel } from "@/lib/dashboard/period";
 import { getOrganizationOnboardingProgress } from "@/lib/onboarding/progress";
+import { isEligibleForSampleData } from "@/lib/onboarding/sample-data";
 import { getDashboardAnalytics } from "./query";
 import type { RawSearchParams } from "@/lib/list-params";
 
@@ -34,9 +36,12 @@ export default async function DashboardPage({
   const period = parseDashboardPeriod(resolvedSearchParams.period);
   const now = new Date();
 
-  const [analytics, onboardingProgress] = await Promise.all([
+  const [analytics, onboardingProgress, sampleDataEligible] = await Promise.all([
     getDashboardAnalytics({ organizationId, period, now }),
     getOrganizationOnboardingProgress(organizationId),
+    // Demo Vs Real Workspace Separation §9 — server-resolved only; the
+    // component itself never guesses its own eligibility.
+    isEligibleForSampleData(organizationId),
   ]);
 
   return (
@@ -63,6 +68,7 @@ export default async function DashboardPage({
       </div>
 
       <OnboardingCard progress={onboardingProgress} />
+      <StartWithSampleData eligible={sampleDataEligible} />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
         <MetricCard label="Total clients" value={analytics.kpis.totalClients} href="/clients" />

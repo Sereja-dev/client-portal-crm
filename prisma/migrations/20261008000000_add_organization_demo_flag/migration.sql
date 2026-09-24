@@ -1,0 +1,25 @@
+-- Demo Vs Real Workspace Separation (read-only audit, then this narrow
+-- implementation) — the one, smallest server-authoritative marker
+-- distinguishing a demo/sample workspace from a real one (see
+-- Organization.isDemo's own schema.prisma doc comment for the full
+-- reasoning).
+--
+-- Purely additive: one new NOT NULL column with a DEFAULT, no existing
+-- column/table/constraint touched, no backfill statement needed — Postgres
+-- populates the default for every existing row as part of this single
+-- fast, metadata-only ALTER (11+), so every Organization that exists today
+-- resolves to `false` (real) automatically, with no behavior change.
+--
+-- Hand-authored (this environment's `prisma migrate dev`/`migrate diff`
+-- cannot compute a diff here -- its shadow-database step fails against the
+-- single-instance local PGlite Postgres this sandbox uses in place of
+-- Docker/system Postgres, see test/support/local-postgres.ts's own doc
+-- comment and 20261007000000_add_ai_assistant_turn_telemetry/migration.sql's
+-- own identical note), matching exactly what Prisma itself generates for a
+-- `Boolean @default(false)` addition to an existing table (compare
+-- 20260917090000_add_platform_admin_organization_suspension/migration.sql's
+-- own single-column `ALTER TABLE ... ADD COLUMN` for the same "one new
+-- scalar column on Organization" shape).
+
+-- AlterTable
+ALTER TABLE "Organization" ADD COLUMN     "isDemo" BOOLEAN NOT NULL DEFAULT false;
