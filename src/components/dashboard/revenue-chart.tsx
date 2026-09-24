@@ -26,15 +26,29 @@ export function RevenueChart({
   bucketUnit,
   total,
   period,
+  currency,
 }: {
   buckets: RevenueBucket[];
   bucketUnit: DashboardBucketUnit;
   total: number;
   period: DashboardPeriod;
+  /**
+   * Dashboard Multi-Currency KPI Defect fix — the one currency `buckets`/
+   * `total` were already scoped to by the query layer (never mixed), same
+   * `string | null` contract src/components/reports/reports-revenue-trend-
+   * chart.tsx already uses for its own identical `currency` prop. `null`
+   * folds into the same empty state as `total === 0` below — there is
+   * nothing to mislabel either way.
+   */
+  currency: string | null;
 }) {
   const max = Math.max(...buckets.map((b) => b.amount), 1);
   const labelEvery = buckets.length <= 14 ? 1 : Math.ceil(buckets.length / 8);
-  const isEmpty = total === 0;
+  const isEmpty = total === 0 || currency === null;
+  // Only ever read inside the `!isEmpty` branch below, where `currency` is
+  // guaranteed non-null by the check above — this local avoids repeating a
+  // non-null assertion at every formatCurrency call site.
+  const resolvedCurrency = currency ?? "USD";
 
   return (
     <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
@@ -43,7 +57,7 @@ export function RevenueChart({
         <p className="text-text-muted text-xs">{formatDashboardPeriodLabel(period)}</p>
       </div>
       <p className="text-text-primary mt-1 text-2xl font-semibold tracking-tight">
-        {formatCurrency(total)}
+        {currency ? formatCurrency(total, currency) : "—"}
       </p>
 
       {isEmpty ? (
@@ -51,7 +65,7 @@ export function RevenueChart({
       ) : (
         <div
           role="img"
-          aria-label={`Paid revenue over ${formatDashboardPeriodLabel(period).toLowerCase()}, total ${formatCurrency(total)}`}
+          aria-label={`Paid revenue over ${formatDashboardPeriodLabel(period).toLowerCase()}, total ${formatCurrency(total, resolvedCurrency)}`}
           className="mt-6 flex items-end gap-0.5"
           style={{ height: BAR_MAX_HEIGHT_PX }}
         >
@@ -62,12 +76,12 @@ export function RevenueChart({
             return (
               <div key={bucket.bucketStart} className="flex flex-1 flex-col items-center justify-end gap-1">
                 <div
-                  title={`${label}: ${formatCurrency(bucket.amount)}`}
+                  title={`${label}: ${formatCurrency(bucket.amount, resolvedCurrency)}`}
                   className={`w-full rounded-t ${bucket.amount > 0 ? "bg-accent" : "bg-border-default"}`}
                   style={{ height: heightPx }}
                 >
                   <span className="sr-only">
-                    {label}: {formatCurrency(bucket.amount)}
+                    {label}: {formatCurrency(bucket.amount, resolvedCurrency)}
                   </span>
                 </div>
                 {showLabel && (

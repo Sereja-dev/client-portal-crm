@@ -7,6 +7,7 @@ import { getDashboardPeriodRange, type DashboardBucketUnit } from "@/lib/dashboa
 import { bucketRevenue, type RevenueResult } from "@/lib/dashboard/revenue";
 import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import { SYSTEM_STATUS_KEYS } from "@/lib/custom-statuses/constants";
+import { resolveReportsCurrency } from "@/lib/reports/currency";
 
 // PAID and CANCELLED are excluded; everything else (DRAFT, SENT, OVERDUE)
 // still represents money the client owes. Kept here as its own copy — this
@@ -68,6 +69,19 @@ export type OverdueItem =
 export type DashboardAnalytics = {
   period: DashboardPeriod;
   periodRange: { start: Date; end: Date; bucketUnit: DashboardBucketUnit };
+  /**
+   * Dashboard Multi-Currency KPI Defect fix — the one currency every
+   * financial aggregate below (outstandingAmount, paidRevenue, and the
+   * revenue buckets derived from the same rows) is scoped to, resolved
+   * via the same canonical, no-explicit-request policy Reports V1 already
+   * established (resolveReportsCurrency, currency.ts). `null` only in the
+   * type-level, practically unreachable case documented on
+   * ReportsCurrencySelection itself (an organization with zero invoices
+   * whose own resolved default currency is somehow also empty). Never a
+   * Dashboard currency selector — there is exactly one resolved value,
+   * never a user-chosen one.
+   */
+  currency: string | null;
   kpis: {
     totalClients: number;
     activeProjects: number;
@@ -129,17 +143,35 @@ export async function getDashboardAnalytics({
   // A custom Project status can never satisfy this count, even if its
   // own legacy compatibility value happens to still read IN_PROGRESS
   // from before a hypothetical reassignment (Section J).
-  const inProgressDefinition = await resolveSystemStatusDefinition(
-    organizationId,
-    "PROJECT",
-    SYSTEM_STATUS_KEYS.PROJECT_IN_PROGRESS,
-  );
+  const [inProgressDefinition, currencySelection] = await Promise.all([
+    resolveSystemStatusDefinition(organizationId, "PROJECT", SYSTEM_STATUS_KEYS.PROJECT_IN_PROGRESS),
+    // Dashboard Multi-Currency KPI Defect fix — reuses Reports V1's own
+    // canonical "no explicit requested currency" resolution verbatim,
+    // never a second currency-selection policy: the organization's own
+    // default invoice currency when it's actually in use among this
+    // org's own invoices, else the first currency (alphabetically) this
+    // org's invoices actually use. No Dashboard currency selector exists
+    // or is introduced by this fix — `requestedCurrency` is always
+    // undefined here.
+    resolveReportsCurrency(organizationId, undefined),
+  ]);
   const activeProjectsWhere: Prisma.ProjectWhereInput = inProgressDefinition
     ? {
         organizationId,
         OR: [{ statusDefinitionId: inProgressDefinition.id }, { statusDefinitionId: null, status: "IN_PROGRESS" }],
       }
     : { organizationId, status: "IN_PROGRESS" };
+  // Every Dashboard financial aggregate below (Outstanding amount, Paid
+  // revenue, and the revenue-over-time buckets derived from the very same
+  // paidInvoicesInPeriod rows) is scoped to exactly this one currency —
+  // never summed across currencies, mirroring src/lib/reports/queries/
+  // financial.ts's own identical discipline. `dashboardCurrency` is `null`
+  // only in the practically-unreachable case documented on
+  // ReportsCurrencySelection itself, and only when this organization has
+  // zero invoices at all — omitting the currency filter in that branch is
+  // still safe, since there is nothing for it to match either way.
+  const dashboardCurrency = currencySelection.selectedCurrency;
+  const currencyWhere: Prisma.InvoiceWhereInput = dashboardCurrency ? { currency: dashboardCurrency } : {};
 
   const [
     totalClients,
@@ -164,7 +196,7 @@ export async function getDashboardAnalytics({
       where: { project: { organizationId }, status: { not: "DONE" }, dueDate: { lt: now } },
     }),
     prisma.invoice.aggregate({
-      where: { organizationId, status: { in: [...UNPAID_INVOICE_STATUSES] } },
+      where: { organizationId, status: { in: [...UNPAID_INVOICE_STATUSES] }, ...currencyWhere },
       _sum: { amount: true },
     }),
     // Selected once, used for both the paidRevenue KPI (sum) and the
@@ -174,6 +206,7 @@ export async function getDashboardAnalytics({
         organizationId,
         status: "PAID",
         paidAt: { not: null, gte: periodRange.start, lte: periodRange.end },
+        ...currencyWhere,
       },
       select: { amount: true, paidAt: true },
     }),
@@ -264,6 +297,7 @@ export async function getDashboardAnalytics({
   return {
     period,
     periodRange: { start: periodRange.start, end: periodRange.end, bucketUnit: periodRange.bucketUnit },
+    currency: dashboardCurrency,
     kpis: {
       totalClients,
       activeProjects,

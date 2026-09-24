@@ -1,5 +1,16 @@
-import { describe, expect, it } from "vitest";
-import { executeGetOrganizationSummary, GET_ORGANIZATION_SUMMARY_DESCRIPTION, GET_ORGANIZATION_SUMMARY_INPUT_SCHEMA } from "@/lib/ai/tools/organization-summary";
+import { describe, expect, it, vi } from "vitest";
+
+// Dashboard Multi-Currency KPI Defect fix — organization-summary.ts's own
+// getDashboardAnalytics() import now transitively reaches
+// src/lib/reports/currency.ts (resolveReportsCurrency), which imports the
+// real "server-only" marker package — see
+// test/unit/onboarding-visible-progress.test.ts's own identical header
+// comment for why this needs neutralizing here rather than disabling the
+// guard globally.
+vi.mock("server-only", () => ({}));
+
+const { executeGetOrganizationSummary, GET_ORGANIZATION_SUMMARY_DESCRIPTION, GET_ORGANIZATION_SUMMARY_INPUT_SCHEMA } =
+  await import("@/lib/ai/tools/organization-summary");
 
 const ORG_ID = "11111111-1111-1111-1111-111111111111";
 

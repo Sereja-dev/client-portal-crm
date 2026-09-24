@@ -100,12 +100,12 @@ export default async function DashboardPage({
         />
         <MetricCard
           label="Outstanding amount"
-          value={formatCurrency(analytics.kpis.outstandingAmount)}
+          value={analytics.currency ? formatCurrency(analytics.kpis.outstandingAmount, analytics.currency) : "—"}
           href="/invoices"
         />
         <MetricCard
           label="Paid revenue"
-          value={formatCurrency(analytics.kpis.paidRevenue)}
+          value={analytics.currency ? formatCurrency(analytics.kpis.paidRevenue, analytics.currency) : "—"}
           href="/invoices"
           hint={formatDashboardPeriodLabel(period)}
         />
@@ -116,6 +116,7 @@ export default async function DashboardPage({
         bucketUnit={analytics.periodRange.bucketUnit}
         total={analytics.revenue.total}
         period={period}
+        currency={analytics.currency}
       />
 
       <div>

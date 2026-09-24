@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+// Dashboard Multi-Currency KPI Defect fix — the registry's own
+// getOrganizationSummary tool transitively imports getDashboardAnalytics()
+// (dashboard/query.ts), which now reaches src/lib/reports/currency.ts
+// (resolveReportsCurrency), which imports the real "server-only" marker
+// package — see test/unit/onboarding-visible-progress.test.ts's own
+// identical header comment for why this needs neutralizing here rather
+// than disabling the guard globally. Applies to every dynamic
+// `await import(...)` below regardless of vi.resetModules().
+vi.mock("server-only", () => ({}));
+
 // Each test re-imports a fresh module instance (vi.resetModules) so the
 // registry's own module-level Map never leaks a registration from one
 // test into another — the registry has no exported reset function by
