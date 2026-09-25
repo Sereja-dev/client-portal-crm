@@ -90,6 +90,29 @@ function dragHandle(column: Locator, name: string) {
 }
 
 /**
+ * DesktopBoard's own real scrollable row — `<div className="hidden
+ * md:block"><DesktopBoard .../></div>` and DesktopBoard's own return is
+ * directly `<div className="flex items-start gap-4 overflow-x-auto
+ * pb-2">`, so this direct-child selector resolves to exactly that one
+ * element. Deliberately NOT a bare `.overflow-x-auto` class selector —
+ * confirmed directly during this feature's own development that other,
+ * unrelated elements elsewhere on this page (e.g. inside the sidebar)
+ * also carry that utility class and a bare selector can silently match
+ * the wrong one.
+ */
+function boardRow(page: Page): Locator {
+  return page.locator(".hidden.md\\:block > .overflow-x-auto");
+}
+
+async function readBoardMetrics(page: Page): Promise<{ scrollWidth: number; scrollLeft: number; clientWidth: number }> {
+  return boardRow(page).evaluate((el) => ({
+    scrollWidth: el.scrollWidth,
+    scrollLeft: el.scrollLeft,
+    clientWidth: el.clientWidth,
+  }));
+}
+
+/**
  * A real pointer-driven drag from one column to another. Deliberately
  * NOT Playwright's own built-in `locator.dragTo()` — that performs a
  * single instantaneous mouse jump from source to target, which does not
@@ -363,5 +386,242 @@ test.describe("Leads Pipeline — drag & drop (desktop)", () => {
     await expect(select).toBeVisible();
     await select.selectOption({ label: "Contacted" });
     await expect(page.getByText("Status updated")).toBeVisible();
+  });
+
+  test("a normal organization with real columns still renders the Pipeline board's own stage nav (not the empty-column fallback)", async ({ page }) => {
+    // A small adjacent contrast check for the empty-column test below —
+    // fixtures.orgA (this file's own shared org) is bootstrapped in
+    // beforeAll, so this is the "columns.length > 0" side of the same
+    // branch. The exhaustive "normal Pipeline renders" case is already
+    // covered at length by leads-pipeline.spec.ts's own suite.
+    //
+    // Creates its own Lead rather than relying on any earlier test in
+    // this file having left one behind — this test must pass whether run
+    // alone, filtered, or in any order (Section 8): with zero Leads,
+    // page.tsx's own top-level "No leads yet" EmptyState would intercept
+    // before LeadPipelineBoard ever mounts, which is a different branch
+    // entirely from the one this test means to exercise.
+    const name = uniqueName();
+    await dbQuery("lead", "create", { data: { name, organizationId: fixtures.orgA.id, stage: "NEW" } });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/leads?view=pipeline&stageView=NEW");
+    await expect(mobileSwitcher(page).getByRole("navigation", { name: "Pipeline stage" })).toBeVisible();
+    await expect(mobileSwitcher(page).getByText("No leads", { exact: true })).toHaveCount(0);
+  });
+
+  test("Escape cancels an in-flight drag: the DragOverlay copy clears, the Lead's stage is unchanged in the database, no dialog or toast fires, and the select remains usable afterward", async ({ page }) => {
+    const name = uniqueName();
+    await dbQuery("lead", "create", { data: { name, organizationId: fixtures.orgA.id, stage: "NEW" } });
+    await page.goto("/leads?view=pipeline");
+
+    // LeadPipelineCardPreview (LeadPipelineBoard's own <DragOverlay>
+    // content) is the only <li> anywhere on this page carrying
+    // `shadow-lg` — CARD_SURFACE_CLASSES itself has no shadow utility
+    // (src/components/ui/surface.ts) — so this is real DOM evidence that
+    // a second, moving copy of the card exists, not an inference from
+    // internal React state.
+    const overlayCard = page.locator("li.shadow-lg", { hasText: name });
+    await expect(overlayCard).toHaveCount(0);
+
+    const handle = dragHandle(desktopColumn(page, "New"), name);
+    const box = await handle.boundingBox();
+    if (!box) throw new Error("missing bounding box for the drag handle");
+    const startX = box.x + box.width / 2;
+    const startY = box.y + box.height / 2;
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    // Past the 8px activation-distance constraint — the same real
+    // pointer-activation gesture dragCardToColumn's own helper uses,
+    // confirmed (see that helper's own header comment) to reliably
+    // activate dnd-kit's PointerSensor.
+    await page.mouse.move(startX + 40, startY + 10, { steps: 10 });
+    await page.waitForTimeout(150);
+
+    // The overlay is genuinely active mid-drag.
+    await expect(overlayCard).toHaveCount(1);
+
+    // dnd-kit's own AbstractPointerSensor (the shared base class behind
+    // PointerSensor/MouseSensor/TouchSensor — confirmed directly in
+    // node_modules/@dnd-kit/core) attaches a document-level keydown
+    // listener the instant a pointer gesture starts tracking, calling
+    // its own handleCancel() on Escape — this is real, built-in dnd-kit
+    // behavior for a pointer-initiated drag, not something specific to
+    // KeyboardSensor.
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await page.waitForTimeout(150);
+
+    // The overlay copy is gone — back to exactly zero.
+    await expect(overlayCard).toHaveCount(0);
+    await expect(desktopColumn(page, "New").getByText(name)).toBeVisible();
+
+    // No mutation of any kind — checked directly against the database.
+    const lead = await dbQuery<{ stage: string; lostReason: string | null; statusDefinitionId: string | null }>(
+      "lead",
+      "findFirstOrThrow",
+      { where: { name } },
+    );
+    expect(lead.stage).toBe("NEW");
+    expect(lead.lostReason).toBeNull();
+
+    // No LOST dialog, no success/error toast — the cancelled gesture
+    // triggered handleDragEnd/handleDragStart's own state cleanup only,
+    // never a mutation path.
+    await expect(page.getByRole("heading", { name: "Mark lead lost" })).toHaveCount(0);
+    await expect(page.getByText("Status updated")).toHaveCount(0);
+    await expect(page.getByText("Lead marked lost")).toHaveCount(0);
+
+    // The native select remains fully usable afterward.
+    const card = desktopColumn(page, "New").locator("li", { hasText: name });
+    await moveToSelect(card, name).selectOption({ label: "Contacted" });
+    await expect(page.getByText("Status updated")).toBeVisible();
+    await expect(desktopColumn(page, "Contacted").getByText(name)).toBeVisible();
+  });
+
+  test("the desktop board's own scrollWidth stays bounded during a real drag toward a distant column — the DragOverlay fix's own regression guard", async ({ page }) => {
+    const name = uniqueName();
+    await dbQuery("lead", "create", { data: { name, organizationId: fixtures.orgA.id, stage: "NEW" } });
+    await page.goto("/leads?view=pipeline");
+
+    const baseline = await readBoardMetrics(page);
+    // A small, real layout tolerance — the isOver column's own ring-2
+    // styling (box-shadow-based, not a layout-affecting border) and
+    // ordinary sub-pixel rounding account for at most a few pixels; the
+    // original, now-fixed defect grew scrollWidth from 1808 to 3768+ —
+    // thousands of pixels, monotonically, never settling, with the
+    // pointer held stationary between polls (empirically confirmed
+    // during this feature's own development — see git history). This
+    // bound is nowhere close to loose enough to let that regression pass.
+    const TOLERANCE_PX = 40;
+
+    const handle = dragHandle(desktopColumn(page, "New"), name);
+    const box = await handle.boundingBox();
+    const targetBox = await desktopColumn(page, "Lost").boundingBox();
+    const viewport = page.viewportSize();
+    if (!box || !targetBox || !viewport) {
+      throw new Error("missing bounding box for source/target, or no viewport");
+    }
+    const startX = box.x + box.width / 2;
+    const startY = box.y + box.height / 2;
+    const EDGE_MARGIN = 20;
+    const approachX = Math.min(targetBox.x + targetBox.width / 2, viewport.width - EDGE_MARGIN);
+    const approachY = Math.min(targetBox.y + targetBox.height / 2, viewport.height - EDGE_MARGIN);
+
+    await page.mouse.move(startX, startY);
+    await page.mouse.down();
+    await page.mouse.move(startX + 15, startY + 15, { steps: 5 });
+    await page.waitForTimeout(100);
+    // A single approach move toward the far column, then the pointer is
+    // held stationary for the whole polling loop below — deliberately
+    // NOT re-aimed on every poll (leads-pipeline-dnd.spec.ts's own
+    // dragCardToColumn helper does that, for a different purpose): the
+    // original defect reproduced with a stationary pointer, autoscroll
+    // running entirely on its own, so that is exactly what this
+    // regression guard needs to reproduce it if it ever returns.
+    await page.mouse.move(approachX, approachY, { steps: 20 });
+
+    let maxObservedWidth = baseline.scrollWidth;
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      await page.waitForTimeout(150);
+      const metrics = await readBoardMetrics(page);
+      maxObservedWidth = Math.max(maxObservedWidth, metrics.scrollWidth);
+      expect(metrics.scrollWidth).toBeLessThanOrEqual(baseline.scrollWidth + TOLERANCE_PX);
+    }
+
+    // Cancel rather than drop — this test's only concern is the scroll
+    // geometry invariant, not a successful mutation (already covered by
+    // the LOST/normal-move tests above).
+    await page.keyboard.press("Escape");
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+
+    const afterDrop = await readBoardMetrics(page);
+    expect(afterDrop.scrollWidth).toBeLessThanOrEqual(baseline.scrollWidth + TOLERANCE_PX);
+
+    // No page-level phantom horizontal overflow either.
+    const documentOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(documentOverflow).toBeLessThanOrEqual(1);
+
+    // Deliberate: the measured evidence this regression guard is built
+    // on, kept visible in test output rather than only in this file's
+    // own comments.
+    console.log(
+      `[scrollWidth regression guard] baseline=${baseline.scrollWidth} max-during-drag=${maxObservedWidth} after-cancel=${afterDrop.scrollWidth} tolerance=${TOLERANCE_PX}`,
+    );
+
+    const lead = await dbQuery<{ stage: string }>("lead", "findFirstOrThrow", { where: { name } });
+    expect(lead.stage).toBe("NEW");
+  });
+});
+
+test.describe("Leads Pipeline — MobileStageSwitcher empty-column guard (isolated organization)", () => {
+  test.beforeAll(async () => {
+    fixtures = await seedE2EFixtures();
+  });
+
+  test.afterAll(async () => {
+    await cleanupTestData(fixtures);
+  });
+
+  // Deliberately its own describe block with its own isolated
+  // organization (created directly via dbQuery, mirroring
+  // analytics-ui.spec.ts's own established "brand-new empty org"
+  // pattern — never fixtures.orgA/orgB, and never bootstrapped): the
+  // guarded state this test needs (zero LEAD CustomStatusDefinition
+  // rows) must never leak into — or be corrupted by — the shared
+  // fixtures.orgA every other test in this file bootstraps and relies
+  // on having real columns.
+  test("an organization with no LEAD status definitions AND an active filter renders the guarded empty-column fallback, never a crash", async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    const runId = randomUUID().slice(0, 8);
+    const org = await dbQuery<{ id: string }>("organization", "create", {
+      data: { name: `E2E-DnD-EmptyColumns-${runId}`, slug: `e2e-dnd-empty-columns-${runId}` },
+    });
+    await dbQuery("membership", "create", { data: { userId: fixtures.owner.id, organizationId: org.id, role: "OWNER" } });
+
+    const pageErrors: Error[] = [];
+    page.on("pageerror", (error) => pageErrors.push(error));
+
+    try {
+      await actAsMember(context, baseURL!, fixtures.owner, org.id);
+      await page.setViewportSize({ width: 390, height: 844 });
+      // hasActiveParams === true (a real `q`) is required so the
+      // page-level "No leads yet" EmptyState (leads/page.tsx's own
+      // `grandTotal === 0 && !hasActiveParams` gate) does NOT intercept
+      // before LeadPipelineBoard ever mounts — the read-only audit's own
+      // Section B finding: without an active filter, that outer gate
+      // reaches first and MobileStageSwitcher's own guard is never
+      // exercised at all. `columns.length === 0` follows purely from
+      // this being a brand-new org bootstrapped nowhere near
+      // bootstrapOrganizationStatusDefinitions (src/lib/current-user.ts) —
+      // never from the filter itself.
+      await page.goto("/leads?view=pipeline&q=anything");
+
+      // Not the dashboard error boundary (src/app/(dashboard)/error.tsx's
+      // own exact copy) — a real, successful render, not a crash.
+      await expect(page.getByText("Something went wrong")).toHaveCount(0);
+      await expect(page.getByText("We couldn't load this page. Please try again.")).toHaveCount(0);
+
+      // The guarded fallback itself, scoped to the mobile switcher's own
+      // subtree (the desktop board, always in the DOM too, renders
+      // nothing at all for an empty columns array — no competing match).
+      await expect(mobileSwitcher(page).getByText("No leads", { exact: true })).toBeVisible();
+
+      // No fabricated stage: the guard's early return happens before the
+      // stage-switcher <nav aria-label="Pipeline stage"> is ever reached,
+      // so no nav — real or invented — renders at all.
+      await expect(mobileSwitcher(page).getByRole("navigation", { name: "Pipeline stage" })).toHaveCount(0);
+
+      expect(pageErrors, `unexpected uncaught page error(s): ${pageErrors.map((e) => e.message).join("; ")}`).toHaveLength(0);
+    } finally {
+      await dbQuery("membership", "deleteMany", { where: { organizationId: org.id } });
+      await dbQuery("organization", "delete", { where: { id: org.id } });
+    }
   });
 });
