@@ -19,6 +19,10 @@ import { injectTestSession } from "../support/e2e-session";
  * levels above) and only proves the real render for the USD case: does
  * the currency this page resolves actually reach every one of the three
  * real call sites correctly, with no prop-name typo or wiring mistake.
+ *
+ * Leads Pipeline V1 (Section 4) — the List-specific navigations below
+ * now say `view=list` explicitly, since Pipeline (not List) is what an
+ * omitted `view` param resolves to as of that phase.
  */
 
 // Byte-for-byte copy of test/e2e/leads-pipeline.spec.ts's own
@@ -77,7 +81,7 @@ test.describe("Lead value currency — real render (USD, fixtures.orgA's own rea
       data: { organizationId: fixtures.orgA.id, name: `E2E Currency Lead ${Date.now()}`, value: "1234.56" },
     });
     try {
-      await page.goto("/leads");
+      await page.goto("/leads?view=list");
       const row = page.getByRole("row", { name: new RegExp(lead.name) });
       await expect(row).toBeVisible();
       await expect(row).toContainText("$1,234.56");
@@ -92,7 +96,7 @@ test.describe("Lead value currency — real render (USD, fixtures.orgA's own rea
       data: { organizationId: fixtures.orgA.id, name: `E2E Mobile Currency Lead ${Date.now()}`, value: "987.65" },
     });
     try {
-      await page.goto("/leads");
+      await page.goto("/leads?view=list");
       // Both the desktop <table> row and the mobile <RecordCard> render
       // in the DOM simultaneously (toggled by a CSS breakpoint, not
       // conditional rendering) — scoped to the mobile RecordCardList's
@@ -125,7 +129,7 @@ test.describe("Lead value currency — real render (USD, fixtures.orgA's own rea
       data: { organizationId: fixtures.orgA.id, name: `E2E No-Value Lead ${Date.now()}` },
     });
     try {
-      await page.goto("/leads");
+      await page.goto("/leads?view=list");
       const row = page.getByRole("row", { name: new RegExp(lead.name) });
       await expect(row).toBeVisible();
       await expect(row).toContainText("—");

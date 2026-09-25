@@ -33,6 +33,16 @@ const RATE_LIMIT_MESSAGE = "Too many requests. Please try again later.";
 
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
+// Leads Pipeline V1 (Section 17) — matches this file's own established
+// PRIMARY/secondary Button token pair (Button itself has no polymorphic
+// asChild support, so a real navigating action is always a styled
+// <Link> — same precedent leads/page.tsx's own PRIMARY_LINK_CLASSES
+// documents).
+const SUCCESS_PRIMARY_LINK_CLASSES =
+  "focus-visible:ring-focus-ring rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
+const SUCCESS_SECONDARY_LINK_CLASSES =
+  "focus-visible:ring-focus-ring border-border-strong bg-surface text-text-primary rounded-md border px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
+
 /**
  * The edit page's own stage/lost/convert/archive surface — deliberately
  * separate from LeadForm (generic name/company/email/... edit), matching
@@ -42,6 +52,20 @@ const GENERIC_ERROR = "Something went wrong. Please try again.";
  * every success path calls router.refresh() so the Server Component
  * parent re-fetches the Lead's real current state — this panel never
  * keeps its own duplicate copy of stage/archivedAt/convertedClientId.
+ *
+ * Leads Pipeline V1 (Section 16/17/18) — convertLeadToClientAction
+ * itself is completely unchanged (still the one canonical conversion
+ * action, still enforcing duplicate-email confirmation, entitlement,
+ * transaction atomicity, quote reconciliation, Activity, workflows, and
+ * race safety exactly as before). Only the POST-success UX changes here:
+ * instead of an immediate router.push to the new Client, a successful
+ * conversion now sets local `justConverted` state and this panel renders
+ * a small bounded success block (Client created + View client/Create
+ * project/Create quote/Create invoice) in its place — never during the
+ * duplicate-confirmation step (that dialog still runs to completion
+ * first; `justConverted` is only ever set from the real `result.ok`
+ * branch, after conversion has actually succeeded and a real clientId
+ * exists).
  */
 export function LeadActionsPanel({
   leadId,
@@ -65,6 +89,13 @@ export function LeadActionsPanel({
   const { showToast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [duplicateMessage, setDuplicateMessage] = useState("");
+  // Leads Pipeline V1 (Section 17) — set only from a real, successful
+  // convertLeadToClientAction result within this same page session;
+  // never persisted, never derived from props (a fresh page load always
+  // starts with this null, falling back to the existing "Converted to a
+  // client" static state below, driven by the real convertedClientId
+  // prop).
+  const [justConverted, setJustConverted] = useState<{ clientId: string } | null>(null);
 
   const lostDialogRef = useRef<MarkLeadLostDialogHandle>(null);
   const archiveDialogRef = useRef<ConfirmDialogHandle>(null);
@@ -146,7 +177,13 @@ export function LeadActionsPanel({
       const result = await convertLeadToClientAction(leadId, { confirmDuplicate });
       if (result.ok) {
         showToast("Lead converted to client");
-        router.push(`/clients/${result.clientId}/edit`);
+        // Leads Pipeline V1 (Section 17) — no more immediate navigation:
+        // this panel now shows its own bounded success state (below)
+        // instead. router.refresh() still runs so the rest of this same
+        // page (the Stage badge, the now-locked stage control) reflects
+        // the real post-conversion Lead state alongside it.
+        setJustConverted({ clientId: result.clientId });
+        router.refresh();
         return;
       }
       switch (result.reason) {
@@ -171,6 +208,38 @@ export function LeadActionsPanel({
           router.refresh();
       }
     });
+  }
+
+  // Leads Pipeline V1 (Section 17/18) — the bounded post-conversion
+  // success state. Deliberately its own early return, not woven into
+  // the normal `isConverted` branch below: this is a one-time "you just
+  // did this" panel (local state, never derived from props), not the
+  // persistent "this Lead has been converted" state a returning visitor
+  // sees on a fresh page load — those stay two genuinely different UI
+  // moments, per this panel's own header comment.
+  if (justConverted) {
+    return (
+      <div className="border-border-default space-y-4 border-t pt-4">
+        <div>
+          <p className="text-text-primary text-sm font-semibold">Client created</p>
+          <p className="text-text-secondary mt-1 text-sm">Choose what to do next.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <Link href={`/clients/${justConverted.clientId}/edit`} className={SUCCESS_PRIMARY_LINK_CLASSES}>
+            View client
+          </Link>
+          <Link href={`/projects/new?clientId=${justConverted.clientId}`} className={SUCCESS_SECONDARY_LINK_CLASSES}>
+            Create project
+          </Link>
+          <Link href={`/quotes/new?clientId=${justConverted.clientId}`} className={SUCCESS_SECONDARY_LINK_CLASSES}>
+            Create quote
+          </Link>
+          <Link href={`/invoices/new?clientId=${justConverted.clientId}`} className={SUCCESS_SECONDARY_LINK_CLASSES}>
+            Create invoice
+          </Link>
+        </div>
+      </div>
+    );
   }
 
   return (

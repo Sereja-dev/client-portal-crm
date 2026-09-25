@@ -137,8 +137,20 @@ test.describe("Leads Pipeline UI", () => {
       await expect(desktopColumn(page, "New")).toHaveCount(0);
     });
 
-    test("default /leads is the List view", async ({ page }) => {
+    // Leads Pipeline V1 (Section 4/30) — Pipeline is now the canonical
+    // default: an omitted `view` param behaves exactly like
+    // `?view=pipeline`. This deliberately replaces the previous
+    // "default /leads is the List view" assertion (never weakened —
+    // List's own explicit `?view=list` coverage immediately below is
+    // new, not removed).
+    test("default /leads is the Pipeline view", async ({ page }) => {
       await page.goto("/leads");
+      await expect(page.getByRole("link", { name: "Pipeline", exact: true })).toHaveAttribute("aria-current", "page");
+      await expect(page.getByRole("link", { name: "List", exact: true })).not.toHaveAttribute("aria-current", "page");
+    });
+
+    test("?view=list still renders the List view explicitly", async ({ page }) => {
+      await page.goto("/leads?view=list");
       await expect(page.getByRole("link", { name: "List", exact: true })).toHaveAttribute("aria-current", "page");
       await expect(page.getByRole("link", { name: "Pipeline", exact: true })).not.toHaveAttribute("aria-current", "page");
     });
@@ -156,15 +168,23 @@ test.describe("Leads Pipeline UI", () => {
       }
     });
 
-    test("an invalid view param falls back safely to List", async ({ page }) => {
+    // Leads Pipeline V1 (Section 4/30) — an unrecognized `view` value is
+    // just as much "not a real view" as an omitted one, so it falls back
+    // to the exact same new canonical default (Pipeline), never a
+    // separate rule of its own.
+    test("an invalid view param falls back safely to the new Pipeline default", async ({ page }) => {
       await page.goto("/leads?view=bogus-not-a-real-view");
-      await expect(page.getByRole("link", { name: "List", exact: true })).toHaveAttribute("aria-current", "page");
+      await expect(page.getByRole("link", { name: "Pipeline", exact: true })).toHaveAttribute("aria-current", "page");
     });
 
     test("switching from a filtered List to Pipeline preserves the search term, and the matching lead is visible in its column", async ({ page }) => {
       const name = uniqueName();
       await dbQuery("lead", "create", { data: { name, organizationId: fixtures.orgA.id, stage: "NEW" } });
-      await page.goto(`/leads?q=${name}`);
+      // Explicit ?view=list — Pipeline is now the default an omitted
+      // param resolves to, so this test's own "starts on List" premise
+      // needs saying outright to keep testing the real List -> Pipeline
+      // transition it's named for.
+      await page.goto(`/leads?view=list&q=${name}`);
       await page.getByRole("link", { name: "Pipeline", exact: true }).click();
       await expect(page).toHaveURL(/view=pipeline/);
       await expect(page).toHaveURL(new RegExp(`q=${name}`));

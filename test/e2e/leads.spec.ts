@@ -12,6 +12,13 @@ import { injectTestSession } from "../support/e2e-session";
  * visible states. Every backend edge case (org scoping, race safety,
  * entitlement enforcement, etc.) is already exhaustively covered in
  * test/integration/leads — this file deliberately does not repeat them.
+ *
+ * Leads Pipeline V1 (Section 4/30) — every `/leads?...` navigation below
+ * that means to land on the List view now says `view=list` explicitly.
+ * Pipeline, not List, is what an omitted `view` param resolves to as of
+ * this phase — this file's own "list page" describe block (and every
+ * other List-specific assertion here) is unaffected in intent, only in
+ * needing to say so outright instead of relying on the old default.
  */
 
 async function setActiveOrg(context: BrowserContext, baseURL: string, organizationId: string): Promise<void> {
@@ -99,7 +106,7 @@ test.describe("Leads UI", () => {
   test.describe("list page", () => {
     test("empty filtered search shows the filtered empty state, not the setup CTA", async ({ page, context, baseURL }) => {
       await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
-      await page.goto(`/leads?q=${randomUUID()}`);
+      await page.goto(`/leads?view=list&q=${randomUUID()}`);
       await expect(page.getByText("No leads match your filters")).toBeVisible();
       await expect(page.getByText("Add your first lead")).toHaveCount(0);
     });
@@ -110,7 +117,7 @@ test.describe("Leads UI", () => {
 
       await createLeadViaUI(page, name, { company: "Acme Co" });
 
-      await page.goto(`/leads?q=${name}`);
+      await page.goto(`/leads?view=list&q=${name}`);
       // Both the desktop table and the mobile RecordCardList render the
       // same row (only CSS-hidden at this viewport, not DOM-absent) —
       // .first() picks whichever is actually present at the default
@@ -129,7 +136,7 @@ test.describe("Leads UI", () => {
       await createLeadViaUI(page, foreignName);
 
       await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
-      await page.goto(`/leads?q=${foreignName}`);
+      await page.goto(`/leads?view=list&q=${foreignName}`);
       await expect(page.getByText("No leads match your filters")).toBeVisible();
     });
   });
@@ -237,17 +244,25 @@ test.describe("Leads UI", () => {
       await page.getByRole("button", { name: "Archive" }).nth(1).click();
       await expect(page.getByText("Lead archived")).toBeVisible();
 
-      await page.goto(`/leads?q=${name}`);
+      await page.goto(`/leads?view=list&q=${name}`);
       await expect(page.getByText("No leads match your filters")).toBeVisible();
 
-      await page.goto(`/leads?q=${name}&archived=1`);
+      await page.goto(`/leads?view=list&q=${name}&archived=1`);
       // Same duplicated desktop-table/mobile-card-list DOM as the list
       // page tests above (only CSS-hidden, not DOM-absent) — .first()
       // avoids the strict-mode violation from matching both.
       await expect(page.getByText(name).first()).toBeVisible();
     });
 
-    test("conversion happy path redirects to the new Client", async ({ page, context, baseURL }) => {
+    // Leads Pipeline V1 (Section 17/18) — a successful conversion no
+    // longer immediately navigates to the new Client; it shows a small
+    // bounded success state in this same page instead, with real
+    // clientId-prefilled follow-up links.
+    test("conversion happy path shows the success state with real clientId-prefilled follow-up actions, never an immediate redirect", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
       await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
       const name = uniqueName();
       await createLeadViaUI(page, name);
@@ -255,8 +270,24 @@ test.describe("Leads UI", () => {
 
       await page.goto(`/leads/${lead.id}/edit`);
       await page.getByRole("button", { name: "Convert to client" }).click();
-      await expect(page).toHaveURL(/\/clients\/[0-9a-f-]+\/edit$/);
-      await expect(page.locator("#name")).toHaveValue(name);
+
+      await expect(page).toHaveURL(new RegExp(`/leads/${lead.id}/edit$`));
+      await expect(page.getByText("Client created")).toBeVisible();
+
+      const client = await dbQuery<{ id: string }>("client", "findFirstOrThrow", { where: { name } });
+      await expect(page.getByRole("link", { name: "View client" })).toHaveAttribute("href", `/clients/${client.id}/edit`);
+      await expect(page.getByRole("link", { name: "Create project" })).toHaveAttribute(
+        "href",
+        `/projects/new?clientId=${client.id}`,
+      );
+      await expect(page.getByRole("link", { name: "Create quote" })).toHaveAttribute(
+        "href",
+        `/quotes/new?clientId=${client.id}`,
+      );
+      await expect(page.getByRole("link", { name: "Create invoice" })).toHaveAttribute(
+        "href",
+        `/invoices/new?clientId=${client.id}`,
+      );
 
       await dbQuery("client", "deleteMany", { where: { name } });
     });
@@ -294,11 +325,14 @@ test.describe("Leads UI", () => {
       });
       expect(stillUnconverted.convertedClientId).toBeNull();
 
-      // Create anyway converts.
+      // Create anyway converts — the success state (Section 17/18) only
+      // ever appears after this real confirm step, never during the
+      // duplicate-confirmation dialog itself.
       await page.getByRole("button", { name: "Convert to client" }).click();
       await expect(page.getByText("A client with this email already exists.")).toBeVisible();
+      await expect(page.getByText("Client created")).toHaveCount(0);
       await page.getByRole("button", { name: "Create anyway" }).click();
-      await expect(page).toHaveURL(/\/clients\/[0-9a-f-]+\/edit$/);
+      await expect(page.getByText("Client created")).toBeVisible();
 
       await dbQuery("client", "deleteMany", { where: { email: sharedEmail, organizationId: fixtures.orgA.id } });
     });
@@ -311,8 +345,12 @@ test.describe("Leads UI", () => {
 
       await page.goto(`/leads/${lead.id}/edit`);
       await page.getByRole("button", { name: "Convert to client" }).click();
-      await expect(page).toHaveURL(/\/clients\//);
+      await expect(page.getByText("Client created")).toBeVisible();
 
+      // A fresh page load (Section 17's own "two genuinely different UI
+      // moments" — the one-time success state vs. the persistent
+      // already-converted state) shows the real, persisted locked state,
+      // not the local just-converted success panel.
       await page.goto(`/leads/${lead.id}/edit`);
       await expect(page.getByText(/its stage is locked to Won/)).toBeVisible();
       await expect(page.getByRole("button", { name: "Convert to client" })).toHaveCount(0);

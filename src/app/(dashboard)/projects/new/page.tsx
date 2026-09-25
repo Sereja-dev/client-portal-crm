@@ -3,6 +3,8 @@ import { getCurrentUserOrganization } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { getActiveCustomFieldFormDefinitions } from "@/lib/custom-fields/entity-form";
 import { buildStatusSelectOptions } from "@/lib/custom-statuses/entity-form";
+import { resolveClientPrefill } from "@/lib/clients/resolve-prefill";
+import { parseSearchParam, type RawSearchParams } from "@/lib/list-params";
 import { ProjectForm } from "@/components/projects/project-form";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
@@ -14,8 +16,13 @@ import { createProjectAction } from "./actions";
 const PRIMARY_LINK_CLASSES =
   "focus-visible:ring-focus-ring rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
 
-export default async function NewProjectPage() {
+export default async function NewProjectPage({
+  searchParams,
+}: {
+  searchParams: Promise<RawSearchParams>;
+}) {
   const { organizationId } = await getCurrentUserOrganization();
+  const resolvedSearchParams = await searchParams;
   const clients = await prisma.client.findMany({
     where: { organizationId },
     orderBy: { name: "asc" },
@@ -25,6 +32,11 @@ export default async function NewProjectPage() {
   const customFieldDefinitions = await getActiveCustomFieldFormDefinitions(organizationId, "PROJECT");
   // Custom Statuses Phase 2B (Section O) — every active PROJECT status definition.
   const statusOptions = await buildStatusSelectOptions(organizationId, "PROJECT", null);
+  // Leads Pipeline V1 (Section 19) — an optional post-conversion
+  // ?clientId= prefill. Absent param, or an invalid/foreign-org one,
+  // both resolve to null and leave this page's own existing behavior
+  // completely unchanged (never leaks which case it was).
+  const prefillClient = await resolveClientPrefill(organizationId, parseSearchParam(resolvedSearchParams.clientId));
 
   return (
     <div className="mx-auto max-w-xl">
@@ -54,6 +66,7 @@ export default async function NewProjectPage() {
             clients={clients}
             statusOptions={statusOptions}
             customFieldDefinitions={customFieldDefinitions}
+            defaultValues={prefillClient ? { clientId: prefillClient.id } : undefined}
           />
         </div>
       )}

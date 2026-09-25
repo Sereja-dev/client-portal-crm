@@ -276,3 +276,22 @@ export function SpinnerIcon({ className = "h-4 w-4" }: IconProps) {
     </svg>
   );
 }
+
+/**
+ * Leads Pipeline V1 (Section 5/7) — the Pipeline card's own explicit drag
+ * handle. A standard six-dot "grip" glyph, purely decorative
+ * (aria-hidden — the handle's own real accessible name comes from the
+ * button it sits inside, see lead-pipeline-card.tsx).
+ */
+export function GripVerticalIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <circle cx="9" cy="5" r="1.5" />
+      <circle cx="9" cy="12" r="1.5" />
+      <circle cx="9" cy="19" r="1.5" />
+      <circle cx="15" cy="5" r="1.5" />
+      <circle cx="15" cy="12" r="1.5" />
+      <circle cx="15" cy="19" r="1.5" />
+    </svg>
+  );
+}

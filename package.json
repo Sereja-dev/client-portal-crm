@@ -21,6 +21,7 @@
     "ai:smoke:openai": "node --conditions=react-server --import tsx scripts/ai-smoke/openai-live.ts"
   },
   "dependencies": {
+    "@dnd-kit/core": "^6.3.1",
     "@paddle/paddle-js": "^1.6.4",
     "@paddle/paddle-node-sdk": "^3.10.0",
     "@prisma/adapter-pg": "^7.9.1",

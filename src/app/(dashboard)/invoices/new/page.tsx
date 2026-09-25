@@ -8,19 +8,32 @@ import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { getCompanyProfile } from "@/lib/organization-setup/company-profile";
 import { resolveInvoiceCurrencyDefault, getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
 import { formatDateOnly } from "@/lib/invoices/date-only";
+import { resolveClientPrefill } from "@/lib/clients/resolve-prefill";
+import { parseSearchParam, type RawSearchParams } from "@/lib/list-params";
 import { createInvoiceAction } from "./actions";
 
-export default async function NewInvoicePage() {
+export default async function NewInvoicePage({
+  searchParams,
+}: {
+  searchParams: Promise<RawSearchParams>;
+}) {
   // Authentication resolved first, standalone — organizationId is never
   // referenced inside a Promise.all that is still awaiting this.
   const { organizationId } = await getCurrentUserOrganization();
+  const resolvedSearchParams = await searchParams;
 
   // Quotes / Estimates Phase 2.3 — Client REQUIRED, Project OPTIONAL
   // (Invoice / Project Coupling Audit). Every Client is a valid Invoice
   // target regardless of whether the org has any Projects at all — the
   // old "You need a project first" gate (which blocked Invoice creation
   // entirely whenever the org had zero Projects) is removed.
-  const [clients, projects, companyProfile] = await Promise.all([
+  //
+  // Leads Pipeline V1 (Section 21) — an optional post-conversion
+  // ?clientId= prefill, resolved the same tenant-scoped way as
+  // /projects/new and /quotes/new (resolveClientPrefill). Absent, or an
+  // invalid/foreign-org id, both leave this page's own existing
+  // behavior completely unchanged.
+  const [clients, projects, companyProfile, prefillClient] = await Promise.all([
     prisma.client.findMany({
       where: { organizationId },
       orderBy: { name: "asc" },
@@ -32,6 +45,7 @@ export default async function NewInvoicePage() {
       select: { id: true, name: true, clientId: true },
     }),
     getCompanyProfile(organizationId),
+    resolveClientPrefill(organizationId, parseSearchParam(resolvedSearchParams.clientId)),
   ]);
 
   const currencyDefault = resolveInvoiceCurrencyDefault(companyProfile.currency);
@@ -78,6 +92,7 @@ export default async function NewInvoicePage() {
               issueDate: formatDateOnly(new Date()),
               discountType: "NONE",
               taxLabel: "TAX",
+              ...(prefillClient ? { clientId: prefillClient.id } : {}),
             }}
           />
         </div>

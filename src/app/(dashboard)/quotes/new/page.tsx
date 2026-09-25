@@ -12,6 +12,7 @@ import { formatDateOnly } from "@/lib/invoices/date-only";
 import { suggestNextQuoteNumber } from "@/lib/quotes/suggest-next-quote-number";
 import { listQuoteTemplates } from "@/lib/quote-templates/queries";
 import { getQuoteTemplateDefaults } from "@/lib/quote-templates/apply";
+import { resolveClientPrefill } from "@/lib/clients/resolve-prefill";
 import { parseSearchParam, type RawSearchParams } from "@/lib/list-params";
 import { createQuoteAction } from "../actions";
 
@@ -54,15 +55,24 @@ function formatLeadLabel(lead: { name: string; company: string | null; email: st
  * "Template unavailable" notice plus an ordinary blank form (Section H's
  * own strong preference: a stale template URL never makes the whole page
  * unusable).
+ *
+ * Leads Pipeline V1 (Section 20) — `?clientId=<id>` layers on top of the
+ * exact same "additive, never breaks the blank flow" discipline: an
+ * absent or invalid/foreign-org id resolves to `prefillClient === null`
+ * and this page's behavior is completely unchanged. When valid, it
+ * deliberately selects the Client target (`targetType: "client"`,
+ * `clientId`) — template defaults never set either of those two fields,
+ * so the two prefill sources can never actually conflict; they compose.
  */
 export default async function NewQuotePage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {
   const { organizationId } = await getCurrentUserOrganization();
   const resolvedSearchParams = await searchParams;
   const templateId = parseSearchParam(resolvedSearchParams.template);
+  const clientIdParam = parseSearchParam(resolvedSearchParams.clientId);
 
   const now = new Date();
 
-  const [leads, clients, companyProfile, suggestedNumber, activeTemplates, templateResult] = await Promise.all([
+  const [leads, clients, companyProfile, suggestedNumber, activeTemplates, templateResult, prefillClient] = await Promise.all([
     // Archived Leads excluded — matches resolveQuoteTarget's own server-
     // side eligibility rule exactly (src/lib/quotes/target.ts), so this
     // selector never offers an id the server would then reject.
@@ -87,6 +97,7 @@ export default async function NewQuotePage({ searchParams }: { searchParams: Pro
     // listing something it (or a forged URL) can't actually apply.
     listQuoteTemplates(organizationId, { includeArchived: false }),
     templateId ? getQuoteTemplateDefaults(templateId, now) : Promise.resolve(null),
+    resolveClientPrefill(organizationId, clientIdParam),
   ]);
 
   const currencyDefault = resolveInvoiceCurrencyDefault(companyProfile.currency);
@@ -119,6 +130,12 @@ export default async function NewQuotePage({ searchParams }: { searchParams: Pro
         items: templateResult.defaults.items,
         validUntil: templateResult.defaults.validUntil ?? undefined,
       }
+    : undefined;
+
+  // Leads Pipeline V1 (Section 20) — deliberately selects the Client
+  // target only, never leaving a conflicting Lead selection populated.
+  const clientPrefillDefaults: Partial<QuoteFormDefaults> | undefined = prefillClient
+    ? { targetType: "client", clientId: prefillClient.id }
     : undefined;
 
   return (
@@ -188,6 +205,7 @@ export default async function NewQuotePage({ searchParams }: { searchParams: Pro
                 discountType: "NONE",
                 taxLabel: "TAX",
                 ...templateDefaults,
+                ...clientPrefillDefaults,
               }}
               submitLabel="Create quote"
               pendingLabel="Creating…"

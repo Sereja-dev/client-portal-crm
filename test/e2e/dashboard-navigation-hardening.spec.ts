@@ -69,7 +69,11 @@ test.describe("Dashboard navigation hardening", () => {
       data: { name: `Hardening Lead ${randomUUID().slice(0, 6)}`, organizationId: fixtures.orgA.id },
     });
 
-    await page.goto("/leads");
+    // Leads Pipeline V1 (Section 4) — explicit view=list: this test is
+    // specifically about the List table's own "Edit" link, which the
+    // Pipeline card (the new default) doesn't render at all (only the
+    // Lead's own name is a link there).
+    await page.goto("/leads?view=list");
     await page.getByRole("row", { name: lead.name }).getByRole("link", { name: "Edit" }).click();
 
     await expect(page).toHaveURL(new RegExp(`/leads/${lead.id}/edit$`));
@@ -82,7 +86,9 @@ test.describe("Dashboard navigation hardening", () => {
     });
 
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/leads");
+    // Leads Pipeline V1 (Section 4) — same explicit view=list reasoning
+    // as the desktop test above.
+    await page.goto("/leads?view=list");
     await page.getByRole("listitem").filter({ hasText: lead.name }).getByRole("link", { name: "Edit" }).click();
 
     await expect(page).toHaveURL(new RegExp(`/leads/${lead.id}/edit$`));

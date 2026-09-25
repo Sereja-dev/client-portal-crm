@@ -12,8 +12,17 @@ import { parseEnumParam, parseSearchParam, type RawSearchParams } from "@/lib/li
 export const LEAD_VIEWS = ["list", "pipeline"] as const;
 export type LeadView = (typeof LEAD_VIEWS)[number];
 
+/**
+ * Leads Pipeline V1 (Section 4) — Pipeline is now the canonical default:
+ * `/leads` (no `view` param at all) behaves exactly like
+ * `/leads?view=pipeline`. An explicit `?view=list` still renders List
+ * unchanged — this only changes what an OMITTED param falls back to,
+ * never removes or weakens List's own full availability. Still no
+ * persisted per-user preference (URL-only, matching this module's own
+ * header comment) — deliberately not revisited by this change.
+ */
 export function parseLeadView(searchParams: RawSearchParams): LeadView {
-  return parseEnumParam(searchParams.view, LEAD_VIEWS) ?? "list";
+  return parseEnumParam(searchParams.view, LEAD_VIEWS) ?? "pipeline";
 }
 
 const DEFAULT_STAGE_VIEW = "NEW";

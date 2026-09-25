@@ -69,7 +69,10 @@ function sharedParams(listParams: Pick<LeadListParams, "q" | "assignedToUserId" 
 
 function ViewToggle({ view, listParams }: { view: LeadView; listParams: LeadListParams }) {
   const shared = sharedParams(listParams);
-  const listHref = buildLeadsHref({ ...shared, stage: listParams.stage });
+  // Leads Pipeline V1 (Section 4) — `view: "list"` is now explicit here:
+  // Pipeline, not List, is what an omitted `view` param resolves to, so
+  // this link must say so itself rather than relying on the old default.
+  const listHref = buildLeadsHref({ ...shared, stage: listParams.stage, view: "list" });
   const pipelineHref = buildLeadsHref({ ...shared, view: "pipeline" });
 
   return (
@@ -331,6 +334,15 @@ export default async function LeadsPage({
         ]}
         sort={{ value: listParams.sortCombined, options: SORT_OPTIONS }}
         hasActiveParams={hasActiveParams}
+        // Leads Pipeline V1 (Section 4) — Pipeline, not List, is now what
+        // an omitted `view` resolves to, so a plain filter/search
+        // resubmission (or "Clear filters") must keep saying `view=list`
+        // explicitly, exactly mirroring the Pipeline branch's own
+        // identical hiddenFields/clearHref pair below — otherwise
+        // submitting this form while on List would silently bounce the
+        // user over to Pipeline.
+        hiddenFields={[{ name: "view", value: "list" }]}
+        clearHref={buildLeadsHref({ view: "list" })}
       />
 
       {total === 0 ? (
@@ -339,7 +351,7 @@ export default async function LeadsPage({
             title="No leads match your filters"
             description="Try a different search term or clear your filters."
             action={
-              <Link href="/leads" className={PRIMARY_LINK_CLASSES}>
+              <Link href={buildLeadsHref({ view: "list" })} className={PRIMARY_LINK_CLASSES}>
                 Clear filters
               </Link>
             }
@@ -428,7 +440,13 @@ export default async function LeadsPage({
 
           <Pagination
             basePath="/leads"
-            params={exportFilterParams}
+            // Leads Pipeline V1 (Section 4) — `view: "list"` added
+            // explicitly here only (never onto exportFilterParams itself,
+            // which the CSV export href above also uses and has no
+            // notion of "view" at all) so a pagination link never
+            // silently bounces the user over to the new Pipeline
+            // default.
+            params={{ ...exportFilterParams, view: "list" }}
             page={listParams.page}
             totalPages={totalPages}
           />

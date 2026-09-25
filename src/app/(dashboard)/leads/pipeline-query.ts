@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { LeadStage } from "@/generated/prisma/enums";
 import { listCustomStatusDefinitions } from "@/lib/custom-statuses/definitions";
+import { getOrganizationTimezone } from "@/lib/calendar-events/queries";
 import { buildLeadWhere, buildLeadOrderBy, type LeadListParams } from "./query";
 
 /**
@@ -40,6 +41,23 @@ import { buildLeadWhere, buildLeadOrderBy, type LeadListParams } from "./query";
 // pagination) to see the rest.
 export const PIPELINE_STAGE_CARD_BOUND = 50;
 
+/**
+ * Leads Pipeline V1 (Section 13) — Next Action's own display string,
+ * pre-formatted server-side with the organization's real timezone,
+ * mirroring formatTimeInTimezone's own exact technique (an explicit
+ * `timeZone` option passed straight to the platform Intl API, never
+ * manual wall-clock arithmetic). Unlike Dashboard's own
+ * TodayCalendarEvent.displayTime (scoped to today, so a bare time is
+ * enough), Next Action can be several days out, so the date is always
+ * included too.
+ */
+function formatNextActionDisplayTime(startsAt: Date, allDay: boolean, timeZone: string): string {
+  if (allDay) {
+    return startsAt.toLocaleDateString(undefined, { timeZone, month: "short", day: "numeric" });
+  }
+  return startsAt.toLocaleString(undefined, { timeZone, month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
 export type PipelineLead = {
   id: string;
   name: string;
@@ -64,6 +82,19 @@ export type PipelineLead = {
   convertedClientId: string | null;
   assignedTo: { id: string; name: string } | null;
   createdAt: Date;
+  /**
+   * Leads Pipeline V1 (Section 13/14) — the nearest upcoming, non-archived
+   * CalendarEvent linked to this Lead via CalendarEvent.leadId, or null
+   * when none exists. Deliberately never a persisted Lead field and
+   * never derived from Task (Task.projectId is required — a Lead has no
+   * Project until it converts, so a Lead-linked Task is structurally
+   * impossible; see the read-only audit's own §P evidence). `displayTime`
+   * is pre-formatted server-side, organization-timezone-resolved, the
+   * same "compute display-ready data server-side" convention Dashboard's
+   * own TodayCalendarEvent.displayTime already established — never a raw
+   * instant + timezone string threaded down into the Client Component.
+   */
+  nextAction: { title: string; displayTime: string } | null;
 };
 
 export type PipelineColumn = {
@@ -193,6 +224,44 @@ export async function fetchLeadPipelineColumns(
     ),
   );
 
+  // Leads Pipeline V1 (Section 13/14) — Next Action. One bounded, batched
+  // query scoped to exactly the Lead ids actually rendered above (never
+  // every Lead this organization has, never a per-card query) — the
+  // nearest upcoming, non-archived CalendarEvent per Lead, or none.
+  // `leadId: { in: renderedLeadIds }` + the org scope together make this
+  // safe even though CalendarEvent has no direct organizationId filter
+  // applied redundantly here: every id in renderedLeadIds already came
+  // from this same organization's own Lead rows above, so a
+  // cross-tenant CalendarEvent can never match (its own leadId would
+  // have to equal one of THIS org's Lead ids, which Postgres's own
+  // foreign-key-backed uniqueness makes impossible for a different
+  // organization's Lead to share).
+  const renderedLeadIds = perColumnLeads.flat().map((lead) => lead.id);
+  const now = new Date();
+  const upcomingEvents =
+    renderedLeadIds.length > 0
+      ? await prisma.calendarEvent.findMany({
+          where: { leadId: { in: renderedLeadIds }, archivedAt: null, startsAt: { gte: now } },
+          orderBy: { startsAt: "asc" },
+          select: { leadId: true, title: true, startsAt: true, allDay: true },
+        })
+      : [];
+  const organizationTimezone = upcomingEvents.length > 0 ? await getOrganizationTimezone(organizationId) : "UTC";
+  const nextActionByLeadId = new Map<string, { title: string; displayTime: string }>();
+  for (const event of upcomingEvents) {
+    // event.leadId is never null here (the WHERE clause above only ever
+    // matches rows whose leadId is one of renderedLeadIds), and
+    // orderBy startsAt asc + this "first write wins" guard together
+    // keep only the NEAREST upcoming event per Lead — a later, farther
+    // event for the same Lead is simply skipped.
+    if (event.leadId && !nextActionByLeadId.has(event.leadId)) {
+      nextActionByLeadId.set(event.leadId, {
+        title: event.title,
+        displayTime: formatNextActionDisplayTime(event.startsAt, event.allDay, organizationTimezone),
+      });
+    }
+  }
+
   return columns.map((def, index) => {
     const leads = perColumnLeads[index];
     const total = totalByDefinitionId.get(def.id) ?? 0;
@@ -215,6 +284,7 @@ export async function fetchLeadPipelineColumns(
         convertedClientId: lead.convertedClientId,
         assignedTo: lead.assignedTo ? { id: lead.assignedTo.id, name: lead.assignedTo.name } : null,
         createdAt: lead.createdAt,
+        nextAction: nextActionByLeadId.get(lead.id) ?? null,
       })),
     };
   });
