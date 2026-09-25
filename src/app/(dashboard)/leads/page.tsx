@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
-import { formatCurrency, formatStatusLabel } from "@/lib/format";
+import { formatStatusLabel } from "@/lib/format";
+import { resolveReportsCurrency } from "@/lib/reports/currency";
 import { canExportData } from "@/lib/export/authorization";
 import { canImportData } from "@/lib/import/authorization";
 import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib/list-params";
@@ -32,6 +33,7 @@ import { listTags } from "@/lib/tags/definitions";
 import { getTagsForEntities } from "@/lib/tags/list-query";
 import { TagChipList } from "@/components/tags/tag-chip-list";
 import { parseLeadListParams, buildLeadWhere, buildLeadOrderBy, type LeadListParams } from "./query";
+import { formatLeadValue } from "@/lib/leads/format-value";
 import { fetchLeadPipelineColumns } from "./pipeline-query";
 import { parseLeadView, parseLeadStageView, buildLeadsHref, type LeadView } from "./view-params";
 
@@ -99,6 +101,18 @@ export default async function LeadsPage({
   const resolvedSearchParams = await searchParams;
   const listParams = parseLeadListParams(resolvedSearchParams);
   const view = parseLeadView(resolvedSearchParams);
+
+  // Lead Value Currency Correctness fix — the one organization-level
+  // currency every Lead.value display on this page (List desktop/mobile,
+  // Pipeline card) is denominated in. Resolved exactly once here, for
+  // both the List and Pipeline branches below — never per-row, never per-
+  // card, never inside a Client Component. Reuses the exact same
+  // already-shipped resolver the Dashboard's own Multi-Currency KPI fix
+  // already established (src/lib/reports/currency.ts), rather than a new
+  // Lead-specific one. `undefined` — no `?currency=` override exists (or
+  // should exist) for Leads, matching Dashboard's own identical "no
+  // currency selector" call shape.
+  const { selectedCurrency } = await resolveReportsCurrency(organizationId, undefined);
 
   // CSV Import/Export Phase 1 — the exact same filter params this page's
   // own Pagination (List view, below) already builds, minus `page`: an
@@ -211,7 +225,13 @@ export default async function LeadsPage({
             }
           />
         ) : (
-          <LeadPipelineBoard columns={columns} stageView={stageView} preservedParams={shared} statusOptions={statusOptions} />
+          <LeadPipelineBoard
+            columns={columns}
+            stageView={stageView}
+            preservedParams={shared}
+            statusOptions={statusOptions}
+            currency={selectedCurrency}
+          />
         )}
       </div>
     );
@@ -361,7 +381,7 @@ export default async function LeadsPage({
                       <LeadStageBadge stage={lead.stage} definition={lead.statusDefinition} />
                     </TableCell>
                     <TableCell>{lead.source ? formatStatusLabel(lead.source) : "—"}</TableCell>
-                    <TableCell>{lead.value ? formatCurrency(Number(lead.value)) : "—"}</TableCell>
+                    <TableCell>{formatLeadValue(lead.value, selectedCurrency)}</TableCell>
                     <TableCell>{lead.assignedTo?.name ?? "Unassigned"}</TableCell>
                     <TableCell>
                       <TagChipList tags={tagsByLeadId.get(lead.id) ?? []} />
@@ -389,7 +409,7 @@ export default async function LeadsPage({
                 <RecordCardField label="Company" value={lead.company ?? "—"} />
                 <RecordCardField label="Stage" value={<LeadStageBadge stage={lead.stage} definition={lead.statusDefinition} />} />
                 <RecordCardField label="Source" value={lead.source ? formatStatusLabel(lead.source) : "—"} />
-                <RecordCardField label="Value" value={lead.value ? formatCurrency(Number(lead.value)) : "—"} />
+                <RecordCardField label="Value" value={formatLeadValue(lead.value, selectedCurrency)} />
                 <RecordCardField label="Assignee" value={lead.assignedTo?.name ?? "Unassigned"} />
                 <RecordCardField label="Tags" value={<TagChipList tags={tagsByLeadId.get(lead.id) ?? []} />} />
                 <RecordCardField label="Created" value={lead.createdAt.toLocaleDateString()} />

@@ -15,7 +15,8 @@ import { Select } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
-import { formatCurrency, formatStatusLabel } from "@/lib/format";
+import { formatStatusLabel } from "@/lib/format";
+import { formatLeadValue } from "@/lib/leads/format-value";
 import { useToast } from "@/components/toast/toast-provider";
 
 // Not imported from @/lib/rate-limit here — same reasoning as
@@ -45,9 +46,18 @@ const GENERIC_ERROR = "Something went wrong. Please try again.";
 export function LeadPipelineCard({
   lead,
   statusOptions,
+  currency,
 }: {
   lead: PipelineLead;
   statusOptions: StatusSelectOption[];
+  /**
+   * Lead Value Currency Correctness fix — the org's one resolved
+   * currency, resolved exactly once by leads/page.tsx and threaded down
+   * through LeadPipelineBoard as a plain prop — never re-resolved here.
+   * `null` only when no currency can be resolved at all, in which case
+   * this card's own value (below) renders "—", never an invented USD.
+   */
+  currency: string | null;
 }) {
   const router = useRouter();
   const { showToast } = useToast();
@@ -134,7 +144,7 @@ export function LeadPipelineCard({
         {lead.value && (
           <div className="flex justify-between gap-2">
             <dt>Value</dt>
-            <dd className="text-text-secondary">{formatCurrency(Number(lead.value))}</dd>
+            <dd className="text-text-secondary">{formatLeadValue(lead.value, currency)}</dd>
           </div>
         )}
         {lead.source && (

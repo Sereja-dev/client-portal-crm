@@ -27,6 +27,7 @@ export function LeadPipelineBoard({
   stageView,
   preservedParams,
   statusOptions,
+  currency,
 }: {
   columns: PipelineColumn[];
   /** A LeadStage value OR a raw CustomStatusDefinition id — see view-params.ts's own parseLeadStageView comment. */
@@ -34,11 +35,20 @@ export function LeadPipelineBoard({
   preservedParams: PreservedParams;
   /** Custom Statuses Phase 2B (Section AB) — fetched once by leads/page.tsx, threaded down to every card unchanged. */
   statusOptions: StatusSelectOption[];
+  /**
+   * Lead Value Currency Correctness fix — the org's one resolved
+   * currency (resolveReportsCurrency, src/lib/reports/currency.ts),
+   * resolved exactly once by leads/page.tsx and threaded down as a
+   * plain serializable prop, never re-resolved here or inside any card.
+   * `null` only when no currency can be resolved at all — every card
+   * renders "—" for its own value in that case, never an invented USD.
+   */
+  currency: string | null;
 }) {
   return (
     <div className="mt-6">
       <div className="hidden md:block">
-        <DesktopBoard columns={columns} preservedParams={preservedParams} statusOptions={statusOptions} />
+        <DesktopBoard columns={columns} preservedParams={preservedParams} statusOptions={statusOptions} currency={currency} />
       </div>
       <div className="md:hidden">
         <MobileStageSwitcher
@@ -46,6 +56,7 @@ export function LeadPipelineBoard({
           stageView={stageView}
           preservedParams={preservedParams}
           statusOptions={statusOptions}
+          currency={currency}
         />
       </div>
     </div>
@@ -67,10 +78,12 @@ function ColumnCards({
   column,
   preservedParams,
   statusOptions,
+  currency,
 }: {
   column: PipelineColumn;
   preservedParams: PreservedParams;
   statusOptions: StatusSelectOption[];
+  currency: string | null;
 }) {
   if (column.leads.length === 0) {
     return <p className="text-text-muted mt-3 text-sm">No leads</p>;
@@ -79,7 +92,7 @@ function ColumnCards({
     <>
       <ul className="mt-3 space-y-2">
         {column.leads.map((lead) => (
-          <LeadPipelineCard key={lead.id} lead={lead} statusOptions={statusOptions} />
+          <LeadPipelineCard key={lead.id} lead={lead} statusOptions={statusOptions} currency={currency} />
         ))}
       </ul>
       {column.truncated && (
@@ -98,10 +111,12 @@ function DesktopBoard({
   columns,
   preservedParams,
   statusOptions,
+  currency,
 }: {
   columns: PipelineColumn[];
   preservedParams: PreservedParams;
   statusOptions: StatusSelectOption[];
+  currency: string | null;
 }) {
   return (
     <div className="flex items-start gap-4 overflow-x-auto pb-2">
@@ -123,7 +138,7 @@ function DesktopBoard({
               </span>
               <span className="text-text-muted shrink-0 font-normal">{column.total}</span>
             </h2>
-            <ColumnCards column={column} preservedParams={preservedParams} statusOptions={statusOptions} />
+            <ColumnCards column={column} preservedParams={preservedParams} statusOptions={statusOptions} currency={currency} />
           </section>
         );
       })}
@@ -136,11 +151,13 @@ function MobileStageSwitcher({
   stageView,
   preservedParams,
   statusOptions,
+  currency,
 }: {
   columns: PipelineColumn[];
   stageView: string;
   preservedParams: PreservedParams;
   statusOptions: StatusSelectOption[];
+  currency: string | null;
 }) {
   // Custom Statuses Phase 2B — Completion Pass (Section G/H): matches
   // EITHER a legacy LeadStage value (`?stageView=NEW`, still fully
@@ -183,7 +200,7 @@ function MobileStageSwitcher({
       </nav>
 
       <section aria-label={`${activeColumn.label} leads`} className="mt-2">
-        <ColumnCards column={activeColumn} preservedParams={preservedParams} statusOptions={statusOptions} />
+        <ColumnCards column={activeColumn} preservedParams={preservedParams} statusOptions={statusOptions} currency={currency} />
       </section>
     </div>
   );
