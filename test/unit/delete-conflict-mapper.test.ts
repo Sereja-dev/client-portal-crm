@@ -57,6 +57,19 @@ describe("mapDeleteRestrictError", () => {
     expect(mapDeleteRestrictError(err, "Client")).toBe("HAS_DEPENDENT_QUOTES");
   });
 
+  // Client Delete Restrict Message Precision audit — Contract.clientId
+  // and RecurringInvoice.clientId are both onDelete: Restrict exactly
+  // like Quote.clientId; these two mirror the Quote case above exactly.
+  it("recognizes the exact real Client-blocked-by-Contract shape", () => {
+    const err = realRestrictViolation({ modelName: "Client", childTable: "Contract" });
+    expect(mapDeleteRestrictError(err, "Client")).toBe("HAS_DEPENDENT_CONTRACTS");
+  });
+
+  it("recognizes the exact real Client-blocked-by-RecurringInvoice shape", () => {
+    const err = realRestrictViolation({ modelName: "Client", childTable: "RecurringInvoice" });
+    expect(mapDeleteRestrictError(err, "Client")).toBe("HAS_DEPENDENT_RECURRING_INVOICES");
+  });
+
   it("recognizes the exact real Project-blocked-by-Invoice shape", () => {
     const err = realRestrictViolation({ modelName: "Project", childTable: "Invoice", fkField: "projectId" });
     expect(mapDeleteRestrictError(err, "Project")).toBe("HAS_DEPENDENT_INVOICES");

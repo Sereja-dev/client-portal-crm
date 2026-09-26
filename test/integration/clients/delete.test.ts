@@ -43,16 +43,19 @@ async function createClient(organizationId: string, userId: string, name = uniqu
   return prisma.client.create({ data: { name, organizationId, userId } });
 }
 
-// Quotes / Estimates Phase 2 — delete-conflict-mapper.ts's own
+// Quotes / Estimates Phase 2, extended by the Client Delete Restrict
+// Message Precision audit — delete-conflict-mapper.ts's own
 // extractRestrictChildTable() now requires the adapter error's cause.
 // message/detail strings (the only place the real blocking child table
 // name is available — see that file's own header comment) to positively
-// disambiguate an Invoice-caused violation from a Quote-caused one, so
-// the synthetic mock must carry both, cross-checked, exactly like a real
-// Postgres RESTRICT violation does. Defaults to "Invoice" (this file's
-// own original/pre-Quotes-Phase-2 scenario); pass "Quote" for the new
-// dependent-Quotes coverage below.
-function realClientRestrictViolation(childTable: "Invoice" | "Quote" = "Invoice"): Prisma.PrismaClientKnownRequestError {
+// disambiguate which dependent caused the violation, so the synthetic
+// mock must carry both, cross-checked, exactly like a real Postgres
+// RESTRICT violation does. Defaults to "Invoice" (this file's own
+// original/pre-Quotes-Phase-2 scenario); pass "Quote"/"Contract"/
+// "RecurringInvoice" for their own coverage below.
+function realClientRestrictViolation(
+  childTable: "Invoice" | "Quote" | "Contract" | "RecurringInvoice" = "Invoice",
+): Prisma.PrismaClientKnownRequestError {
   const referencedId = randomUUID();
   return new Prisma.PrismaClientKnownRequestError("mock restrict violation", {
     code: "P2039",
@@ -150,6 +153,59 @@ describe("deleteClientAction — blocked by existing invoices or quotes (Post-Ha
     const deletedActivity = await prisma.activity.findFirst({ where: { entityId: client.id, action: "DELETED" } });
     expect(deletedActivity).toBeNull();
     expect(removedPaths).toHaveLength(0);
+
+    await prisma.client.deleteMany({ where: { id: client.id } });
+  });
+
+  // Client Delete Restrict Message Precision audit — Contract.clientId
+  // and RecurringInvoice.clientId are both onDelete: Restrict exactly
+  // like Invoice/Quote above; these two mirror the Quote-blocked test
+  // above exactly, just with their own child table and message.
+  it("a blocked deletion (existing dependent contracts) returns the Contract-specific controlled result, writes no Activity, and queues no Storage cleanup", async () => {
+    const client = await createClient(fixtures.orgA.id, fixtures.owner.id);
+    actAs(fixtures.owner, fixtures.orgA.id);
+
+    const transactionSpy = vi.spyOn(prisma, "$transaction").mockRejectedValueOnce(realClientRestrictViolation("Contract"));
+    let result: Awaited<ReturnType<typeof deleteClientAction>>;
+    try {
+      result = await deleteClientAction(client.id);
+    } finally {
+      transactionSpy.mockRestore();
+    }
+
+    expect(result).toEqual({ ok: false, message: "This client can't be deleted because it has existing contracts." });
+
+    const deletedActivity = await prisma.activity.findFirst({ where: { entityId: client.id, action: "DELETED" } });
+    expect(deletedActivity).toBeNull();
+    expect(removedPaths).toHaveLength(0);
+    expect(await prisma.client.findUnique({ where: { id: client.id } })).not.toBeNull();
+
+    await prisma.client.deleteMany({ where: { id: client.id } });
+  });
+
+  it("a blocked deletion (existing dependent recurring invoices) returns the RecurringInvoice-specific controlled result, writes no Activity, and queues no Storage cleanup", async () => {
+    const client = await createClient(fixtures.orgA.id, fixtures.owner.id);
+    actAs(fixtures.owner, fixtures.orgA.id);
+
+    const transactionSpy = vi
+      .spyOn(prisma, "$transaction")
+      .mockRejectedValueOnce(realClientRestrictViolation("RecurringInvoice"));
+    let result: Awaited<ReturnType<typeof deleteClientAction>>;
+    try {
+      result = await deleteClientAction(client.id);
+    } finally {
+      transactionSpy.mockRestore();
+    }
+
+    expect(result).toEqual({
+      ok: false,
+      message: "This client can't be deleted because it has existing recurring invoices.",
+    });
+
+    const deletedActivity = await prisma.activity.findFirst({ where: { entityId: client.id, action: "DELETED" } });
+    expect(deletedActivity).toBeNull();
+    expect(removedPaths).toHaveLength(0);
+    expect(await prisma.client.findUnique({ where: { id: client.id } })).not.toBeNull();
 
     await prisma.client.deleteMany({ where: { id: client.id } });
   });

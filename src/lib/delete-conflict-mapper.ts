@@ -1,7 +1,12 @@
 import "server-only";
 import { Prisma } from "@/generated/prisma/client";
 
-export type DeleteConflict = "HAS_DEPENDENT_INVOICES" | "HAS_DEPENDENT_QUOTES" | "UNRECOGNIZED";
+export type DeleteConflict =
+  | "HAS_DEPENDENT_INVOICES"
+  | "HAS_DEPENDENT_QUOTES"
+  | "HAS_DEPENDENT_CONTRACTS"
+  | "HAS_DEPENDENT_RECURRING_INVOICES"
+  | "UNRECOGNIZED";
 
 type DriverAdapterMeta = {
   modelName?: unknown;
@@ -85,11 +90,22 @@ function extractRestrictChildTable(cause: { message?: unknown; detail?: unknown 
  * happens to be Client) — if a future model ever adds a Restrict relation
  * to Project, this function already handles it correctly once called
  * again with `"Project"`, with zero change needed here. Until then,
- * `HAS_DEPENDENT_QUOTES` is only ever returned for
- * `expectedModelName === "Client"`, and `HAS_DEPENDENT_INVOICES` is
- * unreachable in production for either model (kept working, and covered
- * by tests below, purely so this file stays correct on its own terms
- * rather than by relying on nothing else calling it wrong).
+ * `HAS_DEPENDENT_QUOTES`/`HAS_DEPENDENT_CONTRACTS`/
+ * `HAS_DEPENDENT_RECURRING_INVOICES` are only ever returned for
+ * `expectedModelName === "Client"` (Contract.clientId and
+ * RecurringInvoice.clientId are both `onDelete: Restrict` exactly like
+ * Quote.clientId — see prisma/schema.prisma), and `HAS_DEPENDENT_INVOICES`
+ * is unreachable in production for either model (kept working, and
+ * covered by tests below, purely so this file stays correct on its own
+ * terms rather than by relying on nothing else calling it wrong).
+ *
+ * Client Delete Restrict Message Precision audit — Contract and
+ * RecurringInvoice were both already real, already-enforced Restrict
+ * relations on Client before this change; only the final dispatch below
+ * was missing their two child-table names. `extractRestrictChildTable()`
+ * itself needed no change at all: it already generically recovers ANY
+ * child table name, cross-checked the same way regardless of which
+ * model it turns out to be.
  *
  * Fails closed to UNRECOGNIZED for anything not positively matched —
  * every unrelated failure (a different constraint, a connection error, a
@@ -114,6 +130,12 @@ export function mapDeleteRestrictError(error: unknown, expectedModelName: "Clien
   const childTable = extractRestrictChildTable(cause);
   if (expectedModelName === "Client" && childTable === "Quote") {
     return "HAS_DEPENDENT_QUOTES";
+  }
+  if (expectedModelName === "Client" && childTable === "Contract") {
+    return "HAS_DEPENDENT_CONTRACTS";
+  }
+  if (expectedModelName === "Client" && childTable === "RecurringInvoice") {
+    return "HAS_DEPENDENT_RECURRING_INVOICES";
   }
   if (childTable === "Invoice") {
     return "HAS_DEPENDENT_INVOICES";

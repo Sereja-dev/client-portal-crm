@@ -87,25 +87,39 @@ export async function deleteClientAction(clientId: string): Promise<DeleteButton
     });
   } catch (err) {
     // Post-Hardening Residual Code Audit (P2), extended by Quotes /
-    // Estimates Phase 2 — a Client with existing Invoices OR Quotes is
-    // correctly blocked by the schema's own onDelete: Restrict on each
-    // (never automatically deleted/cancelled here, and never cascaded
-    // around). This replaces DeleteButton's own generic "Failed to
-    // delete {itemName}." with the specific, controlled reason that
-    // actually applies — Quote.clientId is also Restrict (Phase 1), so a
-    // bare boolean can no longer tell a caller which dependent actually
-    // blocked the delete; mapDeleteRestrictError's own return value
-    // already distinguishes the two, and this action passes the matching
-    // message straight through via DeleteButton's own `message` field.
-    // Any other failure (a bug, a connection error, an unrelated
-    // constraint) is not positively matched and keeps propagating exactly
-    // as before this change, to the same generic handling.
+    // Estimates Phase 2, extended again by the Client Delete Restrict
+    // Message Precision audit — a Client with existing Invoices, Quotes,
+    // Contracts, OR RecurringInvoices is correctly blocked by the
+    // schema's own onDelete: Restrict on each (never automatically
+    // deleted/cancelled here, and never cascaded around). This replaces
+    // DeleteButton's own generic "Failed to delete {itemName}." with the
+    // specific, controlled reason that actually applies — all four are
+    // Restrict, so a bare boolean can no longer tell a caller which
+    // dependent actually blocked the delete; mapDeleteRestrictError's own
+    // return value already distinguishes all four, and this action
+    // passes the matching message straight through via DeleteButton's
+    // own `message` field. Any other failure (a bug, a connection error,
+    // an unrelated constraint) is not positively matched and keeps
+    // propagating exactly as before this change, to the same generic
+    // handling.
     const conflict = mapDeleteRestrictError(err, "Client");
     if (conflict === "HAS_DEPENDENT_INVOICES") {
       return { ok: false, message: "This client can't be deleted because it has existing invoices." };
     }
     if (conflict === "HAS_DEPENDENT_QUOTES") {
       return { ok: false, message: "This client can't be deleted because it has existing quotes." };
+    }
+    // Client Delete Restrict Message Precision audit — Contract.clientId
+    // and RecurringInvoice.clientId are both onDelete: Restrict exactly
+    // like Invoice/Quote above; these two were previously falling through
+    // to the generic "Failed to delete {itemName}." handling below
+    // despite the delete already being correctly (and safely) blocked at
+    // the database level either way.
+    if (conflict === "HAS_DEPENDENT_CONTRACTS") {
+      return { ok: false, message: "This client can't be deleted because it has existing contracts." };
+    }
+    if (conflict === "HAS_DEPENDENT_RECURRING_INVOICES") {
+      return { ok: false, message: "This client can't be deleted because it has existing recurring invoices." };
     }
     throw err;
   }
