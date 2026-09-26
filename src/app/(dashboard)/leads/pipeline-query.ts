@@ -42,6 +42,81 @@ import { buildLeadWhere, buildLeadOrderBy, type LeadListParams } from "./query";
 export const PIPELINE_STAGE_CARD_BOUND = 50;
 
 /**
+ * Production Observability Correction (Leads Pipeline P2028 remediation) —
+ * the per-column card fetch below used to run as one
+ * `prisma.$transaction([...])` batch, wrapping all `columns.length`
+ * independent `lead.findMany` reads in a single interactive transaction
+ * with Prisma's default 5000ms timeout. On Production (Vercel `iad1` ->
+ * Supabase pooler), a real 10-column org's own 10 sequential round trips
+ * inside that one transaction measurably exceeded 5000ms (confirmed via
+ * bounded historical Vercel runtime-log retrieval: P2028, "5000 ms ...
+ * however 6072 ms passed"), crashing the whole Pipeline RSC render.
+ *
+ * The transaction never bought any real consistency here — the two
+ * groupBy count queries above already run outside it via Promise.all, and
+ * Postgres's own default READ COMMITTED isolation (never elevated by this
+ * code) gives each statement inside a transaction its own fresh snapshot
+ * anyway, not one shared snapshot across statements. Its only actual
+ * purpose (per this function's own original header comment) was bounding
+ * the fan-out to exactly `columns.length` queries, never an N+1 — a
+ * property `runWithBoundedConcurrency` below preserves identically,
+ * without the artificial shared transaction lifetime, and without
+ * unbounded fan-out as an organization's own custom Lead statuses grow
+ * (Production's own pg.Pool default max is 10 connections; this cap
+ * leaves headroom rather than sizing exactly to the pool).
+ */
+export const PIPELINE_COLUMN_QUERY_CONCURRENCY = 5;
+
+/**
+ * Runs `count` independent async operations, never more than
+ * `concurrency` of them in flight at once, preserving input order in the
+ * returned array. A small worker-pool: each of up to `concurrency`
+ * workers repeatedly claims the next unclaimed index (via a shared
+ * counter) and runs `worker(index)` until every index is claimed.
+ *
+ * Failure semantics deliberately mirror `Promise.all`'s own contract
+ * (reject the whole operation on the first failure, don't swallow or
+ * replace the error) plus one addition: once a failure is observed, no
+ * *new* work is claimed (already-in-flight calls still run to
+ * completion, same as Promise.all never cancels outstanding promises —
+ * their results are simply never used). Never retries a failed call.
+ */
+export async function runWithBoundedConcurrency<T>(
+  count: number,
+  concurrency: number,
+  worker: (index: number) => Promise<T>,
+): Promise<T[]> {
+  const results: T[] = new Array(count);
+  let nextIndex = 0;
+  let failed = false;
+  let firstError: unknown;
+
+  async function runOneWorker(): Promise<void> {
+    for (;;) {
+      if (failed) return;
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= count) return;
+      try {
+        results[index] = await worker(index);
+      } catch (err) {
+        if (!failed) {
+          failed = true;
+          firstError = err;
+        }
+        return;
+      }
+    }
+  }
+
+  const workerCount = Math.min(concurrency, count);
+  await Promise.all(Array.from({ length: workerCount }, () => runOneWorker()));
+
+  if (failed) throw firstError;
+  return results;
+}
+
+/**
  * Leads Pipeline V1 (Section 13) — Next Action's own display string,
  * pre-formatted server-side with the organization's real timezone,
  * mirroring formatTimeInTimezone's own exact technique (an explicit
@@ -132,9 +207,12 @@ export type PipelineColumn = {
  * the exact per-column totals (cheap, no bound, always correct even when
  * a column's own cards are truncated — one keyed by statusDefinitionId,
  * one keyed by the legacy `stage` for the Section D fallback rows), and
- * one `$transaction` batch of bounded `findMany` calls — a fixed,
- * bounded fan-out of exactly `columns.length` queries regardless of how
- * many Leads exist, never an N+1 (Section S).
+ * one `runWithBoundedConcurrency` batch of bounded `findMany` calls — a
+ * fixed, bounded fan-out of exactly `columns.length` queries regardless
+ * of how many Leads exist, never an N+1 (Section S), and never more than
+ * `PIPELINE_COLUMN_QUERY_CONCURRENCY` of them in flight at once (P2028
+ * remediation — see that constant's own comment for why this replaced an
+ * earlier `prisma.$transaction([...])` batch of the same queries).
  */
 export async function fetchLeadPipelineColumns(
   organizationId: string,
@@ -188,41 +266,40 @@ export async function fetchLeadPipelineColumns(
     ...archivedDefinitions.filter((d) => (totalByDefinitionId.get(d.id) ?? 0) > 0),
   ];
 
-  const perColumnLeads = await prisma.$transaction(
-    columns.map((def) =>
-      prisma.lead.findMany({
-        // AND, not a spread-`OR` — baseWhere may already carry its own
-        // top-level `OR` (the `q` search filter's own OR-of-fields), and
-        // spreading `{ ...baseWhere, OR: [...] }` would silently
-        // overwrite that key instead of combining with it (found by this
-        // module's own pre-existing test suite: a `q` search that
-        // matched nothing was returning every Lead in the column,
-        // because the definition-matching OR replaced the search OR
-        // entirely). AND: [baseWhere, {...}] composes both correctly.
-        where: {
-          AND: [
-            baseWhere,
-            {
-              OR: [
-                { statusDefinitionId: def.id },
-                // Fold the Section D fallback rows into their own system
-                // column's own bounded fetch too — a null-statusDefinitionId
-                // Lead must appear in the one column its legacy stage maps
-                // to, exactly like the count above already does.
-                ...(def.isSystem ? [{ statusDefinitionId: null, stage: def.key.toUpperCase() as LeadStage }] : []),
-              ],
-            },
-          ],
-        },
-        orderBy,
-        take: PIPELINE_STAGE_CARD_BOUND,
-        include: {
-          assignedTo: { select: { id: true, name: true } },
-          statusDefinition: { select: { id: true, key: true, label: true, color: true, isSystem: true } },
-        },
-      }),
-    ),
-  );
+  const perColumnLeads = await runWithBoundedConcurrency(columns.length, PIPELINE_COLUMN_QUERY_CONCURRENCY, (i) => {
+    const def = columns[i];
+    return prisma.lead.findMany({
+      // AND, not a spread-`OR` — baseWhere may already carry its own
+      // top-level `OR` (the `q` search filter's own OR-of-fields), and
+      // spreading `{ ...baseWhere, OR: [...] }` would silently
+      // overwrite that key instead of combining with it (found by this
+      // module's own pre-existing test suite: a `q` search that
+      // matched nothing was returning every Lead in the column,
+      // because the definition-matching OR replaced the search OR
+      // entirely). AND: [baseWhere, {...}] composes both correctly.
+      where: {
+        AND: [
+          baseWhere,
+          {
+            OR: [
+              { statusDefinitionId: def.id },
+              // Fold the Section D fallback rows into their own system
+              // column's own bounded fetch too — a null-statusDefinitionId
+              // Lead must appear in the one column its legacy stage maps
+              // to, exactly like the count above already does.
+              ...(def.isSystem ? [{ statusDefinitionId: null, stage: def.key.toUpperCase() as LeadStage }] : []),
+            ],
+          },
+        ],
+      },
+      orderBy,
+      take: PIPELINE_STAGE_CARD_BOUND,
+      include: {
+        assignedTo: { select: { id: true, name: true } },
+        statusDefinition: { select: { id: true, key: true, label: true, color: true, isSystem: true } },
+      },
+    });
+  });
 
   // Leads Pipeline V1 (Section 13/14) — Next Action. One bounded, batched
   // query scoped to exactly the Lead ids actually rendered above (never

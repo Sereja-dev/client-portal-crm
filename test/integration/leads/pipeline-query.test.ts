@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { fetchLeadPipelineColumns, PIPELINE_STAGE_CARD_BOUND } from "@/app/(dashboard)/leads/pipeline-query";
 import { parseLeadListParams } from "@/app/(dashboard)/leads/query";
@@ -206,5 +206,137 @@ describe("Lead pipeline board query — truncation never lies about completeness
     expect(proposalColumn.total).toBe(PIPELINE_STAGE_CARD_BOUND + 5);
     expect(proposalColumn.leads).toHaveLength(PIPELINE_STAGE_CARD_BOUND);
     expect(proposalColumn.truncated).toBe(true);
+  });
+});
+
+/**
+ * Leads Pipeline P2028 remediation — the real Production org's own shape
+ * (6 system + 4 active custom columns = 10, matching the exact
+ * confirmed-live Production organization whose real /leads request
+ * produced the P2028 transaction-timeout failure). Every query above
+ * this point already ran against a system-only 6-column board; these
+ * prove the same correctness holds at the real failing shape, on the
+ * post-remediation `runWithBoundedConcurrency` implementation (with a
+ * cap of `PIPELINE_COLUMN_QUERY_CONCURRENCY` = 5, strictly less than
+ * this org's own 10 columns — the exact case the removed transaction
+ * could no longer complete within its 5000ms budget).
+ */
+describe("Lead pipeline board query — 10-column shape (6 system + 4 active custom)", () => {
+  let fixtures: TestFixtures;
+  let customDefIds: string[];
+  let leadInFirstCustomColumn: string;
+  let legacyNewLead: string;
+  const PREFIX = "Lead-Pipeline10Col";
+
+  beforeAll(async () => {
+    fixtures = await seedTestData();
+    await bootstrapOrganizationStatusDefinitions(prisma, fixtures.orgA.id);
+
+    const customDefs = await Promise.all(
+      Array.from({ length: 4 }, (_, i) =>
+        prisma.customStatusDefinition.create({
+          data: {
+            organizationId: fixtures.orgA.id,
+            entityType: "LEAD",
+            key: `${PREFIX.toLowerCase()}-custom-${i}`,
+            label: `${PREFIX} Custom ${i}`,
+            position: 100 + i,
+          },
+        }),
+      ),
+    );
+    customDefIds = customDefs.map((d) => d.id);
+
+    const [inCustom, legacyNew] = await Promise.all([
+      prisma.lead.create({
+        data: { name: `${PREFIX}-in-custom`, organizationId: fixtures.orgA.id, stage: "NEW", statusDefinitionId: customDefs[0].id },
+      }),
+      // statusDefinitionId deliberately left null — the Section D legacy
+      // fallback shape every pre-existing test fixture in this file
+      // already uses; must land in its own system column only, never
+      // absorbed into an unrelated custom one.
+      prisma.lead.create({
+        data: { name: `${PREFIX}-legacy-new`, organizationId: fixtures.orgA.id, stage: "NEW" },
+      }),
+    ]);
+    leadInFirstCustomColumn = inCustom.id;
+    legacyNewLead = legacyNew.id;
+  });
+
+  afterAll(async () => {
+    await prisma.lead.deleteMany({ where: { name: { startsWith: PREFIX } } });
+    await prisma.customStatusDefinition.deleteMany({ where: { id: { in: customDefIds } } });
+    await cleanupTestData(fixtures);
+  });
+
+  it("A. all 10 columns (6 system + 4 active custom) are returned, in position order, with leads landing in the correct column", async () => {
+    const columns = await fetchLeadPipelineColumns(fixtures.orgA.id, baseListParams());
+    expect(columns).toHaveLength(10);
+    expect(columns.slice(0, 6).map((c) => c.stage)).toEqual(LEAD_STAGES.map((s) => s.value));
+    expect(columns.slice(6).map((c) => c.definitionId)).toEqual(customDefIds);
+
+    const firstCustomColumn = columns[6];
+    expect(firstCustomColumn.leads.map((l) => l.id)).toContain(leadInFirstCustomColumn);
+
+    const newColumn = columns.find((c) => c.stage === "NEW")!;
+    expect(newColumn.leads.map((l) => l.id)).toContain(legacyNewLead);
+    for (const customColumn of columns.slice(6)) {
+      expect(customColumn.leads.map((l) => l.id)).not.toContain(legacyNewLead);
+    }
+  });
+
+  it("B. 10 columns, zero matched leads: resolves cleanly, every column present and empty, totals/truncation stay truthful", async () => {
+    const columns = await fetchLeadPipelineColumns(
+      fixtures.orgA.id,
+      baseListParams({ q: "__no_such_lead_pipeline_10col_9f7b__" }),
+    );
+    expect(columns).toHaveLength(10);
+    for (const column of columns) {
+      expect(column.leads).toEqual([]);
+      expect(column.total).toBe(0);
+      expect(column.truncated).toBe(false);
+    }
+  });
+});
+
+/**
+ * Leads Pipeline P2028 remediation — durable regression coverage proving
+ * the failure mechanism itself (a shared `prisma.$transaction([...])`
+ * wrapping every per-column read) cannot silently return, and that the
+ * bounded-concurrency replacement preserves the same "one bad column
+ * fails the whole board" semantics the transaction used to provide as a
+ * side effect of its own all-or-nothing rollback behavior.
+ */
+describe("Lead pipeline board query — P2028 remediation regression coverage", () => {
+  let fixtures: TestFixtures;
+
+  beforeAll(async () => {
+    fixtures = await seedTestData();
+    await bootstrapOrganizationStatusDefinitions(prisma, fixtures.orgA.id);
+  });
+
+  afterAll(async () => {
+    await cleanupTestData(fixtures);
+  });
+
+  it("never calls prisma.$transaction — the exact mechanism that produced Production's P2028 timeout cannot silently return", async () => {
+    const spy = vi.spyOn(prisma, "$transaction");
+    try {
+      await fetchLeadPipelineColumns(fixtures.orgA.id, baseListParams());
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("one per-column query rejecting fails the whole fetch — no partial Pipeline result, the original error is not swallowed or replaced", async () => {
+    const spy = vi.spyOn(prisma.lead, "findMany").mockRejectedValueOnce(new Error("Injected pipeline column query failure"));
+    try {
+      await expect(fetchLeadPipelineColumns(fixtures.orgA.id, baseListParams())).rejects.toThrow(
+        "Injected pipeline column query failure",
+      );
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
