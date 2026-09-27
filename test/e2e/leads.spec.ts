@@ -275,7 +275,7 @@ test.describe("Leads UI", () => {
       await expect(page.getByText("Client created")).toBeVisible();
 
       const client = await dbQuery<{ id: string }>("client", "findFirstOrThrow", { where: { name } });
-      await expect(page.getByRole("link", { name: "View client" })).toHaveAttribute("href", `/clients/${client.id}/edit`);
+      await expect(page.getByRole("link", { name: "View client" })).toHaveAttribute("href", `/clients/${client.id}`);
       await expect(page.getByRole("link", { name: "Create project" })).toHaveAttribute(
         "href",
         `/projects/new?clientId=${client.id}`,

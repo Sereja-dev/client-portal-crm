@@ -22,7 +22,7 @@ function isValidUuid(value: string): boolean {
 }
 
 export function buildClientResultUrl(id: string): string | null {
-  return isValidUuid(id) ? `/clients/${id}/edit` : null;
+  return isValidUuid(id) ? `/clients/${id}` : null;
 }
 
 export function buildProjectResultUrl(id: string): string | null {

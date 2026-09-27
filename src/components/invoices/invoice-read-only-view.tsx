@@ -96,7 +96,7 @@ export function InvoiceReadOnlyView({
                 {" — "}
               </>
             )}
-            <Link href={`/clients/${clientId}/edit`} className={ACTION_LINK_CLASSES}>
+            <Link href={`/clients/${clientId}`} className={ACTION_LINK_CLASSES}>
               {clientName}
             </Link>
           </p>

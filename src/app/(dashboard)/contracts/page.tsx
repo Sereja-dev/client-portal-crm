@@ -173,7 +173,7 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
                     <TableCell emphasis>{contract.contractNumber}</TableCell>
                     <TableCell>{contract.title}</TableCell>
                     <TableCell>
-                      <Link href={`/clients/${contract.client.id}/edit`} className={ACTION_LINK_CLASSES}>
+                      <Link href={`/clients/${contract.client.id}`} className={ACTION_LINK_CLASSES}>
                         {contract.client.name}
                       </Link>
                     </TableCell>
@@ -209,7 +209,7 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
                 <RecordCardField
                   label="Client"
                   value={
-                    <Link href={`/clients/${contract.client.id}/edit`} className={ACTION_LINK_CLASSES}>
+                    <Link href={`/clients/${contract.client.id}`} className={ACTION_LINK_CLASSES}>
                       {contract.client.name}
                     </Link>
                   }

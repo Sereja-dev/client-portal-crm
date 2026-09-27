@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@/generated/prisma/enums";
 import { inviteMemberAction, changeRoleAction, removeMemberAction } from "@/app/(dashboard)/team/actions";
-import { inviteClientPortalUserAction } from "@/app/(dashboard)/clients/[id]/edit/portal-access-actions";
+import { inviteClientPortalUserAction } from "@/app/(dashboard)/clients/[id]/portal-access-actions";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { actAs, resetAuthMock } from "../../support/auth-mock";
 import { testEmail } from "../../support/run-id";

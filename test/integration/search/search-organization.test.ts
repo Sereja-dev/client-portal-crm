@@ -105,14 +105,14 @@ describe("searchOrganization — integration", () => {
       }
     });
 
-    it("links to the existing staff Client edit route", async () => {
+    it("links to the Client Profile Hub route", async () => {
       const client = await prisma.client.create({
         data: { name: "Zephyr Link Test", organizationId: fixtures.orgA.id, userId: fixtures.owner.id },
       });
       const result = await searchOrganization({ organizationId: fixtures.orgA.id, query: "Zephyr Link" });
       const clientGroup = result.groups.find((g) => g.type === "CLIENT")!;
       const match = clientGroup.items.find((r) => r.id === client.id);
-      expect(match?.url).toBe(`/clients/${client.id}/edit`);
+      expect(match?.url).toBe(`/clients/${client.id}`);
     });
   });
 

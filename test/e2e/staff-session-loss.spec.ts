@@ -75,12 +75,12 @@ test.describe("Staff session-loss UX", () => {
     await dbQuery("timelineNote", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
   });
 
-  test("Timeline Add Note: a session lost after render redirects to /login with reason+redirectTo, blocks the mutation, and returns to the Client edit route after re-auth", async ({
+  test("Timeline Add Note: a session lost after render redirects to /login with reason+redirectTo, blocks the mutation, and returns to the Client profile route after re-auth", async ({
     page,
     context,
     baseURL,
   }) => {
-    await page.goto(`/clients/${fixtures.clientA.id}/edit`);
+    await page.goto(`/clients/${fixtures.clientA.id}?tab=activity`);
     await expect(page.getByRole("heading", { name: "Timeline" })).toBeVisible();
 
     await loseSessionKeepingOrg(context, baseURL!);
@@ -91,7 +91,13 @@ test.describe("Staff session-loss UX", () => {
     await expect(page).toHaveURL(/\/login\?/);
     const loginUrl = new URL(page.url());
     expect(loginUrl.searchParams.get("reason")).toBe("session_expired");
-    expect(loginUrl.searchParams.get("redirectTo")).toBe(`/clients/${fixtures.clientA.id}/edit`);
+    // Client Profile Hub V1 — the timeline actions' own redirectTo is a
+    // fixed `/clients/{id}` (the profile route's own default Overview
+    // tab), not tab-aware (mirrors the pre-Hub fixed `/clients/{id}/edit`
+    // target exactly — neither ever threaded the calling page's own
+    // query string through). Re-auth therefore lands back on the
+    // Client's profile (Overview), not the Activity tab it started on.
+    expect(loginUrl.searchParams.get("redirectTo")).toBe(`/clients/${fixtures.clientA.id}`);
     await expect(page.getByText("Your session expired. Sign in again to continue.")).toBeVisible();
 
     // The mutation did not happen — auth resolution runs before
@@ -110,7 +116,7 @@ test.describe("Staff session-loss UX", () => {
     // the actual return-to-origin redirect.
     await injectTestSession(context, fixtures.owner, baseURL!);
     await page.goto(page.url());
-    await expect(page).toHaveURL(`/clients/${fixtures.clientA.id}/edit`);
+    await expect(page).toHaveURL(`/clients/${fixtures.clientA.id}`);
   });
 
   test("Company profile save (existing, non-Timeline Server Action): the same session-loss behavior — redirect, reason, redirectTo, no Dashboard fallback", async ({

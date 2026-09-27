@@ -65,7 +65,7 @@ test.beforeEach(async ({ context, baseURL }) => {
 test("the attachment file picker shows app-authored trigger/empty-state text and updates on selection, never native browser chrome", async ({
   page,
 }) => {
-  await page.goto(`/clients/${fixtures.clientA.id}/edit`);
+  await page.goto(`/clients/${fixtures.clientA.id}?tab=files`);
 
   // A real <label htmlFor> now gives the native input a genuine accessible
   // name — getByLabel only resolves if that association is real.
@@ -88,7 +88,7 @@ test("the attachment file picker shows app-authored trigger/empty-state text and
 });
 
 test("uploading, downloading, and deleting an attachment works end to end through the real UI", async ({ page }) => {
-  await page.goto(`/clients/${fixtures.clientA.id}/edit`);
+  await page.goto(`/clients/${fixtures.clientA.id}?tab=files`);
   await expect(page.getByText("No attachments yet")).toBeVisible();
 
   // Upload via the real <input type="file">, now reachable through its own
@@ -99,7 +99,7 @@ test("uploading, downloading, and deleting an attachment works end to end throug
     buffer: Buffer.from(FILE_CONTENTS),
   });
   await Promise.all([
-    page.waitForResponse((r) => r.url().includes(`/clients/${fixtures.clientA.id}/edit`) && r.request().method() === "POST"),
+    page.waitForResponse((r) => r.url().includes(`/clients/${fixtures.clientA.id}`) && r.request().method() === "POST"),
     page.getByRole("button", { name: "Upload" }).click(),
   ]);
 

@@ -293,7 +293,7 @@ test.describe("Leads Pipeline UI", () => {
         await expect(card.getByText("Converted", { exact: true })).toBeVisible();
         await expect(card.getByLabel(`Change ${name}'s status`)).toHaveCount(0);
         await expect(card.getByRole("button", { name: "Mark lost" })).toHaveCount(0);
-        await expect(card.getByRole("link", { name: "client" })).toHaveAttribute("href", `/clients/${client.id}/edit`);
+        await expect(card.getByRole("link", { name: "client" })).toHaveAttribute("href", `/clients/${client.id}`);
       } finally {
         await dbQuery("client", "deleteMany", { where: { id: client.id } });
       }

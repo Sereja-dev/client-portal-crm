@@ -58,7 +58,7 @@ export async function createContactAction(
     return { error: "Could not save this contact. Please try again." };
   }
 
-  revalidatePath(`/clients/${clientId}/edit`);
+  revalidatePath(`/clients/${clientId}`);
   return { error: null };
 }
 
@@ -96,7 +96,7 @@ export async function updateContactAction(
     return { error: "Contact not found." };
   }
 
-  revalidatePath(`/clients/${clientId}/edit`);
+  revalidatePath(`/clients/${clientId}`);
   return { error: null };
 }
 
@@ -108,7 +108,7 @@ export async function archiveContactAction(contactId: string, clientId: string):
     throw new Error("Contact not found.");
   }
 
-  revalidatePath(`/clients/${clientId}/edit`);
+  revalidatePath(`/clients/${clientId}`);
 }
 
 export async function unarchiveContactAction(contactId: string, clientId: string): Promise<void> {
@@ -119,7 +119,7 @@ export async function unarchiveContactAction(contactId: string, clientId: string
     throw new Error("Contact not found.");
   }
 
-  revalidatePath(`/clients/${clientId}/edit`);
+  revalidatePath(`/clients/${clientId}`);
 }
 
 export async function setPrimaryContactAction(clientId: string, contactId: string): Promise<void> {
@@ -134,5 +134,5 @@ export async function setPrimaryContactAction(clientId: string, contactId: strin
     );
   }
 
-  revalidatePath(`/clients/${clientId}/edit`);
+  revalidatePath(`/clients/${clientId}`);
 }

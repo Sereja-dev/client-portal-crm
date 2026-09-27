@@ -73,9 +73,7 @@ test.describe("Design System Batch 9 — Remaining Clients surfaces", () => {
     expect(errors).toEqual([]);
   });
 
-  test("Dark: /clients/[id]/edit card, Portal Access section, and attachments are opaque with no console errors", async ({
-    page,
-  }) => {
+  test("Dark: /clients/[id]/edit card is opaque with no console errors", async ({ page }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(String(e)));
     await page.goto(`/clients/${fixtures.clientA.id}/edit`);
@@ -93,23 +91,40 @@ test.describe("Design System Batch 9 — Remaining Clients surfaces", () => {
     const cardDiv = page.getByText("Billing details", { exact: true }).filter({ visible: true }).locator("../../..");
     await expect.poll(() => cardDiv.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(27, 31, 38)");
 
+    expect(errors).toEqual([]);
+  });
+
+  // Client Profile Hub V1 — Portal Access and Attachments moved from
+  // /clients/[id]/edit to this Client's own profile route (Overview and
+  // Files tabs respectively); split out of the single /edit test above
+  // into their own tab-scoped checks rather than conflated with it.
+  test("Dark: Client profile Overview tab (Portal Access section) is opaque with no console errors", async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    await page.goto(`/clients/${fixtures.clientA.id}`);
+    await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("dark");
+
     // Portal Access section — existing portal user (fixtures.portalUser)
     // and pending invitation (fixtures.clientInvitation) both render by
     // default from the fixture graph.
     const portalHeading = page.getByRole("heading", { name: "Client Portal access" });
     await expect(portalHeading).toBeVisible();
     await expect.poll(() => portalHeading.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(236, 237, 238)");
-    // Same streaming-staging duplicate as the "Billing details" card
-    // above, just on a different (later-resolving) Suspense boundary —
-    // reaching this check sooner after navigation (now that the Billing
-    // details check above no longer stalls on its own strict-mode
-    // violation) lands squarely inside this boundary's own still-active
-    // streaming window. Same fix, same reasoning: filter to the one
-    // real, on-screen row.
     await expect(page.getByText(fixtures.portalUser.email).filter({ visible: true })).toBeVisible();
 
+    expect(errors).toEqual([]);
+  });
+
+  test("Dark: Client profile Files tab (Attachments section) is opaque with no console errors", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    await page.goto(`/clients/${fixtures.clientA.id}?tab=files`);
+    await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("dark");
+
     // Attachments passive regression — already-migrated shared component,
-    // still opaque/readable in Dark when consumed from this page.
+    // still opaque/readable in Dark when consumed from this tab.
     const attachmentsHeading = page.getByRole("heading", { name: "Attachments" });
     await expect(attachmentsHeading).toBeVisible();
     await expect
@@ -122,7 +137,7 @@ test.describe("Design System Batch 9 — Remaining Clients surfaces", () => {
   test("Action-wiring invariant: Copy link preserves the real invite URL, and Cancel/Remove open their real confirm dialogs without mutating anything", async ({
     page,
   }) => {
-    await page.goto(`/clients/${fixtures.clientA.id}/edit`);
+    await page.goto(`/clients/${fixtures.clientA.id}`);
 
     // Copy link — grant clipboard permission and verify the exact copied
     // value, not just that a click "worked".
@@ -173,7 +188,7 @@ test.describe("Design System Batch 9 — Remaining Clients surfaces", () => {
       }));
       expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
 
-      await page.goto(`/clients/${fixtures.clientA.id}/edit`);
+      await page.goto(`/clients/${fixtures.clientA.id}`);
       await expect(page.getByRole("heading", { name: "Client Portal access" })).toBeVisible();
       overflow = await page.evaluate(() => ({
         scrollWidth: document.documentElement.scrollWidth,

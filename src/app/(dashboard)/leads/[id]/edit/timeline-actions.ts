@@ -8,7 +8,7 @@ import type { TimelineNoteActionState } from "@/types";
 
 /**
  * Communication Timeline Phase 2 — thin wrappers only. See
- * clients/[id]/edit/timeline-actions.ts's own identical header comment;
+ * clients/[id]/timeline-actions.ts's own identical header comment;
  * this is the byte-for-byte Lead-scoped sibling.
  */
 

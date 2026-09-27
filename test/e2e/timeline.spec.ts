@@ -86,8 +86,10 @@ test.describe("Communication Timeline — Staff UI", () => {
     await dbQuery("lead", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
   });
 
-  test("Client edit: Timeline is visible, a note can be added, appears, is edited, then deleted — the page stays on /clients/{id}/edit throughout", async ({ page }) => {
-    await page.goto(`/clients/${fixtures.clientA.id}/edit`);
+  test("Client profile Activity tab: Timeline is visible, a note can be added, appears, is edited, then deleted — the page stays on /clients/{id}?tab=activity throughout", async ({
+    page,
+  }) => {
+    await page.goto(`/clients/${fixtures.clientA.id}?tab=activity`);
     await expect(page.getByRole("heading", { name: "Timeline" })).toBeVisible();
     await expect(page.getByText("Activity and staff notes")).toBeVisible();
 
@@ -97,7 +99,7 @@ test.describe("Communication Timeline — Staff UI", () => {
     await page.getByLabel("Note", { exact: true }).fill("Called about renewal.");
     await page.getByRole("button", { name: "Add note" }).click();
     await expect(page.getByText("Called about renewal.")).toBeVisible();
-    await expect(page).toHaveURL(`/clients/${fixtures.clientA.id}/edit`);
+    await expect(page).toHaveURL(`/clients/${fixtures.clientA.id}?tab=activity`);
 
     // Edit the note inline.
     const noteRow = page.locator("li", { hasText: "Called about renewal." });
@@ -108,7 +110,7 @@ test.describe("Communication Timeline — Staff UI", () => {
     await noteRow.getByRole("button", { name: "Save" }).click();
     await expect(page.getByText("Called about renewal — client will decide next week.")).toBeVisible();
     await expect(page.getByText("(edited)")).toBeVisible();
-    await expect(page).toHaveURL(`/clients/${fixtures.clientA.id}/edit`);
+    await expect(page).toHaveURL(`/clients/${fixtures.clientA.id}?tab=activity`);
 
     // Delete the note.
     const editedRow = page.locator("li", { hasText: "will decide next week" });
@@ -117,7 +119,7 @@ test.describe("Communication Timeline — Staff UI", () => {
     await expect(dialog).toBeVisible();
     await dialog.getByRole("button", { name: "Delete", exact: true }).click();
     await expect(page.getByText("will decide next week")).toHaveCount(0);
-    await expect(page).toHaveURL(`/clients/${fixtures.clientA.id}/edit`);
+    await expect(page).toHaveURL(`/clients/${fixtures.clientA.id}?tab=activity`);
   });
 
   test("Lead edit: a note can be added and appears, and the Lead's own CREATED activity renders meaningfully", async ({ page }) => {
@@ -161,18 +163,18 @@ test.describe("Communication Timeline — Staff UI", () => {
   });
 
   test.describe("responsive", () => {
-    test("Client edit Timeline at 1280px: no destructive horizontal overflow, controls reachable", async ({ page }) => {
+    test("Client profile Activity tab at 1280px: no destructive horizontal overflow, controls reachable", async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/clients/${fixtures.clientA.id}/edit`);
+      await page.goto(`/clients/${fixtures.clientA.id}?tab=activity`);
       await expect(page.getByRole("heading", { name: "Timeline" })).toBeVisible();
       const hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
       expect(hasOverflow).toBe(false);
       await expect(page.getByRole("button", { name: "Add note" })).toBeVisible();
     });
 
-    test("Client edit Timeline at 834px: no destructive horizontal overflow, textarea fits, controls reachable", async ({ page }) => {
+    test("Client profile Activity tab at 834px: no destructive horizontal overflow, textarea fits, controls reachable", async ({ page }) => {
       await page.setViewportSize({ width: 834, height: 1100 });
-      await page.goto(`/clients/${fixtures.clientA.id}/edit`);
+      await page.goto(`/clients/${fixtures.clientA.id}?tab=activity`);
       await expect(page.getByRole("heading", { name: "Timeline" })).toBeVisible();
       const hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
       expect(hasOverflow).toBe(false);
@@ -181,9 +183,9 @@ test.describe("Communication Timeline — Staff UI", () => {
       expect(box?.width).toBeLessThanOrEqual(834);
     });
 
-    test("Client edit Timeline at 390px: no destructive horizontal overflow, a long note wraps, controls remain reachable", async ({ page }) => {
+    test("Client profile Activity tab at 390px: no destructive horizontal overflow, a long note wraps, controls remain reachable", async ({ page }) => {
       await page.setViewportSize({ width: 390, height: 844 });
-      await page.goto(`/clients/${fixtures.clientA.id}/edit`);
+      await page.goto(`/clients/${fixtures.clientA.id}?tab=activity`);
       await expect(page.getByRole("heading", { name: "Timeline" })).toBeVisible();
 
       const longNote =

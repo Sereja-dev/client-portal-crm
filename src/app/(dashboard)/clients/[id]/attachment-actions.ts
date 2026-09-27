@@ -34,7 +34,7 @@ export async function uploadAttachmentAction(
   });
 
   if (result.error === null) {
-    revalidatePath(`/clients/${clientId}/edit`);
+    revalidatePath(`/clients/${clientId}`);
   }
   return result;
 }
@@ -57,5 +57,5 @@ export async function deleteAttachmentAction(clientId: string, attachmentId: str
     },
   });
 
-  revalidatePath(`/clients/${clientId}/edit`);
+  revalidatePath(`/clients/${clientId}`);
 }

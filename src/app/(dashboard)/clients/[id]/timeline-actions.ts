@@ -19,14 +19,14 @@ import type { TimelineNoteActionState } from "@/types";
  * state shape.
  */
 
-const editPath = (clientId: string) => `/clients/${clientId}/edit`;
+const profilePath = (clientId: string) => `/clients/${clientId}`;
 
 export async function createClientTimelineNoteAction(
   clientId: string,
   _prevState: TimelineNoteActionState,
   formData: FormData,
 ): Promise<TimelineNoteActionState> {
-  const { user, organizationId, membership } = await getCurrentMembership(editPath(clientId));
+  const { user, organizationId, membership } = await getCurrentMembership(profilePath(clientId));
   const actor = { id: user.id, name: user.name, role: membership.role };
 
   const result = await createTimelineNote(organizationId, actor, {
@@ -39,7 +39,7 @@ export async function createClientTimelineNoteAction(
     return { error: mapCreateOrEditError(result) };
   }
 
-  revalidatePath(editPath(clientId));
+  revalidatePath(profilePath(clientId));
   return { error: null };
 }
 
@@ -49,7 +49,7 @@ export async function editClientTimelineNoteAction(
   _prevState: TimelineNoteActionState,
   formData: FormData,
 ): Promise<TimelineNoteActionState> {
-  const { user, organizationId, membership } = await getCurrentMembership(editPath(clientId));
+  const { user, organizationId, membership } = await getCurrentMembership(profilePath(clientId));
   const actor = { id: user.id, name: user.name, role: membership.role };
 
   const result = await editTimelineNote(organizationId, noteId, actor, formData.get("body"));
@@ -58,12 +58,12 @@ export async function editClientTimelineNoteAction(
     return { error: mapCreateOrEditError(result) };
   }
 
-  revalidatePath(editPath(clientId));
+  revalidatePath(profilePath(clientId));
   return { error: null };
 }
 
 export async function deleteClientTimelineNoteAction(clientId: string, noteId: string): Promise<void> {
-  const { user, organizationId, membership } = await getCurrentMembership(editPath(clientId));
+  const { user, organizationId, membership } = await getCurrentMembership(profilePath(clientId));
   const actor = { id: user.id, name: user.name, role: membership.role };
 
   const result = await deleteTimelineNote(organizationId, noteId, actor);
@@ -71,7 +71,7 @@ export async function deleteClientTimelineNoteAction(clientId: string, noteId: s
     throw new Error(result.reason === "FORBIDDEN" ? "You can only delete your own notes." : "This note could not be found.");
   }
 
-  revalidatePath(editPath(clientId));
+  revalidatePath(profilePath(clientId));
 }
 
 type CreateOrEditFailure =

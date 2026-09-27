@@ -54,14 +54,16 @@ test.describe("Design System Batch 7 — Shared uploads + simple Settings", () =
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(String(e)));
     await actAsOwner(context, baseURL!);
-    await page.goto(`/clients/${fixtures.clientA.id}/edit`);
+    await page.goto(`/clients/${fixtures.clientA.id}?tab=files`);
     await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("dark");
 
-    // Client Edit Transient SSR/Hydration Duplication (read-only
-    // diagnostic) -- for a short window (~60-350ms) after this page
-    // navigates, React briefly double-mounts this page's Client-Component-
-    // adjacent sections (Contacts/Attachments/Portal Access/Timeline) as
-    // two content-identical subtrees before settling to one. Proven NOT a
+    // Client Profile Hub Transient SSR/Hydration Duplication (read-only
+    // diagnostic; originally observed on /clients/[id]/edit before
+    // Contacts/Attachments/Portal Access/Timeline moved to this page's
+    // own Files/Contacts/Overview/Activity tabs) -- for a short window
+    // (~60-350ms) after this page navigates, React briefly double-mounts
+    // this Files tab's own Attachments section as two content-identical
+    // subtrees before settling to one. Proven NOT a
     // server-HTML duplication (byte-position-verified: exactly one real
     // <ul> per section in the raw SSR response), NOT a duplicate DB row
     // (exactly one Attachment row exists throughout), and NOT a dead/
@@ -84,9 +86,7 @@ test.describe("Design System Batch 7 — Shared uploads + simple Settings", () =
     // wrapper <div> -- h2 -> the heading/count flex row -> the section
     // wrapper that also holds the upload form and the list as siblings
     // of that row (see src/components/attachments/attachments-section.tsx's
-    // own structure) -- never the much bigger shared card ClientForm/
-    // Contacts/Attachments/Portal Access all sit inside together on this
-    // page. `.first()` sits at the very end, not on `attachmentsHeading`
+    // own structure). `.first()` sits at the very end, not on `attachmentsHeading`
     // itself, so a genuine two-heading window (see this test's own
     // comment above) still resolves to one complete, real wrapper rather
     // than mixing an ancestor from one copy with a descendant from the
@@ -240,7 +240,7 @@ test.describe("Design System Batch 7 — Shared uploads + simple Settings", () =
     await actAsOwner(context, baseURL!);
     for (const width of [390, 320]) {
       await page.setViewportSize({ width, height: 800 });
-      await page.goto(`/clients/${fixtures.clientA.id}/edit`);
+      await page.goto(`/clients/${fixtures.clientA.id}?tab=files`);
       await expect(page.getByText("report.pdf", { exact: true }).first()).toBeVisible();
       const overflow = await page.evaluate(() => ({
         scrollWidth: document.documentElement.scrollWidth,

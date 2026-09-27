@@ -4,7 +4,7 @@ import {
   createClientTimelineNoteAction,
   editClientTimelineNoteAction,
   deleteClientTimelineNoteAction,
-} from "@/app/(dashboard)/clients/[id]/edit/timeline-actions";
+} from "@/app/(dashboard)/clients/[id]/timeline-actions";
 import {
   createLeadTimelineNoteAction,
   editLeadTimelineNoteAction,

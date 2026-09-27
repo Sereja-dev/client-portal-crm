@@ -54,7 +54,7 @@ function str(value: unknown): string | null {
 
 const DEEP_LINK_PATH: Record<ActivityEntityType, (entityId: string) => string> = {
   LEAD: (id) => `/leads/${id}/edit`,
-  CLIENT: (id) => `/clients/${id}/edit`,
+  CLIENT: (id) => `/clients/${id}`,
   INVOICE: (id) => `/invoices/${id}/edit`,
   CONTRACT: (id) => `/contracts/${id}`,
 } as Record<ActivityEntityType, (entityId: string) => string>;

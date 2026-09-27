@@ -236,7 +236,11 @@ export default async function ClientsPage({
               <TableBody>
                 {clients.map((client) => (
                   <TableRow key={client.id}>
-                    <TableCell emphasis>{client.name}</TableCell>
+                    <TableCell emphasis>
+                      <Link href={`/clients/${client.id}`} className={ACTION_LINK_CLASSES}>
+                        {client.name}
+                      </Link>
+                    </TableCell>
                     <TableCell>{client.company ?? "—"}</TableCell>
                     <TableCell>{client.email ?? "—"}</TableCell>
                     <TableCell>{client.phone ?? "—"}</TableCell>
@@ -275,7 +279,15 @@ export default async function ClientsPage({
           <RecordCardList>
             {clients.map((client) => (
               <RecordCard key={client.id}>
-                <RecordCardField label="Name" value={client.name} emphasis />
+                <RecordCardField
+                  label="Name"
+                  value={
+                    <Link href={`/clients/${client.id}`} className={ACTION_LINK_CLASSES}>
+                      {client.name}
+                    </Link>
+                  }
+                  emphasis
+                />
                 <RecordCardField label="Company" value={client.company ?? "—"} />
                 <RecordCardField label="Email" value={client.email ?? "—"} />
                 <RecordCardField label="Phone" value={client.phone ?? "—"} />

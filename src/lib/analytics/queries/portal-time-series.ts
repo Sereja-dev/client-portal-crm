@@ -41,7 +41,7 @@ export async function getPortalUserGrowthSeries(
  * Both counts come from `Activity.action` (`PORTAL_INVITATION_SENT`/
  * `PORTAL_INVITATION_ACCEPTED`) — real, existing event rows the app
  * already writes for its own portal-invite flow (src/app/(dashboard)/
- * clients/[id]/edit/portal-access-actions.ts and src/app/portal/invite/
+ * clients/[id]/portal-access-actions.ts and src/app/portal/invite/
  * [token]/actions.ts), never a new tracking table.
  */
 export async function getPortalInvitationSeries(

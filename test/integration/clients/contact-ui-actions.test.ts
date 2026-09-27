@@ -7,7 +7,7 @@ import {
   archiveContactAction,
   unarchiveContactAction,
   setPrimaryContactAction,
-} from "@/app/(dashboard)/clients/[id]/edit/contact-actions";
+} from "@/app/(dashboard)/clients/[id]/contact-actions";
 import { createClientContact } from "@/lib/clients/contacts";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { actAs, resetAuthMock } from "../../support/auth-mock";

@@ -13,7 +13,7 @@ const VALID_UUID_2 = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
 
 describe("per-type link builders — all 5 types", () => {
   it("Client", () => {
-    expect(buildClientResultUrl(VALID_UUID)).toBe(`/clients/${VALID_UUID}/edit`);
+    expect(buildClientResultUrl(VALID_UUID)).toBe(`/clients/${VALID_UUID}`);
   });
 
   it("Project", () => {
@@ -70,7 +70,7 @@ describe("link builders — invalid input never produces a URL", () => {
 
 describe("buildResultUrl — dispatcher", () => {
   it("dispatches to each per-type builder correctly", () => {
-    expect(buildResultUrl("CLIENT", VALID_UUID)).toBe(`/clients/${VALID_UUID}/edit`);
+    expect(buildResultUrl("CLIENT", VALID_UUID)).toBe(`/clients/${VALID_UUID}`);
     expect(buildResultUrl("PROJECT", VALID_UUID)).toBe(`/projects/${VALID_UUID}/edit`);
     expect(buildResultUrl("TASK", VALID_UUID)).toBe(`/tasks/${VALID_UUID}/edit`);
     expect(buildResultUrl("INVOICE", VALID_UUID)).toBe(`/invoices/${VALID_UUID}/edit`);

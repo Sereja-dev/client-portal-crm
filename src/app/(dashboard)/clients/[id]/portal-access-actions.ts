@@ -121,7 +121,7 @@ export async function inviteClientPortalUserAction(
     throw err;
   }
 
-  revalidatePath(`/clients/${client.id}/edit`);
+  revalidatePath(`/clients/${client.id}`);
 
   // The ClientInvitation row and its Activity are already committed at
   // this point — an email provider failure below only affects delivery,
@@ -216,7 +216,7 @@ export async function resendClientInvitationAction(
     });
   });
 
-  revalidatePath(`/clients/${invitation.clientId}/edit`);
+  revalidatePath(`/clients/${invitation.clientId}`);
 
   // ClientInvitation and its Activity are already committed regardless of
   // what happens next — a delivery failure here never reverts either of
@@ -287,7 +287,7 @@ export async function cancelClientInvitationAction(invitationId: string): Promis
   // is never cleared or reused, and no Activity is created for a no-op
   // repeat cancel.
 
-  revalidatePath(`/clients/${invitation.clientId}/edit`);
+  revalidatePath(`/clients/${invitation.clientId}`);
 }
 
 export async function removePortalUserAction(portalUserId: string): Promise<void> {
@@ -331,5 +331,5 @@ export async function removePortalUserAction(portalUserId: string): Promise<void
     });
   });
 
-  revalidatePath(`/clients/${portalUser.clientId}/edit`);
+  revalidatePath(`/clients/${portalUser.clientId}`);
 }

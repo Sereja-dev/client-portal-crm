@@ -54,7 +54,7 @@ test.describe("Client Contacts UI (Multiple Contacts Phase 2)", () => {
   test("1/2. empty state shows 'No contacts yet' with an Add contact button when the Client has none", async ({ page }) => {
     // fixtures.clientA is seeded with no email/phone, so no primary
     // contact was ever backfilled/auto-created for it.
-    await page.goto(`/clients/${fixtures.clientA.id}/edit`);
+    await page.goto(`/clients/${fixtures.clientA.id}?tab=contacts`);
 
     const contactsHeading = page.getByRole("heading", { name: "Contacts", level: 2 });
     await expect(contactsHeading).toBeVisible();
@@ -67,7 +67,7 @@ test.describe("Client Contacts UI (Multiple Contacts Phase 2)", () => {
       data: { name: `E2E Contact Lifecycle ${randomUUID().slice(0, 8)}`, organizationId: fixtures.orgA.id, userId: fixtures.owner.id },
     });
 
-    await page.goto(`/clients/${client.id}/edit`);
+    await page.goto(`/clients/${client.id}?tab=contacts`);
 
     // --- Add contact (as primary) ---
     await page.getByRole("button", { name: "Add contact" }).click();
@@ -139,7 +139,7 @@ test.describe("Client Contacts UI (Multiple Contacts Phase 2)", () => {
 
   test("Mobile (390px), empty state: the Contacts section fits the viewport with no horizontal overflow", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 900 });
-    await page.goto(`/clients/${fixtures.clientA.id}/edit`);
+    await page.goto(`/clients/${fixtures.clientA.id}?tab=contacts`);
     await expect(page.getByRole("heading", { name: "Contacts", level: 2 })).toBeVisible();
 
     const overflow = await page.evaluate(() => ({
@@ -206,7 +206,7 @@ test.describe("Client Contacts UI (Multiple Contacts Phase 2)", () => {
 
     test("390px: name/email/actions visible and reachable, Role hidden, no page overflow", async ({ page }) => {
       await page.setViewportSize({ width: 390, height: 900 });
-      await page.goto(`/clients/${client.id}/edit`);
+      await page.goto(`/clients/${client.id}?tab=contacts`);
 
       const priyaRow = page.getByRole("row", { name: /Priya Nair/ });
       await expect(priyaRow).toBeVisible();
@@ -242,7 +242,7 @@ test.describe("Client Contacts UI (Multiple Contacts Phase 2)", () => {
 
     test("834px (tablet): Role still hidden (no ugly wrapping), Phone visible, actions reachable, no overflow", async ({ page }) => {
       await page.setViewportSize({ width: 834, height: 1100 });
-      await page.goto(`/clients/${client.id}/edit`);
+      await page.goto(`/clients/${client.id}?tab=contacts`);
 
       const priyaRow = page.getByRole("row", { name: /Priya Nair/ });
       await expect(priyaRow).toBeVisible();
@@ -262,7 +262,7 @@ test.describe("Client Contacts UI (Multiple Contacts Phase 2)", () => {
 
     test("1280px (desktop): the full table — Email/Phone/Role/Actions — remains visible and readable", async ({ page }) => {
       await page.setViewportSize({ width: 1280, height: 900 });
-      await page.goto(`/clients/${client.id}/edit`);
+      await page.goto(`/clients/${client.id}?tab=contacts`);
 
       await expect(page.getByRole("columnheader", { name: "Email" })).toBeVisible();
       await expect(page.getByRole("columnheader", { name: "Phone" })).toBeVisible();
@@ -284,7 +284,7 @@ test.describe("Client Contacts UI (Multiple Contacts Phase 2)", () => {
       page.on("pageerror", (e) => errors.push(String(e)));
 
       await page.setViewportSize({ width: 834, height: 1100 });
-      await page.goto(`/clients/${client.id}/edit`);
+      await page.goto(`/clients/${client.id}?tab=contacts`);
       await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("dark");
 
       const priyaRow = page.getByRole("row", { name: /Priya Nair/ });
@@ -302,7 +302,7 @@ test.describe("Client Contacts UI (Multiple Contacts Phase 2)", () => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(String(e)));
 
-    await page.goto(`/clients/${fixtures.clientA.id}/edit`);
+    await page.goto(`/clients/${fixtures.clientA.id}?tab=contacts`);
     await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("dark");
 
     const heading = page.getByRole("heading", { name: "Contacts", level: 2 });

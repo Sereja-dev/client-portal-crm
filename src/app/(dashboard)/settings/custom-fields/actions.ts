@@ -30,7 +30,7 @@ import type { CustomFieldDefinitionFormState, CustomFieldOptionFormState } from 
  * src/lib/custom-fields/{definitions,options}.ts's own domain functions
  * to this page's forms/buttons. Every action here follows this app's
  * existing Client-management permission model exactly (see
- * clients/[id]/edit/contact-actions.ts's own comment): any OWNER/ADMIN/
+ * clients/[id]/contact-actions.ts's own comment): any OWNER/ADMIN/
  * MEMBER of the organization may manage Custom Field definitions/options
  * — no extra role gate, matching how any staff member may already manage
  * Clients/Contacts. Every action re-derives organizationId itself via

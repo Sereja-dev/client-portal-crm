@@ -40,7 +40,7 @@ export function deriveQuoteTargetDisplay(quote: QuoteTargetDisplayInput): QuoteT
     quote.leadId && quote.lead ? { id: quote.lead.id, name: quote.lead.name, href: `/leads/${quote.lead.id}/edit` } : null;
 
   if (quote.clientId && quote.client) {
-    return { type: "CLIENT", name: quote.client.name, href: `/clients/${quote.client.id}/edit`, originLead };
+    return { type: "CLIENT", name: quote.client.name, href: `/clients/${quote.client.id}`, originLead };
   }
 
   // Quote's own durable invariant: never both null. If clientId/client

@@ -443,7 +443,7 @@ test.describe("Aqenra Invoice UX — Client/Project links", () => {
 
     const clientLink = row.getByRole("link", { name: fixtures.clientA.name });
     await expect(clientLink).toBeVisible();
-    await expect(clientLink).toHaveAttribute("href", `/clients/${fixtures.clientA.id}/edit`);
+    await expect(clientLink).toHaveAttribute("href", `/clients/${fixtures.clientA.id}`);
 
     const projectLink = row.getByRole("link", { name: fixtures.project.name });
     await expect(projectLink).toBeVisible();
@@ -460,7 +460,7 @@ test.describe("Aqenra Invoice UX — Client/Project links", () => {
     // The Client link is still present on the very same row.
     await expect(row.getByRole("link", { name: fixtures.clientA.name })).toHaveAttribute(
       "href",
-      `/clients/${fixtures.clientA.id}/edit`,
+      `/clients/${fixtures.clientA.id}`,
     );
   });
 
@@ -469,7 +469,7 @@ test.describe("Aqenra Invoice UX — Client/Project links", () => {
 
     const clientLink = page.getByRole("link", { name: fixtures.clientA.name });
     await expect(clientLink).toBeVisible();
-    await expect(clientLink).toHaveAttribute("href", `/clients/${fixtures.clientA.id}/edit`);
+    await expect(clientLink).toHaveAttribute("href", `/clients/${fixtures.clientA.id}`);
 
     const projectLink = page.getByRole("link", { name: fixtures.project.name });
     await expect(projectLink).toBeVisible();
@@ -482,7 +482,7 @@ test.describe("Aqenra Invoice UX — Client/Project links", () => {
     await expect(page.getByText("No project")).toHaveCount(0); // never rendered for the read-only header — it only ever shows Client alone when there's no Project.
     const clientLink = page.getByRole("link", { name: fixtures.clientA.name });
     await expect(clientLink).toBeVisible();
-    await expect(clientLink).toHaveAttribute("href", `/clients/${fixtures.clientA.id}/edit`);
+    await expect(clientLink).toHaveAttribute("href", `/clients/${fixtures.clientA.id}`);
   });
 });
 

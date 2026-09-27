@@ -206,7 +206,7 @@ export default async function InvoicesPage({
                       )}
                     </TableCell>
                     <TableCell>
-                      <Link href={`/clients/${invoice.clientId}/edit`} className={ACTION_LINK_CLASSES}>
+                      <Link href={`/clients/${invoice.clientId}`} className={ACTION_LINK_CLASSES}>
                         {invoice.client.name}
                       </Link>
                     </TableCell>
@@ -277,7 +277,7 @@ export default async function InvoicesPage({
                 <RecordCardField
                   label="Client"
                   value={
-                    <Link href={`/clients/${invoice.clientId}/edit`} className={ACTION_LINK_CLASSES}>
+                    <Link href={`/clients/${invoice.clientId}`} className={ACTION_LINK_CLASSES}>
                       {invoice.client.name}
                     </Link>
                   }

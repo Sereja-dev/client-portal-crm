@@ -56,7 +56,7 @@ export type CreateLeadCaptureFormResult =
  * `publicToken` is generated here via `randomUUID()` — the same
  * opaque-random-token convention Invitation.token and the Client Portal
  * access token already use (see src/app/(dashboard)/team/actions.ts and
- * src/app/(dashboard)/clients/[id]/edit/portal-access-actions.ts), never
+ * src/app/(dashboard)/clients/[id]/portal-access-actions.ts), never
  * derived from organizationId or this row's own `id`. No collision-retry
  * loop, matching those same call sites' own precedent — a UUIDv4
  * collision is not a case this codebase guards against anywhere today.

@@ -43,7 +43,7 @@ describe("integrations/message", () => {
         metadata: { name: "Acme Co" },
       });
       expect(text).toContain("[Aqenra] New client: Acme Co");
-      expect(text).toContain("/clients/client-1/edit");
+      expect(text).toContain("/clients/client-1");
     });
 
     it("builds an INVOICE_SENT message from invoiceNumber", () => {

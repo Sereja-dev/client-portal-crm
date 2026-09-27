@@ -225,7 +225,7 @@ export function LeadActionsPanel({
           <p className="text-text-secondary mt-1 text-sm">Choose what to do next.</p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          <Link href={`/clients/${justConverted.clientId}/edit`} className={SUCCESS_PRIMARY_LINK_CLASSES}>
+          <Link href={`/clients/${justConverted.clientId}`} className={SUCCESS_PRIMARY_LINK_CLASSES}>
             View client
           </Link>
           <Link href={`/projects/new?clientId=${justConverted.clientId}`} className={SUCCESS_SECONDARY_LINK_CLASSES}>
@@ -313,7 +313,7 @@ export function LeadActionsPanel({
       {isConverted && convertedClientId && (
         <p className="text-text-secondary text-sm">
           Converted to a{" "}
-          <Link href={`/clients/${convertedClientId}/edit`} className={ACTION_LINK_CLASSES}>
+          <Link href={`/clients/${convertedClientId}`} className={ACTION_LINK_CLASSES}>
             client
           </Link>
           .

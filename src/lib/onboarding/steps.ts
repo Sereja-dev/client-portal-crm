@@ -210,8 +210,9 @@ export const ONBOARDING_STEPS: Readonly<Record<OnboardingStepKey, OnboardingStep
     required: false,
     dependsOn: "CREATE_CLIENT",
     // No single generic "invite a portal user" route exists — that flow
-    // lives under a specific Client's own /clients/[id]/edit Portal
-    // Access section (docs/onboarding-architecture.md §0.3). Pointing at
+    // lives under a specific Client's own /clients/[id] Portal
+    // Access section (docs/onboarding-architecture.md §0.3; moved there
+    // from /clients/[id]/edit by the Client Profile Hub). Pointing at
     // the Clients list (a real, existing route) rather than inventing one
     // is the honest target: pick a client, then invite from there.
     targetHref: "/clients",

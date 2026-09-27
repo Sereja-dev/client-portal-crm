@@ -20,7 +20,7 @@ describe("deriveQuoteTargetDisplay", () => {
     expect(result).toEqual({
       type: "CLIENT",
       name: "Acme Inc",
-      href: "/clients/client-1/edit",
+      href: "/clients/client-1",
       originLead: null,
     });
   });
@@ -49,7 +49,7 @@ describe("deriveQuoteTargetDisplay", () => {
     });
     expect(result.type).toBe("CLIENT");
     expect(result.name).toBe("Acme Inc");
-    expect(result.href).toBe("/clients/client-1/edit");
+    expect(result.href).toBe("/clients/client-1");
     expect(result.originLead).toEqual({ id: "lead-1", name: "Jane Doe", href: "/leads/lead-1/edit" });
   });
 });

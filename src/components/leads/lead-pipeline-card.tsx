@@ -284,7 +284,7 @@ export function LeadPipelineCard({
         <p className="mt-3 text-xs text-text-muted">
           Converted to a{" "}
           {lead.convertedClientId ? (
-            <Link href={`/clients/${lead.convertedClientId}/edit`} className={ACTION_LINK_CLASSES}>
+            <Link href={`/clients/${lead.convertedClientId}`} className={ACTION_LINK_CLASSES}>
               client
             </Link>
           ) : (
