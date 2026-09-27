@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@/generated/prisma/client";
 import { INVOICE_STATUSES } from "@/lib/validation/invoice";
 import { escapeLikePattern } from "@/lib/search/normalize-query";
 import { tokenizeAiSearchQuery } from "./query-match";
@@ -62,6 +63,28 @@ export type InvoiceSearchOutput = AiToolResult<InvoiceSearchData>;
 
 const TOOL_NAME = "searchInvoices";
 
+/**
+ * A bare single Unicode letter (e.g. "B", "x", "Ж") carries essentially no
+ * discriminating power against `invoiceNumber`: this app's own invoice
+ * numbers are always "INV-" followed by digits (see
+ * recurring-invoices/numbering.ts), never a bare letter, so a real user or
+ * model never intends such a token as an invoiceNumber fragment — yet
+ * `invoiceNumber` routinely embeds enough incidental digit/letter content
+ * (a sequence, a test runId, etc.) that a bare-letter token can coincidentally
+ * `contains`-match it. When that same letter is the ONLY thing
+ * distinguishing two otherwise-identical entity names (e.g. "Test Client A"
+ * vs "Test Client B"), this accidental invoiceNumber match silently defeats
+ * the token's entire reason for being in the query. Everything else —
+ * digits ("7"), mixed alphanumerics ("A1", "Q3"), multi-letter tokens
+ * ("AB"), and full invoice-number-shaped tokens ("INV-1004") — keeps
+ * matching invoiceNumber exactly as before; only this one narrow case is
+ * excluded, and only from the invoiceNumber branch — the token remains a
+ * fully required AND-condition, still matchable via client.name/project.name.
+ */
+function isBareSingleLetter(token: string): boolean {
+  return /^\p{L}$/u.test(token);
+}
+
 function validateInput(rawInput: unknown): { query?: string; status?: string } | null {
   const input = rawInput === undefined || rawInput === null ? {} : rawInput;
   if (!isPlainObject(input) || !hasOnlyAllowedKeys(input, SEARCH_INPUT_KEYS)) return null;
@@ -89,6 +112,11 @@ export async function executeSearchInvoices(organizationId: string, rawInput: un
     // behavior (one OR block, same three fields, same escapeLikePattern/
     // mode:"insensitive" discipline) — this only ever broadens which
     // queries can match, never which records exist to match against.
+    //
+    // Short-Token invoiceNumber False-Positive Fix — a bare single-letter
+    // token (see isBareSingleLetter's own doc comment) is excluded from
+    // the invoiceNumber branch specifically; it remains a fully required
+    // token, still matchable via client.name/project.name.
     const tokens = trimmedQuery ? tokenizeAiSearchQuery(trimmedQuery) : [];
     const rows = await prisma.invoice.findMany({
       where: {
@@ -96,9 +124,11 @@ export async function executeSearchInvoices(organizationId: string, rawInput: un
         ...(validated.status ? { status: validated.status as (typeof INVOICE_STATUSES)[number] } : {}),
         ...(tokens.length > 0
           ? {
-              AND: tokens.map((token) => ({
+              AND: tokens.map((token): Prisma.InvoiceWhereInput => ({
                 OR: [
-                  { invoiceNumber: { contains: escapeLikePattern(token), mode: "insensitive" as const } },
+                  ...(isBareSingleLetter(token)
+                    ? []
+                    : [{ invoiceNumber: { contains: escapeLikePattern(token), mode: "insensitive" as const } }]),
                   { client: { name: { contains: escapeLikePattern(token), mode: "insensitive" as const } } },
                   { project: { name: { contains: escapeLikePattern(token), mode: "insensitive" as const } } },
                 ],

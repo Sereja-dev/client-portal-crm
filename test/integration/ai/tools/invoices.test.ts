@@ -239,4 +239,41 @@ describe("executeSearchInvoices — integration", () => {
     const result = await executeSearchInvoices(fixtures.orgA.id, { query: mismatchedQuery });
     expect(result).toEqual({ ok: true, results: [] });
   });
+
+  it("K. Short-Token invoiceNumber False-Positive Fix — a disambiguating single-letter token ('B', distinguishing 'Test Client B' from 'Test Client A') is never satisfied by an unrelated invoiceNumber that happens to contain that letter", async () => {
+    const clientB = await prisma.client.findUniqueOrThrow({ where: { id: fixtures.clientB.id } });
+    const project = await prisma.project.findUniqueOrThrow({ where: { id: fixtures.project.id } });
+
+    // Deliberately, deterministically construct the exact collision the
+    // original defect depended on random fixtures.runId content for:
+    // an invoice belonging to clientA/project (never clientB) whose own
+    // invoiceNumber contains the literal disambiguating letter "b" —
+    // no Math.random()/runId involved, so this reproduces the false
+    // positive on every run, not only when a random runId happened to
+    // contain "b".
+    const collisionInvoiceNumber = "INV-COLLISION-b";
+    const collision = await prisma.invoice.create({
+      data: {
+        invoiceNumber: collisionInvoiceNumber,
+        status: "DRAFT",
+        amount: 1,
+        currency: "USD",
+        clientId: fixtures.clientA.id,
+        projectId: fixtures.project.id,
+        organizationId: fixtures.orgA.id,
+      },
+    });
+
+    try {
+      // Same query shape as test J: an unrelated client's name paired
+      // with the real project name — no single invoice row can
+      // genuinely be "about Client B" here, regardless of what letters
+      // its own invoiceNumber happens to contain.
+      const mismatchedQuery = `${clientB.name} ${project.name}`;
+      const result = await executeSearchInvoices(fixtures.orgA.id, { query: mismatchedQuery });
+      expect(result).toEqual({ ok: true, results: [] });
+    } finally {
+      await prisma.invoice.deleteMany({ where: { id: collision.id } });
+    }
+  });
 });
