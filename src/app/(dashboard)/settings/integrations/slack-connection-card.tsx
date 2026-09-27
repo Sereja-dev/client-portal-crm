@@ -106,7 +106,7 @@ export function SlackConnectionCard({ connection }: { connection: IntegrationCon
             </p>
           )}
           {connection.connectedAt && (
-            <p className="text-text-muted">Connected {connection.connectedAt.toLocaleDateString()}</p>
+            <p className="text-text-muted">Connected {connection.connectedAt.toLocaleDateString("en-US")}</p>
           )}
           {connection.status === "ERROR" && (
             <p className="text-danger">

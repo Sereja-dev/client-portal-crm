@@ -53,7 +53,7 @@ export function CommentItem({
         <p className="text-text-primary text-sm font-medium">{comment.authorName}</p>
         <time
           dateTime={comment.createdAt.toISOString()}
-          title={comment.createdAt.toLocaleString()}
+          title={comment.createdAt.toLocaleString("en-US")}
           className="text-text-muted shrink-0 text-xs"
         >
           {relativeTime(comment.createdAt)}

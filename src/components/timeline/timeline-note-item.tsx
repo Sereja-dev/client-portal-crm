@@ -52,7 +52,7 @@ export function TimelineNoteItem({
         </div>
         <time
           dateTime={createdAt.toISOString()}
-          title={createdAt.toLocaleString()}
+          title={createdAt.toLocaleString("en-US")}
           className="text-text-muted shrink-0 text-xs"
         >
           {relativeTime(createdAt)}

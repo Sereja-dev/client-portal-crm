@@ -42,7 +42,7 @@ export function NotificationListItem({ item }: { item: NotificationBellItem }) {
       {item.detail && <p className="text-text-muted mt-0.5 text-sm">{item.detail}</p>}
       <time
         dateTime={item.timestamp.toISOString()}
-        title={item.timestamp.toLocaleString()}
+        title={item.timestamp.toLocaleString("en-US")}
         className="text-text-muted mt-1 block text-xs"
       >
         {relativeTime(item.timestamp)}

@@ -44,4 +44,14 @@ describe("InvoiceSendControls source contract", () => {
     expect(source).toContain('"Resend invoice"');
     expect(source).toContain('"Send invoice"');
   });
+
+  // Production hydration defect follow-up: the attempt timestamp used
+  // toLocaleString() with no locale argument, resolving to Node's default
+  // locale during SSR but the browser's navigator.language during
+  // hydration — the same implicit-locale mechanism as relativeTime()'s
+  // proven defect. See relative-time-locale.test.ts for the full context.
+  it("the attempt timestamp uses an explicit, locale-stable 'en-US' format, never the environment-implicit default", () => {
+    expect(source).toMatch(/\.toLocaleString\("en-US"\)/);
+    expect(source).not.toMatch(/\.toLocaleString\(\)/);
+  });
 });

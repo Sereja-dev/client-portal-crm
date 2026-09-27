@@ -123,7 +123,7 @@ export function InvoiceSendControls({
                 <span className="text-text-muted mx-2">·</span>
                 <span>{attempt.recipientEmail}</span>
                 <span className="text-text-muted mx-2">·</span>
-                <time dateTime={attempt.attemptedAt.toISOString()}>{attempt.attemptedAt.toLocaleString()}</time>
+                <time dateTime={attempt.attemptedAt.toISOString()}>{attempt.attemptedAt.toLocaleString("en-US")}</time>
               </li>
             ))}
           </ul>
