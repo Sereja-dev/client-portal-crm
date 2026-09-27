@@ -315,8 +315,26 @@ test.describe("Custom Fields — Entity Values UI (Phase 2B)", () => {
 
     await page.goto(`/clients/${fixtures.clientA.id}/edit`);
     await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("dark");
-    await expect(page.getByLabel("Dark Mode Field")).toBeVisible();
-    await expect(page.getByLabel("Dark Mode Checkbox")).toBeVisible();
+
+    // Client Edit's initial cold navigation briefly (~172ms) double-mounts
+    // this page's own React tree while streaming in from loading.tsx — a
+    // real, already-diagnosed, non-blocking App Router Suspense artifact
+    // (see settings-uploads-migration.spec.ts's own dark-theme Attachments
+    // test for the same phenomenon). The transient copy sits inside a
+    // hidden `div[hidden]#S:*` streaming boundary: 0x0, `offsetParent`
+    // null, and never actually focusable, so a bare getByLabel(...) can
+    // strict-mode-fail by genuinely matching both for that instant. The
+    // `:visible` intersection excludes that hidden copy outright — count
+    // is asserted at exactly 1 first, so a REAL future duplicate (one
+    // that's actually visible) still fails loudly instead of being masked
+    // by .first()/.last().
+    const textField = page.getByLabel("Dark Mode Field").and(page.locator(":visible"));
+    await expect(textField).toHaveCount(1);
+    await expect(textField).toBeVisible();
+
+    const checkboxField = page.getByLabel("Dark Mode Checkbox").and(page.locator(":visible"));
+    await expect(checkboxField).toHaveCount(1);
+    await expect(checkboxField).toBeVisible();
 
     expect(errors).toEqual([]);
 
