@@ -129,8 +129,8 @@ jobs:
           {
             printf 'DATABASE_URL=%s\n' "$DB_URL_SECRET"
             printf 'DIRECT_URL=%s\n' "$DIRECT_URL_SECRET"
-          } > .env.production.local
-          chmod 600 .env.production.local
+          } > .env.production.db.local
+          chmod 600 .env.production.db.local
 
       # The real signal. Exit code IS the job's pass/fail — empirically
       # confirmed against real PostgreSQL: 0 when the schema is up to
@@ -147,4 +147,4 @@ jobs:
       # credential file must never survive this job either way.
       - name: Remove ephemeral Production env file
         if: always()
-        run: rm -f .env.production.local
+        run: rm -f .env.production.db.local
