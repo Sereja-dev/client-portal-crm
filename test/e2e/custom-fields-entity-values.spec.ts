@@ -65,10 +65,13 @@ async function archiveOption(optionId: string): Promise<void> {
 }
 
 /**
- * Every list page (Clients/Leads/Projects) renders the record's own name
- * as plain text, never as a link — only a separate "Edit" pencil-icon
- * link exists, scoped per row. Clicking a record's edit page therefore
- * always goes through its own <tr role="row"> first.
+ * Client/Project list pages render the record's own name as plain text,
+ * never as a link — only a separate "Edit" pencil-icon link exists,
+ * scoped per row. Clicking a record's edit page therefore always goes
+ * through its own <tr role="row"> first. Leads Pipeline V1 made bare
+ * /leads default to the Pipeline/Kanban board instead of a row-based
+ * list, so this helper is no longer used for Lead — see the Lead test
+ * below, which resolves the created Lead's id directly instead.
  */
 async function goToEdit(page: import("@playwright/test").Page, recordName: string): Promise<void> {
   await page.getByRole("row", { name: recordName }).getByRole("link", { name: "Edit" }).click();
@@ -171,11 +174,29 @@ test.describe("Custom Fields — Entity Values UI (Phase 2B)", () => {
     await page.getByRole("button", { name: "Create lead" }).click();
     await expect(page).toHaveURL(/\/leads/);
 
-    await goToEdit(page, "Custom Field E2E Lead");
+    // Leads Pipeline V1 made bare /leads default to the Pipeline/Kanban
+    // board, not a row-based list — goToEdit()'s <tr role="row"> lookup
+    // no longer applies here. Resolve the just-created Lead's real id
+    // directly instead of depending on Pipeline card DOM.
+    const lead = await dbQuery<{ id: string }>("lead", "findFirstOrThrow", {
+      where: { name: "Custom Field E2E Lead" },
+    });
+    await page.goto(`/leads/${lead.id}/edit`);
     await expect(page.getByLabel("Referral Source")).toHaveValue("Conference");
     await page.getByLabel("Referral Source").fill("Cold outreach");
     await page.getByRole("button", { name: "Save changes" }).click();
-    await expect(page).toHaveURL(/\/leads/);
+
+    // A genuine redirect away from the edit route, not the pre-click URL:
+    // ToastListener strips its own one-shot ?toast= param via router.replace()
+    // almost immediately, so a bare /\/leads/ check would also match the
+    // edit route itself and prove nothing — this matches with or without
+    // that transient param, but never the /leads/<id>/edit URL just left.
+    await expect(page).toHaveURL(/^https?:\/\/[^/]+\/leads(\?.*)?$/);
+
+    // Fresh SSR reopen — proves real persistence, not retained client
+    // form state.
+    await page.goto(`/leads/${lead.id}/edit`);
+    await expect(page.getByLabel("Referral Source")).toHaveValue("Cold outreach");
   });
 
   test("Project: create/edit with a representative custom field", async ({ page }) => {
