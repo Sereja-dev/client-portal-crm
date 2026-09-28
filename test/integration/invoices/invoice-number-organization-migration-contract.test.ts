@@ -5,11 +5,10 @@ import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { PGlite } from "@electric-sql/pglite";
-import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import pg from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { PrismaClient, Prisma } from "@/generated/prisma/client";
+import { startIsolatedDatabase, stopIsolatedDatabase, createIsolatedRawClient, endIsolatedRawClient, reconnectIsolatedRawClient } from "../../support/isolated-postgres";
 
 /**
  * Invoice System Official Slice 5c — live database behavior coverage for
@@ -48,6 +47,27 @@ import { PrismaClient, Prisma } from "@/generated/prisma/client";
  * same-parent rename does not exclude it (confirmed directly: an
  * earlier version of this file renamed it in place and Prisma applied
  * it anyway, defeating the whole "pre-Slice-5c" setup).
+ *
+ * Isolated PGlite lifecycle repair — the low-level PGlite/socket
+ * lifecycle primitives (start/stop) and raw-client creation/teardown now
+ * come from the shared, hardened test/support/isolated-postgres.ts (see
+ * that module's own header comment for the proven root cause of the
+ * documented "unexpected parseComplete" race this replaces) — this
+ * file's own migration-directory move-aside choreography and
+ * `activeCleanup`/`afterEach` backstop are business logic specific to
+ * this migration's own guard/ordering contract, unrelated to that shared
+ * lifecycle, and are kept exactly as they were.
+ *
+ * Response-misrouting workaround — the first RED test and the GREEN test
+ * each run further queries on the same raw client immediately after an
+ * expected-rejection query; that exact shape is the one proven (see
+ * isolated-postgres.ts's own header comment) to risk PGlite misattributing
+ * a phantom trailing protocol message to the next query. Both reconnect
+ * to a fresh raw client (same isolated database, same already-applied
+ * partial migration history/data) via `reconnectIsolatedRawClient`
+ * immediately after each expected-rejection query, before issuing the
+ * next one. The other two RED tests have their rejection as the last
+ * query on their client, so need no reconnect.
  */
 
 const MIGRATION_DIR_NAME = "20260916090000_invoice_number_unique_per_organization";
@@ -68,33 +88,6 @@ afterEach(async () => {
   }
   await rm(MOVED_ASIDE_DIR, { recursive: true, force: true });
 });
-
-async function waitForSocketReady(port: number): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const client = new pg.Client({ host: "127.0.0.1", port, database: "postgres", user: "postgres" });
-    try {
-      await client.connect();
-      await client.end();
-      return;
-    } catch {
-      await client.end().catch(() => undefined);
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-  }
-  throw new Error(`isolated PGlite socket server never became reachable on port ${port}`);
-}
-
-async function startIsolatedDatabase(port: number): Promise<{ databaseUrl: string; pglite: PGlite; socketServer: PGLiteSocketServer }> {
-  const pglite = new PGlite();
-  const socketServer = new PGLiteSocketServer({ db: pglite, host: "127.0.0.1", port, maxConnections: 5 });
-  await socketServer.start();
-  await waitForSocketReady(port);
-  await pglite.query("CREATE ROLE anon NOLOGIN");
-  await pglite.query("CREATE ROLE authenticated NOLOGIN");
-  const databaseUrl = `postgresql://postgres@127.0.0.1:${port}/postgres`;
-  return { databaseUrl, pglite, socketServer };
-}
 
 /** Applies every migration except this one (moves this migration's real directory aside for the duration of the deploy call only). */
 async function deployAllMigrationsExceptThisOne(databaseUrl: string): Promise<void> {
@@ -134,16 +127,14 @@ async function seedMinimalOrgClientProject(
 describe("20260916090000_invoice_number_unique_per_organization — live database behavior (isolated, disposable PGlite instances)", () => {
   it("RED: aborts atomically and leaves no partial index change when two Invoice rows share (organizationId, invoiceNumber)", async () => {
     const port = 55611;
-    const { databaseUrl, pglite, socketServer } = await startIsolatedDatabase(port);
+    const database = await startIsolatedDatabase(port);
     activeCleanup = async () => {
-      await socketServer.stop();
-      await pglite.close();
+      await stopIsolatedDatabase(database);
     };
 
-    await deployAllMigrationsExceptThisOne(databaseUrl);
+    await deployAllMigrationsExceptThisOne(database.databaseUrl);
 
-    const rawClient = new pg.Client({ connectionString: databaseUrl });
-    await rawClient.connect();
+    let rawClient = await createIsolatedRawClient(database.databaseUrl);
     const orgId = "aaaaaaaa-0000-0000-0000-000000000001";
     await seedMinimalOrgClientProject(rawClient, {
       orgId,
@@ -175,6 +166,11 @@ describe("20260916090000_invoice_number_unique_per_organization — live databas
 
     await expect(rawClient.query(migrationSql)).rejects.toThrow(/organization-wide invoiceNumber uniqueness contract aborted/);
 
+    // Response-misrouting workaround: another query immediately follows
+    // this expected rejection, so reconnect first (see this file's own
+    // header comment).
+    rawClient = await reconnectIsolatedRawClient(rawClient, database.databaseUrl);
+
     const indexes = await rawClient.query(
       `SELECT indexname FROM pg_indexes WHERE tablename = 'Invoice' AND indexname LIKE '%invoiceNumber%'`,
     );
@@ -182,21 +178,19 @@ describe("20260916090000_invoice_number_unique_per_organization — live databas
     expect(names).toContain("Invoice_clientId_invoiceNumber_key");
     expect(names).not.toContain("Invoice_organizationId_invoiceNumber_key");
 
-    await rawClient.end();
+    await endIsolatedRawClient(rawClient);
   }, 30_000);
 
   it("RED: aborts on a blank/whitespace-only invoiceNumber", async () => {
     const port = 55612;
-    const { databaseUrl, pglite, socketServer } = await startIsolatedDatabase(port);
+    const database = await startIsolatedDatabase(port);
     activeCleanup = async () => {
-      await socketServer.stop();
-      await pglite.close();
+      await stopIsolatedDatabase(database);
     };
 
-    await deployAllMigrationsExceptThisOne(databaseUrl);
+    await deployAllMigrationsExceptThisOne(database.databaseUrl);
 
-    const rawClient = new pg.Client({ connectionString: databaseUrl });
-    await rawClient.connect();
+    const rawClient = await createIsolatedRawClient(database.databaseUrl);
     const orgId = "bbbbbbbb-0000-0000-0000-000000000001";
     await seedMinimalOrgClientProject(rawClient, {
       orgId,
@@ -213,21 +207,19 @@ describe("20260916090000_invoice_number_unique_per_organization — live databas
 
     await expect(rawClient.query(migrationSql)).rejects.toThrow(/organization-wide invoiceNumber uniqueness contract aborted/);
 
-    await rawClient.end();
+    await endIsolatedRawClient(rawClient);
   }, 30_000);
 
   it("RED: aborts on Invoice.organizationId disagreeing with its Project/Client organizationId", async () => {
     const port = 55613;
-    const { databaseUrl, pglite, socketServer } = await startIsolatedDatabase(port);
+    const database = await startIsolatedDatabase(port);
     activeCleanup = async () => {
-      await socketServer.stop();
-      await pglite.close();
+      await stopIsolatedDatabase(database);
     };
 
-    await deployAllMigrationsExceptThisOne(databaseUrl);
+    await deployAllMigrationsExceptThisOne(database.databaseUrl);
 
-    const rawClient = new pg.Client({ connectionString: databaseUrl });
-    await rawClient.connect();
+    const rawClient = await createIsolatedRawClient(database.databaseUrl);
     const orgId = "cccccccc-0000-0000-0000-000000000001";
     const otherOrgId = "cccccccc-0000-0000-0000-000000000009";
     await seedMinimalOrgClientProject(rawClient, {
@@ -254,21 +246,19 @@ describe("20260916090000_invoice_number_unique_per_organization — live databas
 
     await expect(rawClient.query(migrationSql)).rejects.toThrow(/organization-wide invoiceNumber uniqueness contract aborted/);
 
-    await rawClient.end();
+    await endIsolatedRawClient(rawClient);
   }, 30_000);
 
   it("GREEN: clean data migrates successfully; same-org duplicate rejected afterward; cross-org reuse remains allowed", async () => {
     const port = 55614;
-    const { databaseUrl, pglite, socketServer } = await startIsolatedDatabase(port);
+    const database = await startIsolatedDatabase(port);
     activeCleanup = async () => {
-      await socketServer.stop();
-      await pglite.close();
+      await stopIsolatedDatabase(database);
     };
 
-    await deployAllMigrationsExceptThisOne(databaseUrl);
+    await deployAllMigrationsExceptThisOne(database.databaseUrl);
 
-    const rawClient = new pg.Client({ connectionString: databaseUrl });
-    await rawClient.connect();
+    let rawClient = await createIsolatedRawClient(database.databaseUrl);
     const orgAId = "dddddddd-0000-0000-0000-000000000001";
     const orgBId = "dddddddd-0000-0000-0000-000000000009";
     await seedMinimalOrgClientProject(rawClient, {
@@ -304,6 +294,11 @@ describe("20260916090000_invoice_number_unique_per_organization — live databas
       ),
     ).rejects.toThrow(/duplicate key value violates unique constraint "Invoice_organizationId_invoiceNumber_key"/);
 
+    // Response-misrouting workaround: further queries immediately follow
+    // this expected rejection, so reconnect first (see this file's own
+    // header comment).
+    rawClient = await reconnectIsolatedRawClient(rawClient, database.databaseUrl);
+
     // Different organization, same number: remains allowed.
     await rawClient.query(
       `INSERT INTO "Organization" (id, name, slug, "createdAt", "updatedAt") VALUES ($1, 'Org B', 'probe-org-b-clean', now(), now())`,
@@ -328,28 +323,26 @@ describe("20260916090000_invoice_number_unique_per_organization — live databas
       ),
     ).resolves.toBeDefined();
 
-    await rawClient.end();
+    await endIsolatedRawClient(rawClient);
   }, 30_000);
 
   it("GREEN via real Prisma Client: a genuine organizationId+invoiceNumber P2002 reports the empirically verified driver-adapter fields shape", async () => {
     const port = 55615;
-    const { databaseUrl, pglite, socketServer } = await startIsolatedDatabase(port);
+    const database = await startIsolatedDatabase(port);
     activeCleanup = async () => {
-      await socketServer.stop();
-      await pglite.close();
+      await stopIsolatedDatabase(database);
     };
 
     await execFileAsync("npx", ["prisma", "migrate", "deploy"], {
       cwd: REPO_ROOT,
-      env: { ...process.env, DATABASE_URL: databaseUrl, DIRECT_URL: databaseUrl },
+      env: { ...process.env, DATABASE_URL: database.databaseUrl, DIRECT_URL: database.databaseUrl },
     });
 
-    const adapter = new PrismaPg({ connectionString: databaseUrl });
+    const adapter = new PrismaPg({ connectionString: database.databaseUrl });
     const prisma = new PrismaClient({ adapter });
     activeCleanup = async () => {
       await prisma.$disconnect();
-      await socketServer.stop();
-      await pglite.close();
+      await stopIsolatedDatabase(database);
     };
 
     const org = await prisma.organization.create({ data: { name: "Probe Org", slug: "probe-org-p2002" } });

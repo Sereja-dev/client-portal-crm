@@ -1,9 +1,5 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { PGlite } from "@electric-sql/pglite";
-import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
-import pg from "pg";
+import { withIsolatedDatabase, reconnectIsolatedRawClient, endIsolatedRawClient, type IsolatedRawClient } from "../../support/isolated-postgres";
 
 /**
  * Multiple Contacts Phase 1 — live database behavior coverage for
@@ -22,61 +18,29 @@ import pg from "pg";
  * code in contacts.test.ts, create.test.ts, update.test.ts, delete.test.ts,
  * and leads/convert.test.ts instead — this file never calls any of that
  * application code.
+ *
+ * Isolated PGlite lifecycle repair — the per-file PGlite/socket/raw-
+ * client lifecycle now lives in the shared, hardened test/support/
+ * isolated-postgres.ts (see that module's own header comment for the
+ * proven root cause of the documented "unexpected parseComplete" race
+ * this replaces). This file keeps only a thin, same-name `withIsolatedDb`
+ * wrapper so every `it()` body below is completely unchanged.
+ *
+ * Response-misrouting workaround — test "6/7" runs two further queries on
+ * the same raw client immediately after an expected-rejection query;
+ * that exact shape is the one proven (see isolated-postgres.ts's own
+ * header comment) to risk PGlite misattributing a phantom trailing
+ * protocol message to the next query. It reconnects to a fresh raw client
+ * (same isolated database, same already-applied schema/data) via
+ * `reconnectIsolatedRawClient` immediately after the expected-rejection
+ * query, before either of the two queries that follow it. Every other
+ * test in this file has no rejection at all, so needs no reconnect.
  */
 
-const execFileAsync = promisify(execFile);
 const REPO_ROOT = `${__dirname}/../../..`;
 
-async function waitForSocketReady(port: number): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const client = new pg.Client({ host: "127.0.0.1", port, database: "postgres", user: "postgres" });
-    try {
-      await client.connect();
-      await client.end();
-      return;
-    } catch {
-      await client.end().catch(() => undefined);
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-  }
-  throw new Error(`isolated PGlite socket server never became reachable on port ${port}`);
-}
-
-async function startIsolatedDatabase(port: number): Promise<{ databaseUrl: string; pglite: PGlite; socketServer: PGLiteSocketServer }> {
-  const pglite = new PGlite();
-  const socketServer = new PGLiteSocketServer({ db: pglite, host: "127.0.0.1", port, maxConnections: 5 });
-  await socketServer.start();
-  await waitForSocketReady(port);
-  await pglite.query("CREATE ROLE anon NOLOGIN");
-  await pglite.query("CREATE ROLE authenticated NOLOGIN");
-  const databaseUrl = `postgresql://postgres@127.0.0.1:${port}/postgres`;
-  return { databaseUrl, pglite, socketServer };
-}
-
-/** Applies the COMPLETE migration history (every migration, from zero) — this is the actual deployment sequence, not a partial/pre-this-migration state. Also proves "migrate status clean"/"all migrations apply" (Section T) as a side effect of succeeding at all. */
-async function deployFullMigrationHistory(databaseUrl: string): Promise<void> {
-  await execFileAsync("npx", ["prisma", "migrate", "deploy"], {
-    cwd: REPO_ROOT,
-    env: { ...process.env, DATABASE_URL: databaseUrl, DIRECT_URL: databaseUrl },
-  });
-}
-
-async function withIsolatedDb(port: number, fn: (rawClient: pg.Client) => Promise<void>): Promise<void> {
-  const { databaseUrl, pglite, socketServer } = await startIsolatedDatabase(port);
-  try {
-    await deployFullMigrationHistory(databaseUrl);
-    const rawClient = new pg.Client({ connectionString: databaseUrl });
-    await rawClient.connect();
-    try {
-      await fn(rawClient);
-    } finally {
-      await rawClient.end();
-    }
-  } finally {
-    await socketServer.stop();
-    await pglite.close();
-  }
+async function withIsolatedDb(port: number, fn: (rawClient: IsolatedRawClient, databaseUrl: string) => Promise<void>): Promise<void> {
+  await withIsolatedDatabase(port, REPO_ROOT, fn);
 }
 
 describe("20260924090000_add_client_contacts_foundation — live database behavior (isolated, disposable PGlite instances)", () => {
@@ -131,7 +95,8 @@ describe("20260924090000_add_client_contacts_foundation — live database behavi
   }, 30_000);
 
   it("6/7. the primary-contact partial unique index exists and is genuinely enforced at the database level (a second concurrent active primary for the same Client is rejected)", async () => {
-    await withIsolatedDb(55675, async (rawClient) => {
+    await withIsolatedDb(55675, async (initialRawClient, databaseUrl) => {
+      let rawClient = initialRawClient;
       const index = await rawClient.query(
         `SELECT indexdef FROM pg_indexes WHERE tablename = 'ClientContact' AND indexname = 'client_contact_one_active_primary'`,
       );
@@ -164,6 +129,11 @@ describe("20260924090000_add_client_contacts_foundation — live database behavi
         ),
       ).rejects.toThrow(/duplicate key|unique constraint/i);
 
+      // Response-misrouting workaround: two further queries immediately
+      // follow this expected rejection, so reconnect first (see this
+      // file's own header comment).
+      rawClient = await reconnectIsolatedRawClient(rawClient, databaseUrl);
+
       // An ARCHIVED second primary, or a second non-primary contact, are
       // both legitimate and must NOT be rejected by the same index.
       await expect(
@@ -178,6 +148,11 @@ describe("20260924090000_add_client_contacts_foundation — live database behavi
           [orgId, clientId],
         ),
       ).resolves.toBeDefined();
+
+      // Reconnected mid-test; the final reconnected client's own errors
+      // are this callback's own responsibility to enforce (see
+      // reconnectIsolatedRawClient's own doc comment).
+      await endIsolatedRawClient(rawClient);
     });
   }, 30_000);
 

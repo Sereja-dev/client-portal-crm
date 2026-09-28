@@ -1,9 +1,6 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { PGlite } from "@electric-sql/pglite";
-import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
-import pg from "pg";
+import type pg from "pg";
+import { withIsolatedDatabase, reconnectIsolatedRawClient, endIsolatedRawClient, type IsolatedRawClient } from "../../support/isolated-postgres";
 
 /**
  * Custom Fields Phase 1 — live database behavior coverage for
@@ -23,61 +20,31 @@ import pg from "pg";
  * cleanup) is proven against the real app code in the sibling
  * definitions.test.ts/options.test.ts/values.test.ts/delete-cleanup.test.ts
  * files instead — this file never calls any of that application code.
+ *
+ * Isolated PGlite lifecycle repair — the per-file PGlite/socket/raw-
+ * client lifecycle (previously duplicated locally in six files) now
+ * lives in the shared, hardened test/support/isolated-postgres.ts (see
+ * that module's own header comment for the proven root cause of the
+ * documented "unexpected parseComplete" race this replaces). This file
+ * keeps only a thin, same-name `withIsolatedDb` wrapper so every `it()`
+ * body below is completely unchanged.
+ *
+ * Response-misrouting workaround — tests 36 and 37b each run a further
+ * query on the same raw client immediately after an expected-rejection
+ * query; that exact shape is the one proven (see isolated-postgres.ts's
+ * own header comment) to risk PGlite misattributing a phantom trailing
+ * protocol message to the next query. Both tests reconnect to a fresh raw
+ * client (same isolated database, same already-applied schema) via
+ * `reconnectIsolatedRawClient` immediately after each expected-rejection
+ * query, before issuing the next one. Every other test in this file has
+ * its rejection (if any) as the last query on its client, or has no
+ * rejection at all, so needs no reconnect.
  */
 
-const execFileAsync = promisify(execFile);
 const REPO_ROOT = `${__dirname}/../../..`;
 
-async function waitForSocketReady(port: number): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const client = new pg.Client({ host: "127.0.0.1", port, database: "postgres", user: "postgres" });
-    try {
-      await client.connect();
-      await client.end();
-      return;
-    } catch {
-      await client.end().catch(() => undefined);
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-  }
-  throw new Error(`isolated PGlite socket server never became reachable on port ${port}`);
-}
-
-async function startIsolatedDatabase(port: number): Promise<{ databaseUrl: string; pglite: PGlite; socketServer: PGLiteSocketServer }> {
-  const pglite = new PGlite();
-  const socketServer = new PGLiteSocketServer({ db: pglite, host: "127.0.0.1", port, maxConnections: 5 });
-  await socketServer.start();
-  await waitForSocketReady(port);
-  await pglite.query("CREATE ROLE anon NOLOGIN");
-  await pglite.query("CREATE ROLE authenticated NOLOGIN");
-  const databaseUrl = `postgresql://postgres@127.0.0.1:${port}/postgres`;
-  return { databaseUrl, pglite, socketServer };
-}
-
-/** Applies the COMPLETE migration history (every migration, from zero) — this is the actual deployment sequence, not a partial/pre-this-migration state. Also proves "migrate status clean"/"all migrations apply" as a side effect of succeeding at all. */
-async function deployFullMigrationHistory(databaseUrl: string): Promise<void> {
-  await execFileAsync("npx", ["prisma", "migrate", "deploy"], {
-    cwd: REPO_ROOT,
-    env: { ...process.env, DATABASE_URL: databaseUrl, DIRECT_URL: databaseUrl },
-  });
-}
-
-async function withIsolatedDb(port: number, fn: (rawClient: pg.Client) => Promise<void>): Promise<void> {
-  const { databaseUrl, pglite, socketServer } = await startIsolatedDatabase(port);
-  try {
-    await deployFullMigrationHistory(databaseUrl);
-    const rawClient = new pg.Client({ connectionString: databaseUrl });
-    await rawClient.connect();
-    try {
-      await fn(rawClient);
-    } finally {
-      await rawClient.end();
-    }
-  } finally {
-    await socketServer.stop();
-    await pglite.close();
-  }
+async function withIsolatedDb(port: number, fn: (rawClient: IsolatedRawClient, databaseUrl: string) => Promise<void>): Promise<void> {
+  await withIsolatedDatabase(port, REPO_ROOT, fn);
 }
 
 async function seedOrgAndClient(rawClient: pg.Client, orgId: string, userId: string, clientId: string): Promise<void> {
@@ -121,7 +88,8 @@ describe("20260925090000_add_custom_fields_foundation — live database behavior
   }, 30_000);
 
   it("36. CustomFieldDefinition_organizationId_entityType_key_key uniquely constrains (organizationId, entityType, key)", async () => {
-    await withIsolatedDb(55682, async (rawClient) => {
+    await withIsolatedDb(55682, async (initialRawClient: IsolatedRawClient, databaseUrl: string) => {
+      let rawClient = initialRawClient;
       const index = await rawClient.query(
         `SELECT indexdef FROM pg_indexes WHERE tablename = 'CustomFieldDefinition' AND indexname = 'CustomFieldDefinition_organizationId_entityType_key_key'`,
       );
@@ -143,6 +111,11 @@ describe("20260925090000_add_custom_fields_foundation — live database behavior
         ),
       ).rejects.toThrow(/duplicate key|unique constraint/i);
 
+      // Response-misrouting workaround: reconnect before the next query,
+      // since it immediately follows the expected rejection above (see
+      // this file's own header comment).
+      rawClient = await reconnectIsolatedRawClient(rawClient, databaseUrl);
+
       // Same key, different entityType — must be allowed (unique is per entityType too).
       await expect(
         rawClient.query(
@@ -150,6 +123,12 @@ describe("20260925090000_add_custom_fields_foundation — live database behavior
           [defId2, orgId],
         ),
       ).resolves.toBeDefined();
+
+      // Reconnected mid-test; the reconnected client's own errors are
+      // this callback's own responsibility to enforce (see
+      // reconnectIsolatedRawClient's own doc comment) — the wrapper's
+      // automatic teardown only knows about the original client.
+      await endIsolatedRawClient(rawClient);
     });
   }, 30_000);
 
@@ -178,7 +157,8 @@ describe("20260925090000_add_custom_fields_foundation — live database behavior
   }, 30_000);
 
   it("37b. the exactly-one-typed-value CHECK constraint rejects zero and multiple populated columns, and accepts exactly one", async () => {
-    await withIsolatedDb(55684, async (rawClient) => {
+    await withIsolatedDb(55684, async (initialRawClient: IsolatedRawClient, databaseUrl: string) => {
+      let rawClient = initialRawClient;
       const orgId = "40000000-0000-0000-0000-000000000001";
       const userId = "40000000-0000-0000-0000-000000000002";
       const clientId = "40000000-0000-0000-0000-000000000003";
@@ -197,6 +177,11 @@ describe("20260925090000_add_custom_fields_foundation — live database behavior
         ),
       ).rejects.toThrow(/CustomFieldValue_exactly_one_typed_value|check constraint/i);
 
+      // Response-misrouting workaround: another query immediately
+      // follows this expected rejection, so reconnect first (see this
+      // file's own header comment).
+      rawClient = await reconnectIsolatedRawClient(rawClient, databaseUrl);
+
       // Two typed columns populated — rejected.
       await expect(
         rawClient.query(
@@ -205,6 +190,10 @@ describe("20260925090000_add_custom_fields_foundation — live database behavior
         ),
       ).rejects.toThrow(/CustomFieldValue_exactly_one_typed_value|check constraint/i);
 
+      // Back-to-back with the previous rejection — reconnect again
+      // before the next (accepting) query.
+      rawClient = await reconnectIsolatedRawClient(rawClient, databaseUrl);
+
       // Exactly one typed column populated — accepted.
       await expect(
         rawClient.query(
@@ -212,6 +201,11 @@ describe("20260925090000_add_custom_fields_foundation — live database behavior
           [orgId, defId, clientId],
         ),
       ).resolves.toBeDefined();
+
+      // Reconnected mid-test; the final reconnected client's own errors
+      // are this callback's own responsibility to enforce (see
+      // reconnectIsolatedRawClient's own doc comment).
+      await endIsolatedRawClient(rawClient);
     });
   }, 30_000);
 

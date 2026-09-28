@@ -5,9 +5,16 @@ import { tmpdir } from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { afterEach, describe, expect, it } from "vitest";
-import { PGlite } from "@electric-sql/pglite";
-import { PGLiteSocketServer } from "@electric-sql/pglite-socket";
 import pg from "pg";
+import {
+  startIsolatedDatabase,
+  stopIsolatedDatabase,
+  createIsolatedRawClient,
+  endIsolatedRawClient,
+  withIsolatedDatabase,
+  reconnectIsolatedRawClient,
+  type IsolatedRawClient,
+} from "../../support/isolated-postgres";
 
 /**
  * Custom Statuses Phase 1 — live database behavior coverage for
@@ -32,6 +39,27 @@ import pg from "pg";
  * new-org-bootstrap.test.ts/definitions.test.ts/assignment.test.ts/
  * system-semantics.test.ts/security.test.ts files instead — this file
  * never calls any of that application code.
+ *
+ * Isolated PGlite lifecycle repair — the low-level PGlite/socket
+ * lifecycle primitives (start/stop) and raw-client creation/teardown now
+ * come from the shared, hardened test/support/isolated-postgres.ts (see
+ * that module's own header comment for the proven root cause of the
+ * documented "unexpected parseComplete" race this replaces). This file's
+ * own migration-directory move-aside choreography and `activeCleanup`/
+ * `afterEach` backstop are business logic specific to this migration's
+ * own backfill contract, unrelated to that shared lifecycle, and are
+ * kept exactly as they were.
+ *
+ * Response-misrouting workaround — tests 5, 6, 7b, and 7d each run a
+ * further query on the same raw client immediately after an expected-
+ * rejection query; that exact shape is the one proven (see isolated-
+ * postgres.ts's own header comment) to risk PGlite misattributing a
+ * phantom trailing protocol message to the next query. Each reconnects to
+ * a fresh raw client (same isolated database, same already-applied
+ * schema/data) via `reconnectIsolatedRawClient` immediately after its
+ * expected-rejection query, before issuing the next one. Tests 1-4, 7a,
+ * 7c, and 8 have no rejection, or have their rejection (if any) as the
+ * last query on their client, so need no reconnect.
  */
 
 const MIGRATION_DIR_NAME = "20260926090000_add_custom_statuses_foundation";
@@ -70,33 +98,6 @@ afterEach(async () => {
   }
 });
 
-async function waitForSocketReady(port: number): Promise<void> {
-  const deadline = Date.now() + 10_000;
-  while (Date.now() < deadline) {
-    const client = new pg.Client({ host: "127.0.0.1", port, database: "postgres", user: "postgres" });
-    try {
-      await client.connect();
-      await client.end();
-      return;
-    } catch {
-      await client.end().catch(() => undefined);
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-  }
-  throw new Error(`isolated PGlite socket server never became reachable on port ${port}`);
-}
-
-async function startIsolatedDatabase(port: number): Promise<{ databaseUrl: string; pglite: PGlite; socketServer: PGLiteSocketServer }> {
-  const pglite = new PGlite();
-  const socketServer = new PGLiteSocketServer({ db: pglite, host: "127.0.0.1", port, maxConnections: 5 });
-  await socketServer.start();
-  await waitForSocketReady(port);
-  await pglite.query("CREATE ROLE anon NOLOGIN");
-  await pglite.query("CREATE ROLE authenticated NOLOGIN");
-  const databaseUrl = `postgresql://postgres@127.0.0.1:${port}/postgres`;
-  return { databaseUrl, pglite, socketServer };
-}
-
 /** Applies every migration except this one and its own DEPENDENT_MIGRATION_DIRS (moves each real directory aside for the duration of the deploy call only). */
 async function deployAllMigrationsExceptThisOne(databaseUrl: string): Promise<void> {
   await rename(REAL_MIGRATION_DIR, MOVED_ASIDE_DIR);
@@ -116,29 +117,8 @@ async function deployAllMigrationsExceptThisOne(databaseUrl: string): Promise<vo
   }
 }
 
-/** Applies the COMPLETE migration history (every migration, from zero) — used by the constraint-level tests below, which need no pre-existing data. */
-async function deployFullMigrationHistory(databaseUrl: string): Promise<void> {
-  await execFileAsync("npx", ["prisma", "migrate", "deploy"], {
-    cwd: REPO_ROOT,
-    env: { ...process.env, DATABASE_URL: databaseUrl, DIRECT_URL: databaseUrl },
-  });
-}
-
-async function withIsolatedDb(port: number, fn: (rawClient: pg.Client) => Promise<void>): Promise<void> {
-  const { databaseUrl, pglite, socketServer } = await startIsolatedDatabase(port);
-  try {
-    await deployFullMigrationHistory(databaseUrl);
-    const rawClient = new pg.Client({ connectionString: databaseUrl });
-    await rawClient.connect();
-    try {
-      await fn(rawClient);
-    } finally {
-      await rawClient.end();
-    }
-  } finally {
-    await socketServer.stop();
-    await pglite.close();
-  }
+async function withIsolatedDb(port: number, fn: (rawClient: IsolatedRawClient, databaseUrl: string) => Promise<void>): Promise<void> {
+  await withIsolatedDatabase(port, REPO_ROOT, fn);
 }
 
 async function seedPreExistingOrgWithEntities(
@@ -174,16 +154,14 @@ async function seedPreExistingOrgWithEntities(
 describe("20260926090000_add_custom_statuses_foundation — backfill behavior (pre-existing data, isolated PGlite)", () => {
   it("1. backfill inserts exactly 4 CLIENT + 6 LEAD + 5 PROJECT system definitions for a pre-existing Organization, and none for a second, unrelated Organization run through the same migration", async () => {
     const port = 55690;
-    const { databaseUrl, pglite, socketServer } = await startIsolatedDatabase(port);
+    const database = await startIsolatedDatabase(port);
     activeCleanup = async () => {
-      await socketServer.stop();
-      await pglite.close();
+      await stopIsolatedDatabase(database);
     };
 
-    await deployAllMigrationsExceptThisOne(databaseUrl);
+    await deployAllMigrationsExceptThisOne(database.databaseUrl);
 
-    const rawClient = new pg.Client({ connectionString: databaseUrl });
-    await rawClient.connect();
+    const rawClient = await createIsolatedRawClient(database.databaseUrl);
     const orgId = "aaaaaaaa-0000-0000-0000-000000000001";
     const orgId2 = "aaaaaaaa-0000-0000-0000-000000000009";
     await seedPreExistingOrgWithEntities(rawClient, {
@@ -210,21 +188,19 @@ describe("20260926090000_add_custom_statuses_foundation — backfill behavior (p
     expect(byOrg(orgId)).toEqual({ CLIENT: 4, LEAD: 6, PROJECT: 5 });
     expect(byOrg(orgId2)).toEqual({ CLIENT: 4, LEAD: 6, PROJECT: 5 });
 
-    await rawClient.end();
+    await endIsolatedRawClient(rawClient);
   }, 30_000);
 
   it("2. every pre-existing Client/Lead/Project row's statusDefinitionId is backfilled to the system definition matching its own current legacy status/stage value (not the org's default)", async () => {
     const port = 55691;
-    const { databaseUrl, pglite, socketServer } = await startIsolatedDatabase(port);
+    const database = await startIsolatedDatabase(port);
     activeCleanup = async () => {
-      await socketServer.stop();
-      await pglite.close();
+      await stopIsolatedDatabase(database);
     };
 
-    await deployAllMigrationsExceptThisOne(databaseUrl);
+    await deployAllMigrationsExceptThisOne(database.databaseUrl);
 
-    const rawClient = new pg.Client({ connectionString: databaseUrl });
-    await rawClient.connect();
+    const rawClient = await createIsolatedRawClient(database.databaseUrl);
     const orgId = "bbbbbbbb-0000-0000-0000-000000000001";
     const clientId = "bbbbbbbb-0000-0000-0000-000000000003";
     const leadId = "bbbbbbbb-0000-0000-0000-000000000004";
@@ -260,21 +236,19 @@ describe("20260926090000_add_custom_statuses_foundation — backfill behavior (p
     );
     expect(project.rows[0].key).toBe("on_hold");
 
-    await rawClient.end();
+    await endIsolatedRawClient(rawClient);
   }, 30_000);
 
   it("3. the migration never modifies any pre-existing Client/Lead/Project row's own legacy status/stage/name/other column values — only the new statusDefinitionId column is populated", async () => {
     const port = 55692;
-    const { databaseUrl, pglite, socketServer } = await startIsolatedDatabase(port);
+    const database = await startIsolatedDatabase(port);
     activeCleanup = async () => {
-      await socketServer.stop();
-      await pglite.close();
+      await stopIsolatedDatabase(database);
     };
 
-    await deployAllMigrationsExceptThisOne(databaseUrl);
+    await deployAllMigrationsExceptThisOne(database.databaseUrl);
 
-    const rawClient = new pg.Client({ connectionString: databaseUrl });
-    await rawClient.connect();
+    const rawClient = await createIsolatedRawClient(database.databaseUrl);
     const orgId = "cccccccc-0000-0000-0000-000000000001";
     const clientId = "cccccccc-0000-0000-0000-000000000003";
     const leadId = "cccccccc-0000-0000-0000-000000000004";
@@ -298,21 +272,19 @@ describe("20260926090000_add_custom_statuses_foundation — backfill behavior (p
     const project = await rawClient.query(`SELECT name, status FROM "Project" WHERE id = $1`, [projectId]);
     expect(project.rows[0]).toEqual({ name: "P", status: "ON_HOLD" });
 
-    await rawClient.end();
+    await endIsolatedRawClient(rawClient);
   }, 30_000);
 
   it("4. backfilled system definitions have deterministic keys/labels/positions/colors and exactly one isDefault per organization+entityType", async () => {
     const port = 55693;
-    const { databaseUrl, pglite, socketServer } = await startIsolatedDatabase(port);
+    const database = await startIsolatedDatabase(port);
     activeCleanup = async () => {
-      await socketServer.stop();
-      await pglite.close();
+      await stopIsolatedDatabase(database);
     };
 
-    await deployAllMigrationsExceptThisOne(databaseUrl);
+    await deployAllMigrationsExceptThisOne(database.databaseUrl);
 
-    const rawClient = new pg.Client({ connectionString: databaseUrl });
-    await rawClient.connect();
+    const rawClient = await createIsolatedRawClient(database.databaseUrl);
     const orgId = "dddddddd-0000-0000-0000-000000000001";
     await seedPreExistingOrgWithEntities(rawClient, {
       orgId,
@@ -347,13 +319,14 @@ describe("20260926090000_add_custom_statuses_foundation — backfill behavior (p
       { entityType: "PROJECT", n: 1 },
     ]);
 
-    await rawClient.end();
+    await endIsolatedRawClient(rawClient);
   }, 30_000);
 });
 
 describe("20260926090000_add_custom_statuses_foundation — schema/constraint contract (full deploy, no pre-existing data needed)", () => {
   it("5. the CustomStatusDefinition_organizationId_entityType_key_key uniquely constrains (organizationId, entityType, key)", async () => {
-    await withIsolatedDb(55694, async (rawClient) => {
+    await withIsolatedDb(55694, async (initialRawClient, databaseUrl) => {
+      let rawClient = initialRawClient;
       const index = await rawClient.query(
         `SELECT indexdef FROM pg_indexes WHERE tablename = 'CustomStatusDefinition' AND indexname = 'CustomStatusDefinition_organizationId_entityType_key_key'`,
       );
@@ -373,6 +346,11 @@ describe("20260926090000_add_custom_statuses_foundation — schema/constraint co
         ),
       ).rejects.toThrow(/duplicate key|unique constraint/i);
 
+      // Response-misrouting workaround: another query immediately
+      // follows this expected rejection, so reconnect first (see this
+      // file's own header comment).
+      rawClient = await reconnectIsolatedRawClient(rawClient, databaseUrl);
+
       // Same key, different entityType — must be allowed (unique is per entityType too).
       await expect(
         rawClient.query(
@@ -380,11 +358,17 @@ describe("20260926090000_add_custom_statuses_foundation — schema/constraint co
           [orgId],
         ),
       ).resolves.toBeDefined();
+
+      // Reconnected mid-test; the final reconnected client's own errors
+      // are this callback's own responsibility to enforce (see
+      // reconnectIsolatedRawClient's own doc comment).
+      await endIsolatedRawClient(rawClient);
     });
   }, 30_000);
 
   it("6. custom_status_definition_one_active_default rejects a second active default per organization+entityType, but allows one after the first is archived, and allows a second across different entityTypes", async () => {
-    await withIsolatedDb(55695, async (rawClient) => {
+    await withIsolatedDb(55695, async (initialRawClient, databaseUrl) => {
+      let rawClient = initialRawClient;
       const index = await rawClient.query(
         `SELECT indexdef FROM pg_indexes WHERE tablename = 'CustomStatusDefinition' AND indexname = 'custom_status_definition_one_active_default'`,
       );
@@ -406,6 +390,11 @@ describe("20260926090000_add_custom_statuses_foundation — schema/constraint co
         ),
       ).rejects.toThrow(/duplicate key|unique constraint/i);
 
+      // Response-misrouting workaround: further queries immediately
+      // follow this expected rejection, so reconnect first (see this
+      // file's own header comment).
+      rawClient = await reconnectIsolatedRawClient(rawClient, databaseUrl);
+
       // A second active default for a DIFFERENT entityType — allowed.
       await expect(
         rawClient.query(
@@ -422,6 +411,11 @@ describe("20260926090000_add_custom_statuses_foundation — schema/constraint co
           [orgId],
         ),
       ).resolves.toBeDefined();
+
+      // Reconnected mid-test; the final reconnected client's own errors
+      // are this callback's own responsibility to enforce (see
+      // reconnectIsolatedRawClient's own doc comment).
+      await endIsolatedRawClient(rawClient);
     });
   }, 30_000);
 
@@ -446,7 +440,8 @@ describe("20260926090000_add_custom_statuses_foundation — schema/constraint co
   }, 30_000);
 
   it("7b. deleting a CustomStatusDefinition directly, on its own, while a Client still references it, is still rejected (RESTRICT-equivalent behavior preserved)", async () => {
-    await withIsolatedDb(55697, async (rawClient) => {
+    await withIsolatedDb(55697, async (initialRawClient, databaseUrl) => {
+      let rawClient = initialRawClient;
       const orgId = "11111111-2222-0000-0000-000000000001";
       const userId = "11111111-2222-0000-0000-000000000002";
       const clientId = "11111111-2222-0000-0000-000000000003";
@@ -468,8 +463,19 @@ describe("20260926090000_add_custom_statuses_foundation — schema/constraint co
       await expect(rawClient.query(`DELETE FROM "CustomStatusDefinition" WHERE id = $1`, [defId])).rejects.toThrow(
         /foreign key constraint/i,
       );
+
+      // Response-misrouting workaround: another query immediately
+      // follows this expected rejection, so reconnect first (see this
+      // file's own header comment).
+      rawClient = await reconnectIsolatedRawClient(rawClient, databaseUrl);
+
       const remaining = await rawClient.query(`SELECT COUNT(*)::int AS n FROM "CustomStatusDefinition" WHERE id = $1`, [defId]);
       expect(remaining.rows[0].n).toBe(1);
+
+      // Reconnected mid-test; the final reconnected client's own errors
+      // are this callback's own responsibility to enforce (see
+      // reconnectIsolatedRawClient's own doc comment).
+      await endIsolatedRawClient(rawClient);
     });
   }, 30_000);
 
@@ -508,7 +514,8 @@ describe("20260926090000_add_custom_statuses_foundation — schema/constraint co
   }, 30_000);
 
   it("7d. Client/Project.organizationId is SetNull, not Cascade — deleting the Organization orphans (never removes) a Client/Project row, so one that still references a CustomStatusDefinition correctly continues to block that definition's deletion; this is why cleanupTestData (test/fixtures/seed.ts) always deletes Client rows explicitly before deleting the Organization, rather than relying on any cascade to do it", async () => {
-    await withIsolatedDb(55700, async (rawClient) => {
+    await withIsolatedDb(55700, async (initialRawClient, databaseUrl) => {
+      let rawClient = initialRawClient;
       const orgId = "33333333-0000-0000-0000-000000000001";
       const userId = "33333333-0000-0000-0000-000000000002";
       const clientId = "33333333-0000-0000-0000-000000000003";
@@ -533,10 +540,20 @@ describe("20260926090000_add_custom_statuses_foundation — schema/constraint co
         /foreign key constraint/i,
       );
 
+      // Response-misrouting workaround: further queries immediately
+      // follow this expected rejection, so reconnect first (see this
+      // file's own header comment).
+      rawClient = await reconnectIsolatedRawClient(rawClient, databaseUrl);
+
       // Deleting the Client explicitly FIRST (exactly what
       // cleanupTestData already does) then lets the Organization go.
       await rawClient.query(`DELETE FROM "Client" WHERE id = $1`, [clientId]);
       await expect(rawClient.query(`DELETE FROM "Organization" WHERE id = $1`, [orgId])).resolves.toBeDefined();
+
+      // Reconnected mid-test; the final reconnected client's own errors
+      // are this callback's own responsibility to enforce (see
+      // reconnectIsolatedRawClient's own doc comment).
+      await endIsolatedRawClient(rawClient);
     });
   }, 30_000);
 
