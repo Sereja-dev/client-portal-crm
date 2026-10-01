@@ -56,6 +56,49 @@ async function cleanupRoleFixtureOrg(orgId: string, userIds: readonly string[]):
   await prisma.user.deleteMany({ where: { id: { in: [...userIds] } } });
 }
 
+/**
+ * After a *successful* leaveOrganizationAction() call, Product code's own
+ * getOrCreateOrganizationId() legitimately auto-provisions a brand-new
+ * "<user.name>'s Workspace" Organization + OWNER Membership for the
+ * leaving user, since they now have zero remaining memberships (see
+ * leaveOrganizationAction's own header comment: "Land somewhere valid:
+ * ... otherwise their own personal OWNER organization, auto-provisioned
+ * via the same Stage 2 mechanism every other first-time resolution
+ * already uses"). `cleanupRoleFixtureOrg` alone never accounted for this
+ * side effect — deleting the leaving user cascades away the *membership*
+ * row in that new workspace, but the orphaned Organization itself was
+ * never targeted by any delete and survived indefinitely (the proven
+ * root cause of test/integration/security/grants.test.ts's own whole-
+ * suite "orgs: N" residue). This resolves the leaving user's own new
+ * membership — the same lookup leaveOrganizationAction() performs
+ * internally — *before* the user is deleted, so the auto-provisioned
+ * organization can be identified and removed explicitly, rather than
+ * relied upon to vanish via cascade (it never does: Membership cascades
+ * on User, not Organization on an orphaned Membership).
+ *
+ * Only ever call this after a leave that actually succeeded — the
+ * rejected-leave tests in this file never trigger this side effect at
+ * all (confirmed directly: leaveOrganizationAction only reaches its own
+ * getOrCreateOrganizationId call after the delete-and-redirect path, not
+ * on its thrown-error paths), so they continue using
+ * `cleanupRoleFixtureOrg` alone, unchanged.
+ */
+async function cleanupAfterSuccessfulLeave(
+  originalOrgId: string,
+  leavingUserId: string,
+  allUserIds: readonly string[],
+): Promise<void> {
+  const newMembership = await prisma.membership.findFirst({
+    where: { userId: leavingUserId },
+    orderBy: { createdAt: "desc" },
+    select: { organizationId: true },
+  });
+  if (newMembership && newMembership.organizationId !== originalOrgId) {
+    await prisma.organization.deleteMany({ where: { id: newMembership.organizationId } });
+  }
+  await cleanupRoleFixtureOrg(originalOrgId, allUserIds);
+}
+
 async function membershipRole(userId: string, organizationId: string): Promise<Role | null> {
   const membership = await prisma.membership.findUnique({
     where: { userId_organizationId: { userId, organizationId } },
@@ -182,10 +225,28 @@ describe("leaveOrganizationAction", () => {
     expect(activityCount).toBe(1);
     expect(await ownerCount(orgId)).toBe(1);
 
-    await cleanupRoleFixtureOrg(
+    // Role Fixture auto-provisioned workspace cleanup — proves the real
+    // Product side effect actually happened (not merely assumed), before
+    // cleaning it up. member now has zero other memberships, so
+    // leaveOrganizationAction's own getOrCreateOrganizationId call must
+    // have landed them in a brand-new personal workspace.
+    const newMembership = await prisma.membership.findFirst({
+      where: { userId: member.id },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(newMembership).not.toBeNull();
+    expect(newMembership?.organizationId).not.toBe(orgId);
+    expect(newMembership?.role).toBe(Role.OWNER);
+    const autoProvisionedOrgId = newMembership!.organizationId;
+
+    await cleanupAfterSuccessfulLeave(
       orgId,
+      member.id,
       users.map((u) => u.id),
     );
+
+    expect(await prisma.organization.findUnique({ where: { id: orgId } })).toBeNull();
+    expect(await prisma.organization.findUnique({ where: { id: autoProvisionedOrgId } })).toBeNull();
   });
 
   it("ADMIN leaves successfully: membership deleted, exactly one MEMBER_LEFT Activity, org still has exactly one OWNER", async () => {
@@ -203,10 +264,25 @@ describe("leaveOrganizationAction", () => {
     expect(activityCount).toBe(1);
     expect(await ownerCount(orgId)).toBe(1);
 
-    await cleanupRoleFixtureOrg(
+    // Role Fixture auto-provisioned workspace cleanup — see the MEMBER
+    // test above for the full explanation; identical mechanism here.
+    const newMembership = await prisma.membership.findFirst({
+      where: { userId: admin.id },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(newMembership).not.toBeNull();
+    expect(newMembership?.organizationId).not.toBe(orgId);
+    expect(newMembership?.role).toBe(Role.OWNER);
+    const autoProvisionedOrgId = newMembership!.organizationId;
+
+    await cleanupAfterSuccessfulLeave(
       orgId,
+      admin.id,
       users.map((u) => u.id),
     );
+
+    expect(await prisma.organization.findUnique({ where: { id: orgId } })).toBeNull();
+    expect(await prisma.organization.findUnique({ where: { id: autoProvisionedOrgId } })).toBeNull();
   });
 
   it("a sole OWNER attempting to leave is rejected with the exact canonical message; membership remains; exactly one OWNER remains; no MEMBER_LEFT Activity", async () => {
@@ -247,10 +323,25 @@ describe("leaveOrganizationAction", () => {
     expect(await membershipRole(newOwner.id, orgId)).toBe(Role.OWNER);
     expect(await ownerCount(orgId)).toBe(1);
 
-    await cleanupRoleFixtureOrg(
+    // Role Fixture auto-provisioned workspace cleanup — see the MEMBER
+    // test above for the full explanation; identical mechanism here.
+    const newMembership = await prisma.membership.findFirst({
+      where: { userId: formerOwner.id },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(newMembership).not.toBeNull();
+    expect(newMembership?.organizationId).not.toBe(orgId);
+    expect(newMembership?.role).toBe(Role.OWNER);
+    const autoProvisionedOrgId = newMembership!.organizationId;
+
+    await cleanupAfterSuccessfulLeave(
       orgId,
+      formerOwner.id,
       users.map((u) => u.id),
     );
+
+    expect(await prisma.organization.findUnique({ where: { id: orgId } })).toBeNull();
+    expect(await prisma.organization.findUnique({ where: { id: autoProvisionedOrgId } })).toBeNull();
   });
 
   /**
