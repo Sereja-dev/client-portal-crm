@@ -1,5 +1,6 @@
 import { afterAll } from "vitest";
 import { TEST_DATABASE_URL } from "../support/local-postgres";
+import { installHardenedPoolShutdown } from "../support/pg-pool-shutdown";
 
 // Runs before each integration test file loads (Vitest `setupFiles`, once
 // per worker) — must happen before anything imports @/lib/prisma, whose
@@ -30,6 +31,22 @@ process.env.INTEGRATIONS_ENCRYPTION_KEY_V1 = "KioqKioqKioqKioqKioqKioqKioqKioqKi
 // here — a global afterAll every integration test file picks up via
 // setupFiles — closes each file's connection before the next file opens
 // its own.
+//
+// Shared pg-pool / grants-residue defect (Defect #1) — `prisma.
+// $disconnect()` below inherits a proven, real upstream pg-pool@3.14.0
+// defect: `Pool.prototype.end()`'s own promise can resolve before the
+// underlying socket has genuinely finished closing (see test/support/
+// pg-pool-shutdown.ts's own header comment for the exact mechanism and
+// direct proof). Installed once, process-wide, before any test file's
+// own Prisma import — every pool.end() call for the rest of this process
+// (this file's own disconnect below, and any fire-and-forget stale-
+// generation disconnect the PGLITE_TEST_DB recovery facade itself
+// triggers) now genuinely waits for the real socket-close boundary
+// before resolving, closing the exact gap that let this file's own
+// connection still be mid-close when the next file's fresh connection
+// opened.
+installHardenedPoolShutdown();
+
 afterAll(async () => {
   const { prisma } = await import("@/lib/prisma");
   await prisma.$disconnect();
