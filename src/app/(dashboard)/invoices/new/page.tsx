@@ -51,7 +51,7 @@ export default async function NewInvoicePage({
   const currencyDefault = resolveInvoiceCurrencyDefault(companyProfile.currency);
 
   return (
-    <div className="mx-auto max-w-xl">
+    <div className="mx-auto max-w-5xl">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-text-primary text-2xl font-semibold tracking-tight">
           Add invoice
@@ -81,6 +81,7 @@ export default async function NewInvoicePage({
             clients={clients}
             projects={projects.map((project) => ({ id: project.id, label: project.name, clientId: project.clientId }))}
             currencyOptions={getSupportedInvoiceCurrencies()}
+            companyDisplayName={companyProfile.displayName}
             currencyFallbackNotice={
               currencyDefault.isFallback && currencyDefault.organizationCurrency
                 ? `Your organization's currency (${currencyDefault.organizationCurrency}) isn't supported for invoices — defaulted to USD.`

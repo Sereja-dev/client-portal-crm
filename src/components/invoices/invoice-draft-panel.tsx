@@ -52,6 +52,7 @@ export function InvoiceDraftPanel({
   currencyOptions,
   currencyFallbackNotice,
   defaultValues,
+  companyDisplayName,
 }: {
   invoiceId: string;
   invoiceNumber: string;
@@ -65,6 +66,8 @@ export function InvoiceDraftPanel({
   currencyOptions: readonly string[];
   currencyFallbackNotice?: string;
   defaultValues?: InvoiceFormDefaults;
+  /** Invoice Live Preview V1 — threaded straight through to InvoiceForm's own prop of the same name. */
+  companyDisplayName?: string;
 }) {
   const [dirty, setDirty] = useState(false);
 
@@ -77,6 +80,7 @@ export function InvoiceDraftPanel({
         currencyOptions={currencyOptions}
         currencyFallbackNotice={currencyFallbackNotice}
         defaultValues={defaultValues}
+        companyDisplayName={companyDisplayName}
         submitLabel="Save changes"
         pendingLabel="Saving…"
         onDirtyChange={() => setDirty(true)}

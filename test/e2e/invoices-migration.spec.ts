@@ -57,11 +57,13 @@ test.describe("Design System Batch 10 — Remaining Invoices surfaces", () => {
     await expect(heading).toBeVisible();
     await expect.poll(() => heading.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(236, 237, 238)");
 
-    // legend -> fieldset -> form -> the CARD_SURFACE_CLASSES card div.
-    // .first() because React's own hidden progressive-enhancement
-    // safety-net <form> duplicate-renders this same subtree — both
-    // matches are identical clones, not a "wrong" element.
-    const cardDiv = page.getByText("Invoice type", { exact: true }).locator("../../..").first();
+    // legend -> fieldset -> form -> Invoice Live Preview V1's own
+    // form+preview grid wrapper (InvoiceForm's own root) -> the
+    // CARD_SURFACE_CLASSES card div. .first() because React's own hidden
+    // progressive-enhancement safety-net <form> duplicate-renders this
+    // same subtree — both matches are identical clones, not a "wrong"
+    // element.
+    const cardDiv = page.getByText("Invoice type", { exact: true }).locator("../../../..").first();
     await expect.poll(() => cardDiv.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(27, 31, 38)");
 
     expect(errors).toEqual([]);
@@ -79,7 +81,7 @@ test.describe("Design System Batch 10 — Remaining Invoices surfaces", () => {
     // assertion below to this single, already-disambiguated container
     // keeps each one unique regardless — this reproduced on CI (though
     // not locally) for the bare page-wide getByLabel("Itemized").
-    const cardDiv = page.getByText("Invoice type", { exact: true }).locator("../../..").first();
+    const cardDiv = page.getByText("Invoice type", { exact: true }).locator("../../../..").first();
 
     await cardDiv.getByLabel("Itemized").check();
     const previewBox = cardDiv.getByText("Enter valid amounts to see a total preview.").locator("..");
@@ -164,7 +166,7 @@ test.describe("Design System Batch 10 — Remaining Invoices surfaces", () => {
       // Same duplicate-form disambiguation as the tests above — a bare
       // page-wide getByLabel("Itemized") can match both the real and the
       // hidden progressive-enhancement clone.
-      const cardDiv = page.getByText("Invoice type", { exact: true }).locator("../../..").first();
+      const cardDiv = page.getByText("Invoice type", { exact: true }).locator("../../../..").first();
       await cardDiv.getByLabel("Itemized").check();
       overflow = await page.evaluate(() => ({
         scrollWidth: document.documentElement.scrollWidth,

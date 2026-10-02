@@ -8,6 +8,7 @@ import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { buildInvoiceTotalsViewModel } from "@/lib/invoices/totals-view-model";
 import { getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
+import { getCompanyProfile } from "@/lib/organization-setup/company-profile";
 import { formatDateOnly } from "@/lib/invoices/date-only";
 import { canAccessPaymentDetails } from "@/lib/organization-setup/authorization";
 import { getInvoiceIssuanceReadiness } from "@/lib/organization-setup/invoice-readiness";
@@ -75,7 +76,7 @@ export default async function EditInvoicePage({
   // The full Client/Project option lists are fetched only for the DRAFT
   // branch — the read-only view never offers a Client/Project-changing
   // control.
-  const [clients, projects] = isDraft
+  const [clients, projects, companyProfile] = isDraft
     ? await Promise.all([
         prisma.client.findMany({ where: { organizationId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
         prisma.project.findMany({
@@ -83,8 +84,9 @@ export default async function EditInvoicePage({
           orderBy: { name: "asc" },
           select: { id: true, name: true, clientId: true },
         }),
+        getCompanyProfile(organizationId),
       ])
-    : [null, null];
+    : [null, null, null];
 
   // Advisory pre-issuance readiness notice — fetched only for a DRAFT
   // invoice, and only when canIssue is already true. getInvoiceIssuanceReadiness()
@@ -99,7 +101,7 @@ export default async function EditInvoicePage({
   const boundUpdateInvoiceAction = updateInvoiceAction.bind(null, invoice.id, invoice.updatedAt.toISOString());
 
   return (
-    <div className="mx-auto max-w-2xl">
+    <div className={`mx-auto ${isDraft ? "max-w-5xl" : "max-w-2xl"}`}>
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-text-primary text-2xl font-semibold tracking-tight">
           {isDraft ? "Edit invoice" : "Invoice"}
@@ -120,6 +122,7 @@ export default async function EditInvoicePage({
             clients={clients ?? []}
             projects={(projects ?? []).map((project) => ({ id: project.id, label: project.name, clientId: project.clientId }))}
             currencyOptions={getSupportedInvoiceCurrencies()}
+            companyDisplayName={companyProfile?.displayName ?? ""}
             defaultValues={{
               invoiceNumber: invoice.invoiceNumber,
               clientId: invoice.clientId,

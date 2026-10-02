@@ -243,7 +243,7 @@ export function SettingsGroupIcon({ className = "h-4 w-4" }: IconProps) {
   );
 }
 
-/** Sidebar group disclosure indicator only — rotated via group-open: on the parent <details>, never used standalone as a semantic icon. */
+/** Disclosure indicator (Sidebar nav groups, InvoiceForm's "Advanced options") — rotated via group-open: on the parent <details>, never used standalone as a semantic icon. */
 export function ChevronDownIcon({ className = "h-3.5 w-3.5" }: IconProps) {
   return (
     <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" className={className}>

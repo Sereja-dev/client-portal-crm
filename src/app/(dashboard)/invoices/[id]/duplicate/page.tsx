@@ -8,6 +8,7 @@ import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { getDuplicateSourceInvoice } from "@/lib/invoices/duplicate-source";
 import { buildDuplicateInvoiceDefaults, type DuplicateSourceData } from "@/lib/invoices/duplicate";
 import { isSupportedInvoiceCurrency, getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
+import { getCompanyProfile } from "@/lib/organization-setup/company-profile";
 import { createInvoiceAction } from "../../new/actions";
 
 /**
@@ -84,13 +85,14 @@ export default async function DuplicateInvoicePage({
     );
   }
 
-  const [clients, projects] = await Promise.all([
+  const [clients, projects, companyProfile] = await Promise.all([
     prisma.client.findMany({ where: { organizationId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     prisma.project.findMany({
       where: { organizationId },
       orderBy: { name: "asc" },
       select: { id: true, name: true, clientId: true },
     }),
+    getCompanyProfile(organizationId),
   ]);
 
   // Captured exactly once, then injected — the pure mapper below never
@@ -118,7 +120,7 @@ export default async function DuplicateInvoicePage({
   const defaults = buildDuplicateInvoiceDefaults(sourceData, today);
 
   return (
-    <div className="mx-auto max-w-xl">
+    <div className="mx-auto max-w-5xl">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-text-primary text-2xl font-semibold tracking-tight">
           Duplicate invoice
@@ -142,6 +144,7 @@ export default async function DuplicateInvoicePage({
           clients={clients}
           projects={projects.map((project) => ({ id: project.id, label: project.name, clientId: project.clientId }))}
           currencyOptions={getSupportedInvoiceCurrencies()}
+          companyDisplayName={companyProfile.displayName}
           defaultValues={defaults}
           submitLabel="Create duplicate"
         />
