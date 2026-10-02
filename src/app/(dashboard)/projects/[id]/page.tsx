@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { parseEnumParam, type RawSearchParams } from "@/lib/list-params";
+import { isUuid } from "@/lib/validation/time-entry";
 import { ProjectProfileHeader } from "./profile-header";
 import { ProjectOverviewTab } from "./overview-tab";
 import { ProjectTasksTab } from "./project-tasks-tab";
@@ -84,6 +85,20 @@ export default async function ProjectHubPage({
   searchParams: Promise<RawSearchParams>;
 }) {
   const { id } = await params;
+  // A malformed/non-UUID route id (a mistyped URL, a stale bookmark, a
+  // display value like a project number pasted into the address bar
+  // instead of its real id) must never reach Prisma — `id` is `@db.Uuid`
+  // on Project, and the Postgres driver rejects a non-UUID string before
+  // any query even runs, throwing an uncaught PrismaClientKnownRequestError
+  // (P2007) that the dashboard's generic error boundary then renders as
+  // "Something went wrong" instead of a clean, expected 404. Same
+  // isUuid() helper tasks/query.ts already reuses from this same module
+  // for its own `?projectId=` search-param guard — this is format
+  // validation only, never a security boundary (the tenancy check below
+  // still fully applies to every well-formed id).
+  if (!isUuid(id)) {
+    notFound();
+  }
   const { user, organizationId, membership } = await getCurrentMembership();
   const resolvedSearchParams = await searchParams;
   // Unknown/invalid `tab` falls back to Overview — never an error, never
