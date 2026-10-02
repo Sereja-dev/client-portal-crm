@@ -109,9 +109,21 @@ export function TaskQuickLogDialog({
           Billable
         </label>
 
-        {state.error && (
+        {/*
+         * Work Hub Production audit's own proven defect: taskId (and the
+         * other two hidden fields, projectId/userId) had no visible error
+         * slot at all, so a genuine INVALID_TASK/INVALID_PROJECT/
+         * INVALID_TARGET_USER rejection — e.g. a historical Task that was
+         * previously wrongly rejected before entries.ts's own tenant-scope
+         * fix — was silently dropped: the dialog's uncontrolled fields
+         * reset (React's own documented behavior after any action
+         * transition, regardless of outcome) with nothing to tell the user
+         * it had failed. workDate/durationMinutes keep their own existing
+         * FormField-attached rendering above, unduplicated here.
+         */}
+        {(state.error || state.fieldErrors?.taskId || state.fieldErrors?.projectId || state.fieldErrors?.userId) && (
           <p role="alert" className="text-danger text-sm">
-            {state.error}
+            {state.error ?? state.fieldErrors?.taskId ?? state.fieldErrors?.projectId ?? state.fieldErrors?.userId}
           </p>
         )}
 

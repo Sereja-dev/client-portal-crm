@@ -156,7 +156,20 @@ export async function createTimeEntry(
   }
 
   if (taskId) {
-    const task = await client.task.findFirst({ where: { id: taskId, organizationId, projectId }, select: { id: true } });
+    // Scoped via `projectId` + the required `project: { organizationId }`
+    // relation, not `Task.organizationId` directly — Work Hub Production
+    // audit's own proven root cause: Task.organizationId is a nullable
+    // column added by migration 20260731055411_add_multi_tenant_schema
+    // with no backfill UPDATE, so every Task created before that
+    // migration permanently has it NULL. Filtering on it directly here
+    // wrongly rejected a historical Task — genuinely belonging to this
+    // already-validated Project — as INVALID_TASK. Mirrors the identical
+    // fix already applied to profile-query.ts's fetchProjectTasks/
+    // fetchProjectHealth for the same reason.
+    const task = await client.task.findFirst({
+      where: { id: taskId, projectId, project: { organizationId } },
+      select: { id: true },
+    });
     if (!task) {
       return { ok: false, reason: "INVALID_TASK" };
     }

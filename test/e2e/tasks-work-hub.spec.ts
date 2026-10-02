@@ -135,6 +135,89 @@ test.describe("Tasks Work Hub", () => {
     await expect(page.getByText("Time entry logged")).toBeVisible();
   });
 
+  // Work Hub Production defect (quick-time logging audit): a Task
+  // created before migration 20260731055411_add_multi_tenant_schema has
+  // organizationId permanently NULL (no backfill ever ran). Quick-log
+  // must still succeed for such a Task — the real UI flow, not a direct
+  // action/domain-layer call — proving the fix end-to-end.
+  test("Quick time log: a historical Task with organizationId = null still submits successfully", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await actAs(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+    const historicalTask = await dbQuery<{ id: string; title: string }>("task", "create", {
+      data: {
+        title: "Historical Null-Org Task",
+        projectId: fixtures.project.id,
+        organizationId: null,
+        status: "TODO",
+        priority: "MEDIUM",
+      },
+    });
+
+    try {
+      await page.goto("/tasks");
+      await page.getByRole("row", { name: new RegExp(historicalTask.title) }).getByRole("button", { name: "Log time" }).click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.getByRole("heading", { name: new RegExp(`Log time`) })).toBeVisible();
+      await dialog.getByLabel("Minutes").fill("1");
+      await dialog.getByLabel("Description").fill("Historical task quick-log regression");
+      await dialog.getByRole("button", { name: "Log time", exact: true }).click();
+
+      await expect(page).toHaveURL(/\/time\//);
+      await expect(page.getByText("Time entry logged")).toBeVisible();
+    } finally {
+      await dbQuery("timeEntry", "deleteMany", { where: { taskId: historicalTask.id } });
+      await dbQuery("task", "deleteMany", { where: { id: historicalTask.id } });
+    }
+  });
+
+  // The other proven defect: before entries.ts's own tenant-scope fix, an
+  // INVALID_TASK rejection was silently dropped — the dialog's
+  // uncontrolled fields reset (React's own documented post-action
+  // behavior) with no visible error. Deterministically triggers the real
+  // INVALID_TASK branch — no test-only backdoor, no weakened validation —
+  // by deleting the Task out from under an already-open dialog's stale
+  // hidden taskId, exactly as a real "task deleted/moved while the dialog
+  // was open" race would.
+  test("Quick time log: a genuinely invalid Task now shows a visible error, never a silent reset", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await actAs(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+    const staleTask = await dbQuery<{ id: string; title: string }>("task", "create", {
+      data: {
+        title: "Stale Task For Deletion",
+        projectId: fixtures.project.id,
+        organizationId: fixtures.orgA.id,
+        status: "TODO",
+        priority: "MEDIUM",
+      },
+    });
+
+    try {
+      await page.goto("/tasks");
+      await page.getByRole("row", { name: new RegExp(staleTask.title) }).getByRole("button", { name: "Log time" }).click();
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.getByRole("heading", { name: new RegExp(`Log time`) })).toBeVisible();
+
+      // The dialog's own hidden taskId is now stale — the Task it refers
+      // to no longer exists.
+      await dbQuery("task", "deleteMany", { where: { id: staleTask.id } });
+
+      await dialog.getByLabel("Minutes").fill("1");
+      await dialog.getByRole("button", { name: "Log time", exact: true }).click();
+
+      await expect(dialog.getByRole("alert")).toHaveText("Select a valid task for this project.");
+      await expect(page).not.toHaveURL(/\/time\//);
+      expect(await dbQuery<number>("timeEntry", "count", { where: { taskId: staleTask.id } })).toBe(0);
+    } finally {
+      await dbQuery("task", "deleteMany", { where: { id: staleTask.id } });
+    }
+  });
+
   test("Bulk actions: selecting rows shows the toolbar; a bulk status change applies to every selected Task", async ({
     context,
     baseURL,

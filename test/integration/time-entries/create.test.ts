@@ -182,6 +182,69 @@ describe("Time Tracking — createTimeEntry", () => {
     await prisma.project.deleteMany({ where: { id: orgBProject.id } });
   });
 
+  // Work Hub Production defect (quick-time logging audit): Task.
+  // organizationId is a nullable column added by migration
+  // 20260731055411_add_multi_tenant_schema with no backfill UPDATE, so
+  // every Task created before that migration permanently has it NULL.
+  // createTimeEntry's own Task lookup must scope tenancy through the
+  // required `project: { organizationId }` relation, exactly like
+  // profile-query.ts already does — never `Task.organizationId` directly
+  // — so a genuine historical Task is accepted, not wrongly rejected as
+  // INVALID_TASK.
+  it("historical compatibility: a same-org Task with organizationId = null is accepted and creates a real TimeEntry", async () => {
+    const historicalTask = await prisma.task.create({
+      data: { title: "Historical Task", projectId: fixtures.project.id, organizationId: null, status: "TODO", priority: "MEDIUM" },
+    });
+    const actor = actorFor(fixtures, fixtures.owner, "OWNER");
+    const result = await createTimeEntry(fixtures.orgA.id, actor, {
+      userId: fixtures.owner.id,
+      projectId: fixtures.project.id,
+      taskId: historicalTask.id,
+      workDate: "2026-03-15",
+      durationMinutes: 1,
+      billable: false,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected ok");
+    expect(result.entry.projectId).toBe(fixtures.project.id);
+    expect(result.entry.taskId).toBe(historicalTask.id);
+    expect(result.entry.organizationId).toBe(fixtures.orgA.id);
+    expect(result.entry.durationMinutes).toBe(1);
+    expect(result.entry.billable).toBe(false);
+    expect(await prisma.timeEntry.count({ where: { taskId: historicalTask.id } })).toBe(1);
+
+    await prisma.task.deleteMany({ where: { id: historicalTask.id } });
+  });
+
+  // Tenant-isolation regression for the relation-based scoping above:
+  // dropping the direct Task.organizationId equality filter must not
+  // accidentally widen visibility across organizations. A foreign-org
+  // Task — in the same historical organizationId-null shape — linked to
+  // a DIFFERENT Project in a DIFFERENT Organization must still be
+  // rejected when the caller supplies the LOCAL org's own Project id.
+  it("a foreign-org Task (also organizationId = null, the same historical shape) is still rejected", async () => {
+    const orgBProject = await prisma.project.create({
+      data: { name: "Org B Historical Project", clientId: fixtures.clientB.id, organizationId: fixtures.orgB.id, ownerId: fixtures.orgBOwner.id, status: "PLANNING" },
+    });
+    const orgBHistoricalTask = await prisma.task.create({
+      data: { title: "Org B Historical Task", projectId: orgBProject.id, organizationId: null, status: "TODO", priority: "MEDIUM" },
+    });
+    const actor = actorFor(fixtures, fixtures.owner, "OWNER");
+    const result = await createTimeEntry(fixtures.orgA.id, actor, {
+      userId: fixtures.owner.id,
+      projectId: fixtures.project.id,
+      taskId: orgBHistoricalTask.id,
+      workDate: "2026-03-15",
+      durationMinutes: 60,
+    });
+    expect(result).toEqual({ ok: false, reason: "INVALID_TASK" });
+    expect(await prisma.timeEntry.count({ where: { taskId: orgBHistoricalTask.id } })).toBe(0);
+
+    await prisma.task.deleteMany({ where: { id: orgBHistoricalTask.id } });
+    await prisma.project.deleteMany({ where: { id: orgBProject.id } });
+  });
+
   it("22. billable true is stored when explicitly set", async () => {
     const actor = actorFor(fixtures, fixtures.owner, "OWNER");
     const result = await createTimeEntry(fixtures.orgA.id, actor, {
