@@ -97,6 +97,42 @@ describe("Project Hub — health signals", () => {
     const health = await fetchProjectHealth(fixtures.orgA.id, project.id, NOW);
     expect(health).toEqual({ openTaskCount: 0, overdueTaskCount: 0, trackedMinutes: 0, invoiceCount: 0 });
   });
+
+  // Work Hub Production defect (read-only root-cause audit): Task.
+  // organizationId is a nullable column added by migration
+  // 20260731055411_add_multi_tenant_schema with no backfill UPDATE, so
+  // every Task created before that migration permanently has it NULL —
+  // unlike Invoice.organizationId (required, explicitly backfilled) or
+  // TimeEntry.organizationId (required from the start). fetchProjectHealth
+  // and fetchProjectTasks must still find/count such a Task correctly,
+  // scoped through the required Project relation rather than this
+  // unreliable column — reproduced here with the exact minimal shape the
+  // audit proved: organizationId explicitly null, projectId valid.
+  it("historical compatibility: a Task with organizationId = null (pre-multi-tenant-migration shape) is still visible and counted via the Project relation", async () => {
+    const project = await createProject(fixtures.orgA.id, fixtures.clientA.id, fixtures.owner.id);
+
+    await prisma.task.createMany({
+      data: [
+        { title: `${PREFIX}-historical-open`, projectId: project.id, organizationId: null, status: "TODO" },
+        {
+          title: `${PREFIX}-historical-overdue`,
+          projectId: project.id,
+          organizationId: null,
+          status: "TODO",
+          dueDate: new Date("2026-06-01T00:00:00Z"),
+        },
+      ],
+    });
+
+    const health = await fetchProjectHealth(fixtures.orgA.id, project.id, NOW);
+    expect(health.openTaskCount).toBe(2);
+    expect(health.overdueTaskCount).toBe(1);
+
+    const rows = await fetchProjectTasks(fixtures.orgA.id, project.id);
+    expect(rows.map((r) => r.title).sort()).toEqual(
+      [`${PREFIX}-historical-open`, `${PREFIX}-historical-overdue`].sort(),
+    );
+  });
 });
 
 describe("Project Hub — relationship tab query isolation", () => {
@@ -193,5 +229,34 @@ describe("Project Hub — relationship tab query isolation", () => {
     expect(timeFromWrongOrg).toEqual([]);
     expect(invoicesFromWrongOrg).toEqual([]);
     expect(healthFromWrongOrg).toEqual({ openTaskCount: 0, overdueTaskCount: 0, trackedMinutes: 0, invoiceCount: 0 });
+  });
+
+  // Tenant-isolation regression for the relation-based scoping above:
+  // dropping the direct Task.organizationId equality filter must not
+  // accidentally widen visibility. A foreign-org Task — in the same
+  // historical organizationId-null shape — linked to a DIFFERENT
+  // Project in a DIFFERENT Organization must never appear in this
+  // Project's own reads, proving tenancy is still enforced through the
+  // Project relation, not merely no-longer-enforced at all.
+  it("a foreign-org Task (also organizationId = null) linked to a different org's Project never leaks into this Project's own reads", async () => {
+    const project = await createProject(fixtures.orgA.id, fixtures.clientA.id, fixtures.owner.id);
+    const foreignProject = await prisma.project.create({
+      data: {
+        name: uniqueName(),
+        organizationId: fixtures.orgB.id,
+        clientId: fixtures.clientB.id,
+        ownerId: fixtures.orgBOwner.id,
+        status: "IN_PROGRESS",
+      },
+    });
+    await prisma.task.create({
+      data: { title: `${PREFIX}-foreign-null-org`, projectId: foreignProject.id, organizationId: null, status: "TODO" },
+    });
+
+    const rows = await fetchProjectTasks(fixtures.orgA.id, project.id);
+    expect(rows).toEqual([]);
+
+    const health = await fetchProjectHealth(fixtures.orgA.id, project.id, NOW);
+    expect(health.openTaskCount).toBe(0);
   });
 });

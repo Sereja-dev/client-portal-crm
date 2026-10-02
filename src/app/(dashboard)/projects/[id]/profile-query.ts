@@ -39,19 +39,36 @@ export type ProjectHealth = {
 /**
  * The four Overview health signals, each using this app's own existing
  * canonical semantic (never a newly-invented one):
- *  - open tasks: `status != DONE`, scoped through Task.projectId directly
- *    (unlike Client Hub's Task->Project->Client indirection, Task has a
- *    direct `projectId` column, so no relation-filter join is needed here).
- *  - overdue tasks: the exact same `status != DONE && dueDate < now` rule
+ *  - open/overdue tasks: scoped through Task.projectId together with the
+ *    required `project: { organizationId }` relation — read-only audit's
+ *    own §E/§H finding: `Task.organizationId` itself is a nullable,
+ *    never-backfilled denormalized column (added by migration
+ *    20260731055411_add_multi_tenant_schema with no backfill UPDATE, so
+ *    every Task created before that migration permanently has it NULL),
+ *    unlike `Invoice.organizationId` (required, explicitly backfilled by
+ *    20260911090000_repair_invoice_organization_scope) or
+ *    `TimeEntry.organizationId` (required from the start — never nullable
+ *    at all). A direct `Task.organizationId` equality filter therefore
+ *    silently excludes genuine historical rows. `Task.projectId` is
+ *    required and reliable, and `page.tsx` has already validated this
+ *    exact Project belongs to `organizationId` before either function
+ *    below is ever called — but these functions are also tested and used
+ *    independently of that page (see profile-query.test.ts's own header
+ *    comment), so the tenant boundary is kept self-contained here too, via
+ *    the Project relation rather than Task's own unreliable column.
+ *  - overdue: the exact same `status != DONE && dueDate < now` rule
  *    `tasks/query.ts`'s own `buildTaskWhere` and `dashboard/query.ts`
  *    both already establish — never a second, invented definition.
  *  - tracked time: sum of non-archived TimeEntry.durationMinutes — a
  *    count/sum only, never a money value; billable/non-billable are not
  *    distinguished in this one aggregate (the Time tab's own rows show
- *    each entry's own billable flag).
+ *    each entry's own billable flag). `TimeEntry.organizationId` has no
+ *    historical-nullability gap, so this stays a direct column filter.
  *  - invoices: a count only — never a cross-currency amount sum (Section
  *    13's own explicit invariant, identical to Client Hub's own
- *    fetchClientInvoices comment).
+ *    fetchClientInvoices comment). `Invoice.organizationId` was already
+ *    backfilled for every pre-existing row, so this too stays a direct
+ *    column filter.
  */
 export async function fetchProjectHealth(
   organizationId: string,
@@ -60,10 +77,10 @@ export async function fetchProjectHealth(
 ): Promise<ProjectHealth> {
   const [openTaskCount, overdueTaskCount, timeAgg, invoiceCount] = await Promise.all([
     prisma.task.count({
-      where: { organizationId, projectId, status: { not: "DONE" } },
+      where: { projectId, project: { organizationId }, status: { not: "DONE" } },
     }),
     prisma.task.count({
-      where: { organizationId, projectId, status: { not: "DONE" }, dueDate: { lt: now } },
+      where: { projectId, project: { organizationId }, status: { not: "DONE" }, dueDate: { lt: now } },
     }),
     prisma.timeEntry.aggregate({
       where: { organizationId, projectId, archivedAt: null },
@@ -89,9 +106,16 @@ export type ProjectTaskRow = {
   assignee: { id: string; name: string } | null;
 };
 
+/**
+ * Scoped via `projectId` + the required `project: { organizationId }`
+ * relation, not `Task.organizationId` directly — see `fetchProjectHealth`'s
+ * own doc comment immediately above for the exact, proven reason (a
+ * nullable, never-backfilled column that would otherwise silently hide
+ * genuine historical Tasks from this tab).
+ */
 export async function fetchProjectTasks(organizationId: string, projectId: string): Promise<ProjectTaskRow[]> {
   return prisma.task.findMany({
-    where: { organizationId, projectId },
+    where: { projectId, project: { organizationId } },
     orderBy: [{ createdAt: "desc" }],
     take: PROJECT_TAB_ROW_BOUND,
     select: {
