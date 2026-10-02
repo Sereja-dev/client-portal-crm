@@ -113,54 +113,14 @@ describe("public schema grants lockdown (migration 20260802120937)", () => {
   //     against a real Auth service.
 });
 
-describe("whole-suite cleanup (runs last alphabetically — security/ sorts after activity/attachments/authorization/invitations/portal)", () => {
-  it("every other suite's afterAll has already run: no fixture rows remain anywhere", async () => {
-    const [
-      users,
-      orgs,
-      clients,
-      memberships,
-      portalUsers,
-      invitations,
-      clientInvitations,
-      attachments,
-      activities,
-      portalDownloadRequests,
-    ] = await Promise.all([
-      prisma.user.count(),
-      prisma.organization.count(),
-      prisma.client.count(),
-      prisma.membership.count(),
-      prisma.portalUser.count(),
-      prisma.invitation.count(),
-      prisma.clientInvitation.count(),
-      prisma.attachment.count(),
-      prisma.activity.count(),
-      prisma.portalDownloadRequest.count(),
-    ]);
-
-    expect({
-      users,
-      orgs,
-      clients,
-      memberships,
-      portalUsers,
-      invitations,
-      clientInvitations,
-      attachments,
-      activities,
-      portalDownloadRequests,
-    }).toEqual({
-      users: 0,
-      orgs: 0,
-      clients: 0,
-      memberships: 0,
-      portalUsers: 0,
-      invitations: 0,
-      clientInvitations: 0,
-      attachments: 0,
-      activities: 0,
-      portalDownloadRequests: 0,
-    });
-  });
-});
+// The whole-suite "no fixture rows remain anywhere" zero-state check used
+// to live here, gated by a comment claiming this file "runs last
+// alphabetically." That assumption is false — Vitest's file execution
+// order is not a guaranteed final-file contract (proven via real runs
+// showing this file at different positions) — so the check has moved to
+// the one place that genuinely is the suite's final boundary:
+// test/integration/global-setup.ts's own teardown(), via
+// test/support/assert-integration-db-clean.ts. See that module's own doc
+// comment and test/integration/support/assert-integration-db-clean.test.ts
+// for the full proof and regression coverage. This file now tests grants/
+// security only.
