@@ -43,8 +43,14 @@ export default async function NewTimeEntryPage({
           .then((rows) => rows.map((m) => ({ id: m.user.id, name: m.user.name })))
       : Promise.resolve([]),
     prisma.project.findMany({ where: { organizationId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    // Scoped via the required `project: { organizationId }` relation, not
+    // `Task.organizationId` directly — same proven historical-data gap
+    // already fixed identically in time/[id]/page.tsx, profile-query.ts,
+    // and createTimeEntry (see that page's own doc comment for the full
+    // mechanism). Without this, a historical same-org Task would be
+    // silently absent from this page's own Task options too.
     prisma.task.findMany({
-      where: { organizationId },
+      where: { project: { organizationId } },
       orderBy: { title: "asc" },
       select: { id: true, title: true, projectId: true },
     }),

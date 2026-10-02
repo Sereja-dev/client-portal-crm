@@ -53,8 +53,24 @@ export default async function TimeEntryDetailPage({ params }: { params: Promise<
           .then((rows) => rows.map((m) => ({ id: m.user.id, name: m.user.name })))
       : Promise.resolve([]),
     showEditForm ? prisma.project.findMany({ where: { organizationId }, orderBy: { name: "asc" }, select: { id: true, name: true } }) : Promise.resolve([]),
+    // Scoped via the required `project: { organizationId }` relation, not
+    // `Task.organizationId` directly — Work Hub Production audit's own
+    // proven root cause (same class already fixed in profile-query.ts
+    // and createTimeEntry): Task.organizationId is a nullable column
+    // added by migration 20260731055411_add_multi_tenant_schema with no
+    // backfill UPDATE, so every Task created before that migration
+    // permanently has it NULL. Filtering on it directly here silently
+    // excluded a historical Task from this options source entirely —
+    // the Task select then had no matching <option> for the stored
+    // TimeEntry.taskId, rendering as "No task" with "This project has no
+    // tasks yet", even though the Task genuinely belongs to an
+    // already-organization-scoped Project.
     showEditForm
-      ? prisma.task.findMany({ where: { organizationId }, orderBy: { title: "asc" }, select: { id: true, title: true, projectId: true } })
+      ? prisma.task.findMany({
+          where: { project: { organizationId } },
+          orderBy: { title: "asc" },
+          select: { id: true, title: true, projectId: true },
+        })
       : Promise.resolve([]),
   ]);
 
