@@ -90,7 +90,7 @@ export function InvoiceReadOnlyView({
           <p className="text-text-secondary mt-1 text-sm">
             {projectId && projectName && (
               <>
-                <Link href={`/projects/${projectId}/edit`} className={ACTION_LINK_CLASSES}>
+                <Link href={`/projects/${projectId}`} className={ACTION_LINK_CLASSES}>
                   {projectName}
                 </Link>
                 {" — "}

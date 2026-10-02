@@ -200,4 +200,36 @@ export async function createSampleWorkspaceData(
       notes: "Sample invoice — feel free to edit or delete.",
     },
   });
+
+  // Projects & Tasks Work Hub V1 (read-only audit §20/§25) — the one gap
+  // the audit found in this exact sample dataset: Tasks above already
+  // carry a real `assigneeId` (ownerId), but zero TimeEntry rows existed
+  // anywhere in it, so the new Work Hub's own Time tab/Overview tracked-
+  // time card would render as an empty state even in a freshly-seeded
+  // demo workspace. A small, bounded pair — scoped to the Project only
+  // (no taskId; TimeEntry.taskId is always optional, never required —
+  // see that model's own schema comment), matching this file's own
+  // deterministic `daysFromNow` convention, never a wall-clock read.
+  await tx.timeEntry.createMany({
+    data: [
+      {
+        organizationId,
+        userId: ownerId,
+        projectId: project.id,
+        workDate: daysFromNow(now, -5),
+        durationMinutes: 180,
+        description: "Moodboard research and client call prep.",
+        billable: true,
+      },
+      {
+        organizationId,
+        userId: ownerId,
+        projectId: project.id,
+        workDate: daysFromNow(now, -2),
+        durationMinutes: 90,
+        description: "Internal review of visual identity draft.",
+        billable: false,
+      },
+    ],
+  });
 }

@@ -61,12 +61,13 @@ export async function createProjectAction(
     return { error: null, customFieldErrors: customFieldValidation.fieldErrors };
   }
 
+  let createdProjectId: string;
   try {
     // Project create, its custom field values, and its Activity row are
     // one atomic unit — if any of them fail, everything rolls back
     // together rather than leaving a Project with half-written custom
     // fields (Section E).
-    await prisma.$transaction(async (tx) => {
+    createdProjectId = await prisma.$transaction(async (tx) => {
       // Billing & Subscriptions Stage 2 — re-checked from inside this same
       // transaction (docs/billing-architecture.md §7's race handling),
       // immediately before the Project write it guards.
@@ -117,6 +118,8 @@ export async function createProjectAction(
         action: "CREATED",
         metadata: buildProjectMetadata(project, client.name, user.name),
       });
+
+      return project.id;
     });
   } catch (err) {
     if (err instanceof BillingLimitError) {
@@ -134,5 +137,7 @@ export async function createProjectAction(
     throw err;
   }
 
-  redirect(withToast("/projects", "Project created"));
+  // Project Hub V1 — lands on the new canonical Hub route, not the list
+  // (mirrors updateProjectAction's own identical redirect target).
+  redirect(withToast(`/projects/${createdProjectId}`, "Project created"));
 }

@@ -180,6 +180,7 @@ describe("startWithSampleDataAction", () => {
     const projects = await prisma.project.findMany({ where: { organizationId: org.organizationId } });
     const tasks = await prisma.task.findMany({ where: { organizationId: org.organizationId } });
     const invoices = await prisma.invoice.findMany({ where: { organizationId: org.organizationId } });
+    const timeEntries = await prisma.timeEntry.findMany({ where: { organizationId: org.organizationId } });
 
     expect(clients).toHaveLength(2);
     expect(projects).toHaveLength(1);
@@ -199,6 +200,18 @@ describe("startWithSampleDataAction", () => {
     }
     expect(invoices[0]?.status).toBe("SENT");
     expect(invoices[0]?.amount.toFixed(2)).toBe("2400.00");
+
+    // Work Hub V1 (read-only audit §20/§25) — the one gap the audit found:
+    // Tasks already carried a real assigneeId, but zero TimeEntry rows
+    // existed anywhere in this dataset, so the new Work Hub's own Time
+    // tab/Overview tracked-time card rendered as an empty state even in a
+    // freshly-seeded demo workspace.
+    expect(timeEntries).toHaveLength(2);
+    for (const entry of timeEntries) {
+      expect(entry.projectId).toBe(projects[0]!.id);
+      expect(entry.userId).toBe(org.ownerId);
+      expect(entry.archivedAt).toBeNull();
+    }
 
     // No overdue task: every task's own dueDate is either in the future or
     // already completed before its due date — matching §7's explicit

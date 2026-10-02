@@ -302,7 +302,9 @@ describe("formatNotification — link allowlist", () => {
     expect(result.link).toBeNull();
   });
 
-  it("MENTIONED on a project links to the project edit page with a #comment fragment", () => {
+  it("MENTIONED on a project links to the Project Hub's Activity tab with a #comment fragment", () => {
+    // Work Hub V1 — Project comments moved from `/projects/{id}/edit` to
+    // the Hub's own Activity tab.
     const result = notification(
       "MENTIONED",
       {
@@ -315,7 +317,7 @@ describe("formatNotification — link allowlist", () => {
       { entityId: "33333333-3333-3333-3333-333333333333" },
     );
     expect(result.link).toBe(
-      "/projects/44444444-4444-4444-4444-444444444444/edit#comment-33333333-3333-3333-3333-333333333333",
+      "/projects/44444444-4444-4444-4444-444444444444?tab=activity#comment-33333333-3333-3333-3333-333333333333",
     );
   });
 

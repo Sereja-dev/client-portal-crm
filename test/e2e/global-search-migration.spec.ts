@@ -84,13 +84,13 @@ test.describe("Design System Batch 6 — Global Search", () => {
     // result.
     const option = projectsGroup.getByRole("option").first();
     const link = option.locator("a");
-    await expect(link).toHaveAttribute("href", `/projects/${fixtures.project.id}/edit`);
+    await expect(link).toHaveAttribute("href", `/projects/${fixtures.project.id}`);
 
     // Auto-highlighted first result + Enter activates it (real navigation,
     // not a class-string check).
     await expect(option).toHaveAttribute("aria-selected", "true");
     await page.keyboard.press("Enter");
-    await expect(page).toHaveURL(new RegExp(`/projects/${fixtures.project.id}/edit$`));
+    await expect(page).toHaveURL(new RegExp(`/projects/${fixtures.project.id}$`));
   });
 
   test("ArrowDown/ArrowUp move the active result between groups", async ({ page, context, baseURL }) => {

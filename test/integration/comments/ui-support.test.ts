@@ -96,7 +96,7 @@ describe("Comments & Mentions Stage 4 — UI-support integration", () => {
         createdAt: notification.createdAt,
         readAt: notification.readAt,
       });
-      expect(formatted.link).toBe(`/projects/${fixtures.project.id}/edit#comment-${result.commentId}`);
+      expect(formatted.link).toBe(`/projects/${fixtures.project.id}?tab=activity#comment-${result.commentId}`);
     });
 
     it("a real MENTIONED notification for a Task comment resolves to the task edit page", async () => {
@@ -142,7 +142,7 @@ describe("Comments & Mentions Stage 4 — UI-support integration", () => {
         createdAt: notification.createdAt,
         readAt: notification.readAt,
       });
-      expect(formatted.link).toBe(`/projects/${fixtures.project.id}/edit#comment-${createResult.commentId}`);
+      expect(formatted.link).toBe(`/projects/${fixtures.project.id}?tab=activity#comment-${createResult.commentId}`);
 
       // Confirm the destination row really is a safe placeholder, not raw body.
       const commentRow = await prisma.comment.findUniqueOrThrow({

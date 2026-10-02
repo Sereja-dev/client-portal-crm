@@ -41,6 +41,18 @@ export async function updateTaskAction(
     };
   }
 
+  // Re-verify server-side exactly like `projectId` above — see
+  // createTaskAction's own identical check.
+  if (values.assigneeId) {
+    const membership = await prisma.membership.findUnique({
+      where: { userId_organizationId: { userId: values.assigneeId, organizationId } },
+      select: { userId: true },
+    });
+    if (!membership) {
+      return { error: null, fieldErrors: { assigneeId: "Select a valid team member." } };
+    }
+  }
+
   // Update and its Activity row(s) are one atomic unit — if any Activity
   // insert fails, the whole update rolls back with it.
   const outcome = await prisma.$transaction(async (tx) => {
@@ -65,6 +77,7 @@ export async function updateTaskAction(
         dueDate: values.dueDate,
         completedAt: deriveCompletedAt(values.status, existing.completedAt),
         projectId: values.projectId,
+        assigneeId: values.assigneeId,
       },
     });
 

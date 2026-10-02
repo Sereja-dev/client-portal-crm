@@ -9,14 +9,15 @@ import { COMMENT_BODY_MAX_LENGTH } from "@/lib/comments/validate-body";
 import type { CommentActionState } from "@/types";
 
 /**
- * Comments & Mentions Stage 3 (docs/comments-architecture.md §5) — thin
- * wrappers only. Every real decision (rate limiting, target/org scoping,
- * body validation, mention parsing/validation, permissions, Activity/
- * Notification fan-out) lives in the shared src/lib/comments/*.ts helpers;
- * these functions exist solely to bind the Project id, read the plain-text
- * `body` field out of FormData, and translate the shared result into this
- * app's usual `{ error }` action-state shape. No UI reads these yet —
- * Stage 4 wires a real `<form>` to them.
+ * Work Hub V1 — moved verbatim from the old `projects/[id]/edit/comment-
+ * actions.ts` (Comments & Mentions Stage 3): every real decision (rate
+ * limiting, target/org scoping, body validation, mention parsing/
+ * validation, permissions, Activity/Notification fan-out) still lives in
+ * the shared src/lib/comments/*.ts helpers, completely unchanged. The only
+ * change from the original file is `revalidatePath` now targeting the new
+ * canonical Project Hub route (`/projects/${id}`) instead of the old
+ * `/projects/${id}/edit` — Comments now live under the Hub's Activity tab,
+ * never on the trimmed, true-edit-only edit page.
  */
 export async function createProjectCommentAction(
   projectId: string,
@@ -33,7 +34,7 @@ export async function createProjectCommentAction(
     return { error: mapCreateError(result.error) };
   }
 
-  revalidatePath(`/projects/${projectId}/edit`);
+  revalidatePath(`/projects/${projectId}`);
   return { error: null };
 }
 
@@ -50,14 +51,14 @@ export async function editProjectCommentAction(
   }
 
   if (!result.noop) {
-    revalidatePath(`/projects/${projectId}/edit`);
+    revalidatePath(`/projects/${projectId}`);
   }
   return { error: null };
 }
 
 export async function deleteProjectCommentAction(projectId: string, commentId: string): Promise<void> {
   await deleteComment({ commentId });
-  revalidatePath(`/projects/${projectId}/edit`);
+  revalidatePath(`/projects/${projectId}`);
 }
 
 function mapCreateError(error: "rate_limited" | "not_found" | "empty_body" | "body_too_long"): string {

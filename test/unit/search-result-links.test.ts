@@ -17,7 +17,9 @@ describe("per-type link builders — all 5 types", () => {
   });
 
   it("Project", () => {
-    expect(buildProjectResultUrl(VALID_UUID)).toBe(`/projects/${VALID_UUID}/edit`);
+    // Work Hub V1 — the canonical Project Hub route, not the (now
+    // true-edit-only) `/edit`.
+    expect(buildProjectResultUrl(VALID_UUID)).toBe(`/projects/${VALID_UUID}`);
   });
 
   it("Task", () => {
@@ -29,8 +31,9 @@ describe("per-type link builders — all 5 types", () => {
   });
 
   it("Comment under a Project", () => {
+    // Work Hub V1 — Project comments moved to the Hub's own Activity tab.
     expect(buildCommentResultUrl("PROJECT", VALID_UUID, VALID_UUID_2)).toBe(
-      `/projects/${VALID_UUID}/edit#comment-${VALID_UUID_2}`,
+      `/projects/${VALID_UUID}?tab=activity#comment-${VALID_UUID_2}`,
     );
   });
 
@@ -71,7 +74,7 @@ describe("link builders — invalid input never produces a URL", () => {
 describe("buildResultUrl — dispatcher", () => {
   it("dispatches to each per-type builder correctly", () => {
     expect(buildResultUrl("CLIENT", VALID_UUID)).toBe(`/clients/${VALID_UUID}`);
-    expect(buildResultUrl("PROJECT", VALID_UUID)).toBe(`/projects/${VALID_UUID}/edit`);
+    expect(buildResultUrl("PROJECT", VALID_UUID)).toBe(`/projects/${VALID_UUID}`);
     expect(buildResultUrl("TASK", VALID_UUID)).toBe(`/tasks/${VALID_UUID}/edit`);
     expect(buildResultUrl("INVOICE", VALID_UUID)).toBe(`/invoices/${VALID_UUID}/edit`);
   });

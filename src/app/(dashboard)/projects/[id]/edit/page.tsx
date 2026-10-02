@@ -1,16 +1,12 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getCurrentMembership } from "@/lib/current-user";
+import { getCurrentUserOrganization } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { getActiveCustomFieldFormDefinitions, getCustomFieldFormValues } from "@/lib/custom-fields/entity-form";
 import { buildStatusSelectOptions } from "@/lib/custom-statuses/entity-form";
 import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 import { ProjectForm } from "@/components/projects/project-form";
 import { updateProjectAction } from "./actions";
-import { ProjectAttachmentsSection } from "./attachments-section";
-import { CommentsSection } from "@/components/comments/comments-section";
-import { createProjectCommentAction, editProjectCommentAction, deleteProjectCommentAction } from "./comment-actions";
-import { parseSearchParam, type RawSearchParams } from "@/lib/list-params";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 
@@ -18,16 +14,23 @@ function toDateInputValue(date: Date | null): string {
   return date ? date.toISOString().slice(0, 10) : "";
 }
 
+/**
+ * Project Hub V1 — this page is now Project field editing ONLY. Comments
+ * and Attachments (relationship & history surfaces, not "current field
+ * state") moved to the new canonical Project Hub route, `/projects/[id]`
+ * (see that page's own header comment) — they are no longer duplicated
+ * here. `getCurrentMembership()`'s own `membership`/`user` are no longer
+ * read (no Comments section left here needs them); only
+ * `organizationId` remains in use, mirroring EditClientPage's own
+ * identical trim.
+ */
 export default async function EditProjectPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<RawSearchParams>;
 }) {
   const { id } = await params;
-  const resolvedSearchParams = await searchParams;
-  const { user, organizationId, membership } = await getCurrentMembership();
+  const { organizationId } = await getCurrentUserOrganization();
 
   const [project, clients] = await Promise.all([
     prisma.project.findFirst({
@@ -54,8 +57,6 @@ export default async function EditProjectPage({
     project.id,
     customFieldDefinitions,
   );
-  const commentsCursor = parseSearchParam(resolvedSearchParams.commentsCursor) || undefined;
-  const isModerator = membership.role === "OWNER" || membership.role === "ADMIN";
   // Custom Statuses Phase 2B (Section O/D) — see EditClientPage's own identical comment.
   const currentStatusDefinitionId =
     project.statusDefinitionId ??
@@ -69,7 +70,7 @@ export default async function EditProjectPage({
         <h1 className="text-text-primary text-2xl font-semibold tracking-tight">
           Edit project
         </h1>
-        <Link href="/projects" className={ACTION_LINK_CLASSES}>
+        <Link href={`/projects/${project.id}`} className={ACTION_LINK_CLASSES}>
           Cancel
         </Link>
       </div>
@@ -89,21 +90,6 @@ export default async function EditProjectPage({
           customFieldValues={Object.fromEntries(customFieldValuesMap)}
           submitLabel="Save changes"
           pendingLabel="Saving…"
-        />
-        <ProjectAttachmentsSection projectId={project.id} organizationId={organizationId} />
-        <CommentsSection
-          entityType="PROJECT"
-          entityId={project.id}
-          organizationId={organizationId}
-          currentUserId={user.id}
-          isModerator={isModerator}
-          parentLabel="project"
-          basePath={`/projects/${project.id}/edit`}
-          cursorParam="commentsCursor"
-          cursor={commentsCursor}
-          createAction={createProjectCommentAction.bind(null, project.id)}
-          makeEditAction={(commentId) => editProjectCommentAction.bind(null, project.id, commentId)}
-          makeDeleteAction={(commentId) => deleteProjectCommentAction.bind(null, project.id, commentId)}
         />
       </div>
     </div>

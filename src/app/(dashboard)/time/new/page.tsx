@@ -5,6 +5,8 @@ import { TimeEntryForm } from "@/components/time-entries/time-entry-form";
 import { isPrivilegedRole } from "@/lib/time-entries/permissions";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { parseSearchParam, type RawSearchParams } from "@/lib/list-params";
+import { isUuid } from "@/lib/validation/time-entry";
 import { createTimeEntryAction } from "../actions";
 
 /**
@@ -12,9 +14,22 @@ import { createTimeEntryAction } from "../actions";
  * selector at all (TimeEntryForm's own canSelectMember=false path) —
  * the Server Action still independently re-verifies this regardless of
  * what's rendered.
+ *
+ * Work Hub V1 — Project Hub's own Time tab links here with `?projectId=`
+ * to prefill the form (read-only audit §9/§14). Format-validated only
+ * (isUuid); the <select> still lists every one of this org's own
+ * Projects, and createTimeEntryAction still independently re-verifies
+ * whatever projectId is actually submitted.
  */
-export default async function NewTimeEntryPage() {
+export default async function NewTimeEntryPage({
+  searchParams,
+}: {
+  searchParams: Promise<RawSearchParams>;
+}) {
   const { user, organizationId, membership } = await getCurrentMembership();
+  const resolvedSearchParams = await searchParams;
+  const rawProjectId = parseSearchParam(resolvedSearchParams.projectId);
+  const prefillProjectId = isUuid(rawProjectId) ? rawProjectId : undefined;
   const canSelectMember = isPrivilegedRole(membership.role);
 
   const [members, projects, tasks] = await Promise.all([
@@ -51,6 +66,7 @@ export default async function NewTimeEntryPage() {
           members={members}
           projects={projects}
           tasks={tasks}
+          defaultValues={prefillProjectId ? { projectId: prefillProjectId } : undefined}
           submitLabel="Log time"
           pendingLabel="Logging…"
         />

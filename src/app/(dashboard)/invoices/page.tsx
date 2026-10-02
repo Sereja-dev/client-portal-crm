@@ -198,7 +198,7 @@ export default async function InvoicesPage({
                     <TableCell emphasis>{invoice.invoiceNumber}</TableCell>
                     <TableCell>
                       {invoice.project ? (
-                        <Link href={`/projects/${invoice.projectId}/edit`} className={ACTION_LINK_CLASSES}>
+                        <Link href={`/projects/${invoice.projectId}`} className={ACTION_LINK_CLASSES}>
                           {invoice.project.name}
                         </Link>
                       ) : (
@@ -266,7 +266,7 @@ export default async function InvoicesPage({
                   label="Project"
                   value={
                     invoice.project ? (
-                      <Link href={`/projects/${invoice.projectId}/edit`} className={ACTION_LINK_CLASSES}>
+                      <Link href={`/projects/${invoice.projectId}`} className={ACTION_LINK_CLASSES}>
                         {invoice.project.name}
                       </Link>
                     ) : (

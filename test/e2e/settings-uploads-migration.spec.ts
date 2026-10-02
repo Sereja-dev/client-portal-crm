@@ -130,7 +130,9 @@ test.describe("Design System Batch 7 — Shared uploads + simple Settings", () =
     page.on("pageerror", (e) => errors.push(String(e)));
     await actAsOwner(context, baseURL!);
 
-    await page.goto(`/projects/${fixtures.project.id}/edit`);
+    // Work Hub V1 — Attachments moved from the Project edit page to the
+    // Project Hub's own Files tab.
+    await page.goto(`/projects/${fixtures.project.id}?tab=files`);
     await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("dark");
     const projectHeading = page.getByRole("heading", { name: "Attachments" });
     await expect(projectHeading).toBeVisible();

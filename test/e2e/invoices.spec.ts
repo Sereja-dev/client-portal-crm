@@ -447,7 +447,7 @@ test.describe("Aqenra Invoice UX — Client/Project links", () => {
 
     const projectLink = row.getByRole("link", { name: fixtures.project.name });
     await expect(projectLink).toBeVisible();
-    await expect(projectLink).toHaveAttribute("href", `/projects/${fixtures.project.id}/edit`);
+    await expect(projectLink).toHaveAttribute("href", `/projects/${fixtures.project.id}`);
   });
 
   test("list: a project-less invoice shows plain 'No project' text, not a link", async ({ page }) => {
@@ -473,7 +473,7 @@ test.describe("Aqenra Invoice UX — Client/Project links", () => {
 
     const projectLink = page.getByRole("link", { name: fixtures.project.name });
     await expect(projectLink).toBeVisible();
-    await expect(projectLink).toHaveAttribute("href", `/projects/${fixtures.project.id}/edit`);
+    await expect(projectLink).toHaveAttribute("href", `/projects/${fixtures.project.id}`);
   });
 
   test("read-only view: a project-less invoice's header shows plain 'No project' text, not a link, but still links its Client", async ({ page }) => {

@@ -190,7 +190,11 @@ export default async function ProjectsPage({
               <TableBody>
                 {projects.map((project) => (
                   <TableRow key={project.id}>
-                    <TableCell emphasis>{project.name}</TableCell>
+                    <TableCell emphasis>
+                      <Link href={`/projects/${project.id}`} className="text-accent hover:underline">
+                        {project.name}
+                      </Link>
+                    </TableCell>
                     <TableCell>{project.client.name}</TableCell>
                     <TableCell>
                       <ProjectStatusBadge project={project} />
@@ -234,7 +238,15 @@ export default async function ProjectsPage({
           <RecordCardList>
             {projects.map((project) => (
               <RecordCard key={project.id}>
-                <RecordCardField label="Name" value={project.name} emphasis />
+                <RecordCardField
+                  label="Name"
+                  value={
+                    <Link href={`/projects/${project.id}`} className="text-accent hover:underline">
+                      {project.name}
+                    </Link>
+                  }
+                  emphasis
+                />
                 <RecordCardField label="Client" value={project.client.name} />
                 <RecordCardField label="Status" value={<ProjectStatusBadge project={project} />} />
                 <RecordCardField

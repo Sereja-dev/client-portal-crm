@@ -18,11 +18,13 @@ type TaskFormDefaults = {
   status?: string;
   priority?: string;
   dueDate?: string;
+  assigneeId?: string;
 };
 
 export function TaskForm({
   action,
   projects,
+  assignees,
   defaultValues,
   submitLabel = "Create task",
   pendingLabel = "Creating…",
@@ -32,6 +34,8 @@ export function TaskForm({
     formData: FormData,
   ) => Promise<TaskFormState>;
   projects: { id: string; label: string }[];
+  /** Work Hub V1 — same-organization Staff members only, mirrors LeadForm's own `assignees` prop exactly. Always offered, for every role — assignment is a convenience field, not a permission (see tasks/query.ts's own TaskListParams doc comment). */
+  assignees: { id: string; name: string }[];
   defaultValues?: TaskFormDefaults;
   submitLabel?: string;
   pendingLabel?: string;
@@ -129,22 +133,41 @@ export function TaskForm({
         </FormField>
       </div>
 
-      <FormField
-        label="Due date"
-        htmlFor="dueDate"
-        error={state.fieldErrors?.dueDate}
-      >
-        <Input
-          id="dueDate"
-          name="dueDate"
-          type="date"
-          defaultValue={defaultValues?.dueDate ?? ""}
-          aria-invalid={!!state.fieldErrors?.dueDate}
-          aria-describedby={
-            state.fieldErrors?.dueDate ? "dueDate-error" : undefined
-          }
-        />
-      </FormField>
+      <div className="grid grid-cols-2 gap-4">
+        <FormField
+          label="Due date"
+          htmlFor="dueDate"
+          error={state.fieldErrors?.dueDate}
+        >
+          <Input
+            id="dueDate"
+            name="dueDate"
+            type="date"
+            defaultValue={defaultValues?.dueDate ?? ""}
+            aria-invalid={!!state.fieldErrors?.dueDate}
+            aria-describedby={
+              state.fieldErrors?.dueDate ? "dueDate-error" : undefined
+            }
+          />
+        </FormField>
+
+        <FormField label="Assignee" htmlFor="assigneeId" error={state.fieldErrors?.assigneeId}>
+          <Select
+            id="assigneeId"
+            name="assigneeId"
+            defaultValue={defaultValues?.assigneeId ?? ""}
+            aria-invalid={!!state.fieldErrors?.assigneeId}
+            aria-describedby={state.fieldErrors?.assigneeId ? "assigneeId-error" : undefined}
+          >
+            <option value="">Unassigned</option>
+            {assignees.map((assignee) => (
+              <option key={assignee.id} value={assignee.id}>
+                {assignee.name}
+              </option>
+            ))}
+          </Select>
+        </FormField>
+      </div>
 
       {state.error && (
         <p role="alert" className="text-danger text-sm">

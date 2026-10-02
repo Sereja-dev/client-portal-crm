@@ -102,7 +102,7 @@ export type ProjectFormState = {
 export type TaskFormState = {
   error: string | null;
   fieldErrors?: Partial<
-    Record<"title" | "projectId" | "status" | "priority" | "dueDate", string>
+    Record<"title" | "projectId" | "status" | "priority" | "dueDate" | "assigneeId", string>
   >;
 };
 

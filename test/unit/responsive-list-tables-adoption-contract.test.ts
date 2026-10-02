@@ -20,7 +20,11 @@ import { describe, expect, it } from "vitest";
 const PATHS = {
   clients: "src/app/(dashboard)/clients/page.tsx",
   projects: "src/app/(dashboard)/projects/page.tsx",
-  tasks: "src/app/(dashboard)/tasks/page.tsx",
+  // Work Hub V1 — the Table/RecordCardList rendering moved out of the
+  // page itself into its own component (row selection + bulk actions
+  // needed client-component state the page, a Server Component, can't
+  // hold) — this source contract now reads that component file instead.
+  tasks: "src/components/tasks/task-list-with-selection.tsx",
   invoices: "src/app/(dashboard)/invoices/page.tsx",
   team: "src/app/(dashboard)/team/page.tsx",
 };
@@ -151,13 +155,17 @@ describe("Tasks list page — responsive stacked-card adoption", () => {
     expect(source).toMatch(/<RecordCardList>[\s\S]*?\{tasks\.map/);
   });
 
-  it("every real data column (Title, Project, Client, Status, Priority, Due date, Completed, Created) has a matching RecordCardField", () => {
+  it("every real data column (Title, Project, Client, Assignee, Status, Priority, Due date, Completed, Created) has a matching RecordCardField", () => {
+    // Work Hub V1 — Assignee is a new real data column; the selection
+    // checkbox (desktop <th> and mobile <label>) is deliberately NOT a
+    // TableHeaderCell/RecordCardField (it's a control, not a data field),
+    // so it doesn't perturb this count either way.
     const listStart = source.indexOf("<RecordCardList>");
     const listEnd = source.indexOf("</RecordCardList>");
     expect(listStart).toBeGreaterThan(-1);
     const dataHeaders = countDataHeaders(source);
     const cardFields = countCardFields(source, [listStart, listEnd]);
-    expect(dataHeaders).toBe(8);
+    expect(dataHeaders).toBe(9);
     expect(cardFields).toBe(dataHeaders);
   });
 

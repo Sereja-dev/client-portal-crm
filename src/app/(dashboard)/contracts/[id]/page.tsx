@@ -127,7 +127,7 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
             <dt className="text-text-muted text-xs font-medium">Project</dt>
             <dd className="text-text-primary mt-0.5 text-sm">
               {contract.project ? (
-                <Link href={`/projects/${contract.project.id}/edit`} className={ACTION_LINK_CLASSES}>
+                <Link href={`/projects/${contract.project.id}`} className={ACTION_LINK_CLASSES}>
                   {contract.project.name}
                 </Link>
               ) : (

@@ -25,8 +25,9 @@ export function buildClientResultUrl(id: string): string | null {
   return isValidUuid(id) ? `/clients/${id}` : null;
 }
 
+/** Work Hub V1 — the canonical Project Hub route, not the (now true-edit-only) `/projects/${id}/edit`, mirroring buildClientResultUrl's own identical Client Hub update. */
 export function buildProjectResultUrl(id: string): string | null {
-  return isValidUuid(id) ? `/projects/${id}/edit` : null;
+  return isValidUuid(id) ? `/projects/${id}` : null;
 }
 
 export function buildTaskResultUrl(id: string): string | null {
@@ -39,19 +40,18 @@ export function buildInvoiceResultUrl(id: string): string | null {
 
 export type CommentParentType = "PROJECT" | "TASK";
 
-const COMMENT_PARENT_ROUTES: Record<CommentParentType, string> = {
-  PROJECT: "projects",
-  TASK: "tasks",
-};
-
 /**
  * Reuses the exact deep-link shape Comments & Mentions Stage 4 already
  * built and already verified correct in production
- * (`/projects/{id}/edit#comment-{id}` / `/tasks/{id}/edit#comment-{id}`).
- * Returns null — never a partially-built or guessed URL — for an
- * unrecognized parent type or either id failing UUID validation; the
- * caller (search-comments.ts) must drop the result entirely rather than
- * ever surface a comment with no safe link (see docs/search-architecture.md
+ * (`/tasks/{id}/edit#comment-{id}`) — Task comments still live on the
+ * Task edit page, unchanged. Project comments moved with the Project Hub
+ * (Work Hub V1): they now live under the Hub's own Activity tab, so a
+ * Project comment's deep link is `/projects/{id}?tab=activity#comment-{id}`
+ * instead of the old `/projects/{id}/edit#comment-{id}`. Returns null —
+ * never a partially-built or guessed URL — for an unrecognized parent
+ * type or either id failing UUID validation; the caller
+ * (search-comments.ts) must drop the result entirely rather than ever
+ * surface a comment with no safe link (see docs/search-architecture.md
  * §13's "invalid/missing parent: result not returned").
  */
 export function buildCommentResultUrl(
@@ -60,9 +60,13 @@ export function buildCommentResultUrl(
   commentId: string,
 ): string | null {
   if (!isValidUuid(parentId) || !isValidUuid(commentId)) return null;
-  const routeSegment = COMMENT_PARENT_ROUTES[parentType as CommentParentType];
-  if (!routeSegment) return null;
-  return `/${routeSegment}/${parentId}/edit#comment-${commentId}`;
+  if (parentType === "PROJECT") {
+    return `/projects/${parentId}?tab=activity#comment-${commentId}`;
+  }
+  if (parentType === "TASK") {
+    return `/tasks/${parentId}/edit#comment-${commentId}`;
+  }
+  return null;
 }
 
 /** Defensive dispatcher — not currently called by any search-*.ts (each already knows its own type), kept for a future single call site if one ever needs it. */

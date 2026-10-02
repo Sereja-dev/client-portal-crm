@@ -6,6 +6,14 @@ import { getCurrentUserOrganization } from "@/lib/current-user";
 import { uploadAttachmentForEntity, deleteAttachmentForEntity } from "@/lib/attachments/attachment-mutations";
 import type { AttachmentUploadState } from "@/types";
 
+/**
+ * Work Hub V1 — moved verbatim from the old `projects/[id]/edit/attachment-
+ * actions.ts`: the only change is `revalidatePath` now targeting the new
+ * canonical Project Hub route (`/projects/${id}`) instead of the old
+ * `/projects/${id}/edit` — Attachments now live under the Hub's Files
+ * tab, never on the trimmed, true-edit-only edit page. No change to the
+ * attachment security model itself.
+ */
 export async function uploadAttachmentAction(
   projectId: string,
   _prevState: AttachmentUploadState,
@@ -34,7 +42,7 @@ export async function uploadAttachmentAction(
   });
 
   if (result.error === null) {
-    revalidatePath(`/projects/${projectId}/edit`);
+    revalidatePath(`/projects/${projectId}`);
   }
   return result;
 }
@@ -57,5 +65,5 @@ export async function deleteAttachmentAction(projectId: string, attachmentId: st
     },
   });
 
-  revalidatePath(`/projects/${projectId}/edit`);
+  revalidatePath(`/projects/${projectId}`);
 }

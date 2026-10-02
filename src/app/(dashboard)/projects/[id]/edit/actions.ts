@@ -183,5 +183,8 @@ export async function updateProjectAction(
     };
   }
 
-  redirect(withToast("/projects", "Project updated"));
+  // Project Hub V1 — returns to the canonical Hub route, not the list
+  // (mirrors EditClientPage's own updateClientAction redirect target
+  // exactly).
+  redirect(withToast(`/projects/${projectId}`, "Project updated"));
 }

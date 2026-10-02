@@ -156,6 +156,14 @@ test.describe("Section Navigation", () => {
       await expect(page.getByRole("navigation", { name: "Work" })).toHaveCount(0);
     });
 
+    // Work Hub V1 — the new canonical Project Hub route is just as much a
+    // "nested record-scoped" page as /edit; it must not inherit the
+    // Work section tab bar either.
+    test("the new Project Hub route does not show the Work section tab bar", async ({ page }) => {
+      await page.goto(`/projects/${fixtures.project.id}`);
+      await expect(page.getByRole("navigation", { name: "Work" })).toHaveCount(0);
+    });
+
     test("a nested Task detail/edit route does not show the Work section tab bar", async ({ page }) => {
       await page.goto(`/tasks/${fixtures.task.id}/edit`);
       await expect(page.getByRole("navigation", { name: "Work" })).toHaveCount(0);

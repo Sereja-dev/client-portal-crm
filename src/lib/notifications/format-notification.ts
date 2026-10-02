@@ -189,8 +189,16 @@ function buildModel(type: NotificationType, metadata: Record<string, unknown>): 
 // (itself copied verbatim from Activity metadata, which src/lib/comments/
 // resolve-target.ts only ever sets to "PROJECT" or "TASK"). Anything else
 // (a malformed/unexpected value) falls through to no link at all.
+//
+// Work Hub V1 — PROJECT's own comment thread moved from
+// `/projects/{id}/edit` to the Project Hub's own Activity tab
+// (`/projects/{id}?tab=activity`); TASK comments are unchanged (Task
+// edit still hosts them). This can no longer be one uniform
+// `/${route}/{id}/edit#comment-{id}` template for both types — see
+// resolveMentionedLinkPath below, which now branches per type instead of
+// building from this table alone. Kept only for TASK's own still-uniform
+// case.
 const MENTIONED_PARENT_ROUTES: Record<string, string> = {
-  PROJECT: "projects",
   TASK: "tasks",
 };
 
@@ -214,7 +222,11 @@ function resolveMentionedLinkPath(commentId: string | null, metadata: unknown): 
   const m = isRecord(metadata) ? metadata : {};
   const parentEntityId = str(m.parentEntityId);
   if (!parentEntityId) return null;
-  const routeSegment = MENTIONED_PARENT_ROUTES[str(m.parentEntityType) ?? ""];
+  const parentEntityType = str(m.parentEntityType);
+  if (parentEntityType === "PROJECT") {
+    return `/projects/${parentEntityId}?tab=activity#comment-${commentId}`;
+  }
+  const routeSegment = MENTIONED_PARENT_ROUTES[parentEntityType ?? ""];
   if (!routeSegment) return null;
   return `/${routeSegment}/${parentEntityId}/edit#comment-${commentId}`;
 }

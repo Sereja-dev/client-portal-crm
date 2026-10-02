@@ -237,7 +237,7 @@ describe("searchOrganization — integration", () => {
       expect(match!.preview).not.toBe(longBody);
       expect(match!.preview!.length).toBeLessThan(longBody.length);
       expect(match!.title).toBe(fixtures.project.name);
-      expect(match!.url).toBe(`/projects/${fixtures.project.id}/edit#comment-${comment.id}`);
+      expect(match!.url).toBe(`/projects/${fixtures.project.id}?tab=activity#comment-${comment.id}`);
     });
 
     it("excludes a soft-deleted comment even though its body still matches", async () => {

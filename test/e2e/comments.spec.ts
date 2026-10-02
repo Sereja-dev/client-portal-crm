@@ -86,15 +86,21 @@ test.afterAll(async () => {
 test.describe("Project comments", () => {
   test("empty state shows, composer remains available", async ({ context, baseURL, page }) => {
     await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
-    await gotoAndSettle(page, `/projects/${fixtures.project.id}/edit`);
+    await gotoAndSettle(page, `/projects/${fixtures.project.id}?tab=activity`);
 
-    await expect(page.getByText("No comments yet")).toBeVisible();
+    // Work Hub V1 — the Activity tab merges Activity+Comment, so its
+    // empty state reads "Nothing here yet", not the old comments-only
+    // CommentsSection's own "No comments yet" (the fixture Project is
+    // created via a direct Prisma write, not the create Server Action,
+    // so it has no CREATED Activity row either — both sources are
+    // genuinely empty here).
+    await expect(page.getByText("Nothing here yet")).toBeVisible();
     await expect(commentComposer(page)).toBeVisible();
   });
 
   test("creates a plain comment and it appears in the list", async ({ context, baseURL, page }) => {
     await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
-    await gotoAndSettle(page, `/projects/${fixtures.project.id}/edit`);
+    await gotoAndSettle(page, `/projects/${fixtures.project.id}?tab=activity`);
 
     await commentComposer(page).fill("This looks good to me.");
     await page.getByRole("button", { name: "Post comment" }).click();
@@ -109,7 +115,7 @@ test.describe("Project comments", () => {
     page,
   }) => {
     await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
-    await gotoAndSettle(page, `/projects/${fixtures.project.id}/edit`);
+    await gotoAndSettle(page, `/projects/${fixtures.project.id}?tab=activity`);
 
     await page.locator('summary[aria-label="Mention a teammate"]').click();
     await page.getByPlaceholder("Search name or email").fill(fixtures.member.name);
@@ -138,13 +144,13 @@ test.describe("Project comments", () => {
     await expect(page.getByText(`${fixtures.owner.name} mentioned you in a comment`)).toBeVisible();
 
     await page.getByText(`${fixtures.owner.name} mentioned you in a comment`).click();
-    await expect(page).toHaveURL(new RegExp(`/projects/${fixtures.project.id}/edit#comment-${commentId}`));
+    await expect(page).toHaveURL(new RegExp(`/projects/${fixtures.project.id}\\?tab=activity#comment-${commentId}`));
     await expect(page.locator(`#comment-${commentId}`)).toBeVisible();
   });
 
   test("the author can edit their own comment", async ({ context, baseURL, page }) => {
     await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
-    await gotoAndSettle(page, `/projects/${fixtures.project.id}/edit`);
+    await gotoAndSettle(page, `/projects/${fixtures.project.id}?tab=activity`);
 
     await commentComposer(page).fill("original wording");
     await page.getByRole("button", { name: "Post comment" }).click();
@@ -161,7 +167,7 @@ test.describe("Project comments", () => {
 
   test("a no-op edit (identical text) does not show an edited indicator", async ({ context, baseURL, page }) => {
     await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
-    await gotoAndSettle(page, `/projects/${fixtures.project.id}/edit`);
+    await gotoAndSettle(page, `/projects/${fixtures.project.id}?tab=activity`);
 
     await commentComposer(page).fill("unchanged text");
     await page.getByRole("button", { name: "Post comment" }).click();
@@ -178,7 +184,7 @@ test.describe("Project comments", () => {
 
   test("the author can delete their own comment, leaving a placeholder", async ({ context, baseURL, page }) => {
     await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
-    await gotoAndSettle(page, `/projects/${fixtures.project.id}/edit`);
+    await gotoAndSettle(page, `/projects/${fixtures.project.id}?tab=activity`);
 
     await commentComposer(page).fill("comment to delete");
     await page.getByRole("button", { name: "Post comment" }).click();
@@ -203,7 +209,11 @@ test.describe("Task comments", () => {
 
     await page.locator('summary[aria-label="Mention a teammate"]').click();
     await page.getByPlaceholder("Search name or email").fill(fixtures.member.name);
-    await page.getByRole("option", { name: new RegExp(fixtures.member.name) }).click();
+    // Work Hub V1 — the Task edit form's own new Assignee <select> now
+    // also has an option matching this exact name+role, so a bare
+    // getByRole("option", ...) is ambiguous on this page; scope to the
+    // mention picker's own listbox specifically.
+    await page.getByRole("listbox", { name: "Teammates" }).getByRole("option", { name: new RegExp(fixtures.member.name) }).click();
     await page.getByRole("button", { name: "Post comment" }).click();
 
     // The Server Action itself reliably completes (verified independently:
@@ -276,13 +286,13 @@ test.describe("Task comments", () => {
 test.describe("Comment permissions", () => {
   test("a MEMBER cannot edit or delete another member's comment", async ({ context, baseURL, page }) => {
     await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
-    await gotoAndSettle(page, `/projects/${fixtures.project.id}/edit`);
+    await gotoAndSettle(page, `/projects/${fixtures.project.id}?tab=activity`);
     await commentComposer(page).fill("owner's comment");
     await page.getByRole("button", { name: "Post comment" }).click();
     await expect(page.getByText("owner's comment")).toBeVisible();
 
     await actAsMember(context, baseURL!, fixtures.member, fixtures.orgA.id);
-    await gotoAndSettle(page, `/projects/${fixtures.project.id}/edit`);
+    await gotoAndSettle(page, `/projects/${fixtures.project.id}?tab=activity`);
     await expect(page.getByText("owner's comment")).toBeVisible();
     await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Delete" })).toHaveCount(0);
@@ -294,13 +304,13 @@ test.describe("Comment permissions", () => {
     page,
   }) => {
     await actAsMember(context, baseURL!, fixtures.member, fixtures.orgA.id);
-    await gotoAndSettle(page, `/projects/${fixtures.project.id}/edit`);
+    await gotoAndSettle(page, `/projects/${fixtures.project.id}?tab=activity`);
     await commentComposer(page).fill("member's comment for moderation");
     await page.getByRole("button", { name: "Post comment" }).click();
     await expect(page.getByText("member's comment for moderation")).toBeVisible();
 
     await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
-    await gotoAndSettle(page, `/projects/${fixtures.project.id}/edit`);
+    await gotoAndSettle(page, `/projects/${fixtures.project.id}?tab=activity`);
     await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Delete" })).toBeVisible();
 
@@ -324,7 +334,7 @@ test.describe("Comment security", () => {
     page,
   }) => {
     await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
-    await gotoAndSettle(page, `/projects/${fixtures.project.id}/edit`);
+    await gotoAndSettle(page, `/projects/${fixtures.project.id}?tab=activity`);
 
     let dialogFired = false;
     page.once("dialog", (dialog) => {
@@ -345,7 +355,7 @@ test.describe("Comment security", () => {
     page,
   }) => {
     await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
-    await gotoAndSettle(page, `/projects/${fixtures.project.id}/edit`);
+    await gotoAndSettle(page, `/projects/${fixtures.project.id}?tab=activity`);
 
     await commentComposer(page).fill("@[Someone](user:not-a-real-uuid) hello");
     await page.getByRole("button", { name: "Post comment" }).click();
@@ -363,7 +373,7 @@ test.describe("Comment security", () => {
     // boundary, so the shell streams with a 200 before notFound() is
     // thrown inside the page — the status can't change after that, only
     // the rendered content does. Assert on the actual not-found UI instead.
-    await gotoAndSettle(page, `/projects/${fixtures.project.id}/edit`);
+    await gotoAndSettle(page, `/projects/${fixtures.project.id}?tab=activity`);
     await expect(page.getByText("Page not found")).toBeVisible();
     await expect(page.getByText(fixtures.project.name)).toHaveCount(0);
   });

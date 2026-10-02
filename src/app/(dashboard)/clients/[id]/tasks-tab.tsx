@@ -18,11 +18,12 @@ function formatDate(date: Date | null): string {
 }
 
 /**
- * Task has no direct Task detail route in this app (confirmed during the
- * Client Hub readiness audit) — each row links to the owning Project's
- * own existing edit route instead, the same "no route to invent, link to
- * the existing context" choice invoice-read-only-view.tsx's own Project
- * link already makes.
+ * Task has no direct Task detail route in this app — each row links to
+ * the owning Project's own Hub route instead (Work Hub V1 — was
+ * `/projects/${id}/edit` before the Project Hub existed; updated to the
+ * new canonical `/projects/${id}` View/Open destination), the same "no
+ * route to invent, link to the existing context" choice
+ * invoice-read-only-view.tsx's own Project link already makes.
  */
 export function ClientTasksTab({ tasks }: { tasks: ClientTaskRow[] }) {
   if (tasks.length === 0) {
@@ -47,7 +48,7 @@ export function ClientTasksTab({ tasks }: { tasks: ClientTaskRow[] }) {
               <TableRow key={task.id}>
                 <TableCell emphasis>{task.title}</TableCell>
                 <TableCell>
-                  <Link href={`/projects/${task.project.id}/edit`} className={ACTION_LINK_CLASSES}>
+                  <Link href={`/projects/${task.project.id}`} className={ACTION_LINK_CLASSES}>
                     {task.project.name}
                   </Link>
                 </TableCell>
@@ -69,7 +70,7 @@ export function ClientTasksTab({ tasks }: { tasks: ClientTaskRow[] }) {
             <RecordCardField
               label="Project"
               value={
-                <Link href={`/projects/${task.project.id}/edit`} className={ACTION_LINK_CLASSES}>
+                <Link href={`/projects/${task.project.id}`} className={ACTION_LINK_CLASSES}>
                   {task.project.name}
                 </Link>
               }

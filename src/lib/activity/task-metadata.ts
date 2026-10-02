@@ -1,9 +1,12 @@
 // Fields tracked for change-detection on Task Activity — deliberately a
-// subset of the actual Task model. description isn't included, and
-// assigneeId is never touched here at all: no form or action in this app
-// currently reads or writes it (Task.assigneeId is unused schema
-// scaffolding), so there's nothing to diff or log for it yet.
-const TASK_TRACKED_FIELDS = ["title", "projectId", "status", "priority", "dueDate"] as const;
+// subset of the actual Task model. description isn't included.
+// assigneeId (Work Hub V1) is now real, writable schema — assigned via
+// the Task form, the Board is never itself a write path for it, and the
+// bulk-assignee action — so it's tracked here like every other writable
+// field; only its field NAME (never the raw id) ever appears in a
+// changedFields list, matching every other tracked field's own
+// "names, not values" contract.
+const TASK_TRACKED_FIELDS = ["title", "projectId", "status", "priority", "dueDate", "assigneeId"] as const;
 
 type TaskTrackedSnapshot = {
   title: string;
@@ -11,6 +14,7 @@ type TaskTrackedSnapshot = {
   status: string;
   priority: string;
   dueDate: Date | null;
+  assigneeId: string | null;
 };
 
 function valuesEqual(a: string | Date | null, b: string | Date | null): boolean {

@@ -232,7 +232,7 @@ test.describe("Navigation", () => {
 
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
-    await page.waitForURL(new RegExp(`/projects/${fixtures.project.id}/edit`));
+    await page.waitForURL(new RegExp(`/projects/${fixtures.project.id}$`));
     await expect(page.getByRole("dialog")).toBeHidden();
   });
 
@@ -242,7 +242,7 @@ test.describe("Navigation", () => {
     await search(page, fixtures.project.name);
     const projectGroup = page.getByRole("group", { name: "Projects" });
     await projectGroup.getByRole("option", { name: new RegExp(fixtures.project.name) }).click();
-    await page.waitForURL(new RegExp(`/projects/${fixtures.project.id}/edit`));
+    await page.waitForURL(new RegExp(`/projects/${fixtures.project.id}$`));
     await expect(page.getByRole("dialog")).toBeHidden();
   });
 

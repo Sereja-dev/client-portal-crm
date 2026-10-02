@@ -13,6 +13,17 @@ export type ParsedTaskInput = {
   status: TaskStatusValue;
   priority: TaskPriorityValue;
   dueDate: Date | null;
+  /**
+   * Work Hub V1 — Task.assigneeId is now real, writable schema (it was
+   * previously unused scaffolding — see task-metadata.ts's own updated
+   * comment). `null` means unassigned, always a legal value; a non-empty
+   * value is still just client-controlled input here — the caller
+   * (createTaskAction/updateTaskAction/the bulk-assignee action)
+   * re-verifies it against a real Membership in this same organizationId
+   * server-side, exactly like `projectId` already is, before ever writing
+   * it.
+   */
+  assigneeId: string | null;
 };
 
 function parseDate(raw: string): Date | null {
@@ -31,6 +42,9 @@ export function parseTaskForm(formData: FormData): {
   const status = String(formData.get("status") ?? "TODO");
   const priority = String(formData.get("priority") ?? "MEDIUM");
   const dueDateRaw = String(formData.get("dueDate") ?? "").trim();
+  // Empty string (the <select>'s own "Unassigned" option) means null —
+  // never a validation error; this field is always optional.
+  const assigneeIdRaw = String(formData.get("assigneeId") ?? "").trim();
 
   const fieldErrors: NonNullable<TaskFormState["fieldErrors"]> = {};
 
@@ -66,6 +80,7 @@ export function parseTaskForm(formData: FormData): {
       status: isValidStatus ? (status as TaskStatusValue) : "TODO",
       priority: isValidPriority ? (priority as TaskPriorityValue) : "MEDIUM",
       dueDate: parseDate(dueDateRaw),
+      assigneeId: assigneeIdRaw || null,
     },
     fieldErrors,
   };

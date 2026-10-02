@@ -249,9 +249,15 @@ describe("project-metadata", () => {
 
 describe("task-metadata", () => {
   it("diffTaskFields returns only changed field names", () => {
-    const before = { title: "Fix bug", projectId: "p1", status: "TODO", priority: "LOW", dueDate: null };
-    const after = { title: "Fix bug", projectId: "p1", status: "TODO", priority: "HIGH", dueDate: null };
+    const before = { title: "Fix bug", projectId: "p1", status: "TODO", priority: "LOW", dueDate: null, assigneeId: null };
+    const after = { title: "Fix bug", projectId: "p1", status: "TODO", priority: "HIGH", dueDate: null, assigneeId: null };
     expect(diffTaskFields(before, after)).toEqual(["priority"]);
+  });
+
+  it("diffTaskFields includes assigneeId (Work Hub V1 — now a real, writable, tracked field)", () => {
+    const before = { title: "Fix bug", projectId: "p1", status: "TODO", priority: "LOW", dueDate: null, assigneeId: null };
+    const after = { ...before, assigneeId: "u1" };
+    expect(diffTaskFields(before, after)).toEqual(["assigneeId"]);
   });
 
   it("diffTaskFields compares dueDate by time value, not object identity", () => {
@@ -261,6 +267,7 @@ describe("task-metadata", () => {
       status: "TODO",
       priority: "LOW",
       dueDate: new Date("2026-01-01T00:00:00Z"),
+      assigneeId: null,
     };
     const changedDate = { ...before, dueDate: new Date("2026-02-01T00:00:00Z") };
     const sameInstantDifferentObject = { ...before, dueDate: new Date("2026-01-01T00:00:00Z") };

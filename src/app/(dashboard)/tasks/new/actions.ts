@@ -46,6 +46,21 @@ export async function createTaskAction(
     };
   }
 
+  // The <select> only lists this org's own Staff members, but the
+  // submitted value is still client-controlled input — re-verify server-
+  // side exactly like `projectId` above, mirroring leads/actions.ts's own
+  // verifyAssigneeInOrganization precedent (same Membership composite-key
+  // lookup, same "empty/unassigned is always valid" short-circuit).
+  if (values.assigneeId) {
+    const membership = await prisma.membership.findUnique({
+      where: { userId_organizationId: { userId: values.assigneeId, organizationId } },
+      select: { userId: true },
+    });
+    if (!membership) {
+      return { error: null, fieldErrors: { assigneeId: "Select a valid team member." } };
+    }
+  }
+
   // Task create and its Activity row are one atomic unit — if the
   // Activity insert fails for any reason, the Task create rolls back with
   // it rather than leaving an unlogged row behind.
@@ -59,6 +74,7 @@ export async function createTaskAction(
         dueDate: values.dueDate,
         completedAt: deriveCompletedAt(values.status, null),
         projectId: values.projectId,
+        assigneeId: values.assigneeId,
       },
     });
 

@@ -94,11 +94,18 @@ test.describe("Design System Batch 3 — Projects + Tasks", () => {
     await expect(page).toHaveURL(/\/tasks$/);
   });
 
-  test("Project edit page: form defaults populated, comments section present with working composer", async ({ page }) => {
+  test("Project edit page: form defaults populated, no Comments section (moved to the Project Hub)", async ({ page }) => {
+    // Work Hub V1 — Comments moved off this page entirely, to the new
+    // Project Hub's own Activity tab (see the next test).
     await page.goto(`/projects/${fixtures.project.id}/edit`);
     await expect(page.getByRole("heading", { name: "Edit project" })).toBeVisible();
     await expect(page.getByLabel("Name")).toHaveValue(fixtures.project.name);
-    await expect(page.getByRole("heading", { name: "Comments" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Comments" })).toHaveCount(0);
+  });
+
+  test("Project Hub Activity tab: comments section present with working composer", async ({ page }) => {
+    await page.goto(`/projects/${fixtures.project.id}?tab=activity`);
+    await expect(page.getByLabel("Comment")).toBeVisible();
 
     await page.getByLabel("Comment").fill("A migration-check comment.");
     await page.getByRole("button", { name: "Post comment" }).click();

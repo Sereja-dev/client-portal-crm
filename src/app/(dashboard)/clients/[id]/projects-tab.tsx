@@ -60,7 +60,7 @@ export function ClientProjectsTab({ clientId, projects }: { clientId: string; pr
             {projects.map((project) => (
               <TableRow key={project.id}>
                 <TableCell emphasis>
-                  <Link href={`/projects/${project.id}/edit`} className={ACTION_LINK_CLASSES}>
+                  <Link href={`/projects/${project.id}`} className={ACTION_LINK_CLASSES}>
                     {project.name}
                   </Link>
                 </TableCell>
@@ -81,7 +81,7 @@ export function ClientProjectsTab({ clientId, projects }: { clientId: string; pr
             <RecordCardField
               label="Name"
               value={
-                <Link href={`/projects/${project.id}/edit`} className={ACTION_LINK_CLASSES}>
+                <Link href={`/projects/${project.id}`} className={ACTION_LINK_CLASSES}>
                   {project.name}
                 </Link>
               }

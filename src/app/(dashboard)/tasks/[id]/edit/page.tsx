@@ -25,7 +25,7 @@ export default async function EditTaskPage({
   const resolvedSearchParams = await searchParams;
   const { user, organizationId, membership } = await getCurrentMembership();
 
-  const [task, projects] = await Promise.all([
+  const [task, projects, memberships] = await Promise.all([
     prisma.task.findFirst({
       where: { id, project: { organizationId } },
     }),
@@ -34,11 +34,17 @@ export default async function EditTaskPage({
       orderBy: { name: "asc" },
       select: { id: true, name: true, client: { select: { name: true } } },
     }),
+    prisma.membership.findMany({
+      where: { organizationId },
+      orderBy: [{ role: "asc" }, { createdAt: "asc" }],
+      include: { user: { select: { id: true, name: true } } },
+    }),
   ]);
 
   if (!task) {
     notFound();
   }
+  const assignees = memberships.map((m) => ({ id: m.user.id, name: m.user.name }));
 
   const boundUpdateTaskAction = updateTaskAction.bind(null, task.id);
   const commentsCursor = parseSearchParam(resolvedSearchParams.commentsCursor) || undefined;
@@ -61,6 +67,7 @@ export default async function EditTaskPage({
             id: project.id,
             label: `${project.name} — ${project.client.name}`,
           }))}
+          assignees={assignees}
           defaultValues={{
             title: task.title,
             description: task.description ?? "",
@@ -68,6 +75,7 @@ export default async function EditTaskPage({
             status: task.status,
             priority: task.priority,
             dueDate: toDateInputValue(task.dueDate),
+            assigneeId: task.assigneeId ?? "",
           }}
           submitLabel="Save changes"
           pendingLabel="Saving…"
