@@ -80,6 +80,9 @@ const GROUP_SOURCE: readonly SidebarGroupSource[] = [
     label: "Finance",
     icon: FinanceIcon,
     children: [
+      // Finance Overview V1 (Sub-block A) — the first Finance destination,
+      // same unconditional visibility as Invoices (no new permission).
+      { href: "/finance", label: "Overview" },
       { href: "/invoices", label: "Invoices" },
       // Recurring Invoices Phase 2A — same recurringInvoicesManage gate as
       // before, just relocated from a standalone conditional array entry

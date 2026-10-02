@@ -52,14 +52,14 @@ describe("Finance tabs (buildFinanceTabs)", () => {
     expect(tabs.find((t) => t.label === "Billing")!.href).toBe("/settings/billing");
   });
 
-  it("5. Recurring is omitted when RECURRING_INVOICES_MANAGE is false; Invoices/Quotes/Billing remain", () => {
+  it("5. Recurring is omitted when RECURRING_INVOICES_MANAGE is false; Overview/Invoices/Quotes/Billing remain", () => {
     const tabs = buildFinanceTabs({ recurringInvoicesManage: false });
-    expect(visibleHrefs(tabs)).toEqual(["/invoices", "/quotes", "/settings/billing"]);
+    expect(visibleHrefs(tabs)).toEqual(["/finance", "/invoices", "/quotes", "/settings/billing"]);
   });
 
-  it("6. all four tabs are present, in order, when the permission is granted", () => {
+  it("6. all five tabs are present, in order, when the permission is granted", () => {
     const tabs = buildFinanceTabs({ recurringInvoicesManage: true });
-    expect(hrefs(tabs)).toEqual(["/invoices", "/quotes", "/recurring-invoices", "/settings/billing"]);
+    expect(hrefs(tabs)).toEqual(["/finance", "/invoices", "/quotes", "/recurring-invoices", "/settings/billing"]);
   });
 
   it("7. Quotes is represented in Finance tabs independently of its Sidebar (Sales) ownership — dual discoverability, never removed here", () => {

@@ -64,7 +64,7 @@ describe("buildSidebarGroups — top-level structure", () => {
     expect(linksOf(groups, "sales")).toEqual(["/leads", "/quotes"]);
     expect(linksOf(groups, "clients")).toEqual(["/clients"]);
     expect(linksOf(groups, "work")).toEqual(["/projects", "/tasks", "/time", "/calendar"]);
-    expect(linksOf(groups, "finance")).toEqual(["/invoices", "/recurring-invoices", "/settings/billing"]);
+    expect(linksOf(groups, "finance")).toEqual(["/finance", "/invoices", "/recurring-invoices", "/settings/billing"]);
     expect(linksOf(groups, "documents")).toEqual(["/contracts"]);
     expect(linksOf(groups, "support")).toEqual(["/requests"]);
     expect(linksOf(groups, "insights")).toEqual(["/analytics", "/reports", "/activity"]);
@@ -104,7 +104,7 @@ describe("buildSidebarGroups — top-level structure", () => {
 describe("buildSidebarGroups — permission gating (relocated, not changed)", () => {
   it("9. recurringInvoicesManage: false removes only Recurring Invoices from Finance; Invoices/Billing remain", () => {
     const groups = buildSidebarGroups(flags({ recurringInvoicesManage: false }));
-    expect(linksOf(groups, "finance")).toEqual(["/invoices", "/settings/billing"]);
+    expect(linksOf(groups, "finance")).toEqual(["/finance", "/invoices", "/settings/billing"]);
   });
 
   it("10. analyticsView: false removes only Analytics from Insights; Reports/Activity remain", () => {
