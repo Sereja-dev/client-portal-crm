@@ -6,6 +6,7 @@ import {
   fetchProjectTasks,
   fetchProjectTimeEntries,
   fetchProjectInvoices,
+  fetchProjectContracts,
   PROJECT_TAB_ROW_BOUND,
 } from "@/app/(dashboard)/projects/[id]/profile-query";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
@@ -143,6 +144,7 @@ describe("Project Hub — relationship tab query isolation", () => {
   });
 
   afterAll(async () => {
+    await prisma.contract.deleteMany({ where: { contractNumber: { startsWith: PREFIX } } });
     await prisma.invoice.deleteMany({ where: { invoiceNumber: { startsWith: PREFIX } } });
     await prisma.project.deleteMany({ where: { name: { startsWith: PREFIX } } });
     await cleanupTestData(fixtures);
@@ -150,6 +152,21 @@ describe("Project Hub — relationship tab query isolation", () => {
 
   async function createProject(organizationId: string, clientId: string, ownerId: string) {
     return prisma.project.create({ data: { name: uniqueName(), organizationId, clientId, ownerId, status: "IN_PROGRESS" } });
+  }
+
+  /** Documents Slice A — raw prisma.contract.create, matching this file's own existing direct-Prisma-create convention (prisma.invoice.createMany above) rather than going through the Contract domain service, which has its own dedicated test suite (test/integration/contracts/). */
+  async function createContract(organizationId: string, clientId: string, projectId: string | null, createdByUserId: string, suffix: string) {
+    return prisma.contract.create({
+      data: {
+        organizationId,
+        clientId,
+        projectId,
+        createdByUserId,
+        contractNumber: `${PREFIX}-${suffix}`,
+        title: `${PREFIX} contract ${suffix}`,
+        body: "This agreement is entered into by and between the parties as of the issue date below.",
+      },
+    });
   }
 
   it("Tasks: bounded, scoped to this Project, includes assignee", async () => {
@@ -223,12 +240,74 @@ describe("Project Hub — relationship tab query isolation", () => {
     const tasksFromWrongOrg = await fetchProjectTasks(fixtures.orgB.id, project.id);
     const timeFromWrongOrg = await fetchProjectTimeEntries(fixtures.orgB.id, project.id);
     const invoicesFromWrongOrg = await fetchProjectInvoices(fixtures.orgB.id, project.id);
+    const contractsFromWrongOrg = await fetchProjectContracts(fixtures.orgB.id, project.id);
     const healthFromWrongOrg = await fetchProjectHealth(fixtures.orgB.id, project.id, NOW);
 
     expect(tasksFromWrongOrg).toEqual([]);
     expect(timeFromWrongOrg).toEqual([]);
     expect(invoicesFromWrongOrg).toEqual([]);
+    expect(contractsFromWrongOrg).toEqual([]);
     expect(healthFromWrongOrg).toEqual({ openTaskCount: 0, overdueTaskCount: 0, trackedMinutes: 0, invoiceCount: 0 });
+  });
+
+  // Documents Slice A.
+  it("Contracts: bounded, scoped to this Project only, excludes another Project's and another org's Contracts, includes signatory", async () => {
+    const project = await createProject(fixtures.orgA.id, fixtures.clientA.id, fixtures.owner.id);
+    const otherProject = await createProject(fixtures.orgA.id, fixtures.clientA.id, fixtures.owner.id);
+    const foreignProject = await prisma.project.create({
+      data: { name: uniqueName(), organizationId: fixtures.orgB.id, clientId: fixtures.clientB.id, ownerId: fixtures.orgBOwner.id, status: "IN_PROGRESS" },
+    });
+
+    const signatory = await prisma.clientContact.create({
+      data: { organizationId: fixtures.orgA.id, clientId: fixtures.clientA.id, name: `${PREFIX}-signatory` },
+    });
+
+    await createContract(fixtures.orgA.id, fixtures.clientA.id, project.id, fixtures.owner.id, "mine-1");
+    const signed = await prisma.contract.create({
+      data: {
+        organizationId: fixtures.orgA.id,
+        clientId: fixtures.clientA.id,
+        projectId: project.id,
+        createdByUserId: fixtures.owner.id,
+        contractNumber: `${PREFIX}-mine-2`,
+        title: `${PREFIX} contract mine-2`,
+        body: "Body.",
+        signatoryContactId: signatory.id,
+      },
+    });
+    await createContract(fixtures.orgA.id, fixtures.clientA.id, otherProject.id, fixtures.owner.id, "other-project");
+    await createContract(fixtures.orgB.id, fixtures.clientB.id, foreignProject.id, fixtures.orgBOwner.id, "foreign-org");
+
+    const rows = await fetchProjectContracts(fixtures.orgA.id, project.id);
+    expect(rows.map((r) => r.contractNumber).sort()).toEqual([`${PREFIX}-mine-1`, `${PREFIX}-mine-2`].sort());
+    const bySignatory = rows.find((r) => r.id === signed.id);
+    expect(bySignatory?.signatoryContact?.id).toBe(signatory.id);
+
+    await prisma.clientContact.deleteMany({ where: { id: signatory.id } });
+  });
+
+  it("Contracts: bounded, same PROJECT_TAB_ROW_BOUND limit as every other tab query", async () => {
+    const project = await createProject(fixtures.orgA.id, fixtures.clientA.id, fixtures.owner.id);
+    await prisma.contract.createMany({
+      data: Array.from({ length: PROJECT_TAB_ROW_BOUND + 5 }, (_, i) => ({
+        organizationId: fixtures.orgA.id,
+        clientId: fixtures.clientA.id,
+        projectId: project.id,
+        createdByUserId: fixtures.owner.id,
+        contractNumber: `${PREFIX}-bound-${i}`,
+        title: `${PREFIX} bound ${i}`,
+        body: "Body.",
+      })),
+    });
+
+    const rows = await fetchProjectContracts(fixtures.orgA.id, project.id);
+    expect(rows).toHaveLength(PROJECT_TAB_ROW_BOUND);
+  });
+
+  it("Contracts: a genuinely contract-less Project returns an empty array, never an error", async () => {
+    const project = await createProject(fixtures.orgA.id, fixtures.clientA.id, fixtures.owner.id);
+    const rows = await fetchProjectContracts(fixtures.orgA.id, project.id);
+    expect(rows).toEqual([]);
   });
 
   // Tenant-isolation regression for the relation-based scoping above:

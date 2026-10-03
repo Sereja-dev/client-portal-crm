@@ -184,3 +184,40 @@ export async function fetchProjectInvoices(organizationId: string, projectId: st
     select: { id: true, invoiceNumber: true, status: true, amount: true, currency: true, issueDate: true, dueDate: true },
   });
 }
+
+export type ProjectContractRow = {
+  id: string;
+  contractNumber: string;
+  title: string;
+  status: import("@/generated/prisma/enums").ContractStatus;
+  archivedAt: Date | null;
+  effectiveDate: Date | null;
+  expiresAt: Date | null;
+  signatoryContact: { id: string; name: string } | null;
+};
+
+/**
+ * Documents Slice A — mirrors Client Hub's own fetchClientContracts
+ * exactly (src/app/(dashboard)/clients/[id]/profile-query.ts), scoped by
+ * {organizationId, projectId} together instead of {organizationId,
+ * clientId}. Archived Contracts are included, never silently hidden —
+ * same convention as every other Contract list surface (archivedAt is
+ * orthogonal to status).
+ */
+export async function fetchProjectContracts(organizationId: string, projectId: string): Promise<ProjectContractRow[]> {
+  return prisma.contract.findMany({
+    where: { organizationId, projectId },
+    orderBy: [{ createdAt: "desc" }],
+    take: PROJECT_TAB_ROW_BOUND,
+    select: {
+      id: true,
+      contractNumber: true,
+      title: true,
+      status: true,
+      archivedAt: true,
+      effectiveDate: true,
+      expiresAt: true,
+      signatoryContact: { select: { id: true, name: true } },
+    },
+  });
+}

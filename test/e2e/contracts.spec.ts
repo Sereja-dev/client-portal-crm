@@ -95,6 +95,84 @@ test.describe("Contracts Staff UI (Phase 2)", () => {
     await expect(page.getByText("No matching contracts")).toBeVisible();
   });
 
+  // Documents Slice A.
+  test("Project filter: choosing a Project narrows the list, a non-matching Contract disappears, clearing restores it", async ({ page }) => {
+    const onProjectNumber = uniqueNumber("C-PROJ-ON");
+    const offProjectNumber = uniqueNumber("C-PROJ-OFF");
+
+    await dbQuery("contract", "create", {
+      data: {
+        organizationId: fixtures.orgA.id,
+        clientId: fixtures.clientA.id,
+        projectId: fixtures.project.id,
+        createdByUserId: fixtures.owner.id,
+        contractNumber: onProjectNumber,
+        title: "On project",
+        body: "Body.",
+      },
+    });
+    await dbQuery("contract", "create", {
+      data: {
+        organizationId: fixtures.orgA.id,
+        clientId: fixtures.clientA.id,
+        createdByUserId: fixtures.owner.id,
+        contractNumber: offProjectNumber,
+        title: "Project-less",
+        body: "Body.",
+      },
+    });
+
+    await page.goto("/contracts");
+    await expect(page.getByRole("row", { name: new RegExp(onProjectNumber) })).toBeVisible();
+    await expect(page.getByRole("row", { name: new RegExp(offProjectNumber) })).toBeVisible();
+
+    await page.getByLabel("Project").selectOption({ label: fixtures.project.name });
+    await expect(page).toHaveURL(new RegExp(`project=${fixtures.project.id}`));
+    await expect(page.getByRole("row", { name: new RegExp(onProjectNumber) })).toBeVisible();
+    await expect(page.getByRole("row", { name: new RegExp(offProjectNumber) })).toHaveCount(0);
+
+    // Clearing restores the unfiltered list — the SearchFilterBar's own
+    // GET form resubmits every field (including the now-empty project=),
+    // so this asserts on the restored row set, not on the param's mere
+    // textual presence/absence in the URL.
+    await page.getByLabel("Project").selectOption({ label: "All projects" });
+    await expect(page.getByRole("row", { name: new RegExp(onProjectNumber) })).toBeVisible();
+    await expect(page.getByRole("row", { name: new RegExp(offProjectNumber) })).toBeVisible();
+  });
+
+  test("Project filter composes with Status as AND", async ({ page }) => {
+    const sentOnProject = uniqueNumber("C-PROJ-SENT");
+    const draftOnProject = uniqueNumber("C-PROJ-DRAFT");
+
+    const sent = await dbQuery<{ id: string }>("contract", "create", {
+      data: {
+        organizationId: fixtures.orgA.id,
+        clientId: fixtures.clientA.id,
+        projectId: fixtures.project.id,
+        createdByUserId: fixtures.owner.id,
+        contractNumber: sentOnProject,
+        title: "Sent on project",
+        body: "Body.",
+      },
+    });
+    await dbQuery("contract", "update", { where: { id: sent.id }, data: { status: "SENT", sentAt: new Date().toISOString() } });
+    await dbQuery("contract", "create", {
+      data: {
+        organizationId: fixtures.orgA.id,
+        clientId: fixtures.clientA.id,
+        projectId: fixtures.project.id,
+        createdByUserId: fixtures.owner.id,
+        contractNumber: draftOnProject,
+        title: "Draft on project",
+        body: "Body.",
+      },
+    });
+
+    await page.goto(`/contracts?status=SENT&project=${fixtures.project.id}`);
+    await expect(page.getByRole("row", { name: new RegExp(sentOnProject) })).toBeVisible();
+    await expect(page.getByRole("row", { name: new RegExp(draftOnProject) })).toHaveCount(0);
+  });
+
   test("full happy path: create, list, detail, edit, send, internal notes after send, accept, terminate, archive, restore", async ({ page }) => {
     const number = uniqueNumber("C-E2E");
     await page.goto("/contracts/new");
@@ -305,10 +383,13 @@ test.describe("Contracts Staff UI (Phase 2)", () => {
   });
 
   test.describe("responsive", () => {
-    test("390px: no page-level horizontal overflow on list, create, and detail", async ({ page }) => {
+    test("390px: no page-level horizontal overflow on list, create, and detail; Status/Client/Project/Archived filters remain usable", async ({ page }) => {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto("/contracts");
       expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+      await expect(page.getByLabel("Status").first()).toBeVisible();
+      await expect(page.getByLabel("Client")).toBeVisible();
+      await expect(page.getByLabel("Project")).toBeVisible();
 
       await page.goto("/contracts/new");
       expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);

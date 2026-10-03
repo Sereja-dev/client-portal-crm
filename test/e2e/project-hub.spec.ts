@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext } from "@playwright/test";
-import { seedE2EFixtures, cleanupTestData, type TestFixtures } from "./fixtures";
+import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 
 /**
@@ -74,7 +74,7 @@ test.describe("Project Hub", () => {
     );
 
     const nav = page.getByRole("navigation", { name: "Project sections" });
-    for (const tab of ["Overview", "Tasks", "Time", "Invoices", "Activity", "Files"]) {
+    for (const tab of ["Overview", "Tasks", "Time", "Invoices", "Contracts", "Activity", "Files"]) {
       await expect(nav.getByRole("link", { name: tab })).toBeVisible();
     }
     await expect(nav.getByRole("link", { name: "Overview" })).toHaveAttribute("aria-current", "page");
@@ -89,11 +89,49 @@ test.describe("Project Hub", () => {
 
   test("every tab renders without a server error", async ({ context, baseURL, page }) => {
     await actAs(context, baseURL!, fixtures.owner, fixtures.orgA.id);
-    for (const tab of ["overview", "tasks", "time", "invoices", "activity", "files"]) {
+    for (const tab of ["overview", "tasks", "time", "invoices", "contracts", "activity", "files"]) {
       await page.goto(`/projects/${fixtures.project.id}?tab=${tab}`);
       await expect(page.getByText("Page not found")).toHaveCount(0);
       await expect(page.getByRole("heading", { name: fixtures.project.name })).toBeVisible();
     }
+  });
+
+  // Documents Slice A.
+  test.describe("Contracts tab", () => {
+    test.afterEach(async () => {
+      await dbQuery("contract", "deleteMany", { where: { organizationId: fixtures.orgA.id } });
+    });
+
+    test("empty state links back to Contracts; a Project-scoped Contract appears and its link opens the correct detail page", async ({
+      context,
+      baseURL,
+      page,
+    }) => {
+      await actAs(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+
+      await page.goto(`/projects/${fixtures.project.id}?tab=contracts`);
+      await expect(page.getByText("No contracts yet")).toBeVisible();
+      await expect(page.getByRole("link", { name: "Go to Contracts" })).toHaveAttribute("href", "/contracts");
+
+      const contract = await dbQuery<{ id: string }>("contract", "create", {
+        data: {
+          organizationId: fixtures.orgA.id,
+          clientId: fixtures.clientA.id,
+          projectId: fixtures.project.id,
+          createdByUserId: fixtures.owner.id,
+          contractNumber: `PHUB-E2E-${fixtures.runId}`,
+          title: "Project Hub Contract",
+          body: "Body.",
+        },
+      });
+
+      await page.goto(`/projects/${fixtures.project.id}?tab=contracts`);
+      const link = page.getByRole("link", { name: `PHUB-E2E-${fixtures.runId}` });
+      await expect(link).toHaveAttribute("href", `/contracts/${contract.id}`);
+      await link.click();
+      await expect(page).toHaveURL(new RegExp(`/contracts/${contract.id}$`));
+      await expect(page.getByText("Project Hub Contract")).toBeVisible();
+    });
   });
 
   test("a foreign-org Project id renders the same Staff-scoped not-found boundary as every other route", async ({
@@ -128,7 +166,7 @@ test.describe("Project Hub", () => {
     });
   }
 
-  test("390px: header and tabs render with no horizontal overflow, on both Overview and the Tasks tab", async ({
+  test("390px: header and tabs render with no horizontal overflow, on Overview, Tasks, and Contracts", async ({
     context,
     baseURL,
     page,
@@ -142,6 +180,12 @@ test.describe("Project Hub", () => {
     expect(overflow).toBe(false);
 
     await page.goto(`/projects/${fixtures.project.id}?tab=tasks`);
+    overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+    expect(overflow).toBe(false);
+
+    await page.goto(`/projects/${fixtures.project.id}?tab=contracts`);
+    const nav = page.getByRole("navigation", { name: "Project sections" });
+    await expect(nav.getByRole("link", { name: "Contracts" })).toBeVisible();
     overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
     expect(overflow).toBe(false);
   });

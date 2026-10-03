@@ -44,6 +44,18 @@ export type ListContractsOptions = {
   includeArchived?: boolean;
   status?: ContractStatus;
   clientId?: string;
+  // Documents Slice A — composes as a plain AND with clientId above (both
+  // land in the same Prisma `where`, never an OR). Never independently
+  // validated for "belongs to this clientId" here — it doesn't need to
+  // be: every real Contract row's own projectId already belongs to the
+  // exact same clientId it was created with (resolveContractTarget()'s
+  // own write-time invariant, see target.ts), so a forged client+project
+  // combination that never legitimately co-occurs on any row simply
+  // matches zero rows, never a cross-target fallback. A foreign-org
+  // projectId is equally safe for the same reason: organizationId above
+  // already scopes every candidate row, and no in-org Contract's own
+  // projectId can ever equal an out-of-org Project's id.
+  projectId?: string;
   /** Matches contractNumber, title, or the target Client's own name — never `body` (see this phase's own architecture-lock report §23: no cheap existing pattern searches free-text document content). */
   search?: string;
 };
@@ -61,6 +73,7 @@ export async function listContracts(
       ...(options.includeArchived ? {} : { archivedAt: null }),
       ...(options.status ? { status: options.status } : {}),
       ...(options.clientId ? { clientId: options.clientId } : {}),
+      ...(options.projectId ? { projectId: options.projectId } : {}),
       ...(search
         ? {
             OR: [

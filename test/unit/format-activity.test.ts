@@ -276,6 +276,31 @@ describe("formatActivity — STATUS_CHANGED across entity types", () => {
     });
     expect(result.actorLabel).toBe("Jamie Client");
   });
+
+  // Documents Slice A — CONTRACT routes through the exact same shared
+  // buildDataEntityModel() branch every other data-entity type above
+  // does, so the generic "missing name"/"missing from or to" fallback
+  // behavior already proven earlier in this file (see the Lead/CLIENT
+  // cases) applies to CONTRACT by construction, not by any
+  // Contract-specific code path. These two cases make that explicit for
+  // CONTRACT's own real historical/minimal metadata shapes, rather than
+  // leaving it merely implied by the shared-code-path reasoning above.
+  it("Contract CREATED with minimal metadata (name only, no actorName) still renders meaningfully", () => {
+    const result = activity("CONTRACT", "CREATED", { name: "Website Redesign Agreement" });
+    expect(result.actionLabel).toBe("created contract Website Redesign Agreement");
+    expect(result.entityLabel).toBe("Website Redesign Agreement");
+  });
+
+  it("Contract STATUS_CHANGED with the historical minimal shape (from/to only, no name) still renders meaningfully, never the generic fallback", () => {
+    const result = activity("CONTRACT", "STATUS_CHANGED", { from: "ACCEPTED", to: "TERMINATED" });
+    expect(result.actionLabel).toBe("changed contract status");
+    expect(result.detailLines).toEqual(["Accepted → Terminated"]);
+  });
+
+  it("Contract STATUS_CHANGED with genuinely malformed metadata (missing to) falls back safely, never half-renders", () => {
+    const result = activity("CONTRACT", "STATUS_CHANGED", { name: "Website Redesign Agreement", from: "SENT" });
+    expect(result.actionLabel).toBe("Activity recorded");
+  });
 });
 
 // Calendar V1 — CALENDAR_EVENT routed through this same generic model

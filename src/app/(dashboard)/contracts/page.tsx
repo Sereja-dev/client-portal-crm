@@ -43,13 +43,20 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
   const resolvedSearchParams = await searchParams;
   const listParams = parseContractListParams(resolvedSearchParams);
 
-  const [clientCount, clients, contracts] = await Promise.all([
+  const [clientCount, clients, projects, contracts] = await Promise.all([
     prisma.client.count({ where: { organizationId } }),
     prisma.client.findMany({ where: { organizationId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    // Documents Slice A — same unfiltered "every org-scoped Project" shape
+    // the Client filter immediately above already uses (no archived/status
+    // exclusion), matching resolveContractTarget()'s own identical "any
+    // in-org Project is a valid target" convention (src/lib/contracts/
+    // target.ts) rather than inventing a narrower selection rule here.
+    prisma.project.findMany({ where: { organizationId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     listContracts(organizationId, {
       includeArchived: listParams.archived,
       status: listParams.status,
       clientId: listParams.clientId,
+      projectId: listParams.projectId,
       search: listParams.q || undefined,
     }),
   ]);
@@ -62,7 +69,9 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
   const visibleContracts = listParams.archived ? contracts.filter((c) => c.archivedAt !== null) : contracts;
 
   const canCreate = clientCount > 0;
-  const hasActiveParams = Boolean(listParams.q || listParams.status || listParams.clientId || listParams.archived);
+  const hasActiveParams = Boolean(
+    listParams.q || listParams.status || listParams.clientId || listParams.projectId || listParams.archived,
+  );
 
   return (
     <div>
@@ -103,6 +112,12 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
               options: [{ value: "", label: "All clients" }, ...clients.map((c) => ({ value: c.id, label: c.name }))],
             },
             {
+              name: "project",
+              label: "Project",
+              value: listParams.projectId ?? "",
+              options: [{ value: "", label: "All projects" }, ...projects.map((p) => ({ value: p.id, label: p.name }))],
+            },
+            {
               name: "archived",
               label: "Status",
               value: listParams.archived ? "1" : "",
@@ -128,7 +143,7 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
             }
           />
         ) : hasActiveParams ? (
-          listParams.archived && !listParams.q && !listParams.status && !listParams.clientId ? (
+          listParams.archived && !listParams.q && !listParams.status && !listParams.clientId && !listParams.projectId ? (
             <EmptyState title="No archived contracts" description="Contracts you archive will appear here." />
           ) : (
             <EmptyState

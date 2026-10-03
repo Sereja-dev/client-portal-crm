@@ -9,6 +9,7 @@ import { ProjectOverviewTab } from "./overview-tab";
 import { ProjectTasksTab } from "./project-tasks-tab";
 import { ProjectTimeTab } from "./project-time-tab";
 import { ProjectInvoicesTab } from "./project-invoices-tab";
+import { ProjectContractsTab } from "./project-contracts-tab";
 import { ProjectActivityTab } from "./activity-tab";
 import { ProjectAttachmentsSection } from "./attachments-section";
 import {
@@ -16,6 +17,7 @@ import {
   fetchProjectTasks,
   fetchProjectTimeEntries,
   fetchProjectInvoices,
+  fetchProjectContracts,
 } from "./profile-query";
 
 /**
@@ -38,7 +40,7 @@ import {
  * rendered.
  */
 
-const TABS = ["overview", "tasks", "time", "invoices", "activity", "files"] as const;
+const TABS = ["overview", "tasks", "time", "invoices", "contracts", "activity", "files"] as const;
 type ProjectHubTab = (typeof TABS)[number];
 
 const TAB_LABELS: Record<ProjectHubTab, string> = {
@@ -46,6 +48,7 @@ const TAB_LABELS: Record<ProjectHubTab, string> = {
   tasks: "Tasks",
   time: "Time",
   invoices: "Invoices",
+  contracts: "Contracts",
   activity: "Activity",
   files: "Files",
 };
@@ -164,6 +167,10 @@ export default async function ProjectHubPage({
             clientId={project.client.id}
             invoices={await fetchProjectInvoices(organizationId, project.id)}
           />
+        )}
+
+        {activeTab === "contracts" && (
+          <ProjectContractsTab contracts={await fetchProjectContracts(organizationId, project.id)} />
         )}
 
         {activeTab === "activity" && (
