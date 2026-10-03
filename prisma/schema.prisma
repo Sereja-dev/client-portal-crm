@@ -530,6 +530,12 @@ model User {
   // comment).
   createdQuoteTemplates QuoteTemplate[] @relation("QuoteTemplateCreatedBy")
 
+  // Invoice Templates V1 (schema/domain foundation). Same "author"
+  // relation shape as createdQuoteTemplates immediately above -- audit
+  // metadata only, never an authorization boundary (see InvoiceTemplate's
+  // own doc comment).
+  createdInvoiceTemplates InvoiceTemplate[] @relation("InvoiceTemplateCreatedBy")
+
   // Contracts Phase 1 (schema/domain foundation only). Same "author"
   // relation shape as createdQuotes/createdQuoteTemplates above -- audit
   // metadata only, never an authorization boundary (see Contract's own
@@ -649,6 +655,11 @@ model Organization {
   // tenant-scoping shape as quotes above -- organizationId is required,
   // plain unnamed relation.
   quoteTemplates QuoteTemplate[]
+
+  // Invoice Templates V1 (schema/domain foundation). Same direct-tenant-
+  // scoping shape as quoteTemplates above -- organizationId is required,
+  // plain unnamed relation.
+  invoiceTemplates InvoiceTemplate[]
 
   // Multiple Contacts Phase 1 (data model foundation only). Same direct-
   // tenant-scoping shape as leads/quotes above.
@@ -3447,6 +3458,132 @@ model QuoteTemplateItem {
   updatedAt DateTime @updatedAt
 
   @@unique([quoteTemplateId, position])
+}
+
+// -----------------------------------------------------------------------
+// Invoice Templates V1 (Finance Improvement sub-block D). Follows
+// QuoteTemplate's own established shape exactly where Invoice has no
+// reason to diverge from it -- see the completed Invoice Templates
+// readiness audit for the full precedent-by-precedent reasoning. Client/
+// project-agnostic by deliberate Product Owner decision (unlike
+// RecurringInvoice, which is a separate, per-client scheduling concept —
+// see RecurringInvoice's own "Template fields" comment below and
+// InvoiceTemplate's own header comment for why the two remain distinct).
+//
+// Snapshot/copy semantics only, identical to QuoteTemplate: an
+// InvoiceTemplate is applied by copying its values into a brand-new,
+// ordinary DRAFT Invoice at creation time -- there is deliberately no
+// Invoice.invoiceTemplateId column and no live relation from a created
+// Invoice back to the template that seeded it. Editing or archiving an
+// InvoiceTemplate after an Invoice was created from it therefore has zero
+// effect on that Invoice, by construction -- there is no column anywhere
+// for such an effect to travel through.
+// -----------------------------------------------------------------------
+
+// Organization-wide, not personal -- same tier as QuoteTemplate/Tag/
+// WorkflowAutomation/CustomFieldDefinition/CustomStatusDefinition (an
+// org-wide config asset, managed by OWNER/ADMIN, applied/read by any
+// Staff role), never Invoice's own tier (a protected, per-record
+// financial document). This is exactly why `organization`'s own onDelete
+// is Cascade here, like QuoteTemplate's, not Restrict like Invoice's own.
+model InvoiceTemplate {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Required, deliberately NOT unique within an organization -- same
+  // reasoning as QuoteTemplate.name (two templates may legitimately share
+  // a name with different content).
+  name String
+
+  // The template's own currency -- line-item unitPrice values below are
+  // denominated in it. Applying the template initializes the new
+  // Invoice's currency from this value, overriding OrganizationProfile's
+  // own currency default for that one form load; the Staff member may
+  // still change it in the ordinary Invoice form before saving, exactly
+  // like Invoice Duplicate's own "currency is passed through unchanged,
+  // never replaced by the organization's current default" precedent. No
+  // FX conversion exists or is ever performed anywhere in this app.
+  currency String
+
+  // Same discount/tax fields, same shared Invoice-domain enums, as
+  // QuoteTemplate/RecurringInvoice.
+  discountType   InvoiceDiscountType @default(NONE)
+  discountValue  Decimal?            @db.Decimal(10, 2)
+  taxRatePercent Decimal?            @db.Decimal(5, 2)
+  taxLabel       InvoiceTaxLabel     @default(TAX)
+
+  // Client-facing, prefilled onto the new Invoice's own `notes` field
+  // verbatim.
+  notes String?
+
+  // Staff-only, prefilled onto the new Invoice's own `internalNotes`
+  // field verbatim -- same contract Invoice.internalNotes and
+  // RecurringInvoice.internalNotes both already establish: never rendered
+  // to the PDF, never emailed, never shown to any Portal identity.
+  // RecurringInvoice (not QuoteTemplate, which has no internal-notes
+  // concept at all since Quote itself has none) is the direct precedent
+  // for including this field here.
+  internalNotes String?
+
+  // A relative day-count, never an absolute date -- same reasoning as
+  // QuoteTemplate.validityDays and RecurringInvoice.dueDateOffsetDays:
+  // a template created in January can't sensibly freeze an absolute
+  // due date for reuse in June. Null means the applied Invoice gets no
+  // default due date at all (the same "no default" state an ordinary
+  // blank Invoice already starts in). When set, the apply-time helper
+  // computes dueDate = issueDate + dueDateOffsetDays calendar days,
+  // using the exact same date-only (UTC midnight) semantics
+  // src/lib/invoices/date-only.ts already establishes for every other
+  // date-only column in this app. issueDate itself is never stored here
+  // -- the applied Invoice's issueDate is always "today" at apply time,
+  // matching the ordinary /invoices/new default exactly.
+  dueDateOffsetDays Int?
+
+  // Audit metadata only, never an authorization/ownership boundary --
+  // template management/application is gated entirely by organizationId +
+  // Role (see src/lib/invoice-templates/authorization.ts), never by who
+  // originally created a given template. Restrict, matching
+  // QuoteTemplate.createdByUser exactly.
+  createdByUserId String @db.Uuid
+  createdByUser   User   @relation("InvoiceTemplateCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  // Soft-archive only, same convention as QuoteTemplate -- null =
+  // active/applyable. Supports restore (archivedAt reset to null).
+  archivedAt DateTime?
+
+  items InvoiceTemplateItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([organizationId, archivedAt])
+}
+
+// Mirrors QuoteTemplateItem's own reusable input fields exactly
+// (description/quantity/unitPrice/position) -- deliberately omits
+// `lineTotal`: always recomputed fresh at apply/create time via the
+// existing, unmodified calculateInvoiceTotals() utility, never stored
+// redundantly here. Invoice itself has no persistent flat/itemized
+// "mode" column (that distinction is purely an InvoiceForm UI
+// affordance) -- an InvoiceTemplate therefore stores only this one
+// canonical item representation, never a competing stored `amount`.
+model InvoiceTemplateItem {
+  id                String          @id @default(uuid()) @db.Uuid
+  invoiceTemplateId String          @db.Uuid
+  invoiceTemplate   InvoiceTemplate @relation(fields: [invoiceTemplateId], references: [id], onDelete: Cascade)
+
+  description String
+  quantity    Decimal @db.Decimal(10, 3)
+  unitPrice   Decimal @db.Decimal(10, 2)
+  position    Int
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([invoiceTemplateId, position])
 }
 
 // -----------------------------------------------------------------------

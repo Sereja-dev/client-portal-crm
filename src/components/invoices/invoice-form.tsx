@@ -19,7 +19,7 @@ import type { InvoiceFormState } from "@/types";
 
 const initialState: InvoiceFormState = { error: null };
 
-type InvoiceFormDefaults = {
+export type InvoiceFormDefaults = {
   invoiceNumber?: string;
   clientId?: string;
   projectId?: string | null;

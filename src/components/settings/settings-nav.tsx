@@ -33,6 +33,8 @@ type SettingsNavLink = {
   tagsOnly?: boolean;
   /** Quote Templates Phase 2 — OWNER/ADMIN-only, mirroring workflowAutomationsOnly/tagsOnly's own identical gate and identical "hiding the link is discoverability only" precedent: every page under /settings/templates independently re-verifies the same role server-side (canManageQuoteTemplates, the Phase 1 domain layer's own gate). *Applying* an active template from /quotes/new is a separate, unrelated, open-to-any-Staff-role concern (see src/lib/quote-templates/authorization.ts's own canApplyQuoteTemplates) — this only gates the template *management* page. */
   templatesOnly?: boolean;
+  /** Invoice Templates V1 — the same OWNER/ADMIN-only gate and identical "hiding the link is discoverability only" precedent as templatesOnly immediately above, for the new sibling /settings/invoice-templates route (canManageInvoiceTemplates — a dedicated INVOICE_TEMPLATES_MANAGE permission, deliberately separate from QUOTE_TEMPLATES_MANAGE). *Applying* an active template from /invoices/new is a separate, unrelated, open-to-any-Staff-role concern — this only gates the template *management* page. */
+  invoiceTemplatesOnly?: boolean;
   /** Integrations V1 — OWNER-only (never OWNER/ADMIN like workflowAutomationsOnly/tagsOnly/templatesOnly above), the same stricter tier paymentOnly already uses: a stored, decryptable outbound credential is "too sensitive to delegate," matching Payment Details' own reasoning exactly (src/lib/integrations/authorization.ts's own doc comment). Hiding this link is discoverability only — /settings/integrations' own page and every Server Action independently re-verify the same OWNER-only role. */
   integrationsOnly?: boolean;
 };
@@ -80,6 +82,11 @@ const SETTINGS_LINKS: readonly SettingsNavLink[] = [
   // the other OWNER/ADMIN-only org-wide config entries (see
   // templatesOnly's own comment).
   { href: "/settings/templates", label: "Templates", templatesOnly: true },
+  // Invoice Templates V1 — grouped next to Quote Templates, a NEW sibling
+  // route (Product Owner decision: a new sibling page, not merged into
+  // the existing Quote Templates page) with its own OWNER/ADMIN-only
+  // gate (see invoiceTemplatesOnly's own comment).
+  { href: "/settings/invoice-templates", label: "Invoice templates", invoiceTemplatesOnly: true },
   // Integrations V1 — grouped next to Tags/Workflow Automations/Templates,
   // but OWNER-only (see integrationsOnly's own comment) rather than
   // OWNER/ADMIN like its three neighbors immediately above.
@@ -101,12 +108,14 @@ export function SettingsNav({
   canManageWorkflowAutomations,
   canManageTags,
   canManageQuoteTemplates,
+  canManageInvoiceTemplates,
   canManageIntegrations,
 }: {
   canAccessPayment: boolean;
   canManageWorkflowAutomations: boolean;
   canManageTags: boolean;
   canManageQuoteTemplates: boolean;
+  canManageInvoiceTemplates: boolean;
   canManageIntegrations: boolean;
 }) {
   const pathname = usePathname();
@@ -114,6 +123,7 @@ export function SettingsNav({
     .filter((link) => !link.workflowAutomationsOnly || canManageWorkflowAutomations)
     .filter((link) => !link.tagsOnly || canManageTags)
     .filter((link) => !link.templatesOnly || canManageQuoteTemplates)
+    .filter((link) => !link.invoiceTemplatesOnly || canManageInvoiceTemplates)
     .filter((link) => !link.integrationsOnly || canManageIntegrations);
 
   return (

@@ -11,10 +11,15 @@ import type { Role } from "@/generated/prisma/enums";
  * comment). Every other module (resolver, management action, nav
  * gating, tests) imports from here rather than re-deriving any of this.
  *
- * Exactly 9 keys, matching the 9 existing OWNER/ADMIN-vs-MEMBER
+ * Originally exactly 9 keys, matching the 9 OWNER/ADMIN-vs-MEMBER
  * authorization boundaries the architecture lock validation confirmed
- * against the real repository — no key here represents a boundary that
- * doesn't already exist in the codebase today.
+ * against the real repository at the time — no key represented a
+ * boundary that didn't already exist in the codebase. Invoice Templates
+ * V1 adds a 10th, genuinely new boundary (INVOICE_TEMPLATES_MANAGE),
+ * following the exact same OWNER/ADMIN-manage-vs-any-role-apply split
+ * QUOTE_TEMPLATES_MANAGE already established — this catalog is the
+ * intended, singular place for that kind of key to be added, not a
+ * frozen historical snapshot.
  */
 export const PERMISSION_KEYS = [
   "ANALYTICS_VIEW",
@@ -25,6 +30,7 @@ export const PERMISSION_KEYS = [
   "TAGS_MANAGE",
   "WORKFLOW_AUTOMATIONS_MANAGE",
   "QUOTE_TEMPLATES_MANAGE",
+  "INVOICE_TEMPLATES_MANAGE",
   "INDUSTRY_PRESETS_APPLY",
 ] as const;
 
@@ -94,6 +100,12 @@ export const PERMISSION_CATALOG: readonly PermissionCatalogEntry[] = [
     group: "Settings",
   },
   {
+    key: "INVOICE_TEMPLATES_MANAGE",
+    label: "Invoice templates",
+    description: "Create, edit, archive, restore, and duplicate invoice templates. Applying an active template to an invoice is never affected by this permission.",
+    group: "Settings",
+  },
+  {
     key: "INDUSTRY_PRESETS_APPLY",
     label: "Apply industry presets",
     description: "Apply an industry preset to the organization. Viewing and previewing presets is never affected by this permission.",
@@ -103,7 +115,7 @@ export const PERMISSION_CATALOG: readonly PermissionCatalogEntry[] = [
 
 const PERMISSION_KEY_SET: ReadonlySet<string> = new Set(PERMISSION_KEYS);
 
-/** Fails closed on anything not exactly one of the 9 catalog keys — never a prefix/substring match. */
+/** Fails closed on anything not exactly one of PERMISSION_KEYS's own entries — never a prefix/substring match. */
 export function isPermissionKey(value: unknown): value is PermissionKey {
   return typeof value === "string" && PERMISSION_KEY_SET.has(value);
 }

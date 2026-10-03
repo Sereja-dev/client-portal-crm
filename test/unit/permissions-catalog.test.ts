@@ -11,7 +11,7 @@ import {
 /** Roles / Permissions V1 — catalog invariants (locked spec §2/§7/§22). */
 
 describe("PERMISSION_KEYS / PERMISSION_CATALOG", () => {
-  it("has exactly the 9 locked catalog keys", () => {
+  it("has exactly the 10 locked catalog keys — the original 9 plus Invoice Templates V1's own INVOICE_TEMPLATES_MANAGE", () => {
     expect(PERMISSION_KEYS).toEqual([
       "ANALYTICS_VIEW",
       "REPORTS_VIEW",
@@ -21,6 +21,7 @@ describe("PERMISSION_KEYS / PERMISSION_CATALOG", () => {
       "TAGS_MANAGE",
       "WORKFLOW_AUTOMATIONS_MANAGE",
       "QUOTE_TEMPLATES_MANAGE",
+      "INVOICE_TEMPLATES_MANAGE",
       "INDUSTRY_PRESETS_APPLY",
     ]);
   });
@@ -63,19 +64,19 @@ describe("isPermissionKey", () => {
 });
 
 describe("getDefaultPermission", () => {
-  it("OWNER defaults true for every one of the 9 keys", () => {
+  it("OWNER defaults true for every catalog key", () => {
     for (const key of PERMISSION_KEYS) {
       expect(getDefaultPermission("OWNER", key)).toBe(true);
     }
   });
 
-  it("ADMIN defaults true for every one of the 9 keys", () => {
+  it("ADMIN defaults true for every catalog key", () => {
     for (const key of PERMISSION_KEYS) {
       expect(getDefaultPermission("ADMIN", key)).toBe(true);
     }
   });
 
-  it("MEMBER defaults false for every one of the 9 keys", () => {
+  it("MEMBER defaults false for every catalog key", () => {
     for (const key of PERMISSION_KEYS) {
       expect(getDefaultPermission("MEMBER", key)).toBe(false);
     }
@@ -102,13 +103,14 @@ describe("getGroupedPermissionCatalog", () => {
     expect(allKeys.sort()).toEqual([...PERMISSION_KEYS].sort());
   });
 
-  it("Settings group contains exactly Tags, Workflow automations, Quote templates, Apply industry presets, in that order", () => {
+  it("Settings group contains exactly Tags, Workflow automations, Quote templates, Invoice templates, Apply industry presets, in that order", () => {
     const groups = getGroupedPermissionCatalog();
     const settings = groups.find((g) => g.group === "Settings");
     expect(settings?.entries.map((e) => e.key)).toEqual([
       "TAGS_MANAGE",
       "WORKFLOW_AUTOMATIONS_MANAGE",
       "QUOTE_TEMPLATES_MANAGE",
+      "INVOICE_TEMPLATES_MANAGE",
       "INDUSTRY_PRESETS_APPLY",
     ]);
   });

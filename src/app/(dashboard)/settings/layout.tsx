@@ -47,6 +47,12 @@ export default async function SettingsLayout({
   const canManageWorkflowAutomations = effectivePermissions.WORKFLOW_AUTOMATIONS_MANAGE;
   const canManageTags = effectivePermissions.TAGS_MANAGE;
   const canManageQuoteTemplates = effectivePermissions.QUOTE_TEMPLATES_MANAGE;
+  // Invoice Templates V1 — same effective-permission mechanism as
+  // QUOTE_TEMPLATES_MANAGE immediately above, its own dedicated
+  // INVOICE_TEMPLATES_MANAGE catalog key (deliberately separate, never
+  // merged into the Quote Templates permission — see that key's own
+  // catalog entry).
+  const canManageInvoiceTemplates = effectivePermissions.INVOICE_TEMPLATES_MANAGE;
   // Integrations V1 — deliberately NOT part of the Roles / Permissions
   // catalog above (locked spec §10/§23): a plain inline OWNER check, the
   // exact same mechanism canAccessPayment already uses two lines up,
@@ -60,6 +66,7 @@ export default async function SettingsLayout({
         canManageWorkflowAutomations={canManageWorkflowAutomations}
         canManageTags={canManageTags}
         canManageQuoteTemplates={canManageQuoteTemplates}
+        canManageInvoiceTemplates={canManageInvoiceTemplates}
         canManageIntegrations={canManageIntegrationsValue}
       />
       {children}
