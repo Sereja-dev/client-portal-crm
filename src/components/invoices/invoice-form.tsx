@@ -271,7 +271,25 @@ export function InvoiceForm({
   const flatServiceLabel = previewResult.ok ? previewResult.totals.displayedSubtotal : null;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-2 lg:items-start">
+    // Mobile line-item overflow fix — proven pre-existing at ~390px,
+    // independent of any feature using this form (reproduces on an
+    // unmodified blank Invoice with a populated itemized row; see the
+    // narrow responsive audit). Below `lg:`, this wrapper previously had
+    // no explicit base column count, so the single implicit grid track
+    // got no `minmax(0, ...)` safeguard — its "automatic minimum size"
+    // resolved to the min-content of the deepest populated line-item
+    // input, which genuinely scales with the rendered value text, and
+    // that min-content propagated all the way out to document-level
+    // horizontal overflow. The explicit `grid-cols-1` base here matches
+    // this app's own established safe pattern (QuoteForm/
+    // RecurringInvoiceForm's own field-pair grids, and
+    // InvoiceLineItemRow's own `sm:grid-cols-[...]`), giving the column
+    // an explicit `minmax(0px, 1fr)` track below `lg:` so it can shrink
+    // to the viewport instead of forcing document-level overflow.
+    // InvoiceLineItemRow itself was never the cause — it already used
+    // the safe pattern; QuoteForm and RecurringInvoiceForm reuse that
+    // same row component but never this wrapper, and are unaffected.
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
       <form action={formAction} className="space-y-4">
         <input type="hidden" name="mode" value={mode} />
         {mode === "itemized" && (

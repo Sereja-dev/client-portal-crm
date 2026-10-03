@@ -219,22 +219,15 @@ test.describe("Invoice apply flow (V1)", () => {
     await expect(row1.getByLabel("Description")).toHaveValue("Precise item");
   });
 
-  // NOTE: this does not assert zero page-level horizontal overflow the
-  // way the other responsive tests in this feature do. Investigating a
-  // genuine overflow here traced it to a PRE-EXISTING InvoiceLineItemRow
-  // layout gap at ~390px that reproduces from ordinary itemized-mode
-  // Invoice creation with zero Invoice Templates involvement (confirmed
-  // directly: filling an itemized row by hand on the unmodified blank
-  // /invoices/new flow, with no template applied at all, overflows
-  // identically). Applying a template necessarily switches the form to
-  // itemized mode with real values, so this test would otherwise encode
-  // a false "no overflow" claim. Per this feature's own defect-reporting
-  // rule, this was reported separately rather than silently fixed here
-  // (fixing InvoiceLineItemRow's own CSS is out of this diff's scope) or
-  // silently asserted away — this test instead verifies the
-  // template-specific surface (heading, Live Preview, key fields) stays
-  // usable at this width, which it does.
-  test("390x900: the templated new-invoice form and its Live Preview remain usable", async ({ context, baseURL, page }) => {
+  // The mobile line-item overflow fix (src/components/invoices/
+  // invoice-form.tsx's own top-level grid wrapper, now an explicit
+  // `grid-cols-1` base below `lg:`) closed the pre-existing,
+  // Templates-independent defect this test previously had to work
+  // around — restored to the same strict zero-page-overflow assertion
+  // every other responsive test in this feature uses. Applying a
+  // template necessarily switches the form to itemized mode with real
+  // values, which is exactly the case the fix targets.
+  test("390x900: the templated new-invoice form and its Live Preview both fit, no page-level horizontal overflow", async ({ context, baseURL, page }) => {
     await actAs(context, baseURL!, fixtures.owner);
     await page.setViewportSize({ width: 390, height: 900 });
     await page.goto(`/invoices/new?templateId=${templateId}`);
@@ -244,5 +237,10 @@ test.describe("Invoice apply flow (V1)", () => {
     const row1 = page.getByRole("group", { name: "Line item 1" });
     await expect(row1.getByLabel("Description")).toBeVisible();
     await expect(row1.getByLabel("Description")).toHaveValue("Precise item");
+
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+    expect(overflow).toBe(false);
+
+    await expect(page.getByRole("button", { name: "Create invoice" })).toBeVisible();
   });
 });
