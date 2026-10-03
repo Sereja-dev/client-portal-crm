@@ -246,13 +246,27 @@ export function InvoiceForm({
   });
   const selectedClient = clients.find((client) => client.id === clientId);
   const selectedProject = projectId ? projectsForClient.find((project) => project.id === projectId) : undefined;
+  // Invoice Live Preview V1 hydration correction: formatDateOnlyForDisplay()'s
+  // `locale` defaults to the runtime's own default locale (its own doc
+  // comment), which the server process and the visiting browser can — and
+  // in Production, did — resolve differently, producing a genuine SSR/
+  // hydration text mismatch (React #418) for these two display-only
+  // strings. This is the same already-fixed defect class as commit
+  // "Stabilize locale-dependent date rendering" (six other call sites,
+  // all pinned to "en-US", matching this module's own currencies.ts
+  // REFERENCE_LOCALE / pdf/view-model.ts PDF_LOCALE precedent) — neither
+  // of those constants is exported/client-importable, so "en-US" is
+  // pinned directly here, the same way that commit's own six call sites
+  // did. Display-only: never affects parseDateOnly()/formatDateOnly()'s
+  // own UTC date-only semantics, the persisted value, or any Server
+  // Action payload.
   const issueDateDisplay = (() => {
     const parsed = parseDateOnly(issueDate);
-    return parsed.ok ? formatDateOnlyForDisplay(parsed.date) : null;
+    return parsed.ok ? formatDateOnlyForDisplay(parsed.date, "en-US") : null;
   })();
   const dueDateDisplay = (() => {
     const parsed = parseDateOnly(dueDate);
-    return parsed.ok ? formatDateOnlyForDisplay(parsed.date) : null;
+    return parsed.ok ? formatDateOnlyForDisplay(parsed.date, "en-US") : null;
   })();
   const flatServiceLabel = previewResult.ok ? previewResult.totals.displayedSubtotal : null;
 
