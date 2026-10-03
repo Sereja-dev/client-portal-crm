@@ -138,6 +138,19 @@ export const PORTAL_INVOICE_PDF_DOWNLOAD_LIMIT: RateLimitConfig = {
   windowMs: HOUR_MS,
 };
 
+// Quote Document Actions — staff on-demand Quote PDF download. Isolated
+// bucket from INVOICE_PDF_DOWNLOAD_LIMIT: a Quote PDF is rendered fresh on
+// every request (no archive, no Storage read) rather than redirected to a
+// signed URL, so it is its own distinct resource and must never throttle
+// or be throttled by Invoice PDF downloads. Same shape/ceiling as its
+// Invoice sibling — abuse protection, not a hard day-to-day limit; per
+// authenticated staff user id.
+export const QUOTE_PDF_DOWNLOAD_LIMIT: RateLimitConfig = {
+  scope: "quote-pdf-download",
+  limit: 120,
+  windowMs: HOUR_MS,
+};
+
 // Invoice System Slice 4 — OWNER-only Invoice send/resend. Isolated from
 // invitation/notification delivery and keyed by the authenticated staff
 // user id before the first Invoice-domain query.

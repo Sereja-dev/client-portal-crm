@@ -2,6 +2,7 @@
 
 import { useRef, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ui/confirm-dialog";
 import { ConvertToInvoiceDialog, type ConvertToInvoiceDialogHandle } from "@/components/quotes/convert-to-invoice-dialog";
@@ -17,6 +18,13 @@ import type { QuoteStatusValue } from "@/lib/validation/quote";
 
 const RATE_LIMIT_MESSAGE = "Too many requests. Please try again later.";
 const GENERIC_ERROR = "Something went wrong. Please try again.";
+
+// Document Actions — Quote Duplicate + PDF. Non-destructive, outline-link
+// styling (matching InvoiceLifecycleControls' own identical "Duplicate as
+// new draft" link treatment) — neither action ever mutates this Quote, so
+// neither is ever styled as a destructive/danger control.
+const SECONDARY_LINK_CLASSES =
+  "border-border-strong bg-surface text-text-primary focus-visible:ring-focus-ring inline-flex items-center rounded-md border px-4 py-2 text-sm font-medium transition-colors hover:bg-[var(--hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
 
 /**
  * Quotes / Estimates Phase 3 (Staff UI) §H/§I/§J/§L — the lifecycle
@@ -132,6 +140,17 @@ export function QuoteLifecycleControls({
           />
         </>
       )}
+      {/* Document Actions — Quote Duplicate + PDF. Always rendered,
+          regardless of status/archivedAt/convertedInvoiceId: neither
+          mutates this Quote, so neither needs a lifecycle gate the way
+          Reopen/Convert/Archive do (see this component's own
+          SECONDARY_LINK_CLASSES comment above). */}
+      <a href={`/api/quotes/${quoteId}/pdf`} className={SECONDARY_LINK_CLASSES}>
+        Download PDF
+      </a>
+      <Link href={`/quotes/${quoteId}/duplicate`} className={SECONDARY_LINK_CLASSES}>
+        Duplicate as new draft
+      </Link>
     </div>
   );
 }

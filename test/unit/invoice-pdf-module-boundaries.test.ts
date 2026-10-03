@@ -178,6 +178,13 @@ describe("module-boundary — no route/action other than the sub-PR 3b Issue act
     "src/app/api/portal/invoices/[id]/pdf/route.ts",
     "src/app/api/cron/invoice-pdf-reconciliation/route.ts",
     "src/app/api/cron/invoice-pdf-reconciliation/dry-run/route.ts",
+    // Finance Document Actions — Quote PDF: the on-demand Quote PDF Route
+    // Handler, which reuses exactly two genuinely generic low-level
+    // primitives (resolveInvoiceLogo, validatePdfBuffer) — never the
+    // archival/snapshot machinery itself (see
+    // src/lib/quotes/pdf/view-model.ts's own header comment for why it
+    // does NOT reuse InvoicePdfViewModel/buildInvoicePdfViewModel).
+    "src/app/api/quotes/[id]/pdf/route.ts",
   ];
 
   const routeAndActionFiles = walkTsFiles("src/app").filter(
