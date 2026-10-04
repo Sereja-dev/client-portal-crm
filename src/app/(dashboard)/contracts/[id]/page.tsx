@@ -3,13 +3,14 @@ import { notFound } from "next/navigation";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { getContractForStaff } from "@/lib/contracts/queries";
-import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
+import { isContractPreviewable } from "@/lib/contracts/status";
 import {
   parseContractOrganizationSnapshot,
   parseContractClientSnapshot,
   parseContractSignatorySnapshot,
 } from "@/lib/contracts/snapshot-types";
 import { ContractStatusBadge } from "@/components/contracts/contract-status-badge";
+import { ContractDetailsCard, ContractBodyCard } from "@/components/contracts/contract-document-view";
 import { ContractLifecycleControls } from "@/components/contracts/contract-lifecycle-controls";
 import { ContractInternalNotesForm } from "@/components/contracts/contract-internal-notes-form";
 import { StatusBadge } from "@/components/ui/status-badge";
@@ -26,14 +27,22 @@ import { formatActivity, type ActivityDisplayModel } from "@/lib/activity/format
  * all identically notFound() here, exactly like every other record
  * detail page's own established convention in this app.
  *
- * Party display (§19, critical): the "Contract details" card always
- * shows the CURRENT relational Client/Project/signatory link (never
- * frozen). A separate "Sent party details" card only appears once the
- * Contract has actually been sent, and only ever renders the three
- * stored snapshots — never live Client/Organization/contact data
- * re-labeled as "what was sent." This is the one place the snapshot
- * invariant (locked architecture §9/§19) is made visible to a Staff
- * viewer, not just held internally by the domain layer.
+ * Party display (§19, critical): the "Contract details" card (now
+ * ContractDetailsCard, see contract-document-view.tsx) always shows the
+ * CURRENT relational Client/Project/signatory link (never frozen). A
+ * separate "Sent party details" card only appears once the Contract has
+ * actually been sent, and only ever renders the three stored snapshots
+ * — never live Client/Organization/contact data re-labeled as "what was
+ * sent." This is the one place the snapshot invariant (locked
+ * architecture §9/§19) is made visible to a Staff viewer, not just held
+ * internally by the domain layer.
+ *
+ * Documents Slice C — the "Contract details"/"Contract body" cards were
+ * extracted into contract-document-view.tsx (ContractDetailsCard/
+ * ContractBodyCard) so the new DRAFT-only Preview route
+ * (`/contracts/[id]/preview`) can render the exact same markup rather
+ * than a second interpretation of the same fields. This page's own
+ * section order is unchanged by that extraction.
  */
 export default async function ContractDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -108,67 +117,28 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
               Edit contract
             </Link>
           )}
+          {/* Documents Slice C — isContractPreviewable() computes the
+              exact same gate as the "Edit contract"/"Send contract"
+              condition above (status === DRAFT && not archived) — kept
+              as its own check (not nested inside the block above) so the
+              single source of truth lives in status.ts, never
+              re-derived inline a second time. Once SENT, the
+              authoritative party representation becomes the frozen
+              snapshot, so this live-field preview is deliberately never
+              offered for any other status. */}
+          {isContractPreviewable(contract.status, contract.archivedAt) && (
+            <Link
+              href={`/contracts/${contract.id}/preview`}
+              className="focus-visible:ring-focus-ring rounded-md border border-border-strong bg-surface px-4 py-2 text-sm font-medium text-text-primary transition-colors hover:bg-[var(--hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+            >
+              Preview
+            </Link>
+          )}
           <ContractLifecycleControls contractId={contract.id} status={contract.status} archivedAt={contract.archivedAt} />
         </div>
       </div>
 
-      <section className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-        <h2 className="text-text-primary text-lg font-semibold">Contract details</h2>
-        <dl className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <dt className="text-text-muted text-xs font-medium">Client</dt>
-            <dd className="text-text-primary mt-0.5 text-sm">
-              <Link href={`/clients/${contract.client.id}`} className={ACTION_LINK_CLASSES}>
-                {contract.client.name}
-              </Link>
-            </dd>
-          </div>
-          <div>
-            <dt className="text-text-muted text-xs font-medium">Project</dt>
-            <dd className="text-text-primary mt-0.5 text-sm">
-              {contract.project ? (
-                <Link href={`/projects/${contract.project.id}`} className={ACTION_LINK_CLASSES}>
-                  {contract.project.name}
-                </Link>
-              ) : (
-                "—"
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-text-muted text-xs font-medium">Intended signatory</dt>
-            <dd className="text-text-primary mt-0.5 text-sm">
-              {contract.signatoryContact ? (
-                <>
-                  {contract.signatoryContact.name}
-                  {contract.signatoryContact.role ? ` (${contract.signatoryContact.role})` : ""}
-                  {contract.signatoryContact.archivedAt !== null && (
-                    <span className="text-text-muted ml-2 text-xs">Archived contact</span>
-                  )}
-                </>
-              ) : (
-                "None"
-              )}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-text-muted text-xs font-medium">Issue date</dt>
-            <dd className="text-text-primary mt-0.5 text-sm">{formatDateOnlyForDisplay(contract.issueDate)}</dd>
-          </div>
-          <div>
-            <dt className="text-text-muted text-xs font-medium">Effective date</dt>
-            <dd className="text-text-primary mt-0.5 text-sm">
-              {contract.effectiveDate ? formatDateOnlyForDisplay(contract.effectiveDate) : "Upon acceptance"}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-text-muted text-xs font-medium">Expiry date</dt>
-            <dd className="text-text-primary mt-0.5 text-sm">
-              {contract.expiresAt ? formatDateOnlyForDisplay(contract.expiresAt) : "No expiry set"}
-            </dd>
-          </div>
-        </dl>
-      </section>
+      <ContractDetailsCard contract={contract} />
 
       {wasSent && (
         <section className={`p-6 ${CARD_SURFACE_CLASSES}`}>
@@ -204,21 +174,17 @@ export default async function ContractDetailPage({ params }: { params: Promise<{
         </section>
       )}
 
-      <section className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-        <h2 className="text-text-primary text-lg font-semibold">Contract body</h2>
-        <div className="border-border-default bg-surface-recessed mt-3 rounded-md border p-4">
-          <p className="text-text-primary max-w-full overflow-x-auto text-sm whitespace-pre-wrap">{contract.body}</p>
-        </div>
-      </section>
+      <ContractBodyCard contract={contract} />
 
       <section className={`p-6 ${CARD_SURFACE_CLASSES}`}>
         <h2 className="text-text-primary text-lg font-semibold">Lifecycle</h2>
         {/* sentAt/acceptedAt/terminatedAt are real timestamps, not
             date-only columns — formatDateOnlyForDisplay's own UTC-forced
-            rendering is for issueDate/effectiveDate/expiresAt above only;
-            a real moment-in-time is shown in the viewer's own local time
-            via toLocaleString(), matching TimelineActivityItem's own
-            identical convention for Activity timestamps. */}
+            rendering is for issueDate/effectiveDate/expiresAt only (see
+            ContractDetailsCard above); a real moment-in-time is shown in
+            the viewer's own local time via toLocaleString(), matching
+            TimelineActivityItem's own identical convention for Activity
+            timestamps. */}
         <ul className="text-text-secondary mt-3 space-y-1 text-sm">
           {contract.sentAt && <li>Sent {contract.sentAt.toLocaleString()}</li>}
           {contract.acceptedAt && (

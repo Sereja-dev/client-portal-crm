@@ -113,3 +113,25 @@ export function isContractEditable(status: ContractStatus): boolean {
 export function isContractArchived(archivedAt: Date | null): boolean {
   return archivedAt !== null;
 }
+
+/**
+ * Documents Slice C — whether the DRAFT-only, live-field "Preview"
+ * action/route is available for this Contract right now. The exact same
+ * two-part gate ContractLifecycleControls' own "Send contract" button
+ * and the detail page's own "Edit contract" link already use (status ===
+ * DRAFT && archivedAt === null) — Preview deliberately follows that
+ * identical, already-established convention rather than inventing a new
+ * access rule. SENT/ACCEPTED/TERMINATED are never previewable this way:
+ * once sent, the authoritative party representation becomes the frozen
+ * snapshot (organizationSnapshot/clientSnapshot/signatorySnapshot), not
+ * the live Client/Project/signatory relation a DRAFT preview renders.
+ * Archived DRAFT follows the same existing convention that already
+ * suppresses Edit/Send for an archived Contract — archiving is otherwise
+ * orthogonal to lifecycle status (see isContractArchived above), but
+ * this app's own established behavior is that archiving ALSO hides every
+ * document-mutating/lifecycle-advancing action, and Preview (while not a
+ * mutation) is grouped with those actions for this same reason.
+ */
+export function isContractPreviewable(status: ContractStatus, archivedAt: Date | null): boolean {
+  return status === "DRAFT" && archivedAt === null;
+}

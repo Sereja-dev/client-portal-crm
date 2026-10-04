@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { ContractStatus } from "@/generated/prisma/enums";
-import { isContractExpired, getContractDisplayStatus, isContractEditable, isContractArchived } from "@/lib/contracts/status";
+import {
+  isContractExpired,
+  getContractDisplayStatus,
+  isContractEditable,
+  isContractArchived,
+  isContractPreviewable,
+} from "@/lib/contracts/status";
 
 /**
  * Contracts Phase 1 — the derived-status helpers (src/lib/contracts/
@@ -163,5 +169,30 @@ describe("isContractArchived — orthogonal to status", () => {
 
   it("a non-null archivedAt means archived, regardless of what status independently is", () => {
     expect(isContractArchived(new Date())).toBe(true);
+  });
+});
+
+describe("isContractPreviewable — Documents Slice C", () => {
+  it("a non-archived DRAFT is previewable", () => {
+    expect(isContractPreviewable("DRAFT", null)).toBe(true);
+  });
+
+  it("an archived DRAFT is NOT previewable — same convention that already suppresses Edit/Send for an archived Contract", () => {
+    expect(isContractPreviewable("DRAFT", new Date())).toBe(false);
+  });
+
+  it("SENT is never previewable, archived or not", () => {
+    expect(isContractPreviewable("SENT", null)).toBe(false);
+    expect(isContractPreviewable("SENT", new Date())).toBe(false);
+  });
+
+  it("ACCEPTED is never previewable, archived or not", () => {
+    expect(isContractPreviewable("ACCEPTED", null)).toBe(false);
+    expect(isContractPreviewable("ACCEPTED", new Date())).toBe(false);
+  });
+
+  it("TERMINATED is never previewable, archived or not", () => {
+    expect(isContractPreviewable("TERMINATED", null)).toBe(false);
+    expect(isContractPreviewable("TERMINATED", new Date())).toBe(false);
   });
 });
