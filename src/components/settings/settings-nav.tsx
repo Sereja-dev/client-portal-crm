@@ -35,6 +35,8 @@ type SettingsNavLink = {
   templatesOnly?: boolean;
   /** Invoice Templates V1 — the same OWNER/ADMIN-only gate and identical "hiding the link is discoverability only" precedent as templatesOnly immediately above, for the new sibling /settings/invoice-templates route (canManageInvoiceTemplates — a dedicated INVOICE_TEMPLATES_MANAGE permission, deliberately separate from QUOTE_TEMPLATES_MANAGE). *Applying* an active template from /invoices/new is a separate, unrelated, open-to-any-Staff-role concern — this only gates the template *management* page. */
   invoiceTemplatesOnly?: boolean;
+  /** Contract Templates V1 (Documents Slice B) — the same OWNER/ADMIN-only gate and identical "hiding the link is discoverability only" precedent as templatesOnly/invoiceTemplatesOnly immediately above, for the new sibling /settings/contract-templates route (canManageContractTemplates — a dedicated CONTRACT_TEMPLATES_MANAGE permission, deliberately separate from QUOTE_TEMPLATES_MANAGE/INVOICE_TEMPLATES_MANAGE). *Applying* an active template from /contracts/new is a separate, unrelated, open-to-any-Staff-role concern — this only gates the template *management* page. */
+  contractTemplatesOnly?: boolean;
   /** Integrations V1 — OWNER-only (never OWNER/ADMIN like workflowAutomationsOnly/tagsOnly/templatesOnly above), the same stricter tier paymentOnly already uses: a stored, decryptable outbound credential is "too sensitive to delegate," matching Payment Details' own reasoning exactly (src/lib/integrations/authorization.ts's own doc comment). Hiding this link is discoverability only — /settings/integrations' own page and every Server Action independently re-verify the same OWNER-only role. */
   integrationsOnly?: boolean;
 };
@@ -87,6 +89,12 @@ const SETTINGS_LINKS: readonly SettingsNavLink[] = [
   // the existing Quote Templates page) with its own OWNER/ADMIN-only
   // gate (see invoiceTemplatesOnly's own comment).
   { href: "/settings/invoice-templates", label: "Invoice templates", invoiceTemplatesOnly: true },
+  // Contract Templates V1 (Documents Slice B) — grouped next to Invoice
+  // Templates, a NEW sibling route (Product Owner decision: a new
+  // sibling page, not merged into either Quote or Invoice Templates)
+  // with its own OWNER/ADMIN-only gate (see contractTemplatesOnly's own
+  // comment).
+  { href: "/settings/contract-templates", label: "Contract templates", contractTemplatesOnly: true },
   // Integrations V1 — grouped next to Tags/Workflow Automations/Templates,
   // but OWNER-only (see integrationsOnly's own comment) rather than
   // OWNER/ADMIN like its three neighbors immediately above.
@@ -109,6 +117,7 @@ export function SettingsNav({
   canManageTags,
   canManageQuoteTemplates,
   canManageInvoiceTemplates,
+  canManageContractTemplates,
   canManageIntegrations,
 }: {
   canAccessPayment: boolean;
@@ -116,6 +125,7 @@ export function SettingsNav({
   canManageTags: boolean;
   canManageQuoteTemplates: boolean;
   canManageInvoiceTemplates: boolean;
+  canManageContractTemplates: boolean;
   canManageIntegrations: boolean;
 }) {
   const pathname = usePathname();
@@ -124,6 +134,7 @@ export function SettingsNav({
     .filter((link) => !link.tagsOnly || canManageTags)
     .filter((link) => !link.templatesOnly || canManageQuoteTemplates)
     .filter((link) => !link.invoiceTemplatesOnly || canManageInvoiceTemplates)
+    .filter((link) => !link.contractTemplatesOnly || canManageContractTemplates)
     .filter((link) => !link.integrationsOnly || canManageIntegrations);
 
   return (

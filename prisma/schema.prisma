@@ -545,6 +545,12 @@ model User {
   createdContracts  Contract[] @relation("ContractCreatedBy")
   acceptedContracts Contract[] @relation("ContractAcceptedByUser")
 
+  // Contract Templates V1 (schema/domain foundation). Same "author"
+  // relation shape as createdInvoiceTemplates/createdQuoteTemplates above --
+  // audit metadata only, never an authorization boundary (see
+  // ContractTemplate's own doc comment).
+  createdContractTemplates ContractTemplate[] @relation("ContractTemplateCreatedBy")
+
   // Client Requests / Tickets Phase 1 (schema foundation only). Same
   // "assignee" role/naming convention as assignedTasks/TaskAssignee and
   // assignedLeads/LeadAssignee above.
@@ -660,6 +666,11 @@ model Organization {
   // scoping shape as quoteTemplates above -- organizationId is required,
   // plain unnamed relation.
   invoiceTemplates InvoiceTemplate[]
+
+  // Contract Templates V1 (schema/domain foundation). Same direct-tenant-
+  // scoping shape as quoteTemplates/invoiceTemplates above -- organizationId
+  // is required, plain unnamed relation.
+  contractTemplates ContractTemplate[]
 
   // Multiple Contacts Phase 1 (data model foundation only). Same direct-
   // tenant-scoping shape as leads/quotes above.
@@ -4454,6 +4465,98 @@ model Contract {
   @@index([clientId])
   @@index([projectId])
   @@index([signatoryContactId])
+}
+
+// -----------------------------------------------------------------------
+// Contract Templates V1 (Documents Improvement, Slice B). Follows
+// InvoiceTemplate/QuoteTemplate's own established config-asset shape
+// exactly where Contract has no reason to diverge from it -- see the
+// approved Slice B spec's own fixed Product decisions for the full
+// reasoning. Deliberately client-agnostic, project-agnostic, and
+// signatory-agnostic -- unlike Contract itself, which requires a Client.
+//
+// Deliberately NOT a renamed/reused QuoteTemplate or InvoiceTemplate row
+// shape: Contract's own content model is a single plain-text `body`
+// field (no line items), so ContractTemplate is a simple, single-row
+// configuration entity with no child item table at all -- mirroring
+// Contract's own "plain text only, no Markdown/HTML/rich text" content
+// discipline exactly (see Contract's own schema doc comment).
+//
+// Snapshot/copy semantics only, identical to InvoiceTemplate/QuoteTemplate:
+// a ContractTemplate is applied by copying its values into a brand-new,
+// ordinary DRAFT Contract at creation time -- there is deliberately no
+// Contract.contractTemplateId column and no live relation from a created
+// Contract back to the template that seeded it. Editing or archiving a
+// ContractTemplate after a Contract was created from it therefore has
+// zero effect on that Contract, by construction -- there is no column
+// anywhere for such an effect to travel through.
+// -----------------------------------------------------------------------
+
+// Organization-wide, not personal -- same tier as QuoteTemplate/
+// InvoiceTemplate/Tag/WorkflowAutomation (an org-wide config asset,
+// managed by OWNER/ADMIN, applied/read by any Staff role), never
+// Contract's own tier (a protected, per-record business/legal record).
+// This is exactly why `organization`'s own onDelete is Cascade here,
+// like QuoteTemplate/InvoiceTemplate's, not Restrict like Contract's own.
+model ContractTemplate {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  // Required, deliberately NOT unique within an organization -- same
+  // reasoning as QuoteTemplate.name/InvoiceTemplate.name (two templates
+  // may legitimately share a name with different content).
+  name String
+
+  // Same Contract.title constraints/semantics -- prefilled onto the new
+  // Contract's own `title` field verbatim.
+  title String
+
+  // Same Contract.body constraints/semantics -- plain text only (see
+  // this block's own header comment), prefilled onto the new Contract's
+  // own `body` field verbatim.
+  body String
+
+  // A relative day-count, never a concrete date -- same reasoning as
+  // InvoiceTemplate.dueDateOffsetDays/QuoteTemplate.validityDays: a
+  // template created in January can't sensibly freeze a concrete expiry
+  // date for reuse in June. Null means the applied Contract gets no
+  // default expiry at all (the same "no default" state an ordinary
+  // blank Contract already starts in). When set, the apply-time helper
+  // computes expiresAt = issueDate + defaultExpiryOffsetDays calendar
+  // days, using the exact same date-only (UTC midnight) semantics
+  // src/lib/invoices/date-only.ts already establishes for every other
+  // date-only column in this app (reused directly by Contract itself).
+  // issueDate/effectiveDate are never stored here -- the applied
+  // Contract's issueDate is always "today" at apply time, matching the
+  // ordinary /contracts/new default exactly, and effectiveDate is never
+  // touched by template application at all.
+  defaultExpiryOffsetDays Int?
+
+  // Staff-only, prefilled onto the new Contract's own `internalNotes`
+  // field verbatim -- same contract (no pun intended) Contract.internalNotes
+  // already establishes: never part of the document shown to or accepted
+  // by the Client, never rendered to any Portal identity.
+  internalNotes String?
+
+  // Audit metadata only, never an authorization/ownership boundary --
+  // template management/application is gated entirely by organizationId +
+  // Role (see src/lib/contract-templates/authorization.ts), never by who
+  // originally created a given template. Restrict, matching
+  // QuoteTemplate.createdByUser/InvoiceTemplate.createdByUser exactly.
+  createdByUserId String @db.Uuid
+  createdByUser   User   @relation("ContractTemplateCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+
+  // Soft-archive only, same convention as QuoteTemplate/InvoiceTemplate --
+  // null = active/applyable. Supports restore (archivedAt reset to null).
+  archivedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([organizationId])
+  @@index([organizationId, archivedAt])
 }
 
 // Calendar V1 (locked architecture, read-only readiness audit +

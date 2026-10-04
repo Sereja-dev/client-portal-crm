@@ -11,7 +11,7 @@ import {
 /** Roles / Permissions V1 — catalog invariants (locked spec §2/§7/§22). */
 
 describe("PERMISSION_KEYS / PERMISSION_CATALOG", () => {
-  it("has exactly the 10 locked catalog keys — the original 9 plus Invoice Templates V1's own INVOICE_TEMPLATES_MANAGE", () => {
+  it("has exactly the 11 locked catalog keys — the original 9 plus Invoice Templates V1's own INVOICE_TEMPLATES_MANAGE and Contract Templates V1's own CONTRACT_TEMPLATES_MANAGE", () => {
     expect(PERMISSION_KEYS).toEqual([
       "ANALYTICS_VIEW",
       "REPORTS_VIEW",
@@ -22,6 +22,7 @@ describe("PERMISSION_KEYS / PERMISSION_CATALOG", () => {
       "WORKFLOW_AUTOMATIONS_MANAGE",
       "QUOTE_TEMPLATES_MANAGE",
       "INVOICE_TEMPLATES_MANAGE",
+      "CONTRACT_TEMPLATES_MANAGE",
       "INDUSTRY_PRESETS_APPLY",
     ]);
   });
@@ -103,7 +104,7 @@ describe("getGroupedPermissionCatalog", () => {
     expect(allKeys.sort()).toEqual([...PERMISSION_KEYS].sort());
   });
 
-  it("Settings group contains exactly Tags, Workflow automations, Quote templates, Invoice templates, Apply industry presets, in that order", () => {
+  it("Settings group contains exactly Tags, Workflow automations, Quote templates, Invoice templates, Contract templates, Apply industry presets, in that order", () => {
     const groups = getGroupedPermissionCatalog();
     const settings = groups.find((g) => g.group === "Settings");
     expect(settings?.entries.map((e) => e.key)).toEqual([
@@ -111,6 +112,7 @@ describe("getGroupedPermissionCatalog", () => {
       "WORKFLOW_AUTOMATIONS_MANAGE",
       "QUOTE_TEMPLATES_MANAGE",
       "INVOICE_TEMPLATES_MANAGE",
+      "CONTRACT_TEMPLATES_MANAGE",
       "INDUSTRY_PRESETS_APPLY",
     ]);
   });

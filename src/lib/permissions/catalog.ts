@@ -31,6 +31,7 @@ export const PERMISSION_KEYS = [
   "WORKFLOW_AUTOMATIONS_MANAGE",
   "QUOTE_TEMPLATES_MANAGE",
   "INVOICE_TEMPLATES_MANAGE",
+  "CONTRACT_TEMPLATES_MANAGE",
   "INDUSTRY_PRESETS_APPLY",
 ] as const;
 
@@ -103,6 +104,12 @@ export const PERMISSION_CATALOG: readonly PermissionCatalogEntry[] = [
     key: "INVOICE_TEMPLATES_MANAGE",
     label: "Invoice templates",
     description: "Create, edit, archive, restore, and duplicate invoice templates. Applying an active template to an invoice is never affected by this permission.",
+    group: "Settings",
+  },
+  {
+    key: "CONTRACT_TEMPLATES_MANAGE",
+    label: "Contract templates",
+    description: "Create, edit, archive, restore, and duplicate contract templates. Applying an active template to a contract is never affected by this permission.",
     group: "Settings",
   },
   {

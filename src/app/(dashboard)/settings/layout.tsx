@@ -53,6 +53,11 @@ export default async function SettingsLayout({
   // merged into the Quote Templates permission — see that key's own
   // catalog entry).
   const canManageInvoiceTemplates = effectivePermissions.INVOICE_TEMPLATES_MANAGE;
+  // Contract Templates V1 (Documents Slice B) — same effective-permission
+  // mechanism as QUOTE_TEMPLATES_MANAGE/INVOICE_TEMPLATES_MANAGE
+  // immediately above, its own dedicated CONTRACT_TEMPLATES_MANAGE
+  // catalog key (deliberately separate, never merged into either).
+  const canManageContractTemplates = effectivePermissions.CONTRACT_TEMPLATES_MANAGE;
   // Integrations V1 — deliberately NOT part of the Roles / Permissions
   // catalog above (locked spec §10/§23): a plain inline OWNER check, the
   // exact same mechanism canAccessPayment already uses two lines up,
@@ -67,6 +72,7 @@ export default async function SettingsLayout({
         canManageTags={canManageTags}
         canManageQuoteTemplates={canManageQuoteTemplates}
         canManageInvoiceTemplates={canManageInvoiceTemplates}
+        canManageContractTemplates={canManageContractTemplates}
         canManageIntegrations={canManageIntegrationsValue}
       />
       {children}
