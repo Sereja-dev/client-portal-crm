@@ -41,22 +41,30 @@ export const CONTRACT_STATUS_FILTER_VALUES = CONTRACT_STATUSES;
 export type ContractListParams = {
   q: string;
   status?: ContractStatus;
+  // Contract client-filter UUID fix — format-validated at parse time
+  // (isUuid), same guard projectId below already has: `id` is `@db.Uuid`
+  // on Client, so an unguarded non-UUID string reaching listContracts()'s
+  // own Prisma `where` throws a raw PrismaClientKnownRequestError
+  // (confirmed directly during Documents Slice A — this was a genuine
+  // pre-existing gap, reported separately from that slice and fixed here
+  // on its own). A malformed value here simply falls back to "no client
+  // filter" (undefined), never an error — a foreign-but-well-formed org's
+  // own real Client id still safely matches zero rows via
+  // listContracts()'s own organizationId scoping, which is a correctness
+  // property, not a format-validation concern this parser needs to own —
+  // identical reasoning to projectId's own.
   clientId?: string;
   // Documents Slice A — format-validated at parse time (isUuid), mirroring
   // tasks/query.ts's own identical ?projectId= guard exactly: `id` is
   // `@db.Uuid` on Project, so an unguarded non-UUID string reaching
   // listContracts()'s own Prisma `where` throws a raw
-  // PrismaClientKnownRequestError (confirmed directly — the clientId
-  // filter immediately above has this same unguarded gap today, a
-  // pre-existing condition reported separately rather than silently
-  // fixed here; this new projectId option is written defensively from
-  // the start instead of replicating that gap). A malformed value here
-  // simply falls back to "no project filter" (undefined), never an
-  // error — a foreign-but-well-formed org's own real Project id still
-  // safely matches zero rows via listContracts()'s own organizationId
-  // scoping (see that function's own ListContractsOptions.projectId
-  // comment), which is a correctness property, not a format-validation
-  // concern this parser needs to own.
+  // PrismaClientKnownRequestError. A malformed value here simply falls
+  // back to "no project filter" (undefined), never an error — a
+  // foreign-but-well-formed org's own real Project id still safely
+  // matches zero rows via listContracts()'s own organizationId scoping
+  // (see that function's own ListContractsOptions.projectId comment),
+  // which is a correctness property, not a format-validation concern
+  // this parser needs to own.
   projectId?: string;
   archived: boolean;
 };
@@ -71,7 +79,7 @@ export function parseContractListParams(searchParams: RawSearchParams): Contract
   return {
     q,
     status,
-    clientId: clientIdRaw || undefined,
+    clientId: isUuid(clientIdRaw) ? clientIdRaw : undefined,
     projectId: isUuid(projectIdRaw) ? projectIdRaw : undefined,
     archived,
   };

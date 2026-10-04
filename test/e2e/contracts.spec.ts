@@ -95,6 +95,34 @@ test.describe("Contracts Staff UI (Phase 2)", () => {
     await expect(page.getByText("No matching contracts")).toBeVisible();
   });
 
+  // Contract client-filter UUID fix — a malformed ?client= value must
+  // render the ordinary list safely (as if no client filter were
+  // supplied at all), never the generic dashboard error boundary a raw
+  // Prisma P2007 (invalid input syntax for type uuid) would otherwise
+  // surface as. A genuinely valid Client filter is then verified to
+  // still work normally on the same page load.
+  test("a malformed ?client= value renders the list safely (no error boundary), and a valid Client filter still works", async ({ page }) => {
+    const number = uniqueNumber("C-CLIENT-GUARD");
+    await dbQuery("contract", "create", {
+      data: {
+        organizationId: fixtures.orgA.id,
+        clientId: fixtures.clientA.id,
+        createdByUserId: fixtures.owner.id,
+        contractNumber: number,
+        title: "Client filter guard",
+        body: "Body.",
+      },
+    });
+
+    await page.goto("/contracts?client=not-a-uuid");
+    await expect(page.getByText("Something went wrong")).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Contracts" })).toBeVisible();
+    await expect(page.getByRole("row", { name: new RegExp(number) })).toBeVisible();
+
+    await page.getByLabel("Client").selectOption({ label: fixtures.clientA.name });
+    await expect(page.getByRole("row", { name: new RegExp(number) })).toBeVisible();
+  });
+
   // Documents Slice A.
   test("Project filter: choosing a Project narrows the list, a non-matching Contract disappears, clearing restores it", async ({ page }) => {
     const onProjectNumber = uniqueNumber("C-PROJ-ON");
