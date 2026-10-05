@@ -131,14 +131,50 @@ describe("Insights tabs (buildInsightsTabs)", () => {
 });
 
 describe("Documents tabs (buildDocumentsTabs)", () => {
-  it("14. Contracts tab exists, and is active on /contracts", () => {
+  it("14. all four approved tabs are present, in order: Contracts, Contract Templates, Files, Accepted documents", () => {
     const tabs = buildDocumentsTabs();
-    expect(hrefs(tabs)).toEqual(["/contracts"]);
-    expect(isTabActive("/contracts", tabs[0].href)).toBe(true);
+    expect(hrefs(tabs)).toEqual(["/contracts", "/settings/contract-templates", "/files", "/documents/accepted"]);
   });
 
-  it("15. no Templates tab is ever present", () => {
+  it("15. no Quote Templates tab is ever present (/settings/templates) — only Contract Templates (/settings/contract-templates)", () => {
     const tabs = buildDocumentsTabs();
     expect(hrefs(tabs)).not.toContain("/settings/templates");
+    expect(hrefs(tabs)).toContain("/settings/contract-templates");
+  });
+
+  it("16. Contracts is active on /contracts", () => {
+    const tabs = buildDocumentsTabs();
+    const contracts = tabs.find((t) => t.label === "Contracts")!;
+    expect(isTabActive("/contracts", contracts.href)).toBe(true);
+  });
+
+  it("17. Files is active on /files", () => {
+    const tabs = buildDocumentsTabs();
+    const files = tabs.find((t) => t.label === "Files")!;
+    expect(isTabActive("/files", files.href)).toBe(true);
+  });
+
+  it("18. Accepted documents is active on /documents/accepted", () => {
+    const tabs = buildDocumentsTabs();
+    const accepted = tabs.find((t) => t.label === "Accepted documents")!;
+    expect(isTabActive("/documents/accepted", accepted.href)).toBe(true);
+  });
+
+  it("19. Contract Templates href is exactly /settings/contract-templates, mirroring Finance tabs' own identical Billing (/settings/billing) precedent", () => {
+    const tabs = buildDocumentsTabs();
+    expect(tabs.find((t) => t.label === "Contract Templates")!.href).toBe("/settings/contract-templates");
+  });
+
+  it("Contract Templates is never marked active by any other Documents-page pathname — it only becomes active on its own page", () => {
+    const tabs = buildDocumentsTabs();
+    const contractTemplates = tabs.find((t) => t.label === "Contract Templates")!;
+    for (const path of ["/contracts", "/files", "/documents/accepted"]) {
+      expect(isTabActive(path, contractTemplates.href)).toBe(false);
+    }
+  });
+
+  it("no tab is ever hidden — Documents tabs carry no permission gate in V1", () => {
+    const tabs = buildDocumentsTabs();
+    expect(visibleHrefs(tabs)).toEqual(hrefs(tabs));
   });
 });

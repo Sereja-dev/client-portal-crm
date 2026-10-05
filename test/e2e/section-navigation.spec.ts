@@ -204,12 +204,106 @@ test.describe("Section Navigation", () => {
   });
 
   test.describe("Documents (OWNER)", () => {
-    test("/contracts shows the Documents section shell with a single active Contracts tab", async ({ page, context, baseURL }) => {
+    test.beforeEach(async ({ context, baseURL }) => {
       await actAs(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+    });
+
+    test("/contracts shows the Documents section shell with all four tabs, Contracts active", async ({ page }) => {
       await page.goto("/contracts");
       const documentsNav = page.getByRole("navigation", { name: "Documents" });
       await expect(documentsNav).toBeVisible();
       await expect(documentsNav.getByRole("link", { name: "Contracts" })).toHaveAttribute("aria-current", "page");
+      await expect(documentsNav.getByRole("link", { name: "Contract Templates" })).toBeVisible();
+      await expect(documentsNav.getByRole("link", { name: "Files" })).toBeVisible();
+      await expect(documentsNav.getByRole("link", { name: "Accepted documents" })).toBeVisible();
+    });
+
+    test("clicking Files reaches /files with Files active", async ({ page }) => {
+      await page.goto("/contracts");
+      await page.getByRole("navigation", { name: "Documents" }).getByRole("link", { name: "Files" }).click();
+      await expect(page).toHaveURL(/\/files$/);
+      await expect(page.getByRole("navigation", { name: "Documents" }).getByRole("link", { name: "Files" })).toHaveAttribute(
+        "aria-current",
+        "page",
+      );
+    });
+
+    test("clicking Accepted documents reaches /documents/accepted with Accepted documents active", async ({ page }) => {
+      await page.goto("/contracts");
+      await page.getByRole("navigation", { name: "Documents" }).getByRole("link", { name: "Accepted documents" }).click();
+      await expect(page).toHaveURL(/\/documents\/accepted$/);
+      await expect(
+        page.getByRole("navigation", { name: "Documents" }).getByRole("link", { name: "Accepted documents" }),
+      ).toHaveAttribute("aria-current", "page");
+    });
+
+    test("clicking Contract Templates reaches /settings/contract-templates, where Documents tabs disappear and SettingsNav takes over, while the primary Sidebar keeps Documents (not Settings) active", async ({
+      page,
+    }) => {
+      await page.goto("/contracts");
+      await page.getByRole("navigation", { name: "Documents" }).getByRole("link", { name: "Contract Templates" }).click();
+      await expect(page).toHaveURL(/\/settings\/contract-templates$/);
+
+      // No stacked Documents tab bar on the Contract Templates settings
+      // page itself — mirrors Billing's own identical FinanceTabs
+      // exclusion exactly.
+      await expect(page.getByRole("navigation", { name: "Documents" })).toHaveCount(0);
+
+      // The existing Settings section nav still renders normally,
+      // exactly as before this slice (settings/layout.tsx untouched).
+      const settingsNav = page.getByRole("navigation", { name: "Settings" });
+      await expect(settingsNav).toBeVisible();
+      await expect(settingsNav.getByRole("link", { name: "Contract templates" })).toHaveAttribute("aria-current", "page");
+
+      // Primary Sidebar ownership of /settings/contract-templates is
+      // Documents, never Settings — deterministic, never both at once.
+      const primaryNav = page.getByRole("navigation", { name: "Primary" });
+      await expect(primaryNav.getByRole("link", { name: "Contract Templates" })).toHaveAttribute("aria-current", "page");
+    });
+
+    test("/settings/contract-templates never renders Documents tabs directly (page never mounts DocumentsTabs)", async ({ page }) => {
+      await page.goto("/settings/contract-templates");
+      await expect(page.getByRole("navigation", { name: "Documents" })).toHaveCount(0);
+      await expect(page.getByRole("heading", { name: "Contract templates" })).toBeVisible();
+    });
+
+    test("/files shows the Documents section shell with Files active", async ({ page }) => {
+      await page.goto("/files");
+      const documentsNav = page.getByRole("navigation", { name: "Documents" });
+      await expect(documentsNav).toBeVisible();
+      await expect(documentsNav.getByRole("link", { name: "Files" })).toHaveAttribute("aria-current", "page");
+    });
+
+    test("/documents/accepted shows the Documents section shell with Accepted documents active", async ({ page }) => {
+      await page.goto("/documents/accepted");
+      const documentsNav = page.getByRole("navigation", { name: "Documents" });
+      await expect(documentsNav).toBeVisible();
+      await expect(documentsNav.getByRole("link", { name: "Accepted documents" })).toHaveAttribute("aria-current", "page");
+    });
+
+    test("the primary Sidebar's Documents group expands to reveal all four children, each reachable", async ({ page }) => {
+      await page.goto("/dashboard");
+      const primaryNav = page.getByRole("navigation", { name: "Primary" });
+      await primaryNav.locator("summary", { hasText: "Documents" }).click();
+      await expect(primaryNav.getByRole("link", { name: "Contracts" })).toBeVisible();
+      await expect(primaryNav.getByRole("link", { name: "Contract Templates" })).toBeVisible();
+      await expect(primaryNav.getByRole("link", { name: "Files" })).toBeVisible();
+      await expect(primaryNav.getByRole("link", { name: "Accepted documents" })).toBeVisible();
+
+      await primaryNav.getByRole("link", { name: "Files" }).click();
+      await expect(page).toHaveURL(/\/files$/);
+    });
+
+    test("no duplicate active top-level group — Documents and Settings are never both active at once", async ({ page }) => {
+      await page.goto("/settings/contract-templates");
+      const primaryNav = page.getByRole("navigation", { name: "Primary" });
+      const documentsLink = primaryNav.getByRole("link", { name: "Contract Templates" });
+      const settingsLink = primaryNav.getByRole("link", { name: "Settings" });
+      await expect(documentsLink).toHaveAttribute("aria-current", "page");
+      // Settings' own single-destination top-level link (/settings/notifications) must not also claim "page".
+      const settingsHref = await settingsLink.getAttribute("href");
+      expect(settingsHref).toBe("/settings/notifications");
+      await expect(settingsLink).not.toHaveAttribute("aria-current", "page");
     });
   });
 
@@ -231,6 +325,9 @@ test.describe("Section Navigation", () => {
       "/reports",
       "/activity",
       "/contracts",
+      "/files",
+      "/documents/accepted",
+      "/settings/contract-templates",
     ];
 
     for (const route of CANONICAL_ROUTES) {
@@ -264,6 +361,16 @@ test.describe("Section Navigation", () => {
         await expectNoOverflow(page);
 
         await page.goto("/contracts");
+        await expect(page.getByRole("navigation", { name: "Documents" })).toBeVisible();
+        await expectNoOverflow(page);
+
+        // Documents Slice D — the two new Documents destinations, same
+        // shell, same no-overflow requirement.
+        await page.goto("/files");
+        await expect(page.getByRole("navigation", { name: "Documents" })).toBeVisible();
+        await expectNoOverflow(page);
+
+        await page.goto("/documents/accepted");
         await expect(page.getByRole("navigation", { name: "Documents" })).toBeVisible();
         await expectNoOverflow(page);
       });

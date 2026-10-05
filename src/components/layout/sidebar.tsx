@@ -101,9 +101,31 @@ const GROUP_SOURCE: readonly SidebarGroupSource[] = [
     key: "documents",
     label: "Documents",
     icon: DocumentsIcon,
-    // Templates intentionally excluded (locked spec §2) — it remains a
-    // Settings-only page (/settings/templates), never duplicated here.
-    children: [{ href: "/contracts", label: "Contracts" }],
+    // Documents Slice D — expanded from the single-destination Contracts
+    // link into the full approved Documents IA. Quote Templates stays
+    // excluded (locked spec §2, unchanged) — it remains a Settings-only
+    // page (/settings/templates), never duplicated here.
+    //
+    // Contract Templates (/settings/contract-templates) is deliberately
+    // listed here as an explicit child, even though its page physically
+    // lives under /settings/ — this is the exact same dual-discoverability
+    // mechanism Billing (/settings/billing) already establishes under
+    // Finance above: computeActiveGroupKey() resolves a path via the
+    // FIRST group whose own explicit children match, and Documents is
+    // checked before the bare /settings/* Settings fallback, so this
+    // route's primary Sidebar ownership is Documents, never Settings —
+    // deterministically, by construction, never both at once. The
+    // Settings in-section nav (src/components/settings/settings-nav.tsx)
+    // still independently lists Contract Templates too, completely
+    // unchanged — "dual discoverability, never an either/or," mirroring
+    // Billing's own identical precedent exactly. No second page, no
+    // redirect, no duplicated management route.
+    children: [
+      { href: "/contracts", label: "Contracts" },
+      { href: "/settings/contract-templates", label: "Contract Templates" },
+      { href: "/files", label: "Files" },
+      { href: "/documents/accepted", label: "Accepted documents" },
+    ],
   },
   {
     key: "support",

@@ -65,7 +65,12 @@ describe("buildSidebarGroups — top-level structure", () => {
     expect(linksOf(groups, "clients")).toEqual(["/clients"]);
     expect(linksOf(groups, "work")).toEqual(["/projects", "/tasks", "/time", "/calendar"]);
     expect(linksOf(groups, "finance")).toEqual(["/finance", "/invoices", "/recurring-invoices", "/settings/billing"]);
-    expect(linksOf(groups, "documents")).toEqual(["/contracts"]);
+    expect(linksOf(groups, "documents")).toEqual([
+      "/contracts",
+      "/settings/contract-templates",
+      "/files",
+      "/documents/accepted",
+    ]);
     expect(linksOf(groups, "support")).toEqual(["/requests"]);
     expect(linksOf(groups, "insights")).toEqual(["/analytics", "/reports", "/activity"]);
     expect(linksOf(groups, "team")).toEqual(["/team"]);
@@ -86,14 +91,29 @@ describe("buildSidebarGroups — top-level structure", () => {
     expect(linksOf(buildSidebarGroups(flags()), "support")).toEqual(["/requests"]);
   });
 
-  it("6. Contracts is under Documents", () => {
-    expect(linksOf(buildSidebarGroups(flags()), "documents")).toEqual(["/contracts"]);
+  it("6. Contracts is under Documents, as the first of its four approved children", () => {
+    const documents = linksOf(buildSidebarGroups(flags()), "documents");
+    expect(documents[0]).toBe("/contracts");
+    expect(documents).toEqual(["/contracts", "/settings/contract-templates", "/files", "/documents/accepted"]);
   });
 
-  it("7. Templates is never duplicated into Documents (or anywhere else in the primary sidebar)", () => {
+  it("7. Quote Templates (/settings/templates) is never duplicated into Documents (or anywhere else in the primary sidebar) — only Contract Templates (/settings/contract-templates) is", () => {
     const groups = buildSidebarGroups(flags());
     const allHrefs = groups.flatMap((g) => g.links.map((l) => l.href));
     expect(allHrefs).not.toContain("/settings/templates");
+    expect(allHrefs).toContain("/settings/contract-templates");
+  });
+
+  it("Documents Slice D — Contract Templates is under Documents, not Settings (dual discoverability, mirroring Billing's own identical Finance-ownership precedent)", () => {
+    const groups = buildSidebarGroups(flags());
+    expect(linksOf(groups, "documents")).toContain("/settings/contract-templates");
+    expect(linksOf(groups, "settings")).not.toContain("/settings/contract-templates");
+  });
+
+  it("Documents Slice D — Files and Accepted documents are under Documents", () => {
+    const documents = linksOf(buildSidebarGroups(flags()), "documents");
+    expect(documents).toContain("/files");
+    expect(documents).toContain("/documents/accepted");
   });
 
   it("8. Calendar is under Work", () => {
@@ -170,6 +190,32 @@ describe("computeActiveGroupKey — parent/child active-state resolution", () =>
       const result = computeActiveGroupKey(path, groups);
       expect(result === null || typeof result === "string").toBe(true);
     }
+  });
+
+  // Documents Slice D — active-state ownership for the new Documents IA.
+  it("16. /contracts activates Documents", () => {
+    expect(computeActiveGroupKey("/contracts", groups)).toBe("documents");
+    expect(computeActiveGroupKey("/contracts/123", groups)).toBe("documents");
+  });
+
+  it("17. /settings/contract-templates activates Documents, never Settings, even though its path prefix is /settings/ — mirrors Billing's own identical Finance-ownership precedent", () => {
+    expect(computeActiveGroupKey("/settings/contract-templates", groups)).toBe("documents");
+    expect(computeActiveGroupKey("/settings/contract-templates/new", groups)).toBe("documents");
+    expect(computeActiveGroupKey("/settings/contract-templates/123", groups)).toBe("documents");
+  });
+
+  it("18. /files activates Documents", () => {
+    expect(computeActiveGroupKey("/files", groups)).toBe("documents");
+  });
+
+  it("19. /documents/accepted activates Documents", () => {
+    expect(computeActiveGroupKey("/documents/accepted", groups)).toBe("documents");
+  });
+
+  it("never resolves both Documents and Settings at once for /settings/contract-templates — exactly one key", () => {
+    const result = computeActiveGroupKey("/settings/contract-templates", groups);
+    expect(result).toBe("documents");
+    expect(result).not.toBe("settings");
   });
 });
 
