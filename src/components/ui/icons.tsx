@@ -36,6 +36,23 @@ export function TrashIcon({ className = "h-4 w-4" }: IconProps) {
   );
 }
 
+// Tables Improvement Slice A — the RowActionMenu trigger's own icon:
+// three filled dots (a horizontal "kebab"), the conventional "more
+// actions" affordance. Filled circles (not a stroked path, unlike every
+// icon above) since three tiny stroked circles at this size render as
+// near-invisible slivers — `fill="currentColor"` with no stroke keeps
+// each dot a solid, legible disc at `h-4 w-4` down to the smallest size
+// this is ever rendered at.
+export function MoreIcon({ className = "h-4 w-4" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24" fill="currentColor" className={className}>
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="19" cy="12" r="2" />
+    </svg>
+  );
+}
+
 export function CheckIcon({ className = "h-4 w-4" }: IconProps) {
   return (
     <svg

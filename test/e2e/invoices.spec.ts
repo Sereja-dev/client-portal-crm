@@ -119,11 +119,16 @@ test.describe("staff Invoice create/edit", () => {
     });
     expect(created.status).toBe("DRAFT");
 
-    // Listed as DRAFT with an Edit link and a Delete control.
+    // Listed as DRAFT with a direct Edit link; Delete now lives behind
+    // the row's own overflow menu (Tables Improvement Slice A) — opening
+    // it reveals Delete, portaled to the document body (never a row
+    // descendant), so it's asserted page-scoped rather than row-scoped.
     const row = page.getByRole("row", { name: new RegExp(invoiceNumber) });
     await expect(row.getByText("Draft")).toBeVisible();
     await expect(row.getByRole("link", { name: "Edit" })).toBeVisible();
-    await expect(row.getByRole("button", { name: "Delete" })).toBeVisible();
+    await row.getByRole("button", { name: `More actions for invoice ${invoiceNumber}` }).click();
+    await expect(page.getByRole("button", { name: "Delete" })).toBeVisible();
+    await page.keyboard.press("Escape");
 
     // Reopens as the EDITABLE DRAFT form (never the read-only view), with
     // the persisted itemized rows and total.
@@ -746,9 +751,14 @@ test.describe("Duplicate-as-new-DRAFT — completing official Invoice System Sli
     expect(created).toHaveLength(1);
     expect(created[0].status).toBe("DRAFT");
 
+    // Delete now lives behind the row's own overflow menu (Tables
+    // Improvement Slice A) — see the identical pattern/comment at this
+    // spec's own earlier "itemized create" test.
     const row = page.getByRole("row", { name: new RegExp(suggestedNumber) });
     await expect(row.getByRole("link", { name: "Edit" })).toBeVisible();
-    await expect(row.getByRole("button", { name: "Delete" })).toBeVisible();
+    await row.getByRole("button", { name: `More actions for invoice ${suggestedNumber}` }).click();
+    await expect(page.getByRole("button", { name: "Delete" })).toBeVisible();
+    await page.keyboard.press("Escape");
 
     // Source remains byte-for-byte unchanged after a real duplicate was
     // created — same invoiceNumber/status/updatedAt, same ordered line

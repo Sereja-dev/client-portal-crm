@@ -33,13 +33,24 @@ function read(path: string): string {
   return readFileSync(path, "utf-8");
 }
 
-/** Counts real data-column headers — every <TableHeaderCell> except the trailing "Actions"/"Link" one. */
+/**
+ * Counts real data-column headers — every <TableHeaderCell> OR
+ * <SortableHeader> (Tables Improvement Slice A's own clickable-header
+ * primitive, src/components/ui/sortable-header.tsx — delegates its own
+ * `<th>` rendering to TableHeaderCell internally, so a sortable column
+ * is exactly as real a data column as a plain one; counted here too so
+ * Invoices' own three sortable columns aren't silently undercounted)
+ * except the trailing "Actions"/"Link" one.
+ */
 function countDataHeaders(source: string, region?: [number, number]): number {
   const scoped = region ? source.slice(region[0], region[1]) : source;
-  const all = [...scoped.matchAll(/<TableHeaderCell/g)].length;
+  const all =
+    [...scoped.matchAll(/<TableHeaderCell/g)].length + [...scoped.matchAll(/<SortableHeader/g)].length;
   // Exactly one trailing action header per table in this codebase's own
   // established convention (align="right", labelled "Actions" or, on
   // Team's invitations table, the conditional "Actions"/"Link" text).
+  // The trailing Actions header is always a plain TableHeaderCell, never
+  // a SortableHeader, so subtracting exactly one here remains correct.
   return all - 1;
 }
 
@@ -51,6 +62,35 @@ function countCardFields(source: string, region: [number, number]): number {
 function importsSharedPrimitives(source: string): boolean {
   return /import\s*\{[^}]*RecordCardList[^}]*\}\s*from\s*["']@\/components\/ui\/record-list["']/.test(source) ||
     /import\s*\{[^}]*RecordCard\b[^}]*\}\s*from\s*["']@\/components\/ui\/record-list["']/.test(source);
+}
+
+/**
+ * Tables Improvement Slice A — Invoices' own sticky-header pilot
+ * replaced the shared `<Table>` component with a local, bounded-height
+ * (`max-h-[70vh]`) inner-scroll wrapper (see invoices/page.tsx's own
+ * header comment for the full "why sticky needed a bounded ancestor"
+ * reasoning) — the shared `<Table>` component itself, and every other
+ * page still using it, are completely untouched (see
+ * tableIsWrappedHiddenOnMobile below, still used by Clients/Projects/
+ * Tasks/Team). This is the Invoices-specific equivalent check: same
+ * "hidden below xl, visible at xl and up" outer gate, just a different
+ * (still local, still proven) inner implementation.
+ */
+function invoiceTableIsWrappedHiddenOnMobile(source: string): boolean {
+  // No fixed character window (the sticky-header wrapper's own doc
+  // comment between the two is long) — just confirm all three signals
+  // exist, in the expected order: the xl:block gate wraps the bounded-
+  // height scroll wrapper, which wraps the real <table>.
+  const hiddenIndex = source.indexOf('className="hidden xl:block"');
+  const maxHeightIndex = source.indexOf("max-h-[70vh]");
+  const tableIndex = source.indexOf("<table ");
+  return (
+    hiddenIndex !== -1 &&
+    maxHeightIndex !== -1 &&
+    tableIndex !== -1 &&
+    hiddenIndex < maxHeightIndex &&
+    maxHeightIndex < tableIndex
+  );
 }
 
 function tableIsWrappedHiddenOnMobile(source: string): boolean {
@@ -185,15 +225,15 @@ describe("Invoices list page — responsive stacked-card adoption", () => {
     expect(importsSharedPrimitives(source)).toBe(true);
   });
 
-  it("wraps the existing, unmodified desktop <Table> so it is hidden below md and visible at md and up", () => {
-    expect(tableIsWrappedHiddenOnMobile(source)).toBe(true);
+  it("wraps the desktop table (now a local sticky-header wrapper, not the shared <Table>) so it is hidden below xl and visible at xl and up", () => {
+    expect(invoiceTableIsWrappedHiddenOnMobile(source)).toBe(true);
   });
 
   it("renders a RecordCardList mapping the same `invoices` collection", () => {
     expect(source).toMatch(/<RecordCardList>[\s\S]*?\{invoices\.map/);
   });
 
-  it("every real data column (Invoice #, Project, Client, Amount, Status, Due date, Created) has a matching RecordCardField", () => {
+  it("every real data column (Invoice #, Project, Client, Amount, Status, Due date, Created) has a matching RecordCardField — three of the seven (Amount/Due date/Created) are now sortable headers, counted identically", () => {
     const listStart = source.indexOf("<RecordCardList>");
     const listEnd = source.indexOf("</RecordCardList>");
     expect(listStart).toBeGreaterThan(-1);
@@ -203,13 +243,29 @@ describe("Invoices list page — responsive stacked-card adoption", () => {
     expect(cardFields).toBe(dataHeaders);
   });
 
-  it("preserves the DRAFT-conditional Edit+Delete vs. View action, unchanged", () => {
+  it("preserves the DRAFT-conditional Edit+overflow-menu-Delete vs. View action — Delete still exists, now inside RowActionMenu rather than inline", () => {
     const listStart = source.indexOf("<RecordCardList>");
     const listEnd = source.indexOf("</RecordCardList>");
     const region = source.slice(listStart, listEnd);
     expect(region).toMatch(/invoice\.status === "DRAFT"/);
     expect(region).toMatch(/deleteInvoiceAction\.bind\(null, invoice\.id\)/);
+    expect(region).toMatch(/<RowActionMenu[\s>]/);
     expect(region).toMatch(/>\s*View\s*</);
+  });
+
+  it("no empty overflow menu is ever rendered for a non-DRAFT row — RowActionMenu only appears inside the DRAFT branch", () => {
+    const listStart = source.indexOf("<RecordCardList>");
+    const listEnd = source.indexOf("</RecordCardList>");
+    const region = source.slice(listStart, listEnd);
+    // `[\s>]` after the name — not just `/<RowActionMenu/` — so this
+    // never also matches the unrelated `<RowActionMenuItem>` (a real,
+    // separate component whose own name happens to start with the same
+    // substring).
+    const rowActionMenuCount = [...region.matchAll(/<RowActionMenu[\s>]/g)].length;
+    // Exactly one RowActionMenu in the whole mobile card region — the one
+    // inside the `invoice.status === "DRAFT"` branch; the `else` (View)
+    // branch never renders one at all.
+    expect(rowActionMenuCount).toBe(1);
   });
 });
 
