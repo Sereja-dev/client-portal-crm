@@ -243,14 +243,21 @@ ok = report(
   authorizationSource === "" ? "permissions authorization file not found" : "canManageRolePermissions no longer matches the exact OWNER-only predicate",
 ) && ok;
 
-// 8. Exactly the 9 configurable domains delegate to the shared resolver
+// 8. Exactly the 11 configurable domains delegate to the shared resolver
 // using their own exact canonical key -- this is the ONE place a
 // domain's own delegation-shape guarantee lives (it deliberately
-// supersedes what would otherwise be nine near-identical, independently
+// supersedes what would otherwise be eleven near-identical, independently
 // maintained per-domain checks, including the Analytics-specific one this
 // check now replaces). A domain reimplementing its own role === "..."
 // comparison instead of delegating here would fail this, the same defect
 // class Analytics itself had before Roles / Permissions V1.
+//
+// Invoice Templates V1 and Contract Templates V1 each added one entry
+// here when their own catalog key was added (INVOICE_TEMPLATES_MANAGE,
+// CONTRACT_TEMPLATES_MANAGE) -- both authorization helpers are explicit
+// structural clones of Quote Templates' own already-covered
+// QUOTE_TEMPLATES_MANAGE split, so they belong in the same independent
+// delegation-shape guarantee, not outside it.
 const DOMAIN_DELEGATIONS = [
   { domain: "Analytics", file: "src/lib/analytics/authorization.ts", key: "ANALYTICS_VIEW" },
   { domain: "Reports", file: "src/lib/reports/authorization.ts", key: "REPORTS_VIEW" },
@@ -260,6 +267,8 @@ const DOMAIN_DELEGATIONS = [
   { domain: "Tags", file: "src/lib/tags/definitions.ts", key: "TAGS_MANAGE" },
   { domain: "Workflow Automations", file: "src/lib/workflow-automations/automations.ts", key: "WORKFLOW_AUTOMATIONS_MANAGE" },
   { domain: "Quote Templates", file: "src/lib/quote-templates/authorization.ts", key: "QUOTE_TEMPLATES_MANAGE" },
+  { domain: "Invoice Templates", file: "src/lib/invoice-templates/authorization.ts", key: "INVOICE_TEMPLATES_MANAGE" },
+  { domain: "Contract Templates", file: "src/lib/contract-templates/authorization.ts", key: "CONTRACT_TEMPLATES_MANAGE" },
   { domain: "Industry Presets", file: "src/lib/industry-presets/authorization.ts", key: "INDUSTRY_PRESETS_APPLY" },
 ];
 const domainFailures = DOMAIN_DELEGATIONS.filter(({ file, key }) => {
@@ -276,7 +285,7 @@ const domainFailures = DOMAIN_DELEGATIONS.filter(({ file, key }) => {
   return !delegatesToResolver || hasLocalRoleComparison;
 });
 ok = report(
-  "each of the 9 configurable domains delegates to getEffectivePermission with its own exact canonical key, with no local role comparison",
+  "each of the 11 configurable domains delegates to getEffectivePermission with its own exact canonical key, with no local role comparison",
   domainFailures.length === 0,
   domainFailures.map((d) => `${d.domain} (${d.file}) -> expected permissionKey "${d.key}"`).join("\n"),
 ) && ok;

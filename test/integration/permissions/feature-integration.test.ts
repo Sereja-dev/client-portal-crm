@@ -10,11 +10,13 @@ import { listRecurringInvoices } from "@/lib/recurring-invoices/recurring-invoic
 import { createTag } from "@/lib/tags/definitions";
 import { listWorkflowAutomations } from "@/lib/workflow-automations/automations";
 import { canManageQuoteTemplates } from "@/lib/quote-templates/authorization";
+import { canManageInvoiceTemplates } from "@/lib/invoice-templates/authorization";
+import { canManageContractTemplates } from "@/lib/contract-templates/authorization";
 import { canApplyIndustryPreset } from "@/lib/industry-presets/authorization";
 import { testSlug } from "../../support/run-id";
 
 /**
- * Roles / Permissions V1 — feature integration coverage for all 9
+ * Roles / Permissions V1 — feature integration coverage for all 11
  * catalog keys (locked spec §25). Each case proves the WIRING: granting
  * MEMBER via a real RolePermissionOverride row actually flips the real
  * domain function's decision, and denying ADMIN actually blocks it — not
@@ -179,6 +181,72 @@ describe("Feature integration -- QUOTE_TEMPLATES_MANAGE", () => {
       const { canApplyQuoteTemplates } = await import("@/lib/quote-templates/authorization");
       expect(canApplyQuoteTemplates("MEMBER")).toBe(true);
       expect(canApplyQuoteTemplates("ADMIN")).toBe(true);
+    } finally {
+      await prisma.organization.deleteMany({ where: { id: organizationId } });
+    }
+  });
+});
+
+describe("Feature integration -- INVOICE_TEMPLATES_MANAGE", () => {
+  it("default MEMBER is denied; granting MEMBER permits management; removing that override returns MEMBER to the default denied; denying ADMIN blocks it despite the default-allowed role -- applying a template is untouched", async () => {
+    const organizationId = await createDisposableOrg();
+    try {
+      // 1. No override row at all yet -- MEMBER is denied by the plain catalog default.
+      expect(await canManageInvoiceTemplates(organizationId, "MEMBER")).toBe(false);
+
+      // 2. An explicit MEMBER grant flips it to allowed.
+      await grant(organizationId, "MEMBER", "INVOICE_TEMPLATES_MANAGE", true);
+      expect(await canManageInvoiceTemplates(organizationId, "MEMBER")).toBe(true);
+
+      // 3. Removing that override row entirely (not merely flipping it to
+      // false) proves the resolver falls back to the catalog default when
+      // no row exists, not to some cached/sticky "last known" value.
+      await prisma.rolePermissionOverride.deleteMany({
+        where: { organizationId, role: "MEMBER", permissionKey: "INVOICE_TEMPLATES_MANAGE" },
+      });
+      expect(await canManageInvoiceTemplates(organizationId, "MEMBER")).toBe(false);
+
+      // 4. An explicit ADMIN deny overrides ADMIN's own default-allowed behavior.
+      await grant(organizationId, "ADMIN", "INVOICE_TEMPLATES_MANAGE", false);
+      expect(await canManageInvoiceTemplates(organizationId, "ADMIN")).toBe(false);
+
+      // canApplyInvoiceTemplates is sync, unconditional, and untouched by any override.
+      const { canApplyInvoiceTemplates } = await import("@/lib/invoice-templates/authorization");
+      expect(canApplyInvoiceTemplates("MEMBER")).toBe(true);
+      expect(canApplyInvoiceTemplates("ADMIN")).toBe(true);
+    } finally {
+      await prisma.organization.deleteMany({ where: { id: organizationId } });
+    }
+  });
+});
+
+describe("Feature integration -- CONTRACT_TEMPLATES_MANAGE", () => {
+  it("default MEMBER is denied; granting MEMBER permits management; removing that override returns MEMBER to the default denied; denying ADMIN blocks it despite the default-allowed role -- applying a template is untouched", async () => {
+    const organizationId = await createDisposableOrg();
+    try {
+      // 1. No override row at all yet -- MEMBER is denied by the plain catalog default.
+      expect(await canManageContractTemplates(organizationId, "MEMBER")).toBe(false);
+
+      // 2. An explicit MEMBER grant flips it to allowed.
+      await grant(organizationId, "MEMBER", "CONTRACT_TEMPLATES_MANAGE", true);
+      expect(await canManageContractTemplates(organizationId, "MEMBER")).toBe(true);
+
+      // 3. Removing that override row entirely (not merely flipping it to
+      // false) proves the resolver falls back to the catalog default when
+      // no row exists, not to some cached/sticky "last known" value.
+      await prisma.rolePermissionOverride.deleteMany({
+        where: { organizationId, role: "MEMBER", permissionKey: "CONTRACT_TEMPLATES_MANAGE" },
+      });
+      expect(await canManageContractTemplates(organizationId, "MEMBER")).toBe(false);
+
+      // 4. An explicit ADMIN deny overrides ADMIN's own default-allowed behavior.
+      await grant(organizationId, "ADMIN", "CONTRACT_TEMPLATES_MANAGE", false);
+      expect(await canManageContractTemplates(organizationId, "ADMIN")).toBe(false);
+
+      // canApplyContractTemplates is sync, unconditional, and untouched by any override.
+      const { canApplyContractTemplates } = await import("@/lib/contract-templates/authorization");
+      expect(canApplyContractTemplates("MEMBER")).toBe(true);
+      expect(canApplyContractTemplates("ADMIN")).toBe(true);
     } finally {
       await prisma.organization.deleteMany({ where: { id: organizationId } });
     }
