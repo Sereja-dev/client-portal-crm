@@ -6,7 +6,7 @@ import { report } from "./lib.mjs";
 // explicit invariants: OWNER's access is immutable and unconditional
 // (never override-able, never even queried), ADMIN/MEMBER access is
 // organization-scoped and configurable only through the one shared
-// resolver, exactly 9 permission keys exist and permission-management
+// resolver, exactly 11 permission keys exist and permission-management
 // itself is never one of them, and every configurable feature delegates
 // to its own exact canonical key rather than reimplementing role logic
 // locally. Narrow and structural, matching this repo's own established
@@ -82,16 +82,26 @@ const managementActionSource = readIfExists(MANAGEMENT_ACTION_FILE);
 const migrationSource = readIfExists(MIGRATION_FILE);
 const schemaSource = readIfExists(SCHEMA_FILE);
 
-// 1. Exact permission catalog -- exactly these 9 keys, no extra, no
+// 1. Exact permission catalog -- exactly these 11 keys, no extra, no
 // missing. Protects both catalog drift (a key silently renamed/removed
 // out from under a domain that still expects it) and the architecture
-// rule that permission-management itself must never become one of the 9
+// rule that permission-management itself must never become one of the 11
 // configurable keys (locked spec §3: "Roles / Permissions administration"
-// is an immutable OWNER-only capability, not a catalog entry) -- a 10th
+// is an immutable OWNER-only capability, not a catalog entry) -- a 12th
 // key of ANY name, including a self-referential one, fails this exact-set
 // check. Extracted via the array literal itself, not tied to formatting
 // (one key per line, trailing commas, etc.) beyond "a quoted string
 // between the array's own brackets".
+//
+// Deliberately an independent, hand-maintained allowlist -- NOT derived
+// from importing/reading src/lib/permissions/catalog.ts's own
+// PERMISSION_KEYS. Doing so would make this check tautological (expected
+// == actual by construction) and blind to exactly the silent-drift class
+// of defect it exists to catch. Originally 9 keys; Invoice Templates V1
+// and Contract Templates V1 each added one genuinely new boundary
+// (INVOICE_TEMPLATES_MANAGE, CONTRACT_TEMPLATES_MANAGE) -- this list is
+// the one place that growth must be reflected by hand, in the same order
+// as the real catalog.
 const CANONICAL_PERMISSION_KEYS = [
   "ANALYTICS_VIEW",
   "REPORTS_VIEW",
@@ -101,6 +111,8 @@ const CANONICAL_PERMISSION_KEYS = [
   "TAGS_MANAGE",
   "WORKFLOW_AUTOMATIONS_MANAGE",
   "QUOTE_TEMPLATES_MANAGE",
+  "INVOICE_TEMPLATES_MANAGE",
+  "CONTRACT_TEMPLATES_MANAGE",
   "INDUSTRY_PRESETS_APPLY",
 ];
 const catalogArrayMatch = catalogSource.match(/export const PERMISSION_KEYS = \[([\s\S]*?)\] as const;/);
@@ -109,7 +121,7 @@ const actualPermissionKeys = [...catalogArrayBody.matchAll(/"([A-Z_]+)"/g)].map(
 const missingCatalogKeys = CANONICAL_PERMISSION_KEYS.filter((k) => !actualPermissionKeys.includes(k));
 const unexpectedCatalogKeys = actualPermissionKeys.filter((k) => !CANONICAL_PERMISSION_KEYS.includes(k));
 ok = report(
-  "PERMISSION_KEYS is exactly the 9 canonical keys -- no missing, no extra (permission-management itself is never a catalog key)",
+  "PERMISSION_KEYS is exactly the 11 canonical keys -- no missing, no extra (permission-management itself is never a catalog key)",
   catalogArrayMatch !== null && missingCatalogKeys.length === 0 && unexpectedCatalogKeys.length === 0,
   [...missingCatalogKeys.map((k) => `missing: ${k}`), ...unexpectedCatalogKeys.map((k) => `unexpected: ${k}`)].join("\n"),
 ) && ok;
