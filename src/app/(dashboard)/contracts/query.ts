@@ -1,5 +1,6 @@
-import { parseSearchParam, parseEnumParam, type RawSearchParams } from "@/lib/list-params";
+import { parseSearchParam, parseEnumParam, parseSortParam, type RawSearchParams } from "@/lib/list-params";
 import { isUuid } from "@/lib/validation/lead";
+import { Prisma } from "@/generated/prisma/client";
 import type { ContractStatus } from "@/generated/prisma/enums";
 
 // Mirrors QUOTE_STATUSES's own exact precedent (src/lib/validation/quote.ts)
@@ -67,6 +68,49 @@ export type ContractListParams = {
   // this parser needs to own.
   projectId?: string;
   archived: boolean;
+  sortField: ContractSortField;
+  sortDir: "asc" | "desc";
+  // "" when no ?sort= was present at all — deliberately NOT the parsed
+  // fallback value. This is how buildContractOrderBy below tells "no
+  // sort chosen yet" apart from "the chosen value happens to equal a
+  // field's own default direction," which is required to satisfy the
+  // locked "default no-sort behavior remains exactly the current
+  // existing fixed order" requirement: the pre-existing default order
+  // (createdAt desc) is NOT expressible as a `field:dir` pair from
+  // CONTRACT_SORT_FIELDS (createdAt itself is deliberately not a
+  // sortable field — see that const's own doc comment), so "absent"
+  // must be tracked as its own distinct state, never conflated with any
+  // allowlisted field's own default.
+  sortCombined: string;
+  hasSort: boolean;
+};
+
+// Tables Improvement Slice B — a small, explicit, persisted-field-only
+// allowlist (locked spec §6/§7), reusing list-params.ts's own generic
+// parseSortParam exactly as Invoice's Slice A pilot already does (see
+// invoices/query.ts's own INVOICE_SORT_FIELDS). Deliberately just
+// `issueDate`: it is the only one of the four candidate date fields
+// (issueDate/effectiveDate/expiresAt/createdAt) actually rendered as its
+// own visible column in the current table (page.tsx's "Issue date"
+// column) — per the locked spec's own explicit "if one of the preferred
+// fields is not displayed in the list, do not make it sortable just for
+// symmetry," effectiveDate/expiresAt/createdAt are excluded. createdAt
+// itself is NOT added here merely to represent the pre-existing default
+// order either — that would make the "default order" selectable from
+// the Sort-by dropdown as a *field*, which is a bigger product surface
+// than this slice approved; "no sort" is represented as its own distinct
+// `sortCombined === ""` state instead (see ContractListParams' own doc
+// comment above and buildContractOrderBy below).
+export const CONTRACT_SORT_FIELDS = ["issueDate"] as const;
+export type ContractSortField = (typeof CONTRACT_SORT_FIELDS)[number];
+
+// Suggested first-click defaults (locked spec §9): issueDate -> asc
+// ("earlier first" operational date reading). Only the one allowlisted
+// field has an entry — see CONTRACT_SORT_FIELDS' own doc comment on why
+// effectiveDate/expiresAt/createdAt are excluded from sorting entirely
+// in this slice.
+export const CONTRACT_SORT_DEFAULT_DIRECTION: Record<ContractSortField, "asc" | "desc"> = {
+  issueDate: "asc",
 };
 
 export function parseContractListParams(searchParams: RawSearchParams): ContractListParams {
@@ -75,6 +119,12 @@ export function parseContractListParams(searchParams: RawSearchParams): Contract
   const clientIdRaw = parseSearchParam(searchParams.client);
   const projectIdRaw = parseSearchParam(searchParams.project);
   const archived = parseSearchParam(searchParams.archived) === "1";
+  const hasSort = parseSearchParam(searchParams.sort) !== "";
+  const { field: sortField, dir: sortDir, combined } = parseSortParam(
+    searchParams.sort,
+    CONTRACT_SORT_FIELDS,
+    `issueDate:${CONTRACT_SORT_DEFAULT_DIRECTION.issueDate}`,
+  );
 
   return {
     q,
@@ -82,5 +132,77 @@ export function parseContractListParams(searchParams: RawSearchParams): Contract
     clientId: isUuid(clientIdRaw) ? clientIdRaw : undefined,
     projectId: isUuid(projectIdRaw) ? projectIdRaw : undefined,
     archived,
+    sortField,
+    sortDir,
+    sortCombined: hasSort ? combined : "",
+    hasSort,
   };
 }
+
+/**
+ * Deterministic order, preserving the EXACT pre-existing default
+ * (`[{createdAt:"desc"},{id:"desc"}]`, byte-identical to
+ * listContracts()'s own current hardcoded orderBy) whenever no `?sort=`
+ * param is present at all — clickable headers/the Sort-by dropdown are
+ * opt-in through URL state, never a silent baseline-ordering change
+ * (locked spec §8). Once a sort IS chosen, orders by that one
+ * allowlisted field with `id` as the same stable tie-break direction
+ * listContracts() itself already uses for its own default, never a
+ * second/different tie-break convention.
+ */
+export function buildContractOrderBy(
+  listParams: Pick<ContractListParams, "hasSort" | "sortField" | "sortDir">,
+): Prisma.ContractOrderByWithRelationInput[] {
+  if (!listParams.hasSort) {
+    return [{ createdAt: "desc" }, { id: "desc" }];
+  }
+  return [{ [listParams.sortField]: listParams.sortDir }, { id: listParams.sortDir }];
+}
+
+/**
+ * The one shared base every quick-filter chip and the sortable header
+ * builds its own href from — mirrors buildInvoicesHref's own exact
+ * shape (invoices/query.ts), just with Contract's own param set
+ * (q/status/client/project/archived/sort). Falsy values are omitted
+ * entirely, never an empty query-string value — this is also how
+ * `sort=""` (the "no sort chosen" state) correctly disappears from the
+ * URL rather than appearing as a literal empty `sort=` param.
+ */
+export function buildContractsHref(params: Record<string, string | undefined>): string {
+  const usp = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value) usp.set(key, value);
+  }
+  const qs = usp.toString();
+  return qs ? `/contracts?${qs}` : "/contracts";
+}
+
+/**
+ * Clicking the currently-active sortable field toggles asc/desc;
+ * clicking any other allowlisted field (or clicking from the "no sort"
+ * state) jumps straight to that field's own established default
+ * direction — identical toggle semantics to Invoice's own
+ * nextInvoiceSortCombined, generalized with an explicit `hasSort` guard
+ * since (unlike Invoice) Contracts has a genuine "no sort active" state
+ * distinct from any allowlisted field's own default.
+ */
+export function nextContractSortCombined(
+  current: Pick<ContractListParams, "sortField" | "sortDir" | "hasSort">,
+  field: ContractSortField,
+): string {
+  if (!current.hasSort || field !== current.sortField) {
+    return `${field}:${CONTRACT_SORT_DEFAULT_DIRECTION[field]}`;
+  }
+  return `${field}:${current.sortDir === "asc" ? "desc" : "asc"}`;
+}
+
+// Tables Improvement Slice B — exactly the three approved quick-filter
+// chips (locked spec §11), mapping directly to persisted ContractStatus
+// values only. Terminated stays Status-dropdown-only; EXPIRED is never
+// a chip (and never a filter value at all — see CONTRACT_STATUS_FILTER_VALUES'
+// own doc comment above).
+export const CONTRACT_QUICK_FILTERS: readonly { label: string; status: ContractStatus }[] = [
+  { label: "Draft", status: "DRAFT" },
+  { label: "Sent", status: "SENT" },
+  { label: "Accepted", status: "ACCEPTED" },
+];

@@ -1,6 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import type { Contract, ContractStatus } from "@/generated/prisma/client";
+import type { Contract, ContractStatus, Prisma } from "@/generated/prisma/client";
 import { isUuid } from "@/lib/validation/lead";
 import type { PrismaClientOrTx } from "./types";
 
@@ -58,9 +58,20 @@ export type ListContractsOptions = {
   projectId?: string;
   /** Matches contractNumber, title, or the target Client's own name — never `body` (see this phase's own architecture-lock report §23: no cheap existing pattern searches free-text document content). */
   search?: string;
+  // Tables Improvement Slice B — optional, caller-supplied override of
+  // this function's own default order. Deliberately additive: every
+  // existing caller (the Contracts list page's own pre-Slice-B shape,
+  // and Accepted Documents' listContracts() call) omits this and gets
+  // the exact same byte-identical default below, unchanged. The caller
+  // (contracts/query.ts's own buildContractOrderBy) is the only place
+  // that ever constructs a non-default value, itself built from a small
+  // explicit allowlist (CONTRACT_SORT_FIELDS) — this function stays
+  // completely agnostic to what's "allowed," it only ever applies
+  // whatever `Prisma.ContractOrderByWithRelationInput[]` it's handed.
+  orderBy?: Prisma.ContractOrderByWithRelationInput[];
 };
 
-/** Deterministic order: newest first, id as a stable tie-break (createdAt can collide at the same millisecond under concurrent creates; id never does). No pagination in V1 — matches Quote Templates' own identical scale reasoning. */
+/** Deterministic order: newest first, id as a stable tie-break (createdAt can collide at the same millisecond under concurrent creates; id never does) — this exact pair is also the default `options.orderBy` falls back to when omitted (Tables Improvement Slice B). No pagination in V1 — matches Quote Templates' own identical scale reasoning. */
 export async function listContracts(
   organizationId: string,
   options: ListContractsOptions = {},
@@ -84,7 +95,7 @@ export async function listContracts(
           }
         : {}),
     },
-    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    orderBy: options.orderBy ?? [{ createdAt: "desc" }, { id: "desc" }],
     include: WITH_CLIENT,
   });
 }

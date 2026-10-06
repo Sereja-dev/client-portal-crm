@@ -5,13 +5,26 @@ import { prisma } from "@/lib/prisma";
 import { listContracts } from "@/lib/contracts/queries";
 import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
 import { ContractStatusBadge } from "@/components/contracts/contract-status-badge";
+import { ContractArchiveRestoreAction } from "@/components/contracts/contract-archive-restore-action";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
+import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { SearchFilterBar } from "@/components/list/search-filter-bar";
-import { Table, TableHead, TableHeaderCell, TableBody, TableRow, TableCell } from "@/components/ui/table";
-import { RecordCardList, RecordCard, RecordCardField } from "@/components/ui/record-list";
+import { QuickFilterChips } from "@/components/list/quick-filter-chips";
+import { RowActionMenu, RowActionMenuItem } from "@/components/ui/row-action-menu";
+import { SortableHeader } from "@/components/ui/sortable-header";
+import { TableHead, TableHeaderCell, TableBody, TableRow, TableCell } from "@/components/ui/table";
+import { RecordCardList, RecordCard, RecordCardField, RecordCardActions } from "@/components/ui/record-list";
 import { isContractEditable } from "@/lib/contracts/status";
-import { parseContractListParams, CONTRACT_STATUS_FILTER_VALUES } from "./query";
+import {
+  parseContractListParams,
+  buildContractOrderBy,
+  buildContractsHref,
+  nextContractSortCombined,
+  CONTRACT_STATUS_FILTER_VALUES,
+  CONTRACT_QUICK_FILTERS,
+  type ContractSortField,
+} from "./query";
 import type { RawSearchParams } from "@/lib/list-params";
 
 const PRIMARY_LINK_CLASSES =
@@ -24,19 +37,41 @@ const STATUS_FILTER_LABELS: Record<string, string> = {
   TERMINATED: "Terminated",
 };
 
+const CONTRACT_SORT_OPTIONS = [
+  { value: "", label: "Default order" },
+  { value: "issueDate:asc", label: "Issue date (earliest)" },
+  { value: "issueDate:desc", label: "Issue date (latest)" },
+];
+
 /**
- * Contracts Phase 2 (Staff UI) — the Contracts list. Tenant-scoped via
- * getCurrentUserOrganization() (never a client-supplied organizationId),
- * open to every Staff role (no membership.role check anywhere on this
- * page — locked architecture §I). Uses src/lib/contracts/queries.ts's
- * own already-reviewed listContracts() directly rather than a second,
- * duplicated Prisma query (locked architecture §2).
+ * Contracts Phase 2 (Staff UI), extended by Tables Improvement Slice B
+ * — the Contracts list adopts the same workflow-oriented row hierarchy
+ * Invoice's Slice A pilot already established:
+ *  - Row action hierarchy: active DRAFT keeps a direct Edit; every other
+ *    row (active non-DRAFT, or archived regardless of status) keeps a
+ *    direct View. Archive/Restore (the existing, lifecycle-agnostic,
+ *    org-scoped, idempotent archiveContractAction/restoreContractAction
+ *    — never duplicated) move into the shared RowActionMenu overflow.
+ *    Preview/Send/Accept/Terminate stay exclusively on the Contract
+ *    detail page (ContractLifecycleControls) — never surfaced here.
+ *  - A single sortable desktop column (Issue date — the only one of the
+ *    locked spec's own four candidate date fields already rendered as
+ *    its own visible column; see query.ts's own CONTRACT_SORT_FIELDS
+ *    doc comment) alongside a kept Sort-by dropdown for mobile
+ *    RecordCards, which have no headers at all. Both read the exact
+ *    same `?sort=field:dir` URL state.
+ *  - Quick-filter chips (Draft/Sent/Accepted only — Terminated stays
+ *    dropdown-only, Expired is never a chip or a filter value at all;
+ *    it remains purely a canonical getContractDisplayStatus() DISPLAY
+ *    state, orthogonal to this persisted-status filter) are shortcuts
+ *    for the SAME singular `?status=` the dropdown already uses.
+ *  - The desktop table (xl: and up) gets the same browser-proven sticky
+ *    header pattern Invoice's own pilot already established — kept
+ *    entirely local to this page.
  *
- * No pagination: listContracts() itself has none (Phase 1's own
- * deliberate "matches Quote Templates' identical bounded-scale
- * reasoning" choice, see that function's own doc comment) — adding one
- * here alone, without the underlying query supporting it, would just be
- * unused architecture (locked architecture §6).
+ * Every other behavior (tenant scoping, Active/Archived semantics,
+ * Client/Project linkage, pagination-less scale, permissions) is
+ * byte-for-byte unchanged from before this slice.
  */
 export default async function ContractsPage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {
   const { organizationId } = await getCurrentUserOrganization();
@@ -58,6 +93,7 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
       clientId: listParams.clientId,
       projectId: listParams.projectId,
       search: listParams.q || undefined,
+      orderBy: buildContractOrderBy(listParams),
     }),
   ]);
 
@@ -72,6 +108,38 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
   const hasActiveParams = Boolean(
     listParams.q || listParams.status || listParams.clientId || listParams.projectId || listParams.archived,
   );
+
+  // Tables Improvement Slice B — the one shared base every quick-filter
+  // chip and the sortable header builds its own href from, so no
+  // existing filter (q/client/project/archived) is ever accidentally
+  // dropped by one navigation and not another.
+  const hrefBase = {
+    q: listParams.q || undefined,
+    client: listParams.clientId,
+    project: listParams.projectId,
+    archived: listParams.archived ? "1" : undefined,
+  };
+
+  const quickFilterChips = CONTRACT_QUICK_FILTERS.map((filter) => ({
+    label: filter.label,
+    active: listParams.status === filter.status,
+    href: buildContractsHref({
+      ...hrefBase,
+      status: listParams.status === filter.status ? undefined : filter.status,
+      sort: listParams.sortCombined,
+    }),
+  }));
+
+  function sortHrefFor(field: ContractSortField): string {
+    return buildContractsHref({
+      ...hrefBase,
+      status: listParams.status,
+      sort: nextContractSortCombined(listParams, field),
+    });
+  }
+  function directionFor(field: ContractSortField): "asc" | "desc" | null {
+    return listParams.hasSort && listParams.sortField === field ? listParams.sortDir : null;
+  }
 
   return (
     <div>
@@ -91,44 +159,60 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
       </div>
 
       {canCreate && (
-        <SearchFilterBar
-          basePath="/contracts"
-          searchValue={listParams.q}
-          searchPlaceholder="Search by contract #, title, or client"
-          filters={[
-            {
-              name: "status",
-              label: "Status",
-              value: listParams.status ?? "",
-              options: [
-                { value: "", label: "All statuses" },
-                ...CONTRACT_STATUS_FILTER_VALUES.map((value) => ({ value, label: STATUS_FILTER_LABELS[value] })),
-              ],
-            },
-            {
-              name: "client",
-              label: "Client",
-              value: listParams.clientId ?? "",
-              options: [{ value: "", label: "All clients" }, ...clients.map((c) => ({ value: c.id, label: c.name }))],
-            },
-            {
-              name: "project",
-              label: "Project",
-              value: listParams.projectId ?? "",
-              options: [{ value: "", label: "All projects" }, ...projects.map((p) => ({ value: p.id, label: p.name }))],
-            },
-            {
-              name: "archived",
-              label: "Status",
-              value: listParams.archived ? "1" : "",
-              options: [
-                { value: "", label: "Active" },
-                { value: "1", label: "Archived" },
-              ],
-            },
-          ]}
-          hasActiveParams={hasActiveParams}
-        />
+        <>
+          <QuickFilterChips label="Contract quick filters" chips={quickFilterChips} />
+
+          <SearchFilterBar
+            // Tables Improvement Slice B — the quick-filter chips and the
+            // sortable header are the first things on this page to change
+            // `?status=`/`?sort=` via a plain client-side <Link> navigation
+            // rather than a real form submission. Without a key, the
+            // Status/Sort <select>s (both uncontrolled, via `defaultValue`)
+            // would silently keep their stale value across such a
+            // navigation — the exact issue found and fixed in Invoice's
+            // own Slice A pilot (see invoices/page.tsx's own identical
+            // comment). Keying on the exact state the chips/header can
+            // change forces a fresh mount whenever either changes.
+            key={`${listParams.status ?? "all"}:${listParams.sortCombined}`}
+            basePath="/contracts"
+            searchValue={listParams.q}
+            searchPlaceholder="Search by contract #, title, or client"
+            filters={[
+              {
+                name: "status",
+                label: "Status",
+                value: listParams.status ?? "",
+                options: [
+                  { value: "", label: "All statuses" },
+                  ...CONTRACT_STATUS_FILTER_VALUES.map((value) => ({ value, label: STATUS_FILTER_LABELS[value] })),
+                ],
+              },
+              {
+                name: "client",
+                label: "Client",
+                value: listParams.clientId ?? "",
+                options: [{ value: "", label: "All clients" }, ...clients.map((c) => ({ value: c.id, label: c.name }))],
+              },
+              {
+                name: "project",
+                label: "Project",
+                value: listParams.projectId ?? "",
+                options: [{ value: "", label: "All projects" }, ...projects.map((p) => ({ value: p.id, label: p.name }))],
+              },
+              {
+                name: "archived",
+                label: "Status",
+                value: listParams.archived ? "1" : "",
+                options: [
+                  { value: "", label: "Active" },
+                  { value: "1", label: "Archived" },
+                ],
+              },
+            ]}
+            sort={{ value: listParams.sortCombined, options: CONTRACT_SORT_OPTIONS }}
+            hasActiveParams={hasActiveParams}
+          />
+        </>
       )}
 
       {visibleContracts.length === 0 ? (
@@ -170,88 +254,118 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
       ) : (
         <>
           <div className="hidden xl:block">
-            <Table>
-              <TableHead>
-                <tr>
-                  <TableHeaderCell>Contract #</TableHeaderCell>
-                  <TableHeaderCell>Title</TableHeaderCell>
-                  <TableHeaderCell>Client</TableHeaderCell>
-                  <TableHeaderCell className="hidden lg:table-cell">Project</TableHeaderCell>
-                  <TableHeaderCell>Status</TableHeaderCell>
-                  <TableHeaderCell>Issue date</TableHeaderCell>
-                  <TableHeaderCell align="right">Actions</TableHeaderCell>
-                </tr>
-              </TableHead>
-              <TableBody>
-                {visibleContracts.map((contract) => (
-                  <TableRow key={contract.id}>
-                    <TableCell emphasis>{contract.contractNumber}</TableCell>
-                    <TableCell>{contract.title}</TableCell>
-                    <TableCell>
-                      <Link href={`/clients/${contract.client.id}`} className={ACTION_LINK_CLASSES}>
-                        {contract.client.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="hidden lg:table-cell">{contract.project?.name ?? "—"}</TableCell>
-                    <TableCell>
-                      <ContractStatusBadge contract={contract} />
-                      {contract.archivedAt !== null && (
-                        <span className="text-text-muted ml-2 text-xs">Archived</span>
-                      )}
-                    </TableCell>
-                    <TableCell>{formatDateOnlyForDisplay(contract.issueDate)}</TableCell>
-                    <TableCell align="right">
-                      <Link href={`/contracts/${contract.id}`} className={ACTION_LINK_CLASSES}>
-                        View
-                      </Link>
-                      {isContractEditable(contract.status) && contract.archivedAt === null && (
-                        <Link href={`/contracts/${contract.id}/edit`} className={`ml-3 ${ACTION_LINK_CLASSES}`}>
-                          Edit
-                        </Link>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            {/*
+              Tables Improvement Slice B — sticky-header pilot #2, the
+              exact same bounded-height (max-h-[70vh]) inner-scroll
+              wrapper Invoice's own Slice A pilot established (see
+              invoices/page.tsx's own identical comment for the full
+              overflow-axis reasoning) — kept entirely local to this one
+              page.
+            */}
+            <div className={`mt-6 max-h-[70vh] overflow-x-auto overflow-y-auto ${CARD_SURFACE_CLASSES}`}>
+              <table className="divide-border-default min-w-full divide-y text-sm">
+                <TableHead className="sticky top-0 z-10">
+                  <tr>
+                    <TableHeaderCell>Contract #</TableHeaderCell>
+                    <TableHeaderCell>Title</TableHeaderCell>
+                    <TableHeaderCell>Client</TableHeaderCell>
+                    <TableHeaderCell className="hidden lg:table-cell">Project</TableHeaderCell>
+                    <TableHeaderCell>Status</TableHeaderCell>
+                    <SortableHeader label="Issue date" href={sortHrefFor("issueDate")} direction={directionFor("issueDate")} />
+                    <TableHeaderCell align="right">Actions</TableHeaderCell>
+                  </tr>
+                </TableHead>
+                <TableBody>
+                  {visibleContracts.map((contract) => {
+                    const isArchived = contract.archivedAt !== null;
+                    const showEdit = !isArchived && isContractEditable(contract.status);
+                    return (
+                      <TableRow key={contract.id}>
+                        <TableCell emphasis>{contract.contractNumber}</TableCell>
+                        <TableCell>{contract.title}</TableCell>
+                        <TableCell>
+                          <Link href={`/clients/${contract.client.id}`} className={ACTION_LINK_CLASSES}>
+                            {contract.client.name}
+                          </Link>
+                        </TableCell>
+                        <TableCell className="hidden lg:table-cell">{contract.project?.name ?? "—"}</TableCell>
+                        <TableCell>
+                          <ContractStatusBadge contract={contract} />
+                          {isArchived && <span className="text-text-muted ml-2 text-xs">Archived</span>}
+                        </TableCell>
+                        <TableCell>{formatDateOnlyForDisplay(contract.issueDate)}</TableCell>
+                        <TableCell align="right">
+                          <div className="flex items-center justify-end gap-3">
+                            {showEdit ? (
+                              <Link href={`/contracts/${contract.id}/edit`} className={ACTION_LINK_CLASSES}>
+                                Edit
+                              </Link>
+                            ) : (
+                              <Link href={`/contracts/${contract.id}`} className={ACTION_LINK_CLASSES}>
+                                View
+                              </Link>
+                            )}
+                            <RowActionMenu label={`More actions for contract ${contract.contractNumber}`}>
+                              <RowActionMenuItem>
+                                <ContractArchiveRestoreAction contractId={contract.id} isArchived={isArchived} />
+                              </RowActionMenuItem>
+                            </RowActionMenu>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </table>
+            </div>
           </div>
 
           <RecordCardList>
-            {visibleContracts.map((contract) => (
-              <RecordCard key={contract.id}>
-                <RecordCardField label="Contract #" value={contract.contractNumber} emphasis />
-                <RecordCardField label="Title" value={contract.title} />
-                <RecordCardField
-                  label="Client"
-                  value={
-                    <Link href={`/clients/${contract.client.id}`} className={ACTION_LINK_CLASSES}>
-                      {contract.client.name}
-                    </Link>
-                  }
-                />
-                {contract.project && <RecordCardField label="Project" value={contract.project.name} />}
-                <RecordCardField
-                  label="Status"
-                  value={
-                    <>
-                      <ContractStatusBadge contract={contract} />
-                      {contract.archivedAt !== null && <span className="text-text-muted ml-2 text-xs">Archived</span>}
-                    </>
-                  }
-                />
-                <RecordCardField label="Issue date" value={formatDateOnlyForDisplay(contract.issueDate)} />
-                <div className="mt-3">
-                  <Link href={`/contracts/${contract.id}`} className={ACTION_LINK_CLASSES}>
-                    View
-                  </Link>
-                  {isContractEditable(contract.status) && contract.archivedAt === null && (
-                    <Link href={`/contracts/${contract.id}/edit`} className={`ml-3 ${ACTION_LINK_CLASSES}`}>
-                      Edit
-                    </Link>
-                  )}
-                </div>
-              </RecordCard>
-            ))}
+            {visibleContracts.map((contract) => {
+              const isArchived = contract.archivedAt !== null;
+              const showEdit = !isArchived && isContractEditable(contract.status);
+              return (
+                <RecordCard key={contract.id}>
+                  <RecordCardField label="Contract #" value={contract.contractNumber} emphasis />
+                  <RecordCardField label="Title" value={contract.title} />
+                  <RecordCardField
+                    label="Client"
+                    value={
+                      <Link href={`/clients/${contract.client.id}`} className={ACTION_LINK_CLASSES}>
+                        {contract.client.name}
+                      </Link>
+                    }
+                  />
+                  {contract.project && <RecordCardField label="Project" value={contract.project.name} />}
+                  <RecordCardField
+                    label="Status"
+                    value={
+                      <>
+                        <ContractStatusBadge contract={contract} />
+                        {isArchived && <span className="text-text-muted ml-2 text-xs">Archived</span>}
+                      </>
+                    }
+                  />
+                  <RecordCardField label="Issue date" value={formatDateOnlyForDisplay(contract.issueDate)} />
+                  <RecordCardActions>
+                    {showEdit ? (
+                      <Link href={`/contracts/${contract.id}/edit`} className={ACTION_LINK_CLASSES}>
+                        Edit
+                      </Link>
+                    ) : (
+                      <Link href={`/contracts/${contract.id}`} className={ACTION_LINK_CLASSES}>
+                        View
+                      </Link>
+                    )}
+                    <RowActionMenu label={`More actions for contract ${contract.contractNumber}`}>
+                      <RowActionMenuItem>
+                        <ContractArchiveRestoreAction contractId={contract.id} isArchived={isArchived} />
+                      </RowActionMenuItem>
+                    </RowActionMenu>
+                  </RecordCardActions>
+                </RecordCard>
+              );
+            })}
           </RecordCardList>
         </>
       )}

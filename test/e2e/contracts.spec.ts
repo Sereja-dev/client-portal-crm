@@ -119,7 +119,12 @@ test.describe("Contracts Staff UI (Phase 2)", () => {
     await expect(page.getByRole("heading", { name: "Contracts" })).toBeVisible();
     await expect(page.getByRole("row", { name: new RegExp(number) })).toBeVisible();
 
-    await page.getByLabel("Client").selectOption({ label: fixtures.clientA.name });
+    // exact: true — this test's own fixture contract number contains
+    // the substring "CLIENT" (case-insensitively), which (since Tables
+    // Improvement Slice B) is also inside this row's own "More actions
+    // for contract ..." aria-label; a non-exact getByLabel("Client")
+    // would ambiguously match both.
+    await page.getByLabel("Client", { exact: true }).selectOption({ label: fixtures.clientA.name });
     await expect(page.getByRole("row", { name: new RegExp(number) })).toBeVisible();
   });
 
@@ -416,8 +421,13 @@ test.describe("Contracts Staff UI (Phase 2)", () => {
       await page.goto("/contracts");
       expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
       await expect(page.getByLabel("Status").first()).toBeVisible();
-      await expect(page.getByLabel("Client")).toBeVisible();
-      await expect(page.getByLabel("Project")).toBeVisible();
+      // exact: true — a row's own "More actions for contract ..."
+      // aria-label (Tables Improvement Slice B) can coincidentally
+      // contain "Client"/"Project" as a substring of some fixture's own
+      // contract number; a non-exact match would be ambiguous whenever
+      // that happens to be seeded.
+      await expect(page.getByLabel("Client", { exact: true })).toBeVisible();
+      await expect(page.getByLabel("Project", { exact: true })).toBeVisible();
 
       await page.goto("/contracts/new");
       expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
