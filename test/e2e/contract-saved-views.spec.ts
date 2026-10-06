@@ -19,6 +19,8 @@ let fixtures: TestFixtures;
 let seededContractIds: string[] = [];
 
 const STALE_UUID = "00000000-0000-0000-0000-000000000000";
+/** The exact UUID from the reproduced Production defect report (stale-view round-trip repair). */
+const PROD_REPRO_STALE_UUID = "11111111-1111-4111-8111-111111111111";
 
 function uniqueMarker(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10_000)}`;
@@ -173,6 +175,150 @@ test.describe("Contract Saved Views (Tables Improvement Slice D1)", () => {
     // resurrected; the filter was never broadened to "All clients."
     await expect(page.getByText("No matching contracts")).toBeVisible();
     await expect(page.getByRole("row", { name: new RegExp(other.contractNumber) })).toHaveCount(0);
+  });
+
+  test("stale-view round-trip repair (exact Production defect sequence): a NORMAL view saved first never leaks into a STALE view applied later -- this failed on 88fcd6d and must pass here", async ({ page }) => {
+    const marker = uniqueMarker("E2E-SVC-ROUNDTRIP");
+    const matching = await seedContract({ contractNumber: `${marker}-0002`, status: "DRAFT" });
+
+    // A+B+C: ordinary state, Save NORMAL Contract.
+    await page.goto(`/contracts?q=${marker}&status=DRAFT&sort=issueDate:asc`);
+    await expect(page.getByRole("row", { name: new RegExp(matching.contractNumber) })).toBeVisible();
+    await page.getByRole("button", { name: "Save current view" }).click();
+    await page.getByLabel("View name").fill("NORMAL Contract");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+
+    // D+E: the full stale URL, confirmed fail-closed before saving.
+    await page.goto(`/contracts?client=${PROD_REPRO_STALE_UUID}`);
+    await expect(page.getByLabel("Client")).toHaveValue(PROD_REPRO_STALE_UUID);
+    await expect(page.getByText("No matching contracts")).toBeVisible();
+
+    // F: Save STALE Contract.
+    await page.getByRole("button", { name: "Save current view" }).click();
+    await page.getByLabel("View name").fill("STALE Contract");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+
+    // G: the exact stored params for both views -- proven directly from
+    // localStorage, not inferred.
+    const stored = await page.evaluate(() => {
+      const key = Object.keys(window.localStorage).find((k) => k.startsWith("aqenra:saved-views:") && k.endsWith(":contracts"));
+      return key ? JSON.parse(window.localStorage.getItem(key)!) : null;
+    });
+    const normalView = stored.views.find((v: { name: string }) => v.name === "NORMAL Contract");
+    const staleView = stored.views.find((v: { name: string }) => v.name === "STALE Contract");
+    expect(normalView.params).toEqual({ q: marker, status: "DRAFT", sort: "issueDate:asc" });
+    expect(staleView.params).toEqual({ client: PROD_REPRO_STALE_UUID });
+
+    // H: "return to ordinary /contracts" -- a fresh navigation, exactly
+    // like the Production sequence, deliberately BEFORE touching the
+    // dropdown at all. This is the exact gap the removed `views[0]`
+    // fallback used to silently paper over: on 88fcd6d, an Apply control
+    // is already rendered here, pre-targeting the OLDEST view (NORMAL
+    // Contract) even though the user never chose anything in this visit.
+    await page.goto("/contracts");
+
+    const applyLinkCountWithNoExplicitSelection = await page.getByRole("link", { name: "Apply" }).count();
+    if (applyLinkCountWithNoExplicitSelection > 0) {
+      // An Apply control must never silently target a DIFFERENT view
+      // than the one the user has actually chosen in this visit -- on
+      // 88fcd6d this href is NORMAL Contract's own `?status=DRAFT&sort=...`,
+      // despite STALE Contract being the one actually relevant/just saved.
+      const hrefWithNoExplicitSelection = await page.getByRole("link", { name: "Apply" }).getAttribute("href");
+      expect(hrefWithNoExplicitSelection).not.toContain("status=DRAFT");
+    }
+
+    // I+J: the deliberate, explicit choice the Production sequence
+    // itself describes -- select STALE Contract, then press Apply.
+    await page.getByRole("combobox", { name: "Saved views" }).selectOption({ label: "STALE Contract" });
+    await page.getByRole("link", { name: "Apply" }).click();
+
+    // K: the stale client id must be in the URL, the sentinel must
+    // render, and the ordinary contract must be absent -- never the
+    // NORMAL view's own status/sort silently applied instead.
+    await expect(page).toHaveURL(new RegExp(`client=${PROD_REPRO_STALE_UUID}`));
+    await expect(page).not.toHaveURL(/status=DRAFT/);
+    await expect(page).not.toHaveURL(/sort=/);
+    await expect(page.getByLabel("Client")).toHaveValue(PROD_REPRO_STALE_UUID);
+    await expect(page.getByLabel("Client").locator("option", { hasText: "Unavailable client" })).toHaveCount(1);
+    await expect(page.getByText("No matching contracts")).toBeVisible();
+    await expect(page.getByRole("row", { name: new RegExp(matching.contractNumber) })).toHaveCount(0);
+  });
+
+  test("multi-view independence: NORMAL and STALE Contract views never inherit or overwrite each other's params, and Apply alternates correctly between them", async ({ page }) => {
+    const marker = uniqueMarker("E2E-SVC-MULTIVIEW");
+    const matching = await seedContract({ contractNumber: `${marker}-0002`, status: "DRAFT" });
+
+    await page.goto(`/contracts?q=${marker}&status=DRAFT&sort=issueDate:asc`);
+    await page.getByRole("button", { name: "Save current view" }).click();
+    await page.getByLabel("View name").fill("NORMAL Contract");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+
+    await page.goto(`/contracts?client=${PROD_REPRO_STALE_UUID}`);
+    await page.getByRole("button", { name: "Save current view" }).click();
+    await page.getByLabel("View name").fill("STALE Contract");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+
+    // Fresh navigation back, explicitly apply NORMAL first.
+    await page.goto("/contracts");
+    await page.getByRole("combobox", { name: "Saved views" }).selectOption({ label: "NORMAL Contract" });
+    await page.getByRole("link", { name: "Apply" }).click();
+    await expect(page).toHaveURL(/status=DRAFT/);
+    await expect(page).toHaveURL(/sort=issueDate%3Aasc/);
+    await expect(page).not.toHaveURL(/client=/);
+    await expect(page.getByRole("row", { name: new RegExp(matching.contractNumber) })).toBeVisible();
+
+    // Then explicitly apply STALE from THAT already-applied NORMAL state
+    // -- STALE's own params must fully replace NORMAL's, never merge.
+    await page.getByRole("combobox", { name: "Saved views" }).selectOption({ label: "STALE Contract" });
+    await page.getByRole("link", { name: "Apply" }).click();
+    await expect(page).toHaveURL(new RegExp(`client=${PROD_REPRO_STALE_UUID}`));
+    await expect(page).not.toHaveURL(/status=DRAFT/);
+    await expect(page).not.toHaveURL(/sort=/);
+    await expect(page.getByText("No matching contracts")).toBeVisible();
+
+    // And back to NORMAL again -- STALE's own client id must not have
+    // bled into NORMAL on this second switch either.
+    await page.getByRole("combobox", { name: "Saved views" }).selectOption({ label: "NORMAL Contract" });
+    await page.getByRole("link", { name: "Apply" }).click();
+    await expect(page).toHaveURL(/status=DRAFT/);
+    await expect(page).not.toHaveURL(/client=/);
+    await expect(page.getByRole("row", { name: new RegExp(matching.contractNumber) })).toBeVisible();
+  });
+
+  test("Save current view always captures the CURRENT canonical state, never a previous navigation's state -- normal -> stale -> archived -> normal", async ({ page }) => {
+    const marker = uniqueMarker("E2E-SVC-FRESHNESS");
+    await seedContract({ contractNumber: `${marker}-0001`, status: "DRAFT" });
+    await seedContract({ contractNumber: `${marker}-0002`, status: "DRAFT", archivedAt: new Date().toISOString() });
+
+    async function saveViewNamed(name: string): Promise<void> {
+      await page.getByRole("button", { name: "Save current view" }).click();
+      await page.getByLabel("View name").fill(name);
+      await page.getByRole("button", { name: "Save", exact: true }).click();
+    }
+
+    async function readStoredParams(name: string): Promise<Record<string, string>> {
+      return page.evaluate((viewName) => {
+        const key = Object.keys(window.localStorage).find((k) => k.startsWith("aqenra:saved-views:") && k.endsWith(":contracts"));
+        const parsed = key ? JSON.parse(window.localStorage.getItem(key)!) : { views: [] };
+        return parsed.views.find((v: { name: string }) => v.name === viewName)?.params ?? null;
+      }, name);
+    }
+
+    await page.goto(`/contracts?q=${marker}&status=DRAFT`);
+    await saveViewNamed("Freshness Normal");
+    expect(await readStoredParams("Freshness Normal")).toEqual({ q: marker, status: "DRAFT" });
+
+    await page.goto(`/contracts?client=${PROD_REPRO_STALE_UUID}`);
+    await saveViewNamed("Freshness Stale");
+    expect(await readStoredParams("Freshness Stale")).toEqual({ client: PROD_REPRO_STALE_UUID });
+
+    await page.goto(`/contracts?q=${marker}&archived=1`);
+    await saveViewNamed("Freshness Archived");
+    expect(await readStoredParams("Freshness Archived")).toEqual({ q: marker, archived: "1" });
+
+    await page.goto(`/contracts?q=${marker}`);
+    await saveViewNamed("Freshness Back To Normal");
+    expect(await readStoredParams("Freshness Back To Normal")).toEqual({ q: marker });
   });
 
   test("390px mobile: the Contracts Saved Views control is usable and causes no destructive horizontal overflow", async ({ page }) => {

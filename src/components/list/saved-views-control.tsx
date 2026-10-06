@@ -39,6 +39,27 @@ type FormMode = "idle" | "saving" | "renaming";
  * below is PURELY "which saved view is the Rename/Delete/Apply controls
  * currently pointed at" — not a claim that the page's current URL state
  * matches it.
+ *
+ * Stale-view round-trip repair (Contract Production defect) —
+ * `effectiveSelectedId` deliberately does NOT fall back to any view
+ * (e.g. `views[0]`) when `selectedId` doesn't match a current view.
+ * This component is never guaranteed to be remounted between two
+ * visits to the same list page (ordinary Next.js navigation back to an
+ * already-rendered route position can reuse the same instance, exactly
+ * like SearchFilterBar's own documented remount gap elsewhere on these
+ * pages) — and a hard reload/fresh mount resets `selectedId` to its
+ * initial `""` regardless. A once-present `?? views[0]?.id` fallback
+ * silently pre-selected the OLDEST saved view in that situation, with
+ * the dropdown visually showing that pick as if it were deliberate —
+ * directly reproduced as the exact Production defect: saving a normal
+ * view, then a stale-filter view, then returning to the page and
+ * pressing Apply without the fallback ever having been overridden by a
+ * real `onChange` applied the FIRST (normal) view's params instead of
+ * the one actually shown as needed. With no fallback, `effectiveSelectedId`
+ * is `""` (no view) until the user's own `onChange` sets it, so `selectedView`
+ * is correctly `null` and Apply/Rename/Delete stay disabled/hidden —
+ * Apply can now only ever fire against a view the user explicitly chose
+ * in this component's own current lifetime, never an implicit default.
  */
 export function SavedViewsControl({
   organizationId,
@@ -66,7 +87,7 @@ export function SavedViewsControl({
   const saveInputId = useId();
   const renameInputId = useId();
 
-  const effectiveSelectedId = views.some((view) => view.id === selectedId) ? selectedId : views[0]?.id ?? "";
+  const effectiveSelectedId = views.some((view) => view.id === selectedId) ? selectedId : "";
   const selectedView = views.find((view) => view.id === effectiveSelectedId) ?? null;
   const trimmedNameInput = normalizeSavedViewName(nameInput);
   const nameInputIsValid = isValidSavedViewName(trimmedNameInput);
@@ -139,6 +160,20 @@ export function SavedViewsControl({
               onChange={(event) => setSelectedId(event.target.value)}
               className="mt-0 w-44 py-1.5 text-sm"
             >
+              {/*
+                Required so `value=""` (no explicit selection yet) has a
+                real matching `<option>` to display -- without one, the
+                browser's own native fallback would silently select the
+                FIRST real option instead (the exact `views[0]` defaulting
+                this repair removes), just as a stale/foreign Contract
+                filter's own missing `<option>` did before the stale-
+                entity-filter fix. `disabled` only blocks picking it back
+                deliberately from the dropdown's own menu; it can still be
+                the programmatic `value` shown here.
+              */}
+              <option value="" disabled>
+                Select a saved view…
+              </option>
               {views.map((view) => (
                 <option key={view.id} value={view.id}>
                   {view.name}
