@@ -3,18 +3,10 @@ import { getCurrentUserOrganization } from "@/lib/current-user";
 import { DocumentsTabs } from "@/components/documents/documents-tabs";
 import { prisma } from "@/lib/prisma";
 import { listContracts } from "@/lib/contracts/queries";
-import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
-import { ContractStatusBadge } from "@/components/contracts/contract-status-badge";
-import { ContractArchiveRestoreAction } from "@/components/contracts/contract-archive-restore-action";
 import { EmptyState } from "@/components/ui/empty-state";
-import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
-import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { SearchFilterBar } from "@/components/list/search-filter-bar";
 import { QuickFilterChips } from "@/components/list/quick-filter-chips";
-import { RowActionMenu, RowActionMenuItem } from "@/components/ui/row-action-menu";
-import { SortableHeader } from "@/components/ui/sortable-header";
-import { TableHead, TableHeaderCell, TableBody, TableRow, TableCell } from "@/components/ui/table";
-import { RecordCardList, RecordCard, RecordCardField, RecordCardActions } from "@/components/ui/record-list";
+import { ContractListWithSelection, type ContractListRow } from "@/components/contracts/contract-list-with-selection";
 import { isContractEditable } from "@/lib/contracts/status";
 import {
   parseContractListParams,
@@ -141,6 +133,24 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
     return listParams.hasSort && listParams.sortField === field ? listParams.sortDir : null;
   }
 
+  // Tables Improvement Slice C — `showEdit` pre-computed server-side
+  // once per row (unchanged DRAFT-and-not-archived rule), rather than
+  // re-derived inside the client selection component, which never
+  // imports isContractEditable itself.
+  const rows: ContractListRow[] = visibleContracts.map((contract) => ({
+    id: contract.id,
+    contractNumber: contract.contractNumber,
+    title: contract.title,
+    client: contract.client,
+    project: contract.project,
+    status: contract.status,
+    effectiveDate: contract.effectiveDate,
+    expiresAt: contract.expiresAt,
+    archivedAt: contract.archivedAt,
+    issueDate: contract.issueDate,
+    showEdit: contract.archivedAt === null && isContractEditable(contract.status),
+  }));
+
   return (
     <div>
       <DocumentsTabs />
@@ -252,122 +262,18 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
           />
         )
       ) : (
-        <>
-          <div className="hidden xl:block">
-            {/*
-              Tables Improvement Slice B — sticky-header pilot #2, the
-              exact same bounded-height (max-h-[70vh]) inner-scroll
-              wrapper Invoice's own Slice A pilot established (see
-              invoices/page.tsx's own identical comment for the full
-              overflow-axis reasoning) — kept entirely local to this one
-              page.
-            */}
-            <div className={`mt-6 max-h-[70vh] overflow-x-auto overflow-y-auto ${CARD_SURFACE_CLASSES}`}>
-              <table className="divide-border-default min-w-full divide-y text-sm">
-                <TableHead className="sticky top-0 z-10">
-                  <tr>
-                    <TableHeaderCell>Contract #</TableHeaderCell>
-                    <TableHeaderCell>Title</TableHeaderCell>
-                    <TableHeaderCell>Client</TableHeaderCell>
-                    <TableHeaderCell className="hidden lg:table-cell">Project</TableHeaderCell>
-                    <TableHeaderCell>Status</TableHeaderCell>
-                    <SortableHeader label="Issue date" href={sortHrefFor("issueDate")} direction={directionFor("issueDate")} />
-                    <TableHeaderCell align="right">Actions</TableHeaderCell>
-                  </tr>
-                </TableHead>
-                <TableBody>
-                  {visibleContracts.map((contract) => {
-                    const isArchived = contract.archivedAt !== null;
-                    const showEdit = !isArchived && isContractEditable(contract.status);
-                    return (
-                      <TableRow key={contract.id}>
-                        <TableCell emphasis>{contract.contractNumber}</TableCell>
-                        <TableCell>{contract.title}</TableCell>
-                        <TableCell>
-                          <Link href={`/clients/${contract.client.id}`} className={ACTION_LINK_CLASSES}>
-                            {contract.client.name}
-                          </Link>
-                        </TableCell>
-                        <TableCell className="hidden lg:table-cell">{contract.project?.name ?? "—"}</TableCell>
-                        <TableCell>
-                          <ContractStatusBadge contract={contract} />
-                          {isArchived && <span className="text-text-muted ml-2 text-xs">Archived</span>}
-                        </TableCell>
-                        <TableCell>{formatDateOnlyForDisplay(contract.issueDate)}</TableCell>
-                        <TableCell align="right">
-                          <div className="flex items-center justify-end gap-3">
-                            {showEdit ? (
-                              <Link href={`/contracts/${contract.id}/edit`} className={ACTION_LINK_CLASSES}>
-                                Edit
-                              </Link>
-                            ) : (
-                              <Link href={`/contracts/${contract.id}`} className={ACTION_LINK_CLASSES}>
-                                View
-                              </Link>
-                            )}
-                            <RowActionMenu label={`More actions for contract ${contract.contractNumber}`}>
-                              <RowActionMenuItem>
-                                <ContractArchiveRestoreAction contractId={contract.id} isArchived={isArchived} />
-                              </RowActionMenuItem>
-                            </RowActionMenu>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-                </TableBody>
-              </table>
-            </div>
-          </div>
-
-          <RecordCardList>
-            {visibleContracts.map((contract) => {
-              const isArchived = contract.archivedAt !== null;
-              const showEdit = !isArchived && isContractEditable(contract.status);
-              return (
-                <RecordCard key={contract.id}>
-                  <RecordCardField label="Contract #" value={contract.contractNumber} emphasis />
-                  <RecordCardField label="Title" value={contract.title} />
-                  <RecordCardField
-                    label="Client"
-                    value={
-                      <Link href={`/clients/${contract.client.id}`} className={ACTION_LINK_CLASSES}>
-                        {contract.client.name}
-                      </Link>
-                    }
-                  />
-                  {contract.project && <RecordCardField label="Project" value={contract.project.name} />}
-                  <RecordCardField
-                    label="Status"
-                    value={
-                      <>
-                        <ContractStatusBadge contract={contract} />
-                        {isArchived && <span className="text-text-muted ml-2 text-xs">Archived</span>}
-                      </>
-                    }
-                  />
-                  <RecordCardField label="Issue date" value={formatDateOnlyForDisplay(contract.issueDate)} />
-                  <RecordCardActions>
-                    {showEdit ? (
-                      <Link href={`/contracts/${contract.id}/edit`} className={ACTION_LINK_CLASSES}>
-                        Edit
-                      </Link>
-                    ) : (
-                      <Link href={`/contracts/${contract.id}`} className={ACTION_LINK_CLASSES}>
-                        View
-                      </Link>
-                    )}
-                    <RowActionMenu label={`More actions for contract ${contract.contractNumber}`}>
-                      <RowActionMenuItem>
-                        <ContractArchiveRestoreAction contractId={contract.id} isArchived={isArchived} />
-                      </RowActionMenuItem>
-                    </RowActionMenu>
-                  </RecordCardActions>
-                </RecordCard>
-              );
-            })}
-          </RecordCardList>
-        </>
+        <ContractListWithSelection
+          // Tables Improvement Slice C — resets selection to empty
+          // whenever the rendered result-identity set could change
+          // (filters/search/status/archive/sort), rather than letting a
+          // stale selected id silently remain attached to a row that may
+          // no longer be rendered (locked spec §21).
+          key={`${listParams.q}:${listParams.status ?? ""}:${listParams.clientId ?? ""}:${listParams.projectId ?? ""}:${listParams.archived}:${listParams.sortCombined}`}
+          contracts={rows}
+          canBulkSelect={!listParams.archived}
+          issueDateSortHref={sortHrefFor("issueDate")}
+          issueDateDirection={directionFor("issueDate")}
+        />
       )}
     </div>
   );

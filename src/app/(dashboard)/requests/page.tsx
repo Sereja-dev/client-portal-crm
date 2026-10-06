@@ -2,11 +2,9 @@ import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { listOrganizationClientRequests } from "@/lib/client-requests/staff";
-import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { StaffRequestFilters } from "@/components/client-requests/staff-request-filters";
-import { relativeTime } from "@/lib/notifications/relative-time";
-import { Table, TableHead, TableHeaderCell, TableBody, TableRow, TableCell } from "@/components/ui/table";
+import { RequestListWithSelection } from "@/components/client-requests/request-list-with-selection";
 import type { RawSearchParams } from "@/lib/list-params";
 import { parseClientRequestStatusFilter, parseClientRequestPriorityFilter, parseClientRequestAssigneeFilter } from "./view-params";
 
@@ -70,47 +68,15 @@ export default async function ClientRequestsPage({ searchParams }: { searchParam
           }
         />
       ) : (
-        <Table>
-          <TableHead>
-            <tr>
-              <TableHeaderCell>Title</TableHeaderCell>
-              <TableHeaderCell>Client</TableHeaderCell>
-              <TableHeaderCell>Status</TableHeaderCell>
-              <TableHeaderCell>Priority</TableHeaderCell>
-              <TableHeaderCell className="hidden md:table-cell">Assignee</TableHeaderCell>
-              <TableHeaderCell className="hidden md:table-cell">Project</TableHeaderCell>
-              <TableHeaderCell align="right">Updated</TableHeaderCell>
-            </tr>
-          </TableHead>
-          <TableBody>
-            {visibleRequests.map((request) => (
-              <TableRow key={request.id}>
-                <TableCell emphasis>
-                  <Link
-                    href={`/requests/${request.id}`}
-                    className="focus-visible:ring-focus-ring rounded hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-                  >
-                    {request.title}
-                  </Link>
-                </TableCell>
-                <TableCell>{request.client.name}</TableCell>
-                <TableCell>
-                  <StatusBadge status={request.status} />
-                </TableCell>
-                <TableCell>
-                  <StatusBadge status={request.priority} />
-                </TableCell>
-                <TableCell className="hidden md:table-cell">{request.assignedTo?.name ?? "—"}</TableCell>
-                <TableCell className="hidden md:table-cell">{request.project?.name ?? "—"}</TableCell>
-                <TableCell align="right">
-                  <time dateTime={request.updatedAt.toISOString()} title={request.updatedAt.toLocaleString()}>
-                    {relativeTime(request.updatedAt)}
-                  </time>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <RequestListWithSelection
+          // Tables Improvement Slice C — resets selection whenever the
+          // rendered result-identity set could change (locked spec §21),
+          // same technique as Contracts' own identical key.
+          key={`${status ?? ""}:${priority ?? ""}:${assignedToId ?? ""}:${showArchived}`}
+          requests={visibleRequests}
+          members={memberOptions}
+          canBulkSelect={!showArchived}
+        />
       )}
     </div>
   );
