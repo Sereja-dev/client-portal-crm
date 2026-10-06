@@ -206,3 +206,47 @@ export const CONTRACT_QUICK_FILTERS: readonly { label: string; status: ContractS
   { label: "Sent", status: "SENT" },
   { label: "Accepted", status: "ACCEPTED" },
 ];
+
+export type ContractEntityFilterOption = { value: string; label: string };
+
+/**
+ * Contract stale entity filter remediation — the Client/Project filter
+ * `<select>` is rendered by SearchFilterBar as a plain uncontrolled
+ * native element (`defaultValue`). A syntactically valid but
+ * missing/foreign-org `?client=`/`?project=` UUID already flows safely
+ * into the existing org-scoped `listContracts()` query (producing a
+ * truthful zero-result set — see that function's own doc comment, this
+ * function changes nothing about that) and remains in the canonical
+ * URL — but with no matching `<option>`, the browser's own native
+ * fallback silently selects the FIRST option ("All clients"/"All
+ * projects"), hiding that a filter is still active. This function's
+ * only job is to give that already-active, already-correct filter
+ * value a real matching `<option>` to select, so the existing
+ * uncontrolled select renders it truthfully instead of lying about it.
+ *
+ * Deliberately NOT a query/URL change — `options` is exactly the same
+ * already-loaded, unfiltered (no status/archive exclusion — see
+ * page.tsx's own identical comment) same-organization array the
+ * dropdown already renders; no new lookup, no existence probe, no
+ * widened scope. When `selectedId` is undefined, or already matches one
+ * of `options` (a genuinely valid same-org entity), this returns
+ * `options` completely unchanged — no sentinel, no new array identity
+ * beyond a defensive copy.
+ *
+ * The one new option's label is always the fixed, generic
+ * `unavailableLabel` — never the raw UUID, never a guessed/looked-up
+ * name. A foreign-org id, a deleted id, and an id that never existed at
+ * all are all indistinguishable through this label by design (locked
+ * remediation spec §1/§5) — this function never queries anything
+ * outside the `options` it was already given.
+ */
+export function buildContractEntityFilterOptions(
+  options: readonly ContractEntityFilterOption[],
+  selectedId: string | undefined,
+  unavailableLabel: string,
+): ContractEntityFilterOption[] {
+  if (!selectedId || options.some((option) => option.value === selectedId)) {
+    return [...options];
+  }
+  return [...options, { value: selectedId, label: unavailableLabel }];
+}

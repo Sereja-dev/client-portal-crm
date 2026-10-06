@@ -13,6 +13,7 @@ import {
   buildContractOrderBy,
   buildContractsHref,
   nextContractSortCombined,
+  buildContractEntityFilterOptions,
   CONTRACT_STATUS_FILTER_VALUES,
   CONTRACT_QUICK_FILTERS,
   type ContractSortField,
@@ -201,13 +202,30 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
                 name: "client",
                 label: "Client",
                 value: listParams.clientId ?? "",
-                options: [{ value: "", label: "All clients" }, ...clients.map((c) => ({ value: c.id, label: c.name }))],
+                // Contract stale entity filter remediation — a syntactically
+                // valid but missing/foreign-org ?client= UUID already flows
+                // safely into the existing org-scoped query below (zero
+                // rows, never a leak); this only gives it a real matching
+                // <option> so the existing uncontrolled <select> renders it
+                // truthfully instead of silently falling back to "All
+                // clients" (see buildContractEntityFilterOptions' own
+                // header comment for the full "why").
+                options: buildContractEntityFilterOptions(
+                  [{ value: "", label: "All clients" }, ...clients.map((c) => ({ value: c.id, label: c.name }))],
+                  listParams.clientId,
+                  "Unavailable client",
+                ),
               },
               {
                 name: "project",
                 label: "Project",
                 value: listParams.projectId ?? "",
-                options: [{ value: "", label: "All projects" }, ...projects.map((p) => ({ value: p.id, label: p.name }))],
+                // Same remediation as the Client filter immediately above.
+                options: buildContractEntityFilterOptions(
+                  [{ value: "", label: "All projects" }, ...projects.map((p) => ({ value: p.id, label: p.name }))],
+                  listParams.projectId,
+                  "Unavailable project",
+                ),
               },
               {
                 name: "archived",
