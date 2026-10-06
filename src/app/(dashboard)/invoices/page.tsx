@@ -19,6 +19,7 @@ import { Pagination } from "@/components/list/pagination";
 import { QuickFilterChips } from "@/components/list/quick-filter-chips";
 import { RowActionMenu, RowActionMenuItem } from "@/components/ui/row-action-menu";
 import { SortableHeader } from "@/components/ui/sortable-header";
+import { InvoiceSavedViews } from "@/components/invoices/invoice-saved-views";
 import {
   TableHead,
   TableHeaderCell,
@@ -42,6 +43,7 @@ import {
   INVOICE_QUICK_FILTERS,
   type InvoiceSortField,
 } from "./query";
+import { serializeInvoiceSavedViewParams } from "./saved-view";
 
 // Page-owned primary call-to-action link (navigates, so a real <Link> —
 // not the shared <Button>, which renders a <button>). Matches Button's
@@ -96,7 +98,7 @@ export default async function InvoicesPage({
 }: {
   searchParams: Promise<RawSearchParams>;
 }) {
-  const { organizationId, membership } = await getCurrentMembership();
+  const { user, organizationId, membership } = await getCurrentMembership();
   const resolvedSearchParams = await searchParams;
   const listParams = parseInvoiceListParams(resolvedSearchParams);
 
@@ -187,6 +189,21 @@ export default async function InvoicesPage({
         <>
           <QuickFilterChips label="Invoice quick filters" chips={quickFilterChips} />
 
+          {/*
+            Tables Improvement Slice D1 — placed between QuickFilterChips
+            and SearchFilterBar (locked spec §25), never inside the
+            filter bar itself. `currentParams` is built from the already-
+            parsed canonical `listParams` server-side — never a raw
+            query-string re-parse (locked spec §11) — and is plain,
+            serializable data, safe to pass straight into this Client
+            Component from the Server Component page.
+          */}
+          <InvoiceSavedViews
+            organizationId={organizationId}
+            userId={user.id}
+            currentParams={serializeInvoiceSavedViewParams(listParams)}
+          />
+
           <SearchFilterBar
             // Tables Improvement Slice A — the quick-filter chips and the
             // new sortable headers are the first things on this page to
@@ -201,7 +218,16 @@ export default async function InvoicesPage({
             // on a later prop change. Keying on the exact state the chips/
             // headers can change forces a fresh mount whenever either
             // changes, so both dropdowns always reflect the current URL.
-            key={`${listParams.status ?? "all"}:${listParams.sortCombined}`}
+            //
+            // Tables Improvement Slice D1 — widened to also include `q`:
+            // Saved Views' own "Apply" control is the first Link-based
+            // navigation on this page that can change `q` on its own while
+            // leaving `status`/`sort` unchanged (no existing chip/header
+            // href ever varies `q`), which would otherwise leave the
+            // Search input (also `defaultValue`-based) showing stale text
+            // even though the URL/results were already correct — see
+            // contracts/page.tsx's own identical fix and header comment.
+            key={`${listParams.q}:${listParams.status ?? "all"}:${listParams.sortCombined}`}
             basePath="/invoices"
             searchValue={listParams.q}
             searchPlaceholder="Search by invoice #, project, or client"

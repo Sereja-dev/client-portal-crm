@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SearchFilterBar } from "@/components/list/search-filter-bar";
 import { QuickFilterChips } from "@/components/list/quick-filter-chips";
 import { ContractListWithSelection, type ContractListRow } from "@/components/contracts/contract-list-with-selection";
+import { ContractSavedViews } from "@/components/contracts/contract-saved-views";
 import { isContractEditable } from "@/lib/contracts/status";
 import {
   parseContractListParams,
@@ -18,6 +19,7 @@ import {
   CONTRACT_QUICK_FILTERS,
   type ContractSortField,
 } from "./query";
+import { serializeContractSavedViewParams } from "./saved-view";
 import type { RawSearchParams } from "@/lib/list-params";
 
 const PRIMARY_LINK_CLASSES =
@@ -67,7 +69,7 @@ const CONTRACT_SORT_OPTIONS = [
  * byte-for-byte unchanged from before this slice.
  */
 export default async function ContractsPage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {
-  const { organizationId } = await getCurrentUserOrganization();
+  const { user, organizationId } = await getCurrentUserOrganization();
   const resolvedSearchParams = await searchParams;
   const listParams = parseContractListParams(resolvedSearchParams);
 
@@ -173,6 +175,20 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
         <>
           <QuickFilterChips label="Contract quick filters" chips={quickFilterChips} />
 
+          {/*
+            Tables Improvement Slice D1 — same placement contract as
+            Invoices (locked spec §25): after QuickFilterChips, before
+            SearchFilterBar. `currentParams` mirrors `listParams`
+            exactly, including any stale `client`/`project` id already
+            active in the URL (locked spec §10/§29) — this never widens
+            or narrows what's already there.
+          */}
+          <ContractSavedViews
+            organizationId={organizationId}
+            userId={user.id}
+            currentParams={serializeContractSavedViewParams(listParams)}
+          />
+
           <SearchFilterBar
             // Tables Improvement Slice B — the quick-filter chips and the
             // sortable header are the first things on this page to change
@@ -182,9 +198,26 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
             // would silently keep their stale value across such a
             // navigation — the exact issue found and fixed in Invoice's
             // own Slice A pilot (see invoices/page.tsx's own identical
-            // comment). Keying on the exact state the chips/header can
-            // change forces a fresh mount whenever either changes.
-            key={`${listParams.status ?? "all"}:${listParams.sortCombined}`}
+            // comment).
+            //
+            // Tables Improvement Slice D1 — widened to the FULL listParams
+            // digest (byte-identical to ContractListWithSelection's own key
+            // a few lines below), because Saved Views' own "Apply" control
+            // is the first Link-based navigation on this page that can
+            // change `q`/`client`/`project`/`archived` while leaving
+            // `status`/`sort` unchanged — exactly the gap the narrower key
+            // above never needed to cover before (no existing chip/header
+            // href ever varies those on their own). Confirmed by hitting it
+            // directly: applying a saved stale-Client-filter view from an
+            // unfiltered state left the Client <select> showing "All
+            // clients" even though the URL and query were already correct,
+            // because the key happened not to change between those two
+            // states — the Search input (`q`, also `defaultValue`-based)
+            // has the identical latent gap. Also still needed by the
+            // *existing* Search input and every other filter <select>,
+            // which were never reliably keyed against q/client/project/
+            // archived changes even before this slice.
+            key={`${listParams.q}:${listParams.status ?? "all"}:${listParams.clientId ?? ""}:${listParams.projectId ?? ""}:${listParams.archived}:${listParams.sortCombined}`}
             basePath="/contracts"
             searchValue={listParams.q}
             searchPlaceholder="Search by contract #, title, or client"
