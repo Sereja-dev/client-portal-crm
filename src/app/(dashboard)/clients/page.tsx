@@ -36,6 +36,8 @@ import {
   buildClientWhere,
   buildClientOrderBy,
 } from "./query";
+import { serializeClientSavedViewParams } from "./saved-view";
+import { ClientSavedViews } from "@/components/clients/client-saved-views";
 
 // Page-owned primary call-to-action link (navigates, so a real <Link> —
 // not the shared <Button>, which renders a <button>). Matches Button's own
@@ -74,7 +76,7 @@ export default async function ClientsPage({
 }: {
   searchParams: Promise<RawSearchParams>;
 }) {
-  const { organizationId, membership } = await getCurrentMembership();
+  const { user, organizationId, membership } = await getCurrentMembership();
   const resolvedSearchParams = await searchParams;
   const listParams = parseClientListParams(resolvedSearchParams);
   const canImport = await canImportData(organizationId, membership.role);
@@ -176,7 +178,32 @@ export default async function ClientsPage({
         </div>
       </div>
 
+      {/*
+        Tables Improvement Slice D2B — same placement contract as
+        Invoices/Contracts/Quotes (D1 locked spec §25): below the page
+        header/primary actions, above SearchFilterBar. `currentParams`
+        is built from the already-parsed canonical `listParams`
+        server-side — never a raw query-string re-parse — and is plain,
+        serializable data, safe to pass straight into this Client
+        Component from the Server Component page.
+      */}
+      <ClientSavedViews
+        organizationId={organizationId}
+        userId={user.id}
+        currentParams={serializeClientSavedViewParams(listParams)}
+      />
+
       <SearchFilterBar
+        // Tables Improvement Slice D2B — same remount-key contract as
+        // Invoices/Contracts/Quotes (see those pages' own identical
+        // comment): Saved Views' own "Apply" link is the first
+        // Link-based navigation on this page able to change
+        // q/status/tag/sort independently of `page`, so the
+        // uncontrolled (defaultValue-based) Search/Status/Tag/Sort
+        // controls need a forced remount whenever any of those change.
+        // `page` is deliberately excluded, matching every other
+        // surface's identical convention.
+        key={`${listParams.q}:${listParams.status ?? ""}:${listParams.tagId ?? ""}:${listParams.sortCombined}`}
         basePath="/clients"
         searchValue={listParams.q}
         searchPlaceholder="Search by name, company, or email"

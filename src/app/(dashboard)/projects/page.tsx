@@ -32,6 +32,8 @@ import {
   buildProjectWhere,
   buildProjectOrderBy,
 } from "./query";
+import { serializeProjectSavedViewParams } from "./saved-view";
+import { ProjectSavedViews } from "@/components/projects/project-saved-views";
 import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
 
 // Page-owned primary call-to-action link (navigates, so a real <Link> —
@@ -61,7 +63,7 @@ export default async function ProjectsPage({
 }: {
   searchParams: Promise<RawSearchParams>;
 }) {
-  const { organizationId } = await getCurrentUserOrganization();
+  const { user, organizationId } = await getCurrentUserOrganization();
   const resolvedSearchParams = await searchParams;
   const listParams = parseProjectListParams(resolvedSearchParams);
 
@@ -129,21 +131,49 @@ export default async function ProjectsPage({
       </div>
 
       {clientCount > 0 && (
-        <SearchFilterBar
-          basePath="/projects"
-          searchValue={listParams.q}
-          searchPlaceholder="Search by name or client"
-          filters={[
-            {
-              name: "status",
-              label: "Status",
-              value: listParams.status ?? "",
-              options: statusFilterOptions,
-            },
-          ]}
-          sort={{ value: listParams.sortCombined, options: SORT_OPTIONS }}
-          hasActiveParams={hasActiveParams}
-        />
+        <>
+          {/*
+            Tables Improvement Slice D2B — same placement contract as
+            Invoices/Contracts/Quotes/Clients (D1 locked spec §25):
+            below the page header/primary action, above SearchFilterBar.
+            `currentParams` is built from the already-parsed canonical
+            `listParams` server-side — never a raw query-string
+            re-parse — and is plain, serializable data, safe to pass
+            straight into this Client Component from the Server
+            Component page.
+          */}
+          <ProjectSavedViews
+            organizationId={organizationId}
+            userId={user.id}
+            currentParams={serializeProjectSavedViewParams(listParams)}
+          />
+
+          <SearchFilterBar
+            // Tables Improvement Slice D2B — same remount-key contract
+            // as Invoices/Contracts/Quotes/Clients (see those pages'
+            // own identical comment): Saved Views' own "Apply" link is
+            // the first Link-based navigation on this page able to
+            // change q/status/sort independently of `page`, so the
+            // uncontrolled (defaultValue-based) Search/Status/Sort
+            // controls need a forced remount whenever any of those
+            // change. `page` is deliberately excluded, matching every
+            // other surface's identical convention.
+            key={`${listParams.q}:${listParams.status ?? ""}:${listParams.sortCombined}`}
+            basePath="/projects"
+            searchValue={listParams.q}
+            searchPlaceholder="Search by name or client"
+            filters={[
+              {
+                name: "status",
+                label: "Status",
+                value: listParams.status ?? "",
+                options: statusFilterOptions,
+              },
+            ]}
+            sort={{ value: listParams.sortCombined, options: SORT_OPTIONS }}
+            hasActiveParams={hasActiveParams}
+          />
+        </>
       )}
 
       {total === 0 ? (
