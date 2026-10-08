@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { getCurrentMembership } from "@/lib/current-user";
 import { getCachedEffectivePermissionSet } from "@/lib/permissions/resolver";
 import { FinanceTabs } from "@/components/finance/finance-tabs";
@@ -13,7 +14,6 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PencilIcon } from "@/components/ui/icons";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
-import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { SearchFilterBar } from "@/components/list/search-filter-bar";
 import { Pagination } from "@/components/list/pagination";
 import { QuickFilterChips } from "@/components/list/quick-filter-chips";
@@ -21,10 +21,7 @@ import { RowActionMenu, RowActionMenuItem } from "@/components/ui/row-action-men
 import { SortableHeader } from "@/components/ui/sortable-header";
 import { InvoiceSavedViews } from "@/components/invoices/invoice-saved-views";
 import {
-  TableHead,
   TableHeaderCell,
-  TableBody,
-  TableRow,
   TableCell,
 } from "@/components/ui/table";
 import {
@@ -44,6 +41,16 @@ import {
   type InvoiceSortField,
 } from "./query";
 import { serializeInvoiceSavedViewParams } from "./saved-view";
+import {
+  INVOICE_COLUMNS,
+  INVOICE_COLUMNS_SURFACE,
+  INVOICE_COLUMN_IDS,
+  INVOICE_MANDATORY_COLUMN_IDS,
+  type InvoiceColumnId,
+} from "./columns";
+import { ColumnVisibilityProvider } from "@/components/list/column-visibility-context";
+import { ColumnVisibilityControl } from "@/components/list/column-visibility-control";
+import { InvoiceDesktopTable, type InvoiceTableRow } from "@/components/invoices/invoice-desktop-table";
 
 // Page-owned primary call-to-action link (navigates, so a real <Link> —
 // not the shared <Button>, which renders a <button>). Matches Button's
@@ -163,7 +170,104 @@ export default async function InvoicesPage({
     return listParams.sortField === field ? listParams.sortDir : null;
   }
 
+  // Tables Improvement Slice E1 — these are the EXACT SAME header/cell
+  // JSX calls (TableHeaderCell/SortableHeader/TableCell, with the exact
+  // same Link/StatusBadge/DeleteButton/RowActionMenu children) that
+  // rendered this table before this slice, just built into per-column
+  // slots instead of a flat `<tr>`/`<TableRow>` sequence. No
+  // formatting/business logic is reimplemented — `InvoiceDesktopTable`
+  // (a Client Component) only decides which of these already-built
+  // slots to include, based on live column-visibility state; every
+  // value here is computed server-side exactly as before (locked spec
+  // §3/§18). Keyed by the same `InvoiceColumnId`s `./columns.ts` owns.
+  const headerCells: Record<InvoiceColumnId, ReactNode> = {
+    invoiceNumber: <TableHeaderCell>Invoice #</TableHeaderCell>,
+    project: <TableHeaderCell>Project</TableHeaderCell>,
+    client: <TableHeaderCell>Client</TableHeaderCell>,
+    amount: <SortableHeader label="Amount" href={sortHrefFor("amount")} direction={directionFor("amount")} />,
+    status: <TableHeaderCell>Status</TableHeaderCell>,
+    dueDate: <SortableHeader label="Due date" href={sortHrefFor("dueDate")} direction={directionFor("dueDate")} />,
+    createdAt: <SortableHeader label="Created" href={sortHrefFor("createdAt")} direction={directionFor("createdAt")} />,
+    actions: <TableHeaderCell align="right">Actions</TableHeaderCell>,
+  };
+
+  const invoiceTableRows: InvoiceTableRow[] = invoices.map((invoice) => ({
+    id: invoice.id,
+    cells: {
+      invoiceNumber: <TableCell emphasis>{invoice.invoiceNumber}</TableCell>,
+      project: (
+        <TableCell>
+          {invoice.project ? (
+            <Link href={`/projects/${invoice.projectId}`} className={ACTION_LINK_CLASSES}>
+              {invoice.project.name}
+            </Link>
+          ) : (
+            "No project"
+          )}
+        </TableCell>
+      ),
+      client: (
+        <TableCell>
+          <Link href={`/clients/${invoice.clientId}`} className={ACTION_LINK_CLASSES}>
+            {invoice.client.name}
+          </Link>
+        </TableCell>
+      ),
+      amount: <TableCell>{formatCurrency(Number(invoice.amount), invoice.currency)}</TableCell>,
+      status: (
+        <TableCell>
+          <StatusBadge status={invoice.status} label={formatInvoiceStatusLabel(invoice.status)} />
+        </TableCell>
+      ),
+      dueDate: <TableCell>{invoice.dueDate ? formatDateOnlyForDisplay(invoice.dueDate) : "—"}</TableCell>,
+      createdAt: <TableCell>{invoice.createdAt.toLocaleDateString()}</TableCell>,
+      actions: (
+        <TableCell align="right">
+          <div className="flex items-center justify-end gap-3">
+            {invoice.status === "DRAFT" ? (
+              <>
+                <Link
+                  href={`/invoices/${invoice.id}/edit`}
+                  className={`inline-flex items-center gap-1 ${ACTION_LINK_CLASSES}`}
+                >
+                  <PencilIcon className="h-3.5 w-3.5" />
+                  Edit
+                </Link>
+                <RowActionMenu label={`More actions for invoice ${invoice.invoiceNumber}`}>
+                  <RowActionMenuItem>
+                    <DeleteButton
+                      action={deleteInvoiceAction.bind(null, invoice.id)}
+                      itemName={invoice.invoiceNumber}
+                      confirmTitle="Delete invoice"
+                      confirmDescription={`Delete invoice ${invoice.invoiceNumber}? This action cannot be undone.`}
+                      successMessage="Invoice deleted"
+                      conflictMessage="This invoice can no longer be deleted — it may have already been issued."
+                    />
+                  </RowActionMenuItem>
+                </RowActionMenu>
+              </>
+            ) : (
+              <Link
+                href={`/invoices/${invoice.id}/edit`}
+                className={`inline-flex items-center gap-1 ${ACTION_LINK_CLASSES}`}
+              >
+                View
+              </Link>
+            )}
+          </div>
+        </TableCell>
+      ),
+    },
+  }));
+
   return (
+    <ColumnVisibilityProvider
+      organizationId={organizationId}
+      userId={user.id}
+      surface={INVOICE_COLUMNS_SURFACE}
+      knownColumnIds={INVOICE_COLUMN_IDS}
+      mandatoryColumnIds={INVOICE_MANDATORY_COLUMN_IDS}
+    >
     <div>
       <FinanceTabs recurringInvoicesManage={effectivePermissions.RECURRING_INVOICES_MANAGE} />
       <div className="flex items-center justify-between">
@@ -198,11 +302,27 @@ export default async function InvoicesPage({
             serializable data, safe to pass straight into this Client
             Component from the Server Component page.
           */}
-          <InvoiceSavedViews
-            organizationId={organizationId}
-            userId={user.id}
-            currentParams={serializeInvoiceSavedViewParams(listParams)}
-          />
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <InvoiceSavedViews
+              organizationId={organizationId}
+              userId={user.id}
+              currentParams={serializeInvoiceSavedViewParams(listParams)}
+            />
+
+            {/*
+              Tables Improvement Slice E1 — same controls-band placement
+              contract as Saved Views (locked spec §12): never inside
+              SearchFilterBar/QuickFilterChips, never in the page title/
+              CTA row. Desktop-only (hidden below `xl` — the component's
+              own wrapper carries `hidden xl:inline-block`): Column
+              Customization has zero effect on the fixed mobile
+              RecordCardList (locked spec §13), so showing a "Columns"
+              trigger on mobile would only ever open a popover that
+              changes nothing a mobile user can see — hiding it there is
+              the least-confusing option, not an oversight.
+            */}
+            <ColumnVisibilityControl columns={INVOICE_COLUMNS} />
+          </div>
 
           <SearchFilterBar
             // Tables Improvement Slice A — the quick-filter chips and the
@@ -294,113 +414,16 @@ export default async function InvoicesPage({
         )
       ) : (
         <>
-          <div className="hidden xl:block">
-            {/*
-              Tables Improvement Slice A — sticky-header pilot. A
-              BOUNDED-height (max-h-[70vh]) inner scroll container,
-              deliberately NOT the shared `Table` component's own
-              wrapper (which sets overflow-x-auto only, with its height
-              left unconstrained/auto). `position: sticky` needs an
-              ancestor that actually produces a real vertical scrollbar
-              of its own — an unconstrained-height ancestor never
-              overflows vertically no matter how tall its content gets,
-              so a `<thead>` sticky relative to it would have nothing to
-              ever visibly "stick" against (confirmed in the readiness
-              audit's own §S finding, and re-verified against this exact
-              DOM in E2E — see test/e2e/invoices-table-workflow.spec.ts's
-              own sticky-header test). Horizontal overflow containment
-              is preserved (overflow-x-auto still present here, same as
-              Table's own). Kept entirely local to this one page, per
-              the locked spec's own explicit "do not globally change
-              every table; keep it local to Invoices if that's the
-              safer architecture" instruction — Table's own shared
-              wrapper (src/components/ui/table.tsx) and every other page
-              using it are completely untouched.
-            */}
-            <div className={`mt-6 max-h-[70vh] overflow-x-auto overflow-y-auto ${CARD_SURFACE_CLASSES}`}>
-              <table className="divide-border-default min-w-full divide-y text-sm">
-                <TableHead className="sticky top-0 z-10">
-                  <tr>
-                    <TableHeaderCell>Invoice #</TableHeaderCell>
-                    <TableHeaderCell>Project</TableHeaderCell>
-                    <TableHeaderCell>Client</TableHeaderCell>
-                    <SortableHeader label="Amount" href={sortHrefFor("amount")} direction={directionFor("amount")} />
-                    <TableHeaderCell>Status</TableHeaderCell>
-                    <SortableHeader label="Due date" href={sortHrefFor("dueDate")} direction={directionFor("dueDate")} />
-                    <SortableHeader label="Created" href={sortHrefFor("createdAt")} direction={directionFor("createdAt")} />
-                    <TableHeaderCell align="right">Actions</TableHeaderCell>
-                  </tr>
-                </TableHead>
-                <TableBody>
-                  {invoices.map((invoice) => (
-                    <TableRow key={invoice.id}>
-                      <TableCell emphasis>{invoice.invoiceNumber}</TableCell>
-                      <TableCell>
-                        {invoice.project ? (
-                          <Link href={`/projects/${invoice.projectId}`} className={ACTION_LINK_CLASSES}>
-                            {invoice.project.name}
-                          </Link>
-                        ) : (
-                          "No project"
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Link href={`/clients/${invoice.clientId}`} className={ACTION_LINK_CLASSES}>
-                          {invoice.client.name}
-                        </Link>
-                      </TableCell>
-                      <TableCell>
-                        {formatCurrency(Number(invoice.amount), invoice.currency)}
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge status={invoice.status} label={formatInvoiceStatusLabel(invoice.status)} />
-                      </TableCell>
-                      <TableCell>
-                        {invoice.dueDate
-                          ? formatDateOnlyForDisplay(invoice.dueDate)
-                          : "—"}
-                      </TableCell>
-                      <TableCell>{invoice.createdAt.toLocaleDateString()}</TableCell>
-                      <TableCell align="right">
-                        <div className="flex items-center justify-end gap-3">
-                          {invoice.status === "DRAFT" ? (
-                            <>
-                              <Link
-                                href={`/invoices/${invoice.id}/edit`}
-                                className={`inline-flex items-center gap-1 ${ACTION_LINK_CLASSES}`}
-                              >
-                                <PencilIcon className="h-3.5 w-3.5" />
-                                Edit
-                              </Link>
-                              <RowActionMenu label={`More actions for invoice ${invoice.invoiceNumber}`}>
-                                <RowActionMenuItem>
-                                  <DeleteButton
-                                    action={deleteInvoiceAction.bind(null, invoice.id)}
-                                    itemName={invoice.invoiceNumber}
-                                    confirmTitle="Delete invoice"
-                                    confirmDescription={`Delete invoice ${invoice.invoiceNumber}? This action cannot be undone.`}
-                                    successMessage="Invoice deleted"
-                                    conflictMessage="This invoice can no longer be deleted — it may have already been issued."
-                                  />
-                                </RowActionMenuItem>
-                              </RowActionMenu>
-                            </>
-                          ) : (
-                            <Link
-                              href={`/invoices/${invoice.id}/edit`}
-                              className={`inline-flex items-center gap-1 ${ACTION_LINK_CLASSES}`}
-                            >
-                              View
-                            </Link>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </table>
-            </div>
-          </div>
+          {/*
+            Tables Improvement Slice E1 — the sticky-header pilot
+            (Slice A) markup/classes now live inside
+            `InvoiceDesktopTable` itself, byte-identical to before this
+            slice (locked spec §15 — "do not change sticky-header
+            architecture unless strictly necessary"); only WHICH columns
+            render is now a client-side decision, fed by the already-
+            server-built `headerCells`/`invoiceTableRows` slots above.
+          */}
+          <InvoiceDesktopTable headerCells={headerCells} rows={invoiceTableRows} />
 
           <RecordCardList>
             {invoices.map((invoice) => (
@@ -488,5 +511,6 @@ export default async function InvoicesPage({
         </>
       )}
     </div>
+    </ColumnVisibilityProvider>
   );
 }

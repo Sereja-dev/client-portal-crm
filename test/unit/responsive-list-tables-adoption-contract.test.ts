@@ -26,6 +26,15 @@ const PATHS = {
   // hold) — this source contract now reads that component file instead.
   tasks: "src/components/tasks/task-list-with-selection.tsx",
   invoices: "src/app/(dashboard)/invoices/page.tsx",
+  // Tables Improvement Slice E1 — Column Customization moved the
+  // desktop `<table>`/sticky-header wrapper markup (previously inline
+  // in invoices/page.tsx) into this dedicated Client Component, which
+  // picks which already-server-built header/cell slots to render based
+  // on live column-visibility state. invoices/page.tsx itself still
+  // owns data fetching, auth, and building those slots — see
+  // `invoiceTableIsWrappedHiddenOnMobile` below, now scoped to this
+  // file instead.
+  invoicesDesktopTable: "src/components/invoices/invoice-desktop-table.tsx",
   team: "src/app/(dashboard)/team/page.tsx",
 };
 
@@ -67,14 +76,18 @@ function importsSharedPrimitives(source: string): boolean {
 /**
  * Tables Improvement Slice A — Invoices' own sticky-header pilot
  * replaced the shared `<Table>` component with a local, bounded-height
- * (`max-h-[70vh]`) inner-scroll wrapper (see invoices/page.tsx's own
- * header comment for the full "why sticky needed a bounded ancestor"
- * reasoning) — the shared `<Table>` component itself, and every other
- * page still using it, are completely untouched (see
- * tableIsWrappedHiddenOnMobile below, still used by Clients/Projects/
- * Tasks/Team). This is the Invoices-specific equivalent check: same
- * "hidden below xl, visible at xl and up" outer gate, just a different
- * (still local, still proven) inner implementation.
+ * (`max-h-[70vh]`) inner-scroll wrapper — the shared `<Table>` component
+ * itself, and every other page still using it, are completely untouched
+ * (see tableIsWrappedHiddenOnMobile below, still used by Clients/
+ * Projects/Tasks/Team). This is the Invoices-specific equivalent check:
+ * same "hidden below xl, visible at xl and up" outer gate, just a
+ * different (still local, still proven) inner implementation.
+ *
+ * Tables Improvement Slice E1 — this wrapper markup now lives in
+ * `invoice-desktop-table.tsx` (see `PATHS.invoicesDesktopTable`'s own
+ * comment above for why), copied verbatim from invoices/page.tsx during
+ * that slice — this check moved with it, unchanged in what it actually
+ * verifies.
  */
 function invoiceTableIsWrappedHiddenOnMobile(source: string): boolean {
   // No fixed character window (the sticky-header wrapper's own doc
@@ -225,8 +238,11 @@ describe("Invoices list page — responsive stacked-card adoption", () => {
     expect(importsSharedPrimitives(source)).toBe(true);
   });
 
-  it("wraps the desktop table (now a local sticky-header wrapper, not the shared <Table>) so it is hidden below xl and visible at xl and up", () => {
-    expect(invoiceTableIsWrappedHiddenOnMobile(source)).toBe(true);
+  it("wraps the desktop table (now a local sticky-header wrapper, not the shared <Table>) so it is hidden below xl and visible at xl and up -- Slice E1's own InvoiceDesktopTable, which the page itself renders", () => {
+    expect(invoiceTableIsWrappedHiddenOnMobile(read(PATHS.invoicesDesktopTable))).toBe(true);
+    // The page still actually renders that component, not just leaves
+    // it unused — confirms the two files are genuinely connected.
+    expect(source).toMatch(/<InvoiceDesktopTable\b/);
   });
 
   it("renders a RecordCardList mapping the same `invoices` collection", () => {
