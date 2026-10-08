@@ -75,3 +75,56 @@ export function getOffset(page: number): number {
 export function getTotalPages(total: number): number {
   return Math.max(Math.ceil(total / PAGE_SIZE), 1);
 }
+
+export type FilterOption = { value: string; label: string };
+
+/**
+ * Stale custom-status filter hardening — the shared, domain-neutral
+ * twin of contracts/query.ts's own `buildContractEntityFilterOptions`
+ * (that one is intentionally left untouched by this fix; see this
+ * function's own call sites in clients/projects/leads page.tsx for the
+ * "why a separate copy" reasoning — narrow, per-fix scope, not a
+ * refactor of already-shipped Contract code).
+ *
+ * A `status`/`stage` filter `<select>` is rendered as a plain
+ * uncontrolled native element. A syntactically-plausible but
+ * unresolved custom-status KEY (never existed in this org, a typo, or
+ * a foreign-org-looking string) already flows safely into the owning
+ * domain's own now-fail-closed query builder (a deterministic
+ * zero-match `where`, never a broadened one — see clients/query.ts's
+ * own `buildClientWhere` for the paired fix this UI-side helper exists
+ * to make truthful) and remains in the canonical URL — but with no
+ * matching `<option>`, the browser's own native fallback would
+ * silently select the FIRST option ("All statuses"/"All stages"),
+ * hiding that a filter is still active. This function's only job is to
+ * give that already-active, already-correctly-zero-match filter value
+ * a real matching `<option>` to select, so the existing uncontrolled
+ * select renders it truthfully instead of lying about it.
+ *
+ * Deliberately NOT a query change — `options` is exactly the same
+ * already-loaded, already-built options array the caller's own
+ * SearchFilterBar already renders (including any already-correctly-
+ * appended "(archived)" entry for a real-but-archived definition — see
+ * each page.tsx's own identical comment); no new lookup, no existence
+ * probe, no widened scope. When `selectedValue` is undefined/empty, or
+ * already matches one of `options` (a genuinely valid or archived
+ * same-org definition), this returns `options` completely unchanged —
+ * no sentinel, no new array identity beyond a defensive copy.
+ *
+ * The one new option's label is always the fixed, generic
+ * `unavailableLabel` — never the raw key, never a guessed/looked-up
+ * name. A foreign-org-looking key, a typo, and a key that never
+ * existed at all are all indistinguishable through this label by
+ * design — this function never queries anything outside the `options`
+ * it was already given.
+ */
+export function buildFilterOptionsWithUnavailableValue(
+  options: readonly FilterOption[],
+  selectedValue: string | undefined,
+  unavailableLabel: string,
+): FilterOption[] {
+  if (!selectedValue || options.some((option) => option.value === selectedValue)) {
+    return [...options];
+  }
+  return [...options, { value: selectedValue, label: unavailableLabel }];
+}

@@ -56,10 +56,28 @@ export function parseClientListParams(
  * CLIENT_STATUSES enum lookup Phase 2A used here. A SYSTEM match still
  * falls back to a null-statusDefinitionId Client whose legacy `status`
  * matches (Section D, unchanged); a CUSTOM match has no legacy
- * representation, so only `statusDefinitionId` is filtered. An unknown
- * key (never a real definition, or a typo) fails safe exactly like the
- * old fixed-enum `parseEnumParam` lookup always did: treated as no
- * filter at all, never an error and never a silently-empty result set.
+ * representation, so only `statusDefinitionId` is filtered.
+ *
+ * Stale custom-status filter hardening — an unknown key (never a real
+ * definition in this org, a typo, or a foreign-org-looking string) used
+ * to fail OPEN here (`return {}`, i.e. "no filter at all"), silently
+ * broadening "clients with status X" into "all clients" — confirmed
+ * live during the dedicated read-only audit (never a cross-org leak,
+ * since this whole `where` stays organizationId-scoped regardless, but
+ * still a real within-org broadening the user never asked for or was
+ * told about). `CustomStatusDefinition` has no hard-delete path at all
+ * (schema `onDelete: Restrict` on every referencing FK, and
+ * definitions.ts exposes archive/unarchive only) — so "unresolved" here
+ * means exclusively "this key never existed in this org," never "an
+ * admin deleted a status out from under a saved link." Now fails
+ * CLOSED instead: `{ id: { in: [] } }` is a deterministic, Postgres-
+ * safe zero-match `where` fragment — the exact same idiom this file's
+ * own tag filter already uses a few lines below for an identical
+ * "resolved to nothing, never widen" case — so the stale intent is
+ * preserved (zero matching clients) rather than discarded. The paired
+ * UI fix (buildFilterOptionsWithUnavailableValue, list-params.ts) is
+ * what makes the Status `<select>` stop lying about this at the same
+ * time — see clients/page.tsx's own call site.
  */
 export async function buildClientWhere(
   organizationId: string,
@@ -73,7 +91,7 @@ export async function buildClientWhere(
         // lower-case for its own filter to resolve correctly.
         const definition = await resolveStatusDefinitionByKey(organizationId, "CLIENT", status.toLowerCase());
         if (!definition) {
-          return {};
+          return { id: { in: [] } };
         }
         return definition.isSystem
           ? {

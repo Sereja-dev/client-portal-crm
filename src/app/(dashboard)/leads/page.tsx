@@ -5,7 +5,7 @@ import { formatStatusLabel } from "@/lib/format";
 import { resolveReportsCurrency } from "@/lib/reports/currency";
 import { canExportData } from "@/lib/export/authorization";
 import { canImportData } from "@/lib/import/authorization";
-import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib/list-params";
+import { PAGE_SIZE, getOffset, getTotalPages, buildFilterOptionsWithUnavailableValue, type RawSearchParams } from "@/lib/list-params";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PencilIcon } from "@/components/ui/icons";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
@@ -251,13 +251,21 @@ export default async function LeadsPage({
   const selectedArchivedStageDefinition = allStageDefinitions.find(
     (d) => d.archivedAt !== null && d.key === listParams.stage,
   );
-  const stageFilterOptions = [
-    { value: "", label: "All stages" },
-    ...activeStageDefinitions.map((d) => ({ value: d.key, label: d.label })),
-    ...(selectedArchivedStageDefinition
-      ? [{ value: selectedArchivedStageDefinition.key, label: `${selectedArchivedStageDefinition.label} (archived)` }]
-      : []),
-  ];
+  // Stale custom-status filter hardening (List mode only — Pipeline
+  // mode never renders a Stage filter control at all, and discards
+  // `stage` before querying; see buildLeadWhere's own comment) — see
+  // clients/page.tsx's own identical comment for the full "why".
+  const stageFilterOptions = buildFilterOptionsWithUnavailableValue(
+    [
+      { value: "", label: "All stages" },
+      ...activeStageDefinitions.map((d) => ({ value: d.key, label: d.label })),
+      ...(selectedArchivedStageDefinition
+        ? [{ value: selectedArchivedStageDefinition.key, label: `${selectedArchivedStageDefinition.label} (archived)` }]
+        : []),
+    ],
+    listParams.stage,
+    "Unavailable stage",
+  );
 
   const [leads, total] = await prisma.$transaction([
     prisma.lead.findMany({

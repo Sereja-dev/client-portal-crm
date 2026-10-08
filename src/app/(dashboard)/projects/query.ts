@@ -42,6 +42,11 @@ export function parseProjectListParams(
  * identical comment; the `?status=IN_PROGRESS`-shaped legacy URL keeps
  * working for free via resolveStatusDefinitionByKey's own lower-case-key
  * matching.
+ *
+ * Stale custom-status filter hardening — see buildClientWhere's own
+ * identical comment for the full "why": an unresolved key now fails
+ * CLOSED (`{ id: { in: [] } }`, a deterministic zero-match `where`
+ * fragment) instead of silently broadening to "all projects."
  */
 export async function buildProjectWhere(
   organizationId: string,
@@ -53,7 +58,7 @@ export async function buildProjectWhere(
         // buildClientWhere's own identical comment.
         const definition = await resolveStatusDefinitionByKey(organizationId, "PROJECT", status.toLowerCase());
         if (!definition) {
-          return {};
+          return { id: { in: [] } };
         }
         return definition.isSystem
           ? {

@@ -3,7 +3,7 @@ import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { canExportData } from "@/lib/export/authorization";
 import { canImportData } from "@/lib/import/authorization";
-import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib/list-params";
+import { PAGE_SIZE, getOffset, getTotalPages, buildFilterOptionsWithUnavailableValue, type RawSearchParams } from "@/lib/list-params";
 import { listCustomStatusDefinitions } from "@/lib/custom-statuses/definitions";
 import { listTags } from "@/lib/tags/definitions";
 import { getTagsForEntities } from "@/lib/tags/list-query";
@@ -93,13 +93,25 @@ export default async function ClientsPage({
   const selectedArchivedDefinition = allStatusDefinitions.find(
     (d) => d.archivedAt !== null && d.key === listParams.status,
   );
-  const statusFilterOptions = [
-    { value: "", label: "All statuses" },
-    ...activeStatusDefinitions.map((d) => ({ value: d.key, label: d.label })),
-    ...(selectedArchivedDefinition
-      ? [{ value: selectedArchivedDefinition.key, label: `${selectedArchivedDefinition.label} (archived)` }]
-      : []),
-  ];
+  // Stale custom-status filter hardening — a `?status=` key that never
+  // resolved to any CLIENT definition (now fail-closed at the query
+  // level — see buildClientWhere's own comment) still deserves a real,
+  // truthful <option> here instead of silently falling back to "All
+  // statuses": this appends exactly one generic "Unavailable status"
+  // sentinel, only when `listParams.status` doesn't already match one
+  // of the options above (a genuinely valid OR correctly-still-
+  // selectable archived definition never gets this sentinel).
+  const statusFilterOptions = buildFilterOptionsWithUnavailableValue(
+    [
+      { value: "", label: "All statuses" },
+      ...activeStatusDefinitions.map((d) => ({ value: d.key, label: d.label })),
+      ...(selectedArchivedDefinition
+        ? [{ value: selectedArchivedDefinition.key, label: `${selectedArchivedDefinition.label} (archived)` }]
+        : []),
+    ],
+    listParams.status,
+    "Unavailable status",
+  );
 
   const [clients, total] = await prisma.$transaction([
     prisma.client.findMany({

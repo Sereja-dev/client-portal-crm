@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { WorkTabs } from "@/components/work/work-tabs";
 import { prisma } from "@/lib/prisma";
-import { PAGE_SIZE, getOffset, getTotalPages, type RawSearchParams } from "@/lib/list-params";
+import { PAGE_SIZE, getOffset, getTotalPages, buildFilterOptionsWithUnavailableValue, type RawSearchParams } from "@/lib/list-params";
 import { listCustomStatusDefinitions } from "@/lib/custom-statuses/definitions";
 import { DeleteButton } from "@/components/ui/delete-button";
 import { deleteProjectAction } from "./actions";
@@ -75,13 +75,19 @@ export default async function ProjectsPage({
   const selectedArchivedDefinition = allStatusDefinitions.find(
     (d) => d.archivedAt !== null && d.key === listParams.status,
   );
-  const statusFilterOptions = [
-    { value: "", label: "All statuses" },
-    ...activeStatusDefinitions.map((d) => ({ value: d.key, label: d.label })),
-    ...(selectedArchivedDefinition
-      ? [{ value: selectedArchivedDefinition.key, label: `${selectedArchivedDefinition.label} (archived)` }]
-      : []),
-  ];
+  // Stale custom-status filter hardening — see clients/page.tsx's own
+  // identical comment.
+  const statusFilterOptions = buildFilterOptionsWithUnavailableValue(
+    [
+      { value: "", label: "All statuses" },
+      ...activeStatusDefinitions.map((d) => ({ value: d.key, label: d.label })),
+      ...(selectedArchivedDefinition
+        ? [{ value: selectedArchivedDefinition.key, label: `${selectedArchivedDefinition.label} (archived)` }]
+        : []),
+    ],
+    listParams.status,
+    "Unavailable status",
+  );
 
   const [clientCount, [projects, total]] = await Promise.all([
     prisma.client.count({ where: { organizationId } }),

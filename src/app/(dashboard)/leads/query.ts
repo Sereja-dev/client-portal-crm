@@ -91,6 +91,16 @@ export function parseLeadListParams(searchParams: RawSearchParams): LeadListPara
  * the old fixed-enum `parseEnumParam` lookup always did: no filter at
  * all, never an error and never a silently-empty result set (see this
  * module's own list-query.test.ts, item 8).
+ *
+ * Stale custom-status filter hardening (List mode only — Pipeline mode
+ * discards `stage` entirely before calling this function at all; see
+ * pipeline-query.ts's own `{ ...listParams, stage: undefined }` and its
+ * own header comment, completely unaffected by this change) — see
+ * clients/query.ts's own buildClientWhere identical comment for the
+ * full "why": an unresolved key now fails CLOSED (`{ id: { in: [] } }`,
+ * a deterministic zero-match `where` fragment, the exact idiom this
+ * file's own tag filter already uses below) instead of silently
+ * broadening to "all leads."
  */
 export async function buildLeadWhere(
   organizationId: string,
@@ -105,7 +115,7 @@ export async function buildLeadWhere(
         // buildClientWhere's own identical comment.
         const definition = await resolveStatusDefinitionByKey(organizationId, "LEAD", stage.toLowerCase());
         if (!definition) {
-          return {};
+          return { id: { in: [] } };
         }
         return definition.isSystem
           ? {
