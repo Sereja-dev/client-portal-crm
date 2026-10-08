@@ -29,7 +29,7 @@ export const SAVED_VIEW_NAME_MAX_LENGTH = 60;
  * from `pathname`, so a future route rename can't silently orphan every
  * existing saved view.
  */
-export type SavedViewSurface = "invoices" | "contracts";
+export type SavedViewSurface = "invoices" | "contracts" | "quotes";
 
 export type SavedView = {
   id: string;

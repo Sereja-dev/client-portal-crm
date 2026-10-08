@@ -26,6 +26,8 @@ import {
   RecordCardField,
 } from "@/components/ui/record-list";
 import { QUOTE_STATUS_FILTER_VALUES, parseQuoteListParams, buildQuoteWhere, buildQuoteOrderBy } from "./query";
+import { serializeQuoteSavedViewParams } from "./saved-view";
+import { QuoteSavedViews } from "@/components/quotes/quote-saved-views";
 
 const PRIMARY_LINK_CLASSES =
   "focus-visible:ring-focus-ring rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
@@ -54,7 +56,7 @@ export default async function QuotesPage({
 }: {
   searchParams: Promise<RawSearchParams>;
 }) {
-  const { organizationId, membership } = await getCurrentMembership();
+  const { user, organizationId, membership } = await getCurrentMembership();
   const resolvedSearchParams = await searchParams;
   const listParams = parseQuoteListParams(resolvedSearchParams);
 
@@ -114,43 +116,78 @@ export default async function QuotesPage({
       </div>
 
       {canCreate && (
-        <SearchFilterBar
-          basePath="/quotes"
-          searchValue={listParams.q}
-          searchPlaceholder="Search by quote #, title, lead, or client"
-          filters={[
-            {
-              name: "status",
-              label: "Status",
-              value: listParams.status ?? "",
-              options: [
-                { value: "", label: "All statuses" },
-                ...QUOTE_STATUS_FILTER_VALUES.map((value) => ({ value, label: STATUS_FILTER_LABELS[value] })),
-              ],
-            },
-            {
-              name: "targetType",
-              label: "Target",
-              value: listParams.targetType ?? "",
-              options: [
-                { value: "", label: "Lead or client" },
-                { value: "LEAD", label: "Lead" },
-                { value: "CLIENT", label: "Client" },
-              ],
-            },
-            {
-              name: "archived",
-              label: "Status",
-              value: listParams.archived ? "1" : "",
-              options: [
-                { value: "", label: "Active" },
-                { value: "1", label: "Archived" },
-              ],
-            },
-          ]}
-          sort={{ value: listParams.sortCombined, options: SORT_OPTIONS }}
-          hasActiveParams={hasActiveParams}
-        />
+        <>
+          {/*
+            Tables Improvement Slice D2A — same placement contract as
+            Invoices/Contracts (D1 locked spec §25): below the page
+            header/primary action, above SearchFilterBar, no quick-
+            filter chips exist on this page to place relative to.
+            `currentParams` is built from the already-parsed canonical
+            `listParams` server-side — never a raw query-string
+            re-parse — and is plain, serializable data, safe to pass
+            straight into this Client Component from the Server
+            Component page.
+          */}
+          <QuoteSavedViews
+            organizationId={organizationId}
+            userId={user.id}
+            currentParams={serializeQuoteSavedViewParams(listParams)}
+          />
+
+          <SearchFilterBar
+            // Tables Improvement Slice D2A — the D2 readiness audit
+            // confirmed this page had no existing Link-based navigation
+            // that varies q/status/targetType/archived/sort
+            // independently of `page`, so SearchFilterBar never needed
+            // a remount key before now. Saved Views' own "Apply" link is
+            // the first one that can -- the identical gap already found
+            // and fixed for Invoices/Contracts (see those pages' own
+            // identical comment): without a key, the uncontrolled
+            // (defaultValue-based) Status/Target/Archived/Sort
+            // <select>s and the Search <input> would silently keep
+            // their stale value across such a navigation. Keying on the
+            // full set of Saved-View-managed dimensions forces a fresh
+            // mount whenever any of them changes -- `page` is
+            // deliberately excluded, matching every other surface's
+            // identical convention.
+            key={`${listParams.q}:${listParams.status ?? ""}:${listParams.targetType ?? ""}:${listParams.archived}:${listParams.sortCombined}`}
+            basePath="/quotes"
+            searchValue={listParams.q}
+            searchPlaceholder="Search by quote #, title, lead, or client"
+            filters={[
+              {
+                name: "status",
+                label: "Status",
+                value: listParams.status ?? "",
+                options: [
+                  { value: "", label: "All statuses" },
+                  ...QUOTE_STATUS_FILTER_VALUES.map((value) => ({ value, label: STATUS_FILTER_LABELS[value] })),
+                ],
+              },
+              {
+                name: "targetType",
+                label: "Target",
+                value: listParams.targetType ?? "",
+                options: [
+                  { value: "", label: "Lead or client" },
+                  { value: "LEAD", label: "Lead" },
+                  { value: "CLIENT", label: "Client" },
+                ],
+              },
+              {
+                name: "archived",
+                label: "Status",
+                value: listParams.archived ? "1" : "",
+                options: [
+                  { value: "", label: "Active" },
+                  { value: "1", label: "Archived" },
+                ],
+              },
+            ]}
+            sort={{ value: listParams.sortCombined, options: SORT_OPTIONS }}
+            hasActiveParams={hasActiveParams}
+          />
+        </>
       )}
 
       {total === 0 ? (
