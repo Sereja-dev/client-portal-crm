@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { canExportData } from "@/lib/export/authorization";
@@ -17,14 +18,7 @@ import { PencilIcon } from "@/components/ui/icons";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { SearchFilterBar } from "@/components/list/search-filter-bar";
 import { Pagination } from "@/components/list/pagination";
-import {
-  Table,
-  TableHead,
-  TableHeaderCell,
-  TableBody,
-  TableRow,
-  TableCell,
-} from "@/components/ui/table";
+import { TableHeaderCell, TableCell } from "@/components/ui/table";
 import {
   RecordCardList,
   RecordCard,
@@ -38,6 +32,16 @@ import {
 } from "./query";
 import { serializeClientSavedViewParams } from "./saved-view";
 import { ClientSavedViews } from "@/components/clients/client-saved-views";
+import {
+  CLIENT_COLUMNS,
+  CLIENT_COLUMNS_SURFACE,
+  CLIENT_COLUMN_IDS,
+  CLIENT_MANDATORY_COLUMN_IDS,
+  type ClientColumnId,
+} from "./columns";
+import { ColumnVisibilityProvider } from "@/components/list/column-visibility-context";
+import { ColumnVisibilityControl } from "@/components/list/column-visibility-control";
+import { ClientDesktopTable, type ClientTableRow } from "@/components/clients/client-desktop-table";
 
 // Page-owned primary call-to-action link (navigates, so a real <Link> —
 // not the shared <Button>, which renders a <button>). Matches Button's own
@@ -147,7 +151,85 @@ export default async function ClientsPage({
   };
   const exportHref = `/api/clients/export?${new URLSearchParams(listFilterParams).toString()}`;
 
+  // Tables Improvement Slice E3B — these are the EXACT SAME header/cell
+  // JSX calls (TableHeaderCell/TableCell, with the exact same Link/
+  // ClientStatusBadge/TagChipList/DeleteButton/toLocaleDateString calls)
+  // that rendered this table before this slice, just built into
+  // per-column slots instead of a flat `<tr>`/`<TableRow>` sequence. No
+  // formatting/business logic is reimplemented — `ClientDesktopTable` (a
+  // Client Component) only decides which of these already-built slots
+  // to include, based on live column-visibility state; every value here
+  // is computed server-side exactly as before (E3B readiness audit §N —
+  // `client.createdAt.toLocaleDateString()` stays here, never moved into
+  // the new Client Component). Keyed by the same `ClientColumnId`s
+  // `./columns.ts` owns.
+  const headerCells: Record<ClientColumnId, ReactNode> = {
+    name: <TableHeaderCell>Name</TableHeaderCell>,
+    company: <TableHeaderCell>Company</TableHeaderCell>,
+    email: <TableHeaderCell>Email</TableHeaderCell>,
+    phone: <TableHeaderCell>Phone</TableHeaderCell>,
+    status: <TableHeaderCell>Status</TableHeaderCell>,
+    tags: <TableHeaderCell>Tags</TableHeaderCell>,
+    createdAt: <TableHeaderCell>Created</TableHeaderCell>,
+    actions: <TableHeaderCell align="right">Actions</TableHeaderCell>,
+  };
+
+  const clientTableRows: ClientTableRow[] = clients.map((client) => ({
+    id: client.id,
+    cells: {
+      name: (
+        <TableCell emphasis>
+          <Link href={`/clients/${client.id}`} className={ACTION_LINK_CLASSES}>
+            {client.name}
+          </Link>
+        </TableCell>
+      ),
+      company: <TableCell>{client.company ?? "—"}</TableCell>,
+      email: <TableCell>{client.email ?? "—"}</TableCell>,
+      phone: <TableCell>{client.phone ?? "—"}</TableCell>,
+      status: (
+        <TableCell>
+          <ClientStatusBadge client={client} />
+        </TableCell>
+      ),
+      tags: (
+        <TableCell>
+          <TagChipList tags={tagsByClientId.get(client.id) ?? []} />
+        </TableCell>
+      ),
+      createdAt: <TableCell>{client.createdAt.toLocaleDateString()}</TableCell>,
+      actions: (
+        <TableCell align="right">
+          <div className="flex items-center justify-end gap-4">
+            <Link
+              href={`/clients/${client.id}/edit`}
+              className={`inline-flex items-center gap-1 ${ACTION_LINK_CLASSES}`}
+            >
+              <PencilIcon className="h-3.5 w-3.5" />
+              Edit
+            </Link>
+            <DeleteButton
+              action={deleteClientAction.bind(null, client.id)}
+              itemName={client.name}
+              confirmTitle="Delete client"
+              confirmDescription={`Delete ${client.name}? This action cannot be undone.`}
+              successMessage="Client deleted"
+              conflictMessage="This client can't be deleted because it has existing invoices."
+            />
+          </div>
+        </TableCell>
+      ),
+    },
+  }));
+
   return (
+    <ColumnVisibilityProvider
+      organizationId={organizationId}
+      userId={user.id}
+      surface={CLIENT_COLUMNS_SURFACE}
+      knownColumnIds={CLIENT_COLUMN_IDS}
+      mandatoryColumnIds={CLIENT_MANDATORY_COLUMN_IDS}
+    >
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
@@ -187,11 +269,26 @@ export default async function ClientsPage({
         serializable data, safe to pass straight into this Client
         Component from the Server Component page.
       */}
-      <ClientSavedViews
-        organizationId={organizationId}
-        userId={user.id}
-        currentParams={serializeClientSavedViewParams(listParams)}
-      />
+      <div className="flex flex-wrap items-end justify-between gap-2">
+        <ClientSavedViews
+          organizationId={organizationId}
+          userId={user.id}
+          currentParams={serializeClientSavedViewParams(listParams)}
+        />
+
+        {/*
+          Tables Improvement Slice E3B — same controls-band placement
+          contract as Saved Views and as Invoice/Contract/Quote's own
+          Columns control: never inside SearchFilterBar, never in the
+          page header/primary-actions row. Desktop-only (the
+          component's own wrapper carries `hidden xl:inline-block`) —
+          Column Customization has zero effect on the fixed mobile
+          RecordCardList (readiness audit §I/§14), so showing a
+          "Columns" trigger on mobile would only ever open a popover
+          that changes nothing a mobile user can see.
+        */}
+        <ColumnVisibilityControl columns={CLIENT_COLUMNS} />
+      </div>
 
       <SearchFilterBar
         // Tables Improvement Slice D2B — same remount-key contract as
@@ -258,62 +355,15 @@ export default async function ClientsPage({
         )
       ) : (
         <>
-          <div className="hidden xl:block">
-            <Table>
-              <TableHead>
-                <tr>
-                  <TableHeaderCell>Name</TableHeaderCell>
-                  <TableHeaderCell>Company</TableHeaderCell>
-                  <TableHeaderCell>Email</TableHeaderCell>
-                  <TableHeaderCell>Phone</TableHeaderCell>
-                  <TableHeaderCell>Status</TableHeaderCell>
-                  <TableHeaderCell>Tags</TableHeaderCell>
-                  <TableHeaderCell>Created</TableHeaderCell>
-                  <TableHeaderCell align="right">Actions</TableHeaderCell>
-                </tr>
-              </TableHead>
-              <TableBody>
-                {clients.map((client) => (
-                  <TableRow key={client.id}>
-                    <TableCell emphasis>
-                      <Link href={`/clients/${client.id}`} className={ACTION_LINK_CLASSES}>
-                        {client.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell>{client.company ?? "—"}</TableCell>
-                    <TableCell>{client.email ?? "—"}</TableCell>
-                    <TableCell>{client.phone ?? "—"}</TableCell>
-                    <TableCell>
-                      <ClientStatusBadge client={client} />
-                    </TableCell>
-                    <TableCell>
-                      <TagChipList tags={tagsByClientId.get(client.id) ?? []} />
-                    </TableCell>
-                    <TableCell>{client.createdAt.toLocaleDateString()}</TableCell>
-                    <TableCell align="right">
-                      <div className="flex items-center justify-end gap-4">
-                        <Link
-                          href={`/clients/${client.id}/edit`}
-                          className={`inline-flex items-center gap-1 ${ACTION_LINK_CLASSES}`}
-                        >
-                          <PencilIcon className="h-3.5 w-3.5" />
-                          Edit
-                        </Link>
-                        <DeleteButton
-                          action={deleteClientAction.bind(null, client.id)}
-                          itemName={client.name}
-                          confirmTitle="Delete client"
-                          confirmDescription={`Delete ${client.name}? This action cannot be undone.`}
-                          successMessage="Client deleted"
-                          conflictMessage="This client can't be deleted because it has existing invoices."
-                        />
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          {/*
+            Tables Improvement Slice E3B — only WHICH columns render is
+            now a client-side decision, fed by the already-server-built
+            `headerCells`/`clientTableRows` slots above; the `<table>`
+            markup itself (no sticky header — readiness audit §P) is
+            unchanged from before this slice, now living inside
+            `ClientDesktopTable`.
+          */}
+          <ClientDesktopTable headerCells={headerCells} rows={clientTableRows} />
 
           <RecordCardList>
             {clients.map((client) => (
@@ -363,5 +413,6 @@ export default async function ClientsPage({
         </>
       )}
     </div>
+    </ColumnVisibilityProvider>
   );
 }
