@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { getCurrentMembership } from "@/lib/current-user";
 import { getCachedEffectivePermissionSet } from "@/lib/permissions/resolver";
 import { FinanceTabs } from "@/components/finance/finance-tabs";
@@ -12,14 +13,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { SearchFilterBar } from "@/components/list/search-filter-bar";
 import { Pagination } from "@/components/list/pagination";
-import {
-  Table,
-  TableHead,
-  TableHeaderCell,
-  TableBody,
-  TableRow,
-  TableCell,
-} from "@/components/ui/table";
+import { TableHeaderCell, TableCell } from "@/components/ui/table";
 import {
   RecordCardList,
   RecordCard,
@@ -28,6 +22,16 @@ import {
 import { QUOTE_STATUS_FILTER_VALUES, parseQuoteListParams, buildQuoteWhere, buildQuoteOrderBy } from "./query";
 import { serializeQuoteSavedViewParams } from "./saved-view";
 import { QuoteSavedViews } from "@/components/quotes/quote-saved-views";
+import {
+  QUOTE_COLUMNS,
+  QUOTE_COLUMNS_SURFACE,
+  QUOTE_COLUMN_IDS,
+  QUOTE_MANDATORY_COLUMN_IDS,
+  type QuoteColumnId,
+} from "./columns";
+import { ColumnVisibilityProvider } from "@/components/list/column-visibility-context";
+import { ColumnVisibilityControl } from "@/components/list/column-visibility-control";
+import { QuoteDesktopTable, type QuoteTableRow } from "@/components/quotes/quote-desktop-table";
 
 const PRIMARY_LINK_CLASSES =
   "focus-visible:ring-focus-ring rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
@@ -98,7 +102,76 @@ export default async function QuotesPage({
     sort: listParams.sortCombined,
   };
 
+  // Tables Improvement Slice E3A — these are the EXACT SAME header/cell
+  // JSX calls (TableHeaderCell/TableCell, with the exact same Link/
+  // QuoteStatusBadge/formatInvoiceCurrencyAmount/formatDateOnlyForDisplay/
+  // deriveQuoteTargetDisplay calls) that rendered this table before this
+  // slice, just built into per-column slots instead of a flat
+  // `<tr>`/`<TableRow>` sequence. No formatting/business logic is
+  // reimplemented — `QuoteDesktopTable` (a Client Component) only
+  // decides which of these already-built slots to include, based on
+  // live column-visibility state; every value here is computed
+  // server-side exactly as before (E3A readiness audit §J). Keyed by
+  // the same `QuoteColumnId`s `./columns.ts` owns.
+  const headerCells: Record<QuoteColumnId, ReactNode> = {
+    quoteNumber: <TableHeaderCell>Quote #</TableHeaderCell>,
+    target: <TableHeaderCell>Target</TableHeaderCell>,
+    title: <TableHeaderCell>Title</TableHeaderCell>,
+    status: <TableHeaderCell>Status</TableHeaderCell>,
+    total: <TableHeaderCell align="right">Total</TableHeaderCell>,
+    issueDate: <TableHeaderCell>Issue date</TableHeaderCell>,
+    validUntil: <TableHeaderCell>Valid until</TableHeaderCell>,
+    actions: <TableHeaderCell align="right">Actions</TableHeaderCell>,
+  };
+
+  const quoteTableRows: QuoteTableRow[] = quotes.map((quote) => {
+    const target = deriveQuoteTargetDisplay(quote);
+    return {
+      id: quote.id,
+      cells: {
+        quoteNumber: <TableCell emphasis>{quote.number}</TableCell>,
+        target: (
+          <TableCell>
+            <Link href={target.href} className={ACTION_LINK_CLASSES}>
+              {target.name}
+            </Link>
+            <span className="text-text-muted ml-2 text-xs">{target.type === "LEAD" ? "Lead" : "Client"}</span>
+          </TableCell>
+        ),
+        title: <TableCell>{quote.title ?? "—"}</TableCell>,
+        status: (
+          <TableCell>
+            <QuoteStatusBadge quote={quote} />
+          </TableCell>
+        ),
+        total: (
+          <TableCell align="right">
+            {formatInvoiceCurrencyAmount(quote.total, quote.currency) ?? quote.total.toString()}
+          </TableCell>
+        ),
+        issueDate: <TableCell>{formatDateOnlyForDisplay(quote.issueDate)}</TableCell>,
+        validUntil: (
+          <TableCell>{quote.validUntil ? formatDateOnlyForDisplay(quote.validUntil) : "—"}</TableCell>
+        ),
+        actions: (
+          <TableCell align="right">
+            <Link href={`/quotes/${quote.id}/edit`} className={ACTION_LINK_CLASSES}>
+              {quote.status === "DRAFT" ? "Edit" : "View"}
+            </Link>
+          </TableCell>
+        ),
+      },
+    };
+  });
+
   return (
+    <ColumnVisibilityProvider
+      organizationId={organizationId}
+      userId={user.id}
+      surface={QUOTE_COLUMNS_SURFACE}
+      knownColumnIds={QUOTE_COLUMN_IDS}
+      mandatoryColumnIds={QUOTE_MANDATORY_COLUMN_IDS}
+    >
     <div>
       <FinanceTabs recurringInvoicesManage={effectivePermissions.RECURRING_INVOICES_MANAGE} />
       <div className="flex items-center justify-between">
@@ -128,11 +201,26 @@ export default async function QuotesPage({
             straight into this Client Component from the Server
             Component page.
           */}
-          <QuoteSavedViews
-            organizationId={organizationId}
-            userId={user.id}
-            currentParams={serializeQuoteSavedViewParams(listParams)}
-          />
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <QuoteSavedViews
+              organizationId={organizationId}
+              userId={user.id}
+              currentParams={serializeQuoteSavedViewParams(listParams)}
+            />
+
+            {/*
+              Tables Improvement Slice E3A — same controls-band placement
+              contract as Saved Views and as Invoices/Contracts' own
+              Columns control: never inside SearchFilterBar, never in
+              the page title/CTA row. Desktop-only (the component's own
+              wrapper carries `hidden xl:inline-block`) — Column
+              Customization has zero effect on the fixed mobile
+              RecordCardList (readiness audit §I/§14), so showing a
+              "Columns" trigger on mobile would only ever open a popover
+              that changes nothing a mobile user can see.
+            */}
+            <ColumnVisibilityControl columns={QUOTE_COLUMNS} />
+          </div>
 
           <SearchFilterBar
             // Tables Improvement Slice D2A — the D2 readiness audit
@@ -229,57 +317,15 @@ export default async function QuotesPage({
         )
       ) : (
         <>
-          <div className="hidden xl:block">
-            <Table>
-              <TableHead>
-                <tr>
-                  <TableHeaderCell>Quote #</TableHeaderCell>
-                  <TableHeaderCell>Target</TableHeaderCell>
-                  <TableHeaderCell>Title</TableHeaderCell>
-                  <TableHeaderCell>Status</TableHeaderCell>
-                  <TableHeaderCell align="right">Total</TableHeaderCell>
-                  <TableHeaderCell>Issue date</TableHeaderCell>
-                  <TableHeaderCell>Valid until</TableHeaderCell>
-                  <TableHeaderCell align="right">Actions</TableHeaderCell>
-                </tr>
-              </TableHead>
-              <TableBody>
-                {quotes.map((quote) => {
-                  const target = deriveQuoteTargetDisplay(quote);
-                  return (
-                    <TableRow key={quote.id}>
-                      <TableCell emphasis>{quote.number}</TableCell>
-                      <TableCell>
-                        <Link href={target.href} className={ACTION_LINK_CLASSES}>
-                          {target.name}
-                        </Link>
-                        <span className="text-text-muted ml-2 text-xs">
-                          {target.type === "LEAD" ? "Lead" : "Client"}
-                        </span>
-                      </TableCell>
-                      <TableCell>{quote.title ?? "—"}</TableCell>
-                      <TableCell>
-                        <QuoteStatusBadge quote={quote} />
-                      </TableCell>
-                      <TableCell align="right">
-                        {formatInvoiceCurrencyAmount(quote.total, quote.currency) ?? quote.total.toString()}
-                      </TableCell>
-                      <TableCell>{formatDateOnlyForDisplay(quote.issueDate)}</TableCell>
-                      <TableCell>{quote.validUntil ? formatDateOnlyForDisplay(quote.validUntil) : "—"}</TableCell>
-                      <TableCell align="right">
-                        <Link
-                          href={`/quotes/${quote.id}/edit`}
-                          className={ACTION_LINK_CLASSES}
-                        >
-                          {quote.status === "DRAFT" ? "Edit" : "View"}
-                        </Link>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
+          {/*
+            Tables Improvement Slice E3A — only WHICH columns render is
+            now a client-side decision, fed by the already-server-built
+            `headerCells`/`quoteTableRows` slots above; the `<table>`
+            markup itself (no sticky header — readiness audit §P) is
+            unchanged from before this slice, now living inside
+            `QuoteDesktopTable`.
+          */}
+          <QuoteDesktopTable headerCells={headerCells} rows={quoteTableRows} />
 
           <RecordCardList>
             {quotes.map((quote) => {
@@ -325,5 +371,6 @@ export default async function QuotesPage({
         </>
       )}
     </div>
+    </ColumnVisibilityProvider>
   );
 }
