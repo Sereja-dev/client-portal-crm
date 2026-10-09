@@ -150,7 +150,27 @@ export function ContractListWithSelection({
                       <ContractStatusBadge contract={contract} />
                       {isArchived && <span className="text-text-muted ml-2 text-xs">Archived</span>}
                     </TableCell>
-                    <TableCell>{formatDateOnlyForDisplay(contract.issueDate)}</TableCell>
+                    {
+                      // Contracts hydration fix — ContractListWithSelection is
+                      // a "use client" component that both server-renders and
+                      // hydrates, so this formatting call runs once in each
+                      // environment. formatDateOnlyForDisplay's own `locale`
+                      // param defaults to the runtime's own default locale
+                      // when omitted, which can genuinely differ between the
+                      // Node SSR process and the visiting browser — pinning an
+                      // explicit "en-US" here makes both renders produce
+                      // byte-identical text, eliminating a real, reproducible
+                      // React hydration mismatch (proven via a dedicated
+                      // read-only audit: raw SSR output rendered "01.06.2026"
+                      // while the browser's own first paint rendered
+                      // "6/1/2026" for the identical date). Server-only
+                      // callers (e.g. Invoice's own page.tsx, which formats
+                      // dates inside the Server Component before handing
+                      // already-rendered JSX to its own Client Component) are
+                      // never affected by this class of bug at all and are
+                      // deliberately left on the helper's own default.
+                    }
+                    <TableCell>{formatDateOnlyForDisplay(contract.issueDate, "en-US")}</TableCell>
                     <TableCell align="right">
                       <div className="flex items-center justify-end gap-3">
                         {contract.showEdit ? (
@@ -215,7 +235,8 @@ export function ContractListWithSelection({
                   </>
                 }
               />
-              <RecordCardField label="Issue date" value={formatDateOnlyForDisplay(contract.issueDate)} />
+              {/* Contracts hydration fix — see the desktop TableCell's own identical comment above for the full "why". */}
+              <RecordCardField label="Issue date" value={formatDateOnlyForDisplay(contract.issueDate, "en-US")} />
               <RecordCardActions>
                 {contract.showEdit ? (
                   <Link href={`/contracts/${contract.id}/edit`} className={ACTION_LINK_CLASSES}>

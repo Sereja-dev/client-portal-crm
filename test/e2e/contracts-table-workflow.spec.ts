@@ -376,4 +376,80 @@ test.describe("Contract table workflow (Tables Improvement Slice B)", () => {
       await expect(row.getByRole("button", { name: `More actions for contract ${contract.contractNumber}` })).toBeVisible();
     });
   });
+
+  test.describe("hydration safety", () => {
+    test("first-ever load of /contracts in a fresh browser context produces no React hydration mismatch, and the Issue date cell actually renders", async ({ page }) => {
+      // Listener registration MUST precede the first navigation -- a
+      // prior investigation attached listeners only around a SECOND
+      // navigation (a reload() following an already-uncaptured first
+      // goto), which never observed the real defect: a genuine SSR vs
+      // first-client-paint divergence on `ContractListWithSelection`'s
+      // own `issueDate` text, present on literally the first load,
+      // completely independent of Saved Views/localStorage (confirmed
+      // by the dedicated read-only audit that root-caused this). Every
+      // other Contract E2E test in this file navigates AFTER its own
+      // `beforeEach`'s `actAsOwner` call with no prior page load in the
+      // same browser context, so this is already each test's own first
+      // navigation -- this test just makes that property, and the
+      // absence of a hydration error on it, an explicit assertion.
+      const contract = await seedContract({
+        status: "DRAFT",
+        issueDate: "2026-06-01T00:00:00.000Z",
+        contractNumber: uniqueNumber("E2E-HYDRATION"),
+      });
+      await page.setViewportSize({ width: 1280, height: 900 });
+
+      const consoleErrors: string[] = [];
+      const pageErrors: string[] = [];
+      page.on("console", (msg) => {
+        if (msg.type() === "error") consoleErrors.push(msg.text());
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.goto("/contracts");
+
+      const row = page.getByRole("row", { name: new RegExp(contract.contractNumber) });
+      await expect(row).toBeVisible();
+      // The row's own Issue date cell actually rendered real text (not
+      // just "no error" -- proves the regression isn't vacuously
+      // passing because the date cell silently failed to render at all).
+      await expect(row.getByRole("cell").filter({ hasText: "2026" })).toHaveCount(1);
+
+      const hydrationRelated = [...consoleErrors, ...pageErrors].filter((text) =>
+        /hydrat|#418|did not match|server-rendered/i.test(text),
+      );
+      expect(hydrationRelated).toEqual([]);
+      expect(pageErrors).toEqual([]);
+    });
+
+    test("SSR raw HTML and the hydrated DOM render the exact same Issue date text for the same Contract", async ({ page, request, baseURL }) => {
+      const contract = await seedContract({
+        status: "DRAFT",
+        issueDate: "2026-06-01T00:00:00.000Z",
+        contractNumber: uniqueNumber("E2E-HYDRATION-SSR"),
+      });
+      await page.setViewportSize({ width: 1280, height: 900 });
+
+      // Raw SSR HTML for this exact authenticated request, bypassing all
+      // client JS entirely -- the only way to observe what the server
+      // itself actually sent, independent of whatever the browser does
+      // with it afterward.
+      const cookies = await page.context().cookies();
+      const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+      const ssrResponse = await request.get(`${baseURL}/contracts`, { headers: { cookie: cookieHeader } });
+      const ssrHtml = await ssrResponse.text();
+
+      await page.goto("/contracts");
+      const row = page.getByRole("row", { name: new RegExp(contract.contractNumber) });
+      await expect(row).toBeVisible();
+      const hydratedDateCell = await row.getByRole("cell").filter({ hasText: "2026" }).first().textContent();
+
+      // The server's own raw response must already contain the exact
+      // same date text the browser ends up showing -- not merely "no
+      // console error", but genuine byte-for-byte equality of the one
+      // value this defect class made diverge.
+      expect(hydratedDateCell?.trim()).toBe("6/1/2026");
+      expect(ssrHtml).toContain(">6/1/2026<");
+    });
+  });
 });
