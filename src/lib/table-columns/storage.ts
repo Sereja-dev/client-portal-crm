@@ -24,13 +24,14 @@ export const TABLE_COLUMNS_STORAGE_VERSION = 1 as const;
 
 /**
  * Stable, explicit surface identifiers — never derived from `pathname`,
- * matching Saved Views' own identical reasoning. Starts with exactly
- * one value (locked spec §38 — Invoices only in this slice); widening
- * this union is how a future slice adds a second surface, exactly
- * mirroring how `SavedViewSurface` has been widened once per Saved
- * Views slice.
+ * matching Saved Views' own identical reasoning. Started with exactly
+ * one value (Slice E1 — Invoices only); widened here (Slice E2) to add
+ * Contracts, exactly mirroring how `SavedViewSurface` has been widened
+ * once per Saved Views slice. No other part of this module changes —
+ * the key shape, version, defensive parse, and normalization rules are
+ * identical and surface-agnostic regardless of which surfaces exist.
  */
-export type TableColumnsSurface = "invoices";
+export type TableColumnsSurface = "invoices" | "contracts";
 
 type TableColumnsStorageV1 = {
   version: typeof TABLE_COLUMNS_STORAGE_VERSION;

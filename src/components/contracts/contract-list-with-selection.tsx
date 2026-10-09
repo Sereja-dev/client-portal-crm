@@ -14,6 +14,7 @@ import { TableHead, TableHeaderCell, TableBody, TableRow, TableCell } from "@/co
 import { RecordCardList, RecordCard, RecordCardField, RecordCardActions } from "@/components/ui/record-list";
 import { BulkActionBar } from "@/components/list/bulk-action-bar";
 import { useBoundedSelection, BULK_SELECTION_MAX } from "@/components/list/use-bounded-selection";
+import { useColumnVisibility } from "@/components/list/column-visibility-context";
 import { useToast } from "@/components/toast/toast-provider";
 import { bulkArchiveContractsAction } from "@/app/(dashboard)/contracts/bulk-actions";
 
@@ -70,6 +71,18 @@ export function ContractListWithSelection({
   const [pending, startTransition] = useTransition();
   const ids = contracts.map((c) => c.id);
   const { selected, toggle, toggleAll, clear, canSelectAll, isAtCap } = useBoundedSelection(ids);
+  // Tables Improvement Slice E2 — Column Customization reuses the
+  // shared hook/control/provider shipped in Slice E1 unmodified; this
+  // component is the EXISTING client boundary (Slice C, no new one
+  // introduced). `isVisible` only ever gates the four OPTIONAL desktop
+  // columns below (Title/Client/Project/Issue date) — Contract #/
+  // Status/Actions render unconditionally, and the bulk-selection
+  // checkbox column (a raw `<th>`/`<td>`, gated by `canBulkSelect`
+  // alone, a few lines below) is never consulted against this at all —
+  // it is not a customizable column (locked spec §5/§11). Mobile
+  // RecordCardList below is completely untouched by `isVisible`
+  // (locked spec §10 — desktop-only).
+  const { isVisible } = useColumnVisibility();
 
   function applyBulkArchive(): void {
     startTransition(async () => {
@@ -113,11 +126,13 @@ export function ContractListWithSelection({
                   </th>
                 )}
                 <TableHeaderCell>Contract #</TableHeaderCell>
-                <TableHeaderCell>Title</TableHeaderCell>
-                <TableHeaderCell>Client</TableHeaderCell>
-                <TableHeaderCell className="hidden lg:table-cell">Project</TableHeaderCell>
+                {isVisible("title") && <TableHeaderCell>Title</TableHeaderCell>}
+                {isVisible("client") && <TableHeaderCell>Client</TableHeaderCell>}
+                {isVisible("project") && <TableHeaderCell className="hidden lg:table-cell">Project</TableHeaderCell>}
                 <TableHeaderCell>Status</TableHeaderCell>
-                <SortableHeader label="Issue date" href={issueDateSortHref} direction={issueDateDirection} />
+                {isVisible("issueDate") && (
+                  <SortableHeader label="Issue date" href={issueDateSortHref} direction={issueDateDirection} />
+                )}
                 <TableHeaderCell align="right">Actions</TableHeaderCell>
               </tr>
             </TableHead>
@@ -139,18 +154,22 @@ export function ContractListWithSelection({
                       </TableCell>
                     )}
                     <TableCell emphasis>{contract.contractNumber}</TableCell>
-                    <TableCell>{contract.title}</TableCell>
-                    <TableCell>
-                      <Link href={`/clients/${contract.client.id}`} className={ACTION_LINK_CLASSES}>
-                        {contract.client.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell className="hidden lg:table-cell">{contract.project?.name ?? "—"}</TableCell>
+                    {isVisible("title") && <TableCell>{contract.title}</TableCell>}
+                    {isVisible("client") && (
+                      <TableCell>
+                        <Link href={`/clients/${contract.client.id}`} className={ACTION_LINK_CLASSES}>
+                          {contract.client.name}
+                        </Link>
+                      </TableCell>
+                    )}
+                    {isVisible("project") && (
+                      <TableCell className="hidden lg:table-cell">{contract.project?.name ?? "—"}</TableCell>
+                    )}
                     <TableCell>
                       <ContractStatusBadge contract={contract} />
                       {isArchived && <span className="text-text-muted ml-2 text-xs">Archived</span>}
                     </TableCell>
-                    {
+                    {isVisible("issueDate") && (
                       // Contracts hydration fix — ContractListWithSelection is
                       // a "use client" component that both server-renders and
                       // hydrates, so this formatting call runs once in each
@@ -168,9 +187,11 @@ export function ContractListWithSelection({
                       // dates inside the Server Component before handing
                       // already-rendered JSX to its own Client Component) are
                       // never affected by this class of bug at all and are
-                      // deliberately left on the helper's own default.
-                    }
-                    <TableCell>{formatDateOnlyForDisplay(contract.issueDate, "en-US")}</TableCell>
+                      // deliberately left on the helper's own default. Column
+                      // Customization (Slice E2) only gates whether this cell
+                      // renders at all — it never touches the locale pin.
+                      <TableCell>{formatDateOnlyForDisplay(contract.issueDate, "en-US")}</TableCell>
+                    )}
                     <TableCell align="right">
                       <div className="flex items-center justify-end gap-3">
                         {contract.showEdit ? (

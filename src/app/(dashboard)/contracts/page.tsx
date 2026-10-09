@@ -21,6 +21,14 @@ import {
 } from "./query";
 import { serializeContractSavedViewParams } from "./saved-view";
 import type { RawSearchParams } from "@/lib/list-params";
+import {
+  CONTRACT_COLUMNS,
+  CONTRACT_COLUMNS_SURFACE,
+  CONTRACT_COLUMN_IDS,
+  CONTRACT_MANDATORY_COLUMN_IDS,
+} from "./columns";
+import { ColumnVisibilityProvider } from "@/components/list/column-visibility-context";
+import { ColumnVisibilityControl } from "@/components/list/column-visibility-control";
 
 const PRIMARY_LINK_CLASSES =
   "focus-visible:ring-focus-ring rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
@@ -155,6 +163,13 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
   }));
 
   return (
+    <ColumnVisibilityProvider
+      organizationId={organizationId}
+      userId={user.id}
+      surface={CONTRACT_COLUMNS_SURFACE}
+      knownColumnIds={CONTRACT_COLUMN_IDS}
+      mandatoryColumnIds={CONTRACT_MANDATORY_COLUMN_IDS}
+    >
     <div>
       <DocumentsTabs />
       <div className="flex items-center justify-between">
@@ -183,11 +198,23 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
             active in the URL (locked spec §10/§29) — this never widens
             or narrows what's already there.
           */}
-          <ContractSavedViews
-            organizationId={organizationId}
-            userId={user.id}
-            currentParams={serializeContractSavedViewParams(listParams)}
-          />
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <ContractSavedViews
+              organizationId={organizationId}
+              userId={user.id}
+              currentParams={serializeContractSavedViewParams(listParams)}
+            />
+
+            {/*
+              Tables Improvement Slice E2 — same controls-band placement
+              contract as Invoices' own identical pilot (Slice E1):
+              never inside SearchFilterBar/QuickFilterChips, never in
+              the title/CTA row. Desktop-only, matching E1 exactly —
+              Column Customization has zero effect on the fixed mobile
+              RecordCardList, so the control hides itself below `xl`.
+            */}
+            <ColumnVisibilityControl columns={CONTRACT_COLUMNS} />
+          </div>
 
           <SearchFilterBar
             // Tables Improvement Slice B — the quick-filter chips and the
@@ -327,5 +354,6 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
         />
       )}
     </div>
+    </ColumnVisibilityProvider>
   );
 }
