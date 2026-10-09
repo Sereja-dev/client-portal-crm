@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { WorkTabs } from "@/components/work/work-tabs";
 import { prisma } from "@/lib/prisma";
@@ -13,14 +14,7 @@ import { PencilIcon } from "@/components/ui/icons";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { SearchFilterBar } from "@/components/list/search-filter-bar";
 import { Pagination } from "@/components/list/pagination";
-import {
-  Table,
-  TableHead,
-  TableHeaderCell,
-  TableBody,
-  TableRow,
-  TableCell,
-} from "@/components/ui/table";
+import { TableHeaderCell, TableCell } from "@/components/ui/table";
 import {
   RecordCardList,
   RecordCard,
@@ -35,6 +29,16 @@ import {
 import { serializeProjectSavedViewParams } from "./saved-view";
 import { ProjectSavedViews } from "@/components/projects/project-saved-views";
 import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
+import {
+  PROJECT_COLUMNS,
+  PROJECT_COLUMNS_SURFACE,
+  PROJECT_COLUMN_IDS,
+  PROJECT_MANDATORY_COLUMN_IDS,
+  type ProjectColumnId,
+} from "./columns";
+import { ColumnVisibilityProvider } from "@/components/list/column-visibility-context";
+import { ColumnVisibilityControl } from "@/components/list/column-visibility-control";
+import { ProjectDesktopTable, type ProjectTableRow } from "@/components/projects/project-desktop-table";
 
 // Page-owned primary call-to-action link (navigates, so a real <Link> —
 // not the shared <Button>, which renders a <button>). Matches Button's
@@ -111,7 +115,80 @@ export default async function ProjectsPage({
   const totalPages = getTotalPages(total);
   const hasActiveParams = Boolean(listParams.q || listParams.status);
 
+  // Tables Improvement Slice E3C — these are the EXACT SAME header/cell
+  // JSX calls (TableHeaderCell/TableCell, with the exact same Link/
+  // ProjectStatusBadge/formatDateOnlyForDisplay/toLocaleDateString/
+  // DeleteButton calls) that rendered this table before this slice,
+  // just built into per-column slots instead of a flat `<tr>`/
+  // `<TableRow>` sequence. No formatting/business logic is
+  // reimplemented — `ProjectDesktopTable` (a Client Component) only
+  // decides which of these already-built slots to include, based on
+  // live column-visibility state; every value here is computed
+  // server-side exactly as before (E3C readiness audit §O). Keyed by
+  // the same `ProjectColumnId`s `./columns.ts` owns.
+  const headerCells: Record<ProjectColumnId, ReactNode> = {
+    name: <TableHeaderCell>Name</TableHeaderCell>,
+    client: <TableHeaderCell>Client</TableHeaderCell>,
+    status: <TableHeaderCell>Status</TableHeaderCell>,
+    startDate: <TableHeaderCell>Start date</TableHeaderCell>,
+    endDate: <TableHeaderCell>End date</TableHeaderCell>,
+    createdAt: <TableHeaderCell>Created</TableHeaderCell>,
+    actions: <TableHeaderCell align="right">Actions</TableHeaderCell>,
+  };
+
+  const projectTableRows: ProjectTableRow[] = projects.map((project) => ({
+    id: project.id,
+    cells: {
+      name: (
+        <TableCell emphasis>
+          <Link href={`/projects/${project.id}`} className="text-accent hover:underline">
+            {project.name}
+          </Link>
+        </TableCell>
+      ),
+      client: <TableCell>{project.client.name}</TableCell>,
+      status: (
+        <TableCell>
+          <ProjectStatusBadge project={project} />
+        </TableCell>
+      ),
+      startDate: (
+        <TableCell>{project.startDate ? formatDateOnlyForDisplay(project.startDate) : "—"}</TableCell>
+      ),
+      endDate: <TableCell>{project.endDate ? formatDateOnlyForDisplay(project.endDate) : "—"}</TableCell>,
+      createdAt: <TableCell>{project.createdAt.toLocaleDateString()}</TableCell>,
+      actions: (
+        <TableCell align="right">
+          <div className="flex items-center justify-end gap-4">
+            <Link
+              href={`/projects/${project.id}/edit`}
+              className={`inline-flex items-center gap-1 ${ACTION_LINK_CLASSES}`}
+            >
+              <PencilIcon className="h-3.5 w-3.5" />
+              Edit
+            </Link>
+            <DeleteButton
+              action={deleteProjectAction.bind(null, project.id)}
+              itemName={project.name}
+              confirmTitle="Delete project"
+              confirmDescription={`Delete ${project.name}? This action cannot be undone.`}
+              successMessage="Project deleted"
+              conflictMessage="This project can't be deleted because it has existing invoices."
+            />
+          </div>
+        </TableCell>
+      ),
+    },
+  }));
+
   return (
+    <ColumnVisibilityProvider
+      organizationId={organizationId}
+      userId={user.id}
+      surface={PROJECT_COLUMNS_SURFACE}
+      knownColumnIds={PROJECT_COLUMN_IDS}
+      mandatoryColumnIds={PROJECT_MANDATORY_COLUMN_IDS}
+    >
     <div>
       <WorkTabs />
       <div className="flex items-center justify-between">
@@ -142,11 +219,26 @@ export default async function ProjectsPage({
             straight into this Client Component from the Server
             Component page.
           */}
-          <ProjectSavedViews
-            organizationId={organizationId}
-            userId={user.id}
-            currentParams={serializeProjectSavedViewParams(listParams)}
-          />
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <ProjectSavedViews
+              organizationId={organizationId}
+              userId={user.id}
+              currentParams={serializeProjectSavedViewParams(listParams)}
+            />
+
+            {/*
+              Tables Improvement Slice E3C — same controls-band placement
+              contract as Saved Views and as Invoice/Contract/Quote/
+              Client's own Columns control: never inside SearchFilterBar,
+              never in the page header/primary-action row. Desktop-only
+              (the component's own wrapper carries `hidden
+              xl:inline-block`) — Column Customization has zero effect on
+              the fixed mobile RecordCardList (readiness audit §M/§15),
+              so showing a "Columns" trigger on mobile would only ever
+              open a popover that changes nothing a mobile user can see.
+            */}
+            <ColumnVisibilityControl columns={PROJECT_COLUMNS} />
+          </div>
 
           <SearchFilterBar
             // Tables Improvement Slice D2B — same remount-key contract
@@ -210,66 +302,15 @@ export default async function ProjectsPage({
         )
       ) : (
         <>
-          <div className="hidden xl:block">
-            <Table>
-              <TableHead>
-                <tr>
-                  <TableHeaderCell>Name</TableHeaderCell>
-                  <TableHeaderCell>Client</TableHeaderCell>
-                  <TableHeaderCell>Status</TableHeaderCell>
-                  <TableHeaderCell>Start date</TableHeaderCell>
-                  <TableHeaderCell>End date</TableHeaderCell>
-                  <TableHeaderCell>Created</TableHeaderCell>
-                  <TableHeaderCell align="right">Actions</TableHeaderCell>
-                </tr>
-              </TableHead>
-              <TableBody>
-                {projects.map((project) => (
-                  <TableRow key={project.id}>
-                    <TableCell emphasis>
-                      <Link href={`/projects/${project.id}`} className="text-accent hover:underline">
-                        {project.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell>{project.client.name}</TableCell>
-                    <TableCell>
-                      <ProjectStatusBadge project={project} />
-                    </TableCell>
-                    <TableCell>
-                      {project.startDate
-                        ? formatDateOnlyForDisplay(project.startDate)
-                        : "—"}
-                    </TableCell>
-                    <TableCell>
-                      {project.endDate
-                        ? formatDateOnlyForDisplay(project.endDate)
-                        : "—"}
-                    </TableCell>
-                    <TableCell>{project.createdAt.toLocaleDateString()}</TableCell>
-                    <TableCell align="right">
-                      <div className="flex items-center justify-end gap-4">
-                        <Link
-                          href={`/projects/${project.id}/edit`}
-                          className={`inline-flex items-center gap-1 ${ACTION_LINK_CLASSES}`}
-                        >
-                          <PencilIcon className="h-3.5 w-3.5" />
-                          Edit
-                        </Link>
-                        <DeleteButton
-                          action={deleteProjectAction.bind(null, project.id)}
-                          itemName={project.name}
-                          confirmTitle="Delete project"
-                          confirmDescription={`Delete ${project.name}? This action cannot be undone.`}
-                          successMessage="Project deleted"
-                          conflictMessage="This project can't be deleted because it has existing invoices."
-                        />
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          {/*
+            Tables Improvement Slice E3C — only WHICH columns render is
+            now a client-side decision, fed by the already-server-built
+            `headerCells`/`projectTableRows` slots above; the `<table>`
+            markup itself (no sticky header — readiness audit §Q) is
+            unchanged from before this slice, now living inside
+            `ProjectDesktopTable`.
+          */}
+          <ProjectDesktopTable headerCells={headerCells} rows={projectTableRows} />
 
           <RecordCardList>
             {projects.map((project) => (
@@ -328,5 +369,6 @@ export default async function ProjectsPage({
         </>
       )}
     </div>
+    </ColumnVisibilityProvider>
   );
 }

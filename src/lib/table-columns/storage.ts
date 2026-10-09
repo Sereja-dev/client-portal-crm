@@ -26,14 +26,14 @@ export const TABLE_COLUMNS_STORAGE_VERSION = 1 as const;
  * Stable, explicit surface identifiers — never derived from `pathname`,
  * matching Saved Views' own identical reasoning. Started with exactly
  * one value (Slice E1 — Invoices only); widened in Slice E2 to add
- * Contracts, in Slice E3A to add Quotes, and widened again here (Slice
- * E3B) to add Clients, exactly mirroring how `SavedViewSurface` has
- * been widened once per Saved Views slice. No other part of this
- * module changes — the key shape, version, defensive parse, and
- * normalization rules are identical and surface-agnostic regardless of
- * which surfaces exist.
+ * Contracts, in Slice E3A to add Quotes, in Slice E3B to add Clients,
+ * and widened again here (Slice E3C) to add Projects, exactly
+ * mirroring how `SavedViewSurface` has been widened once per Saved
+ * Views slice. No other part of this module changes — the key shape,
+ * version, defensive parse, and normalization rules are identical and
+ * surface-agnostic regardless of which surfaces exist.
  */
-export type TableColumnsSurface = "invoices" | "contracts" | "quotes" | "clients";
+export type TableColumnsSurface = "invoices" | "contracts" | "quotes" | "clients" | "projects";
 
 type TableColumnsStorageV1 = {
   version: typeof TABLE_COLUMNS_STORAGE_VERSION;

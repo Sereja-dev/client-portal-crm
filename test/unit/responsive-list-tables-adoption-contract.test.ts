@@ -32,6 +32,15 @@ const PATHS = {
   // unchanged, just against a different file.
   clientsDesktopTable: "src/components/clients/client-desktop-table.tsx",
   projects: "src/app/(dashboard)/projects/page.tsx",
+  // Tables Improvement Slice E3C — same move as Clients (E3B) above:
+  // the desktop `<Table>` wrapper markup (previously inline in
+  // projects/page.tsx) now lives in this dedicated Client Component.
+  // projects/page.tsx itself still owns data fetching, auth, and
+  // building the header/cell slots — see `tableIsWrappedHiddenOnMobile`
+  // below, now scoped to this file instead for the Projects describe
+  // block specifically. Like Clients/Quotes, Projects kept the shared
+  // `<Table>` component as-is (no local sticky-header wrapper).
+  projectsDesktopTable: "src/components/projects/project-desktop-table.tsx",
   // Work Hub V1 — the Table/RecordCardList rendering moved out of the
   // page itself into its own component (row selection + bulk actions
   // needed client-component state the page, a Server Component, can't
@@ -181,8 +190,11 @@ describe("Projects list page — responsive stacked-card adoption", () => {
     expect(importsSharedPrimitives(source)).toBe(true);
   });
 
-  it("wraps the existing, unmodified desktop <Table> so it is hidden below md and visible at md and up", () => {
-    expect(tableIsWrappedHiddenOnMobile(source)).toBe(true);
+  it("wraps the existing, unmodified desktop <Table> (now inside Slice E3C's own ProjectDesktopTable, which the page itself renders) so it is hidden below md and visible at md and up", () => {
+    expect(tableIsWrappedHiddenOnMobile(read(PATHS.projectsDesktopTable))).toBe(true);
+    // The page still actually renders that component, not just leaves
+    // it unused — confirms the two files are genuinely connected.
+    expect(source).toMatch(/<ProjectDesktopTable\b/);
   });
 
   it("renders a RecordCardList mapping the same `projects` collection", () => {
