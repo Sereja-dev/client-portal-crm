@@ -33,6 +33,22 @@ function setFromEmail(value: string | undefined): void {
   }
 }
 
+// Platform Admin Credential / Recovery Hardening. Same save/restore
+// shape as setFromEmail/ORIGINAL_FROM_EMAIL above, applied to
+// PLATFORM_ADMIN_EMAILS — isPlatformAdmin() (src/lib/platform-admin/
+// authorization.ts) reads this env var fresh on every call, so a test
+// only ever needs to set it around the one assertion that needs it,
+// never a module-level mock.
+const ORIGINAL_PLATFORM_ADMIN_EMAILS = process.env.PLATFORM_ADMIN_EMAILS;
+
+function setPlatformAdminEmails(value: string | undefined): void {
+  if (value === undefined) {
+    delete process.env.PLATFORM_ADMIN_EMAILS;
+  } else {
+    process.env.PLATFORM_ADMIN_EMAILS = value;
+  }
+}
+
 const GENERIC_MESSAGE = "If an account exists for that email, we've sent a password reset link.";
 
 describe("requestPasswordResetCore — integration", () => {
@@ -55,6 +71,10 @@ describe("requestPasswordResetCore — integration", () => {
 
   afterEach(() => {
     sentEmails.length = 0;
+    // Belt-and-suspenders restore after every test, not only the ones
+    // that explicitly set PLATFORM_ADMIN_EMAILS themselves — guarantees
+    // no leakage into a later test regardless of ordering.
+    setPlatformAdminEmails(ORIGINAL_PLATFORM_ADMIN_EMAILS);
   });
 
   afterAll(async () => {
@@ -69,6 +89,78 @@ describe("requestPasswordResetCore — integration", () => {
     );
     expect(result).toEqual({ error: null, message: GENERIC_MESSAGE });
     expect(sentEmails).toEqual([{ to: fixtures.owner.email, subject: "Reset your password" }]);
+  });
+
+  // Platform Admin Credential / Recovery Hardening. requestPasswordResetCore's
+  // own isPlatformAdmin() exclusion (src/lib/auth/password-reset.ts) —
+  // the staff-audience-only guard this slice added. fixtures.owner is a
+  // real, known Staff User; temporarily allowlisting their own email is
+  // the only way to exercise "a real identity that also happens to be a
+  // Platform Admin" without seeding a second user.
+  describe("Platform Admin recovery exclusion (staff audience only)", () => {
+    it("B. a known, allowlisted Platform Admin email returns the exact same generic message, but generates NO token and sends NO email", async () => {
+      setPlatformAdminEmails(fixtures.owner.email);
+      const generateToken = vi.fn(fakeGenerateToken);
+
+      const result = await requestPasswordResetCore(
+        { email: fixtures.owner.email, audience: "staff" },
+        { sendEmail: capturingSend, generateToken },
+      );
+
+      expect(result).toEqual({ error: null, message: GENERIC_MESSAGE });
+      expect(sentEmails).toHaveLength(0);
+      expect(generateToken).not.toHaveBeenCalled();
+    });
+
+    it("E. normalization: a differently-cased/whitespace-padded allowlist entry still excludes the submitted (also differently-cased/padded) email — casing/whitespace cannot bypass the exclusion", async () => {
+      setPlatformAdminEmails(`  ${fixtures.owner.email.toUpperCase()}  `);
+      const generateToken = vi.fn(fakeGenerateToken);
+
+      const result = await requestPasswordResetCore(
+        { email: `  ${fixtures.owner.email}  `, audience: "staff" },
+        { sendEmail: capturingSend, generateToken },
+      );
+
+      expect(result).toEqual({ error: null, message: GENERIC_MESSAGE });
+      expect(sentEmails).toHaveLength(0);
+      expect(generateToken).not.toHaveBeenCalled();
+    });
+
+    it("D. Portal reset is unaffected even when the submitted Portal email is itself (coincidentally) present in PLATFORM_ADMIN_EMAILS — the exclusion is staff-audience-only, by construction, not by this email happening to differ", async () => {
+      setPlatformAdminEmails(fixtures.portalUser.email);
+      const generateToken = vi.fn(fakeGenerateToken);
+
+      const result = await requestPasswordResetCore(
+        { email: fixtures.portalUser.email, audience: "portal" },
+        { sendEmail: capturingSend, generateToken },
+      );
+
+      expect(result).toEqual({ error: null, message: GENERIC_MESSAGE });
+      expect(sentEmails).toEqual([{ to: fixtures.portalUser.email, subject: "Reset your Client Portal password" }]);
+      expect(generateToken).toHaveBeenCalledTimes(1);
+    });
+
+    it("an ordinary (non-allowlisted) known Staff email is completely unaffected by PLATFORM_ADMIN_EMAILS being set to a different value", async () => {
+      setPlatformAdminEmails(testEmail("some-other-admin", "test.local"));
+      const generateToken = vi.fn(fakeGenerateToken);
+
+      const result = await requestPasswordResetCore(
+        { email: fixtures.owner.email, audience: "staff" },
+        { sendEmail: capturingSend, generateToken },
+      );
+
+      expect(result).toEqual({ error: null, message: GENERIC_MESSAGE });
+      expect(sentEmails).toEqual([{ to: fixtures.owner.email, subject: "Reset your password" }]);
+      expect(generateToken).toHaveBeenCalledTimes(1);
+    });
+
+    it("never writes anything to the User/PortalUser tables for an excluded Platform Admin request either — still a read-only lookup", async () => {
+      setPlatformAdminEmails(fixtures.owner.email);
+      const before = await prisma.user.count();
+      await requestPasswordResetCore({ email: fixtures.owner.email, audience: "staff" }, { sendEmail: capturingSend });
+      const after = await prisma.user.count();
+      expect(after).toBe(before);
+    });
   });
 
   it("staff: an unknown email returns the exact same generic message — never reveals non-existence", async () => {

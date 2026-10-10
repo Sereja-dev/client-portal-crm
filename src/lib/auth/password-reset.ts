@@ -4,6 +4,7 @@ import { generateRecoveryToken, type GenerateRecoveryTokenResult } from "@/lib/a
 import { sendPasswordResetEmail, type PasswordResetAudience } from "@/lib/email/password-reset";
 import type { SendEmailFn } from "@/lib/email/resend-client";
 import type { AuthActionState } from "@/types";
+import { isPlatformAdmin } from "@/lib/platform-admin/authorization";
 
 /**
  * Sale-Ready Phase B, PR1 (Password Recovery). Identical shape to
@@ -59,7 +60,31 @@ export async function requestPasswordResetCore(
       ? await prisma.portalUser.findFirst({ where: { email }, select: { id: true } })
       : await prisma.user.findUnique({ where: { email }, select: { id: true } });
 
-  if (identity) {
+  // Platform Admin Credential / Recovery Hardening — a Staff identity
+  // whose email is currently allowlisted (src/lib/platform-admin/
+  // authorization.ts's own canonical isPlatformAdmin(), never a second,
+  // duplicated allowlist check) must never receive an Aqenra-issued
+  // recovery token/email through this public, unauthenticated surface —
+  // the intended owner/operator model requires credential changes for
+  // that identity to go through the separate trusted-operator procedure
+  // (scripts/platform-admin-set-password.mjs) instead. Deliberately
+  // audience-scoped to "staff" only: Portal never has a concept of
+  // Platform Admin at all, and isPlatformAdmin() must never be consulted
+  // on that branch (§5/§18 of the locked spec — Portal recovery stays
+  // byte-for-byte unchanged).
+  //
+  // This is folded into the EXACT SAME "only a known identity ever
+  // reaches generateToken/sendPasswordResetEmail" branch below, not a
+  // separate early return with its own response — so the externally
+  // observable result (the one generic message, the complete absence of
+  // a sent email) is structurally identical to the existing "unknown
+  // email" case. No new message, no different status, no redirect
+  // change: an allowlisted email is treated exactly like a miss for the
+  // sole purpose of this one request, while remaining a perfectly real,
+  // loggable-in Staff account in every other respect.
+  const isExcludedPlatformAdmin = params.audience === "staff" && identity && isPlatformAdmin(email);
+
+  if (identity && !isExcludedPlatformAdmin) {
     const token = await generateToken(email);
     if (token.ok) {
       await sendPasswordResetEmail({ to: email, tokenHash: token.tokenHash, audience: params.audience }, deps);
