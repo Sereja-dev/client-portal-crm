@@ -102,8 +102,8 @@ export default async function NewQuotePage({ searchParams }: { searchParams: Pro
 
   const currencyDefault = resolveInvoiceCurrencyDefault(companyProfile.currency);
 
-  const leadOptions: QuoteTargetOption[] = leads.map((lead) => ({ id: lead.id, label: formatLeadLabel(lead) }));
-  const clientOptions: QuoteTargetOption[] = clients.map((client) => ({ id: client.id, label: client.name }));
+  const leadOptions: QuoteTargetOption[] = leads.map((lead) => ({ id: lead.id, label: formatLeadLabel(lead), name: lead.name }));
+  const clientOptions: QuoteTargetOption[] = clients.map((client) => ({ id: client.id, label: client.name, name: client.name }));
 
   // A template id was present in the URL but could not be applied
   // (archived / foreign-org / nonexistent / malformed — all
@@ -139,7 +139,10 @@ export default async function NewQuotePage({ searchParams }: { searchParams: Pro
     : undefined;
 
   return (
-    <div className="mx-auto max-w-2xl">
+    // Forms Improvement Slice B2 — widened from max-w-2xl to max-w-5xl to
+    // fit QuoteForm's own new two-column form+live-preview layout,
+    // mirroring Invoice's identical new/page.tsx precedent exactly.
+    <div className="mx-auto max-w-5xl">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Add quote</h1>
         <Link href="/quotes" className={ACTION_LINK_CLASSES}>
@@ -198,6 +201,7 @@ export default async function NewQuotePage({ searchParams }: { searchParams: Pro
                   ? `Your organization's currency (${currencyDefault.organizationCurrency}) isn't supported for quotes — defaulted to USD.`
                   : undefined
               }
+              companyDisplayName={companyProfile.displayName}
               defaultValues={{
                 number: suggestedNumber,
                 currency: currencyDefault.currency,

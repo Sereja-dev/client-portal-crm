@@ -5,6 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { QuoteForm, type QuoteTargetOption } from "@/components/quotes/quote-form";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { getCompanyProfile } from "@/lib/organization-setup/company-profile";
 import { getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
 import { getDuplicateSourceQuote } from "@/lib/quotes/duplicate-source";
 import { buildDuplicateQuoteDefaults, type DuplicateSourceQuoteData } from "@/lib/quotes/duplicate";
@@ -62,7 +63,7 @@ export default async function DuplicateQuotePage({
     })),
   };
 
-  const [leads, clients, suggestedNumber] = await Promise.all([
+  const [leads, clients, suggestedNumber, companyProfile] = await Promise.all([
     prisma.lead.findMany({
       where: { organizationId, archivedAt: null },
       orderBy: { name: "asc" },
@@ -74,10 +75,11 @@ export default async function DuplicateQuotePage({
       select: { id: true, name: true },
     }),
     suggestNextQuoteNumber(organizationId),
+    getCompanyProfile(organizationId),
   ]);
 
-  const leadOptions: QuoteTargetOption[] = leads.map((lead) => ({ id: lead.id, label: formatLeadLabel(lead) }));
-  const clientOptions: QuoteTargetOption[] = clients.map((client) => ({ id: client.id, label: client.name }));
+  const leadOptions: QuoteTargetOption[] = leads.map((lead) => ({ id: lead.id, label: formatLeadLabel(lead), name: lead.name }));
+  const clientOptions: QuoteTargetOption[] = clients.map((client) => ({ id: client.id, label: client.name, name: client.name }));
 
   // Captured exactly once, then injected — the pure mapper below never
   // calls `new Date()` internally (matches Invoice's own duplicate page
@@ -86,7 +88,9 @@ export default async function DuplicateQuotePage({
   const defaults = buildDuplicateQuoteDefaults(sourceData, suggestedNumber, today);
 
   return (
-    <div className="mx-auto max-w-2xl">
+    // Forms Improvement Slice B2 — widened from max-w-2xl to max-w-5xl to
+    // fit QuoteForm's own new two-column form+live-preview layout.
+    <div className="mx-auto max-w-5xl">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Duplicate quote</h1>
         <Link href="/quotes" className={ACTION_LINK_CLASSES}>
@@ -109,6 +113,7 @@ export default async function DuplicateQuotePage({
           clients={clientOptions}
           currencyOptions={getSupportedInvoiceCurrencies()}
           defaultValues={defaults}
+          companyDisplayName={companyProfile.displayName}
           submitLabel="Create duplicate"
           pendingLabel="Creating…"
           successToast="Quote created"

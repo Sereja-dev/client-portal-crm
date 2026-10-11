@@ -101,6 +101,19 @@ test.describe("Quote apply flow (Phase 2)", () => {
     await expect(row1.getByLabel("Qty")).toHaveValue("1.125");
     await expect(row1.getByLabel("Unit price")).toHaveValue("33.33");
 
+    // Forms Improvement Slice B2 — the live preview reflects the exact
+    // post-template-remount state, never a stale pre-template value: the
+    // form remounts when a template is applied (this file's own header
+    // comment / quote-template-picker.tsx's own key={}), and the preview
+    // derives directly from QuoteForm's own current state on every
+    // render, so no special preview-template wiring was needed for this
+    // to already be correct.
+    const preview = page.getByTestId("quote-preview");
+    await expect(preview.getByText("Proposal title")).toBeVisible();
+    await expect(preview.getByText("EUR", { exact: true })).toBeVisible();
+    await expect(preview.getByText("Precise item")).toBeVisible();
+    await expect(preview.getByText("Client-facing notes")).toBeVisible();
+
     // issueDate + validityDays (30) — a concrete, deterministic value
     // proving the shared-`now` invariant end to end through the UI, not
     // just in the underlying unit test.
@@ -116,6 +129,7 @@ test.describe("Quote apply flow (Phase 2)", () => {
     // The closed-state display is now the Client's own name (SearchableSelect's
     // label), not its raw id — see src/components/quotes/quote-form.tsx.
     await expect(page.getByLabel("Select client")).toHaveValue(fixtures.clientA.name);
+    await expect(preview.getByText(fixtures.clientA.name)).toBeVisible();
   });
 
   test("an archived template shows a generic unavailable notice and a blank form — never a broken page", async ({ context, baseURL, page }) => {

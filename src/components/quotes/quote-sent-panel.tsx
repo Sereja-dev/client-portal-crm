@@ -33,6 +33,7 @@ export function QuoteSentPanel({
   leads,
   clients,
   currencyOptions,
+  companyDisplayName,
   quoteId,
   archivedAt,
 }: {
@@ -62,6 +63,8 @@ export function QuoteSentPanel({
   leads: QuoteTargetOption[];
   clients: QuoteTargetOption[];
   currencyOptions: readonly string[];
+  /** Forms Improvement Slice B2 — threaded through to the QuoteForm this panel reveals once editing is confirmed; see QuoteForm's own identical prop doc. */
+  companyDisplayName?: string;
   quoteId: string;
   archivedAt: Date | null;
 }) {
@@ -80,6 +83,7 @@ export function QuoteSentPanel({
           clients={clients}
           currencyOptions={currencyOptions}
           defaultValues={formDefaults}
+          companyDisplayName={companyDisplayName}
           submitLabel="Save changes"
           pendingLabel="Saving…"
           successToast="Quote updated"

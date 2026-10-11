@@ -9,6 +9,7 @@ import { QuoteLifecycleControls } from "@/components/quotes/quote-lifecycle-cont
 import { QuoteSentPanel } from "@/components/quotes/quote-sent-panel";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { getCompanyProfile } from "@/lib/organization-setup/company-profile";
 import { getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
 import { formatDateOnly } from "@/lib/invoices/date-only";
 import { isQuoteConverted, isQuoteExpired } from "@/lib/quotes/status";
@@ -60,9 +61,13 @@ export default async function EditQuotePage({ params }: { params: Promise<{ id: 
   const isSentLive = !converted && quote.status === "SENT" && !expired;
   const needsFormOptions = isDraft || isSentLive;
 
-  const [leadOptions, clientOptions] = needsFormOptions
+  // Forms Improvement Slice B2 — companyProfile is fetched here, alongside
+  // leads/clients, only when a form actually renders (isDraft/isSentLive)
+  // — the read-only-only branch below never needed this data before and
+  // still doesn't now, so it incurs no new query.
+  const [leadOptions, clientOptions, companyDisplayName] = needsFormOptions
     ? await (async () => {
-        const [leads, clients] = await Promise.all([
+        const [leads, clients, companyProfile] = await Promise.all([
           prisma.lead.findMany({
             where: { organizationId, archivedAt: null },
             orderBy: { name: "asc" },
@@ -73,13 +78,15 @@ export default async function EditQuotePage({ params }: { params: Promise<{ id: 
             orderBy: { name: "asc" },
             select: { id: true, name: true },
           }),
+          getCompanyProfile(organizationId),
         ]);
         return [
-          leads.map((lead): QuoteTargetOption => ({ id: lead.id, label: formatLeadLabel(lead) })),
-          clients.map((client): QuoteTargetOption => ({ id: client.id, label: client.name })),
+          leads.map((lead): QuoteTargetOption => ({ id: lead.id, label: formatLeadLabel(lead), name: lead.name })),
+          clients.map((client): QuoteTargetOption => ({ id: client.id, label: client.name, name: client.name })),
+          companyProfile.displayName,
         ];
       })()
-    : [[], []];
+    : [[], [], undefined];
 
   const formDefaults: QuoteFormDefaults = {
     number: quote.number,
@@ -117,7 +124,10 @@ export default async function EditQuotePage({ params }: { params: Promise<{ id: 
 
   if (isDraft) {
     return (
-      <div className="mx-auto max-w-2xl">
+      // Forms Improvement Slice B2 — widened from max-w-2xl to max-w-5xl
+      // to fit QuoteForm's own new two-column form+live-preview layout,
+      // mirroring Invoice's identical edit/page.tsx precedent exactly.
+      <div className="mx-auto max-w-5xl">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Edit quote</h1>
           <Link href="/quotes" className={ACTION_LINK_CLASSES}>
@@ -131,6 +141,7 @@ export default async function EditQuotePage({ params }: { params: Promise<{ id: 
             clients={clientOptions}
             currencyOptions={getSupportedInvoiceCurrencies()}
             defaultValues={formDefaults}
+            companyDisplayName={companyDisplayName}
             submitLabel="Save changes"
             pendingLabel="Saving…"
             successToast="Quote updated"
@@ -158,7 +169,15 @@ export default async function EditQuotePage({ params }: { params: Promise<{ id: 
 
   if (isSentLive) {
     return (
-      <div className="mx-auto max-w-2xl">
+      // Forms Improvement Slice B2 — widened to max-w-5xl for the same
+      // reason as the DRAFT branch above: this one server-rendered
+      // wrapper serves both QuoteSentPanel's own pre-confirmation
+      // read-only presentation AND the live-preview QuoteForm it reveals
+      // once "Edit quote" is confirmed, and the two share a single
+      // wrapper div — there is no client-side-only width to apply
+      // narrower while read-only without inventing a new layout
+      // mechanism, which this slice's own scope excludes.
+      <div className="mx-auto max-w-5xl">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Quote</h1>
           <Link href="/quotes" className={ACTION_LINK_CLASSES}>
@@ -169,6 +188,7 @@ export default async function EditQuotePage({ params }: { params: Promise<{ id: 
           <QuoteSentPanel
             quoteId={quote.id}
             archivedAt={quote.archivedAt}
+            companyDisplayName={companyDisplayName}
             readOnly={{
               number: quote.number,
               validUntil: quote.validUntil,

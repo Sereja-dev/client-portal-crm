@@ -15,16 +15,28 @@ import { withToast } from "@/lib/toast-url";
 import { INVOICE_DISCOUNT_TYPES, INVOICE_TAX_LABELS } from "@/lib/validation/invoice";
 import { calculateQuoteTotals } from "@/lib/quotes/calculations";
 import { formatInvoiceCurrencyAmount } from "@/lib/invoices/currencies";
+import { parseDateOnly, formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
+import { buildQuotePreviewTotals } from "@/lib/quotes/quote-preview-view-model";
 import type { InvoiceLineItemFormValue } from "@/lib/invoices/line-items-form";
 import type { QuoteFieldErrors, QuoteItemErrors, QuoteWritableInput } from "@/lib/validation/quote";
 import type { CreateQuoteResult, UpdateQuoteResult } from "@/app/(dashboard)/quotes/actions";
+import { QuotePreview } from "./quote-preview";
 
 const RATE_LIMIT_MESSAGE = "Too many requests. Please try again later.";
 const GENERIC_ERROR = "Something went wrong. Please try again.";
 
 const BLANK_LINE_ITEM: InvoiceLineItemFormValue = { description: "", quantity: "", unitPrice: "" };
 
-export type QuoteTargetOption = { id: string; label: string };
+/**
+ * Forms Improvement Slice B2 — `name` added alongside the existing
+ * `label` (the already-formatted "Jane Doe — Acme Inc (jane@acme.com)"
+ * string used for the dropdown option text) so the live preview can show
+ * a plain target name without parsing that concatenated string back
+ * apart. Every caller already has this raw field in hand from its own
+ * existing Prisma query (`lead.name`/`client.name`) — this costs no new
+ * query, just one more mapped property.
+ */
+export type QuoteTargetOption = { id: string; label: string; name: string };
 
 export type QuoteFormDefaults = {
   number?: string;
@@ -80,6 +92,7 @@ export function QuoteForm({
   currencyOptions,
   currencyFallbackNotice,
   defaultValues,
+  companyDisplayName,
   submitLabel = "Save quote",
   pendingLabel = "Saving…",
   successToast,
@@ -90,6 +103,17 @@ export function QuoteForm({
   currencyOptions: readonly string[];
   currencyFallbackNotice?: string;
   defaultValues?: QuoteFormDefaults;
+  /**
+   * Forms Improvement Slice B2 — the company profile's own display name
+   * (Organization.name, the same field getCompanyProfile() already
+   * returns), shown as the live preview's "From" identity — mirrors
+   * InvoiceForm's own identical `companyDisplayName` prop exactly.
+   * Optional, with a generic "Your company" placeholder when omitted, so
+   * every existing caller of this component (including direct-render
+   * unit tests that construct QuoteForm without this prop) keeps working
+   * unchanged.
+   */
+  companyDisplayName?: string;
   submitLabel?: string;
   pendingLabel?: string;
   /**
@@ -190,6 +214,45 @@ export function QuoteForm({
   });
   const previewText = preview.ok ? formatInvoiceCurrencyAmount(preview.total, currency) : null;
 
+  // Forms Improvement Slice B2 — the document preview panel's own data,
+  // built exclusively through buildQuotePreviewTotals() (itself a thin
+  // re-export of Invoice's own buildInvoicePreviewTotals() — see that
+  // module's header comment). No value here is computed a second time by
+  // hand, and this is entirely separate local state from nothing — it is
+  // derived directly from the exact same `items`/`discountType`/
+  // `discountValue`/`taxRatePercent`/`currency`/`taxLabel` state above on
+  // every render, with no new state and no effect.
+  const previewResult = buildQuotePreviewTotals({
+    subtotalSource: { mode: "lineItems", lineItems: items },
+    discount: discountType === "NONE" ? { type: "NONE" } : { type: discountType, value: discountValue },
+    taxRatePercent: taxRatePercent === "" ? null : taxRatePercent,
+    currency,
+    taxLabel,
+  });
+  const selectedLead = targetType === "lead" ? leads.find((lead) => lead.id === leadId) : undefined;
+  const selectedClient = targetType === "client" ? clients.find((client) => client.id === clientId) : undefined;
+  const targetTypeLabel: "Lead" | "Client" | null = targetType === "lead" ? "Lead" : targetType === "client" ? "Client" : null;
+  const targetName = selectedLead?.name ?? selectedClient?.name ?? null;
+  // Forms Improvement Slice B2 hydration correction — formatDateOnlyForDisplay()'s
+  // `locale` defaults to the runtime's own default locale, which the
+  // server process and the visiting browser can — and in Production,
+  // did, for Invoice's own identical call sites — resolve differently,
+  // producing a genuine SSR/hydration text mismatch (React #418) for
+  // these two display-only strings. Same already-fixed defect class as
+  // InvoiceForm's own "Invoice Live Preview V1 hydration correction"
+  // comment; "en-US" is pinned explicitly here for the same reason.
+  // Display-only: never affects parseDateOnly()/formatDateOnly()'s own
+  // UTC date-only semantics, the persisted value, or the submitted
+  // QuoteWritableInput.
+  const issueDateDisplay = (() => {
+    const parsed = parseDateOnly(issueDate);
+    return parsed.ok ? formatDateOnlyForDisplay(parsed.date, "en-US") : null;
+  })();
+  const validUntilDisplay = (() => {
+    const parsed = parseDateOnly(validUntil);
+    return parsed.ok ? formatDateOnlyForDisplay(parsed.date, "en-US") : null;
+  })();
+
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     dismissErrors();
@@ -250,301 +313,325 @@ export function QuoteForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <fieldset className="space-y-3" aria-describedby={fieldErrors.target ? "target-error" : undefined}>
-        <legend className="text-text-secondary block text-sm font-medium">
-          Quote for<span className="text-danger ml-0.5" aria-hidden="true">*</span>
-        </legend>
-        <div className="flex gap-4">
-          <label className="text-text-secondary flex items-center gap-2 text-sm">
-            <input
-              type="radio"
-              name="target-type"
-              checked={targetType === "lead"}
-              onChange={() => handleTargetTypeChange("lead")}
-              className="focus-visible:ring-focus-ring focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-            />
-            Lead
-          </label>
-          <label className="text-text-secondary flex items-center gap-2 text-sm">
-            <input
-              type="radio"
-              name="target-type"
-              checked={targetType === "client"}
-              onChange={() => handleTargetTypeChange("client")}
-              className="focus-visible:ring-focus-ring focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-            />
-            Client
-          </label>
-        </div>
-
-        {targetType === "lead" && (
-          <>
-            {/* Real, associated label (not just aria-label) — sr-only
-                since the radio group above already reads "Quote for: Lead"
-                visually; also gives this control an accessible name that
-                doesn't collide with the "Lead" radio's own name the way a
-                bare aria-label="Lead" would (both would otherwise share
-                the exact same accessible name). */}
-            <label htmlFor="target-lead-select" className="sr-only">
-              Select lead
+    // Forms Improvement Slice B2 — mirrors InvoiceForm's own identical
+    // two-column live-preview layout exactly (grid-cols-1 base so the
+    // column has an explicit minmax(0px, 1fr) track below `lg:`, the
+    // same mobile-overflow safeguard InvoiceForm's own header comment
+    // documents): form left, preview right, sticky on desktop, preview
+    // stacks below the form on narrower viewports.
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <fieldset className="space-y-3" aria-describedby={fieldErrors.target ? "target-error" : undefined}>
+          <legend className="text-text-secondary block text-sm font-medium">
+            Quote for<span className="text-danger ml-0.5" aria-hidden="true">*</span>
+          </legend>
+          <div className="flex gap-4">
+            <label className="text-text-secondary flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="target-type"
+                checked={targetType === "lead"}
+                onChange={() => handleTargetTypeChange("lead")}
+                className="focus-visible:ring-focus-ring focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+              />
+              Lead
             </label>
-            <Select
-              id="target-lead-select"
-              value={leadId}
+            <label className="text-text-secondary flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="target-type"
+                checked={targetType === "client"}
+                onChange={() => handleTargetTypeChange("client")}
+                className="focus-visible:ring-focus-ring focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+              />
+              Client
+            </label>
+          </div>
+
+          {targetType === "lead" && (
+            <>
+              {/* Real, associated label (not just aria-label) — sr-only
+                  since the radio group above already reads "Quote for: Lead"
+                  visually; also gives this control an accessible name that
+                  doesn't collide with the "Lead" radio's own name the way a
+                  bare aria-label="Lead" would (both would otherwise share
+                  the exact same accessible name). */}
+              <label htmlFor="target-lead-select" className="sr-only">
+                Select lead
+              </label>
+              <Select
+                id="target-lead-select"
+                value={leadId}
+                onChange={(event) => {
+                  setLeadId(event.target.value);
+                  dismissErrors();
+                }}
+                required
+                aria-invalid={!!fieldErrors.target}
+              >
+                <option value="" disabled>
+                  Select a lead
+                </option>
+                {leads.map((lead) => (
+                  <option key={lead.id} value={lead.id}>
+                    {lead.label}
+                  </option>
+                ))}
+              </Select>
+            </>
+          )}
+          {targetType === "client" && (
+            <>
+              <label htmlFor="target-client-select" className="sr-only">
+                Select client
+              </label>
+              <SearchableSelect
+                id="target-client-select"
+                value={clientId}
+                onChange={(next) => {
+                  setClientId(next);
+                  dismissErrors();
+                }}
+                options={clientOptions}
+                required
+                placeholder="Search clients…"
+                emptyMessage="No matching clients"
+                aria-invalid={!!fieldErrors.target}
+              />
+            </>
+          )}
+          {fieldErrors.target && (
+            <p id="target-error" role="alert" className="text-danger text-sm">
+              {fieldErrors.target}
+            </p>
+          )}
+        </fieldset>
+
+        <FormField label="Quote number" htmlFor="number" required error={fieldErrors.number}>
+          <Input
+            id="number"
+            value={number}
+            onChange={(event) => {
+              setNumber(event.target.value);
+              dismissErrors();
+            }}
+            required
+            aria-invalid={!!fieldErrors.number}
+            aria-describedby={fieldErrors.number ? "number-error" : undefined}
+          />
+        </FormField>
+
+        <FormField label="Title" htmlFor="title" error={fieldErrors.title}>
+          <Input
+            id="title"
+            value={title}
+            onChange={(event) => {
+              setTitle(event.target.value);
+              dismissErrors();
+            }}
+            aria-invalid={!!fieldErrors.title}
+            aria-describedby={fieldErrors.title ? "title-error" : undefined}
+          />
+        </FormField>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <FormField label="Issue date" htmlFor="issueDate" required error={fieldErrors.issueDate}>
+            <Input
+              id="issueDate"
+              type="date"
+              value={issueDate}
               onChange={(event) => {
-                setLeadId(event.target.value);
+                setIssueDate(event.target.value);
                 dismissErrors();
               }}
               required
-              aria-invalid={!!fieldErrors.target}
+              aria-invalid={!!fieldErrors.issueDate}
+              aria-describedby={fieldErrors.issueDate ? "issueDate-error" : undefined}
+            />
+          </FormField>
+
+          <FormField label="Valid until" htmlFor="validUntil" error={fieldErrors.validUntil}>
+            <Input
+              id="validUntil"
+              type="date"
+              value={validUntil}
+              onChange={(event) => {
+                setValidUntil(event.target.value);
+                dismissErrors();
+              }}
+              aria-invalid={!!fieldErrors.validUntil}
+              aria-describedby={fieldErrors.validUntil ? "validUntil-error" : undefined}
+            />
+          </FormField>
+        </div>
+
+        <FormField label="Currency" htmlFor="currency" required error={fieldErrors.currency}>
+          <CurrencySelect
+            id="currency"
+            value={currency}
+            onChange={(next) => {
+              setCurrency(next);
+              dismissErrors();
+            }}
+            supportedCurrencies={currencyOptions}
+            required
+            aria-invalid={!!fieldErrors.currency}
+            aria-describedby={fieldErrors.currency ? "currency-error" : undefined}
+          />
+          {currencyFallbackNotice && <p className="text-warning mt-1 text-sm">{currencyFallbackNotice}</p>}
+        </FormField>
+
+        <div>
+          <FormLabel htmlFor="items-list">Line items</FormLabel>
+          {fieldErrors.items && (
+            <p id="items-error" role="alert" className="text-danger mt-1 text-sm">
+              {fieldErrors.items}
+            </p>
+          )}
+          <div id="items-list" className="mt-2 space-y-3">
+            {items.map((item, index) => (
+              <InvoiceLineItemRow
+                key={index}
+                index={index}
+                value={item}
+                errors={itemErrors[index]}
+                onChange={(next) => updateItem(index, next)}
+                onRemove={() => removeItem(index)}
+                onMoveUp={() => moveItem(index, -1)}
+                onMoveDown={() => moveItem(index, 1)}
+                canMoveUp={index > 0}
+                canMoveDown={index < items.length - 1}
+              />
+            ))}
+          </div>
+          <Button type="button" onClick={addItem} variant="secondary" className="mt-3">
+            Add line
+          </Button>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <FormField label="Discount type" htmlFor="discountType" error={fieldErrors.discountType}>
+            <Select
+              id="discountType"
+              value={discountType}
+              onChange={(event) => {
+                setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED");
+                dismissErrors();
+              }}
+              aria-invalid={!!fieldErrors.discountType}
+              aria-describedby={fieldErrors.discountType ? "discountType-error" : undefined}
             >
-              <option value="" disabled>
-                Select a lead
-              </option>
-              {leads.map((lead) => (
-                <option key={lead.id} value={lead.id}>
-                  {lead.label}
+              {INVOICE_DISCOUNT_TYPES.map((option) => (
+                <option key={option} value={option}>
+                  {option === "NONE" ? "No discount" : option === "PERCENTAGE" ? "Percentage" : "Fixed amount"}
                 </option>
               ))}
             </Select>
-          </>
-        )}
-        {targetType === "client" && (
-          <>
-            <label htmlFor="target-client-select" className="sr-only">
-              Select client
-            </label>
-            <SearchableSelect
-              id="target-client-select"
-              value={clientId}
-              onChange={(next) => {
-                setClientId(next);
-                dismissErrors();
-              }}
-              options={clientOptions}
+          </FormField>
+
+          {discountType !== "NONE" && (
+            <FormField
+              label={discountType === "PERCENTAGE" ? "Discount (%)" : "Discount amount"}
+              htmlFor="discountValue"
               required
-              placeholder="Search clients…"
-              emptyMessage="No matching clients"
-              aria-invalid={!!fieldErrors.target}
-            />
-          </>
-        )}
-        {fieldErrors.target && (
-          <p id="target-error" role="alert" className="text-danger text-sm">
-            {fieldErrors.target}
-          </p>
-        )}
-      </fieldset>
-
-      <FormField label="Quote number" htmlFor="number" required error={fieldErrors.number}>
-        <Input
-          id="number"
-          value={number}
-          onChange={(event) => {
-            setNumber(event.target.value);
-            dismissErrors();
-          }}
-          required
-          aria-invalid={!!fieldErrors.number}
-          aria-describedby={fieldErrors.number ? "number-error" : undefined}
-        />
-      </FormField>
-
-      <FormField label="Title" htmlFor="title" error={fieldErrors.title}>
-        <Input
-          id="title"
-          value={title}
-          onChange={(event) => {
-            setTitle(event.target.value);
-            dismissErrors();
-          }}
-          aria-invalid={!!fieldErrors.title}
-          aria-describedby={fieldErrors.title ? "title-error" : undefined}
-        />
-      </FormField>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <FormField label="Issue date" htmlFor="issueDate" required error={fieldErrors.issueDate}>
-          <Input
-            id="issueDate"
-            type="date"
-            value={issueDate}
-            onChange={(event) => {
-              setIssueDate(event.target.value);
-              dismissErrors();
-            }}
-            required
-            aria-invalid={!!fieldErrors.issueDate}
-            aria-describedby={fieldErrors.issueDate ? "issueDate-error" : undefined}
-          />
-        </FormField>
-
-        <FormField label="Valid until" htmlFor="validUntil" error={fieldErrors.validUntil}>
-          <Input
-            id="validUntil"
-            type="date"
-            value={validUntil}
-            onChange={(event) => {
-              setValidUntil(event.target.value);
-              dismissErrors();
-            }}
-            aria-invalid={!!fieldErrors.validUntil}
-            aria-describedby={fieldErrors.validUntil ? "validUntil-error" : undefined}
-          />
-        </FormField>
-      </div>
-
-      <FormField label="Currency" htmlFor="currency" required error={fieldErrors.currency}>
-        <CurrencySelect
-          id="currency"
-          value={currency}
-          onChange={(next) => {
-            setCurrency(next);
-            dismissErrors();
-          }}
-          supportedCurrencies={currencyOptions}
-          required
-          aria-invalid={!!fieldErrors.currency}
-          aria-describedby={fieldErrors.currency ? "currency-error" : undefined}
-        />
-        {currencyFallbackNotice && <p className="text-warning mt-1 text-sm">{currencyFallbackNotice}</p>}
-      </FormField>
-
-      <div>
-        <FormLabel htmlFor="items-list">Line items</FormLabel>
-        {fieldErrors.items && (
-          <p id="items-error" role="alert" className="text-danger mt-1 text-sm">
-            {fieldErrors.items}
-          </p>
-        )}
-        <div id="items-list" className="mt-2 space-y-3">
-          {items.map((item, index) => (
-            <InvoiceLineItemRow
-              key={index}
-              index={index}
-              value={item}
-              errors={itemErrors[index]}
-              onChange={(next) => updateItem(index, next)}
-              onRemove={() => removeItem(index)}
-              onMoveUp={() => moveItem(index, -1)}
-              onMoveDown={() => moveItem(index, 1)}
-              canMoveUp={index > 0}
-              canMoveDown={index < items.length - 1}
-            />
-          ))}
+              error={fieldErrors.discountValue}
+            >
+              <Input
+                id="discountValue"
+                value={discountValue}
+                onChange={(event) => {
+                  setDiscountValue(event.target.value);
+                  dismissErrors();
+                }}
+                required
+                aria-invalid={!!fieldErrors.discountValue}
+                aria-describedby={fieldErrors.discountValue ? "discountValue-error" : undefined}
+              />
+            </FormField>
+          )}
         </div>
-        <Button type="button" onClick={addItem} variant="secondary" className="mt-3">
-          Add line
-        </Button>
-      </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <FormField label="Discount type" htmlFor="discountType" error={fieldErrors.discountType}>
-          <Select
-            id="discountType"
-            value={discountType}
-            onChange={(event) => {
-              setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED");
-              dismissErrors();
-            }}
-            aria-invalid={!!fieldErrors.discountType}
-            aria-describedby={fieldErrors.discountType ? "discountType-error" : undefined}
-          >
-            {INVOICE_DISCOUNT_TYPES.map((option) => (
-              <option key={option} value={option}>
-                {option === "NONE" ? "No discount" : option === "PERCENTAGE" ? "Percentage" : "Fixed amount"}
-              </option>
-            ))}
-          </Select>
-        </FormField>
-
-        {discountType !== "NONE" && (
-          <FormField
-            label={discountType === "PERCENTAGE" ? "Discount (%)" : "Discount amount"}
-            htmlFor="discountValue"
-            required
-            error={fieldErrors.discountValue}
-          >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <FormField label="Tax rate (%)" htmlFor="taxRatePercent" error={fieldErrors.taxRatePercent}>
             <Input
-              id="discountValue"
-              value={discountValue}
+              id="taxRatePercent"
+              value={taxRatePercent}
               onChange={(event) => {
-                setDiscountValue(event.target.value);
+                setTaxRatePercent(event.target.value);
                 dismissErrors();
               }}
-              required
-              aria-invalid={!!fieldErrors.discountValue}
-              aria-describedby={fieldErrors.discountValue ? "discountValue-error" : undefined}
+              aria-invalid={!!fieldErrors.taxRatePercent}
+              aria-describedby={fieldErrors.taxRatePercent ? "taxRatePercent-error" : undefined}
             />
           </FormField>
-        )}
-      </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <FormField label="Tax rate (%)" htmlFor="taxRatePercent" error={fieldErrors.taxRatePercent}>
-          <Input
-            id="taxRatePercent"
-            value={taxRatePercent}
+          <FormField label="Tax label" htmlFor="taxLabel" error={fieldErrors.taxLabel}>
+            <Select
+              id="taxLabel"
+              value={taxLabel}
+              onChange={(event) => {
+                setTaxLabel(event.target.value as "TAX" | "VAT" | "GST");
+                dismissErrors();
+              }}
+              aria-invalid={!!fieldErrors.taxLabel}
+              aria-describedby={fieldErrors.taxLabel ? "taxLabel-error" : undefined}
+            >
+              {INVOICE_TAX_LABELS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+        </div>
+
+        <div aria-live="polite" className="border-border-default bg-surface-muted rounded-md border px-4 py-3 text-sm">
+          {previewText ? (
+            <span className="text-text-primary font-medium">Total: {previewText}</span>
+          ) : (
+            <span className="text-text-muted">Enter valid line items to see a total preview.</span>
+          )}
+          <p className="text-text-muted mt-1 text-xs">
+            This is a live preview only — the saved total is always recalculated on the server.
+          </p>
+        </div>
+
+        <FormField label="Notes" htmlFor="notes" error={fieldErrors.notes}>
+          <Textarea
+            id="notes"
+            rows={3}
+            value={notes}
             onChange={(event) => {
-              setTaxRatePercent(event.target.value);
+              setNotes(event.target.value);
               dismissErrors();
             }}
-            aria-invalid={!!fieldErrors.taxRatePercent}
-            aria-describedby={fieldErrors.taxRatePercent ? "taxRatePercent-error" : undefined}
+            aria-invalid={!!fieldErrors.notes}
+            aria-describedby={fieldErrors.notes ? "notes-error" : undefined}
           />
         </FormField>
 
-        <FormField label="Tax label" htmlFor="taxLabel" error={fieldErrors.taxLabel}>
-          <Select
-            id="taxLabel"
-            value={taxLabel}
-            onChange={(event) => {
-              setTaxLabel(event.target.value as "TAX" | "VAT" | "GST");
-              dismissErrors();
-            }}
-            aria-invalid={!!fieldErrors.taxLabel}
-            aria-describedby={fieldErrors.taxLabel ? "taxLabel-error" : undefined}
-          >
-            {INVOICE_TAX_LABELS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </Select>
-        </FormField>
-      </div>
+        <div className="flex gap-3 pt-2">
+          <Button type="submit" loading={pending} disabled={pending}>
+            {pending ? pendingLabel : submitLabel}
+          </Button>
+        </div>
+      </form>
 
-      <div aria-live="polite" className="border-border-default bg-surface-muted rounded-md border px-4 py-3 text-sm">
-        {previewText ? (
-          <span className="text-text-primary font-medium">Total: {previewText}</span>
-        ) : (
-          <span className="text-text-muted">Enter valid line items to see a total preview.</span>
-        )}
-        <p className="text-text-muted mt-1 text-xs">
-          This is a live preview only — the saved total is always recalculated on the server.
-        </p>
-      </div>
-
-      <FormField label="Notes" htmlFor="notes" error={fieldErrors.notes}>
-        <Textarea
-          id="notes"
-          rows={3}
-          value={notes}
-          onChange={(event) => {
-            setNotes(event.target.value);
-            dismissErrors();
-          }}
-          aria-invalid={!!fieldErrors.notes}
-          aria-describedby={fieldErrors.notes ? "notes-error" : undefined}
+      <div className="lg:sticky lg:top-6">
+        <QuotePreview
+          quoteNumber={number}
+          issuerDisplayName={companyDisplayName ?? ""}
+          title={title.trim() ? title : null}
+          targetTypeLabel={targetTypeLabel}
+          targetName={targetName}
+          currency={currency}
+          issueDateDisplay={issueDateDisplay}
+          validUntilDisplay={validUntilDisplay}
+          lineItems={previewResult.ok ? previewResult.lineItems : []}
+          result={previewResult}
+          notes={notes.trim() ? notes : null}
         />
-      </FormField>
-
-      <div className="flex gap-3 pt-2">
-        <Button type="submit" loading={pending} disabled={pending}>
-          {pending ? pendingLabel : submitLabel}
-        </Button>
       </div>
-    </form>
+    </div>
   );
 }
