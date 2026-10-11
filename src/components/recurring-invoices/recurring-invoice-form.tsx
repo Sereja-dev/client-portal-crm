@@ -6,7 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { FormField, FormLabel } from "@/components/ui/form-field";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { CurrencySelect } from "@/components/invoices/currency-select";
+import { toClientOptions, toProjectOptions } from "./recurring-invoice-relation-options";
 import { INVOICE_DISCOUNT_TYPES, INVOICE_TAX_LABELS } from "@/lib/validation/invoice";
 import { RECURRENCE_FREQUENCIES, type RecurrenceFrequencyValue } from "@/lib/validation/recurring-invoice";
 import { calculateInvoiceTotals } from "@/lib/invoices/calculations";
@@ -100,6 +102,12 @@ export function RecurringInvoiceForm({
   const [clientId, setClientId] = useState(defaultValues?.clientId ?? "");
   const [projectId, setProjectId] = useState(defaultValues?.projectId ?? "");
   const projectsForClient = projects.filter((project) => project.clientId === clientId);
+  // Forms Improvement Slice A2.2 — pure mappings of the exact same
+  // already-fetched clients/projectsForClient data onto SearchableSelect's
+  // own flat option shape; see recurring-invoice-relation-options.ts's
+  // own header comment for why these stay local to this form.
+  const clientOptions = toClientOptions(clients);
+  const projectOptions = toProjectOptions(projectsForClient);
 
   function handleClientChange(nextClientId: string) {
     setClientId(nextClientId);
@@ -182,46 +190,36 @@ export function RecurringInvoiceForm({
       </FormField>
 
       <FormField label="Client" htmlFor="clientId" required error={fieldErrors.clientId}>
-        <Select
+        <SearchableSelect
           id="clientId"
           name="clientId"
           value={clientId}
-          onChange={(event) => handleClientChange(event.target.value)}
+          onChange={handleClientChange}
+          options={clientOptions}
           required
+          placeholder="Search clients…"
+          emptyMessage="No matching clients"
           aria-invalid={!!fieldErrors.clientId}
           aria-describedby={fieldErrors.clientId ? "clientId-error" : undefined}
-        >
-          <option value="" disabled>
-            Select a client
-          </option>
-          {clients.map((client) => (
-            <option key={client.id} value={client.id}>
-              {client.name}
-            </option>
-          ))}
-        </Select>
+        />
       </FormField>
 
       <FormField label="Project" htmlFor="projectId" error={fieldErrors.projectId}>
-        <Select
+        <SearchableSelect
           id="projectId"
           name="projectId"
           value={projectId}
-          onChange={(event) => {
-            setProjectId(event.target.value);
+          onChange={(next) => {
+            setProjectId(next);
             dismissCurrentErrors();
           }}
+          options={projectOptions}
           disabled={!clientId}
+          placeholder="Search projects…"
+          emptyMessage="No matching projects"
           aria-invalid={!!fieldErrors.projectId}
           aria-describedby={fieldErrors.projectId ? "projectId-error" : undefined}
-        >
-          <option value="">No project</option>
-          {projectsForClient.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.label}
-            </option>
-          ))}
-        </Select>
+        />
       </FormField>
 
       {mode === "create" && (
