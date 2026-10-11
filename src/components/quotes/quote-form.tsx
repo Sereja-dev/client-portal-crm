@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { FormField, FormLabel } from "@/components/ui/form-field";
 import { InvoiceLineItemRow } from "@/components/invoices/invoice-line-item-row";
+import { CurrencySelect } from "@/components/invoices/currency-select";
 import { useToast } from "@/components/toast/toast-provider";
 import { withToast } from "@/lib/toast-url";
 import { INVOICE_DISCOUNT_TYPES, INVOICE_TAX_LABELS } from "@/lib/validation/invoice";
@@ -394,23 +395,18 @@ export function QuoteForm({
       </div>
 
       <FormField label="Currency" htmlFor="currency" required error={fieldErrors.currency}>
-        <Select
+        <CurrencySelect
           id="currency"
           value={currency}
-          onChange={(event) => {
-            setCurrency(event.target.value);
+          onChange={(next) => {
+            setCurrency(next);
             dismissErrors();
           }}
+          supportedCurrencies={currencyOptions}
           required
           aria-invalid={!!fieldErrors.currency}
           aria-describedby={fieldErrors.currency ? "currency-error" : undefined}
-        >
-          {currencyOptions.map((code) => (
-            <option key={code} value={code}>
-              {code}
-            </option>
-          ))}
-        </Select>
+        />
         {currencyFallbackNotice && <p className="text-warning mt-1 text-sm">{currencyFallbackNotice}</p>}
       </FormField>
 

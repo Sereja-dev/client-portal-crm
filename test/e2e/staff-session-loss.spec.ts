@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
+import { selectCurrencyOption } from "../support/select-currency-option";
 
 /**
  * Staff session-loss UX fix. Communication Timeline's own Production
@@ -135,7 +136,7 @@ test.describe("Staff session-loss UX", () => {
     // submission before the Server Action (and its session check) ever runs.
     await page.getByLabel("Display / company name").fill("Session Loss Co");
     await page.getByLabel("Legal company name").fill("Session Loss Co LLC");
-    await page.getByLabel("Currency").selectOption("USD");
+    await selectCurrencyOption(page, "Currency", "USD");
     await page.getByLabel("Time zone").selectOption({ index: 1 });
     await page.getByLabel("Country").fill("US");
     await page.getByRole("button", { name: "Save company profile" }).click();

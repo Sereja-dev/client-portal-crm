@@ -5,6 +5,7 @@ import { updateCompanyProfileAction } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { CurrencySelect } from "@/components/invoices/currency-select";
 import { FormField } from "@/components/ui/form-field";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { callActionWithStaleRecovery } from "@/lib/action-error";
@@ -99,58 +100,39 @@ export function CompanyProfileForm({
 
         <FormField label="Currency" htmlFor="currency" required error={state.fieldErrors?.currency}>
           {/*
-            Company Profile Timezone Persistence Diagnostic — keyed on
-            fieldDefault(...), not the surrounding form and not bare
-            `profile.currency` alone. Traced root cause: this app's
-            Server Actions run through React 19's built-in "reset
-            uncontrolled fields after a successful form action" behavior
-            (react-dom internally calls the native form element's own
-            reset() once useActionState's action settles). A plain text
-            Input stays correct after that reset because React's own
-            update path re-syncs its underlying defaultValue DOM property
-            on every render (confirmed directly in node_modules/
-            react-dom's updateInput/setDefaultValue). This Select's own
-            child option elements' selected/defaultSelected state is NOT
-            re-synced on an ordinary prop update (confirmed in the same
-            source: the select branch of the update-props path only
-            re-runs updateOptions() when `multiple` itself changes) -- it
-            is set once, at the very first mount, and never again. So
-            after ANY later action settlement -- a successful save OR a
-            rejected one -- the native reset snaps this control back to
-            whichever option was selected at this component's own last
-            mount, unless something forces a fresh mount with the
-            correct value as ITS OWN new default first.
-            `key={fieldDefault(...)}` does exactly that: after a
-            successful save it equals the freshly persisted `profile`
-            value (identical to this fix's own originally-reviewed
-            behavior, since `state.values` is deliberately absent then);
-            after a REJECTED save (Company Profile Failed-Validation Form
-            State Preservation) it instead equals whatever the user just
-            submitted for this field, so a validation error on some OTHER
-            field never silently reverts an already-changed, valid
-            currency/timezone choice back to its last-persisted value.
-            Either way this remounts just this one control, never the
-            whole form (which would also discard useActionState's own
-            in-flight success/error message), and never converts this
-            field to a controlled input.
+            Company Profile Timezone Persistence Diagnostic — still keyed
+            on fieldDefault(...), not the surrounding form and not bare
+            `profile.currency` alone, after Forms Improvement Slice A1
+            replaced the native select element here with CurrencySelect
+            (uncontrolled mode: `defaultValue` + its own internal state,
+            the same calling convention this field already used). The
+            original defect this `key` fixed was native-select-element-
+            specific (react-dom's own update-props path only re-runs
+            updateOptions() when `multiple` changes, so a plain prop
+            update never re-selects the right option after React 19's
+            post-action native form.reset() — see the full original
+            analysis in git history for this file). CurrencySelect is not
+            a native select element and doesn't carry that specific bug, but
+            the SEPARATE requirement the `key` also serves still applies
+            to any uncontrolled field here: after a REJECTED save, a
+            validation error on some OTHER field must never silently
+            revert an already-changed, valid currency choice back to its
+            last-persisted value. `key={fieldDefault(...)}` remains the
+            mechanism for that — it forces a fresh mount (and therefore a
+            fresh internal-state seed) exactly when the effective default
+            changes, never the whole form (which would also discard
+            useActionState's own in-flight success/error message), and
+            CurrencySelect still never becomes a controlled input here.
           */}
-          <Select
+          <CurrencySelect
             key={fieldDefault(state.values?.currency, profile.currency)}
             id="currency"
             name="currency"
             defaultValue={fieldDefault(state.values?.currency, profile.currency)}
+            supportedCurrencies={currencies}
             aria-invalid={!!state.fieldErrors?.currency}
             required
-          >
-            <option value="" disabled>
-              Select a currency
-            </option>
-            {currencies.map((code) => (
-              <option key={code} value={code}>
-                {code}
-              </option>
-            ))}
-          </Select>
+          />
         </FormField>
 
         <FormField label="Time zone" htmlFor="timezone" required error={state.fieldErrors?.timezone}>

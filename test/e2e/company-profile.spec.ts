@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
+import { selectCurrencyOption } from "../support/select-currency-option";
 
 /**
  * Company Profile Timezone Persistence Diagnostic — real-browser
@@ -127,7 +128,7 @@ test.describe("Company Profile — timezone persistence diagnostic", () => {
     // fourth (Brand color) so the whole submission is rejected.
     await page.getByLabel("Legal company name").fill("New Name");
     await page.getByLabel("Time zone").selectOption("Asia/Bangkok");
-    await page.getByLabel("Currency").selectOption("EUR");
+    await selectCurrencyOption(page, "Currency", "EUR");
     await page.getByLabel("Brand color").fill("not-a-color");
 
     await Promise.all([

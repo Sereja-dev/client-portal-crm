@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext, type Locator } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
+import { selectCurrencyOption } from "../support/select-currency-option";
 
 /**
  * Customer Setup Wizard (Stage 6.2). Same session-injection pattern as
@@ -86,7 +87,7 @@ test.describe("Company Profile", () => {
 
     await page.getByLabel("Legal company name").fill("E2E Test Org LLC");
     await page.getByLabel("Country").fill("United States");
-    await page.getByLabel("Currency").selectOption("USD");
+    await selectCurrencyOption(page, "Currency", "USD");
     await page.getByLabel("Time zone").selectOption("America/New_York");
     await Promise.all([
       page.waitForResponse((r) => r.url().includes("/settings/company") && r.request().method() === "POST"),
@@ -130,7 +131,7 @@ test.describe("Company Profile", () => {
 
       await page.getByLabel("Legal company name").fill("E2E Identity Org LLC");
       await page.getByLabel("Country").fill("United States");
-      await page.getByLabel("Currency").selectOption("USD");
+      await selectCurrencyOption(page, "Currency", "USD");
       await page.getByLabel("Time zone").selectOption("America/New_York");
       await page.getByLabel("Support email").fill("support@e2e-identity.example.com");
       await page.getByLabel("Website").fill("https://e2e-identity.example.com");
@@ -170,7 +171,7 @@ test.describe("Company Profile", () => {
 
       await page.getByLabel("Legal company name").fill("E2E Invalid Field Org LLC");
       await page.getByLabel("Country").fill("United States");
-      await page.getByLabel("Currency").selectOption("USD");
+      await selectCurrencyOption(page, "Currency", "USD");
       await page.getByLabel("Time zone").selectOption("America/New_York");
       await page.getByLabel("Website").fill("http://not-https.example.com");
 
@@ -188,7 +189,7 @@ test.describe("Company Profile", () => {
       await page.goto("/settings/company");
       await page.getByLabel("Legal company name").fill("E2E Member View Org LLC");
       await page.getByLabel("Country").fill("United States");
-      await page.getByLabel("Currency").selectOption("USD");
+      await selectCurrencyOption(page, "Currency", "USD");
       await page.getByLabel("Time zone").selectOption("America/New_York");
       await page.getByLabel("Support email").fill("support@e2e-member-view.example.com");
       await Promise.all([
@@ -222,7 +223,7 @@ test.describe("Company Profile", () => {
       await page.goto("/settings/company");
       await page.getByLabel("Legal company name").fill(LONG_LEGAL_NAME);
       await page.getByLabel("Country").fill("United States");
-      await page.getByLabel("Currency").selectOption("USD");
+      await selectCurrencyOption(page, "Currency", "USD");
       await page.getByLabel("Time zone").selectOption("America/New_York");
       await Promise.all([
         page.waitForResponse((r) => r.url().includes("/settings/company") && r.request().method() === "POST"),

@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { FormField, FormLabel } from "@/components/ui/form-field";
+import { CurrencySelect } from "@/components/invoices/currency-select";
 import { INVOICE_DISCOUNT_TYPES, INVOICE_TAX_LABELS } from "@/lib/validation/invoice";
 import { RECURRENCE_FREQUENCIES, type RecurrenceFrequencyValue } from "@/lib/validation/recurring-invoice";
 import { calculateInvoiceTotals } from "@/lib/invoices/calculations";
@@ -364,24 +365,19 @@ export function RecurringInvoiceForm({
       </div>
 
       <FormField label="Currency" htmlFor="currency" required error={fieldErrors.currency}>
-        <Select
+        <CurrencySelect
           id="currency"
           name="currency"
           value={currency}
-          onChange={(event) => {
-            setCurrency(event.target.value);
+          onChange={(next) => {
+            setCurrency(next);
             dismissCurrentErrors();
           }}
+          supportedCurrencies={currencyOptions}
           required
           aria-invalid={!!fieldErrors.currency}
           aria-describedby={fieldErrors.currency ? "currency-error" : undefined}
-        >
-          {currencyOptions.map((code) => (
-            <option key={code} value={code}>
-              {code}
-            </option>
-          ))}
-        </Select>
+        />
       </FormField>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">

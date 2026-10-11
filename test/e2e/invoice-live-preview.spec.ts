@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
+import { selectCurrencyOption } from "../support/select-currency-option";
 
 /**
  * Invoice Live Preview V1 — the new document-style live preview panel
@@ -88,7 +89,7 @@ test.describe("Invoice Live Preview V1", () => {
     const advancedSummary = page.getByText("Advanced options (currency, discount, tax, notes)");
     await advancedSummary.click();
 
-    await page.getByLabel("Currency").selectOption("AED");
+    await selectCurrencyOption(page, "Currency", "AED");
     await expect(preview.getByText("AED", { exact: true })).toBeVisible();
 
     await page.getByLabel("Discount type").selectOption("PERCENTAGE");

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { test, expect, type BrowserContext } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
+import { selectCurrencyOption } from "../support/select-currency-option";
 
 /**
  * Dashboard-navigation hardening (post-audit). Covers the concrete
@@ -124,7 +125,7 @@ test.describe("Dashboard navigation hardening", () => {
     await page.goto("/settings/company");
     await page.getByLabel("Display / company name").fill("Hardening Co");
     await page.getByLabel("Legal company name").fill("Hardening Co LLC");
-    await page.getByLabel("Currency").selectOption("USD");
+    await selectCurrencyOption(page, "Currency", "USD");
     await page.getByLabel("Time zone").selectOption({ index: 1 });
     await page.getByLabel("Country").fill("US");
     await page.getByRole("button", { name: "Save company profile" }).click();
