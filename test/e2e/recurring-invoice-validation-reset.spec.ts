@@ -105,6 +105,11 @@ test.describe("Recurring Invoice — validation-error field persistence", () => 
     await row1.getByLabel("Qty").fill("1");
     await row1.getByLabel("Unit price").fill("50.00");
 
+    // Forms Improvement Slice B1 — Tax label/Notes/Internal notes/Tax
+    // rate now live behind the "Advanced options" disclosure, closed by
+    // default on a clean create form; open it before interacting with
+    // any field inside.
+    await page.getByText("Advanced options (discount, tax, notes)").click();
     await page.getByLabel("Tax label").selectOption("VAT");
     await page.getByLabel("Notes", { exact: true }).fill("Public note — thanks for your business.");
     await page.getByLabel("Internal notes").fill("Unsaved changed internal note");
@@ -247,6 +252,9 @@ test.describe("Recurring Invoice — validation-error field persistence", () => 
     await row1.getByLabel("Unit price").fill("50.00");
 
     await page.getByLabel("Frequency").selectOption("WEEKLY");
+    // Forms Improvement Slice B1 — Discount type/Tax rate now live
+    // behind the "Advanced options" disclosure, closed by default here.
+    await page.getByText("Advanced options (discount, tax, notes)").click();
     await page.getByLabel("Discount type").selectOption("FIXED");
     await page.getByLabel("Discount amount").fill("5.00");
 
@@ -287,7 +295,10 @@ test.describe("Recurring Invoice — validation-error field persistence", () => 
     await row1.getByLabel("Qty").fill("1");
     await row1.getByLabel("Unit price").fill("50.00");
 
-    // Set a discount, then trigger an unrelated error.
+    // Set a discount, then trigger an unrelated error. Forms Improvement
+    // Slice B1 — Discount type/Tax rate now live behind the "Advanced
+    // options" disclosure, closed by default here.
+    await page.getByText("Advanced options (discount, tax, notes)").click();
     await page.getByLabel("Discount type").selectOption("FIXED");
     await page.getByLabel("Discount amount").fill("5.00");
     await page.getByLabel("Tax rate (%)").fill("150");
@@ -353,6 +364,10 @@ test.describe("Recurring Invoice — validation-error field persistence", () => 
 
     // SearchableSelect (Currency).
     await selectSearchableOption(page, "Currency", "EUR", "EUR");
+    // Forms Improvement Slice B1 — Discount type/Tax label/Notes/
+    // Internal notes now live behind the "Advanced options" disclosure,
+    // closed by default here.
+    await page.getByText("Advanced options (discount, tax, notes)").click();
     // native <select> + its conditional dependent field.
     await page.getByLabel("Discount type").selectOption("PERCENTAGE");
     await page.getByLabel("Discount (%)").fill("10");
@@ -406,6 +421,10 @@ test.describe("Recurring Invoice — validation-error field persistence", () => 
     await row1.getByLabel("Qty").fill("1");
     await row1.getByLabel("Unit price").fill("50.00");
 
+    // Forms Improvement Slice B1 — Tax label/Notes/Internal notes now
+    // live behind the "Advanced options" disclosure, closed by default
+    // here.
+    await page.getByText("Advanced options (discount, tax, notes)").click();
     await page.getByLabel("Tax label").selectOption("VAT");
     await page.getByLabel("Notes", { exact: true }).fill("Submitted public note");
     await page.getByLabel("Internal notes").fill("Submitted internal note");
@@ -440,6 +459,9 @@ test.describe("Recurring Invoice — validation-error field persistence", () => 
 
     await selectSearchableOption(page, "Client", fixtures.clientA.name, fixtures.clientA.name);
     await page.getByLabel("Name").fill("Mobile name");
+    // Forms Improvement Slice B1 — Notes/Internal notes now live behind
+    // the "Advanced options" disclosure, closed by default here.
+    await page.getByText("Advanced options (discount, tax, notes)").click();
     await page.getByLabel("Notes", { exact: true }).fill("Mobile note");
     await page.getByLabel("Internal notes").fill("Mobile internal note");
 

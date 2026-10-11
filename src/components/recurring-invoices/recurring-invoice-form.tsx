@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { FormField, FormLabel } from "@/components/ui/form-field";
+import { ChevronDownIcon } from "@/components/ui/icons";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { CurrencySelect } from "@/components/invoices/currency-select";
 import { toClientOptions, toProjectOptions } from "./recurring-invoice-relation-options";
@@ -68,6 +69,17 @@ type RecurringInvoiceFormDefaults = {
  * anchorDay are set once, at creation, never touched by an edit). anchorDay
  * itself is NEVER an input anywhere in this form, in either mode — it is
  * always derived server-side from firstIssueDate via deriveAnchorDay().
+ *
+ * Forms Improvement Slice B1 — four always-visible sections (plain
+ * <fieldset>/<legend> grouping, the same primitive company-profile-form.tsx's
+ * own Business/Contact/Address/Tax/Branding sections already use — no new
+ * design-system component) plus one progressive-disclosure "Advanced
+ * options" block at the end, mirroring InvoiceForm's own identical
+ * pattern. Currency deliberately stays OUTSIDE Advanced here (unlike
+ * InvoiceForm, where it lives inside Advanced) — Currency governs every
+ * amount on the page (line items, totals, discount), so hiding it behind
+ * a disclosure the user might never open would hide a decision that
+ * affects everything else they're entering.
  */
 export function RecurringInvoiceForm({
   mode,
@@ -170,6 +182,10 @@ export function RecurringInvoiceForm({
   // after every settlement, from one small shared helper. Each call
   // safely no-ops when that particular `<select>` isn't currently
   // rendered — `frequency` only exists in `mode === "create"`.
+  // `document.getElementById` still finds `discountType`/`taxLabel`
+  // even while the Advanced <details> below is collapsed (a closed
+  // native <details> never unmounts its content, only hides it), so
+  // this effect works identically regardless of the disclosure's state.
   // Deliberately not reaching for a `ref` on the shared `Select`
   // primitive (it isn't `forwardRef`-wrapped, and widening that shared
   // component is outside this fix's own narrow, Recurring-Invoice-only
@@ -185,6 +201,50 @@ export function RecurringInvoiceForm({
     applySelectValue("discountType", discountType);
     applySelectValue("taxLabel", taxLabel);
   }, [state, frequency, discountType, taxLabel]);
+
+  // Forms Improvement Slice B1 — "Advanced options" disclosure (Discount/
+  // Tax/Notes/Internal notes only — Currency deliberately stays outside
+  // Advanced in this form; see this component's own module doc for why).
+  // Opens automatically the first time it's relevant — any non-default
+  // persisted discount/tax/notes/internal-notes value — and is otherwise
+  // a normal user-controlled disclosure from there (onToggle below keeps
+  // this state in sync with the native element, so a manual open/close
+  // is never overridden by a later render). Deterministic from
+  // `defaultValues` alone — never from anything browser-only — so the
+  // initial server-rendered markup and the first client render agree
+  // (no hydration mismatch).
+  const [advancedOpen, setAdvancedOpen] = useState(
+    () =>
+      (defaultValues?.discountType ?? "NONE") !== "NONE" ||
+      Boolean(defaultValues?.taxRatePercent) ||
+      Boolean(defaultValues?.notes) ||
+      Boolean(defaultValues?.internalNotes),
+  );
+
+  // Auto-reveal the disclosure if a fresh server-side error lands on one
+  // of the fields it hides — an error must never be invisible. Adjusted
+  // directly during render (React's own sanctioned alternative to an
+  // effect for "derive state from the latest render's own inputs" —
+  // https://react.dev/learn/you-might-not-need-an-effect), not inside a
+  // useEffect: the guard (`&& !advancedOpen`) makes this a single,
+  // self-limiting extra render pass rather than a loop, and this only
+  // ever opens the disclosure — it never closes one the user opened or
+  // left open themselves, since the condition simply stops matching once
+  // advancedOpen is already true. Mirrors InvoiceForm's own identical
+  // pattern exactly.
+  const hasAdvancedError =
+    errorsVisible &&
+    Boolean(
+      fieldErrors.discountType ||
+        fieldErrors.discountValue ||
+        fieldErrors.taxRatePercent ||
+        fieldErrors.taxLabel ||
+        fieldErrors.notes ||
+        fieldErrors.internalNotes,
+    );
+  if (hasAdvancedError && !advancedOpen) {
+    setAdvancedOpen(true);
+  }
 
   const [lineItems, setLineItems] = useState<InvoiceLineItemFormValue[]>(
     defaultValues?.lineItems && defaultValues.lineItems.length > 0 ? defaultValues.lineItems : [BLANK_LINE_ITEM],
@@ -232,336 +292,363 @@ export function RecurringInvoiceForm({
       : null;
 
   return (
-    <form action={formAction} className="space-y-4">
+    <form action={formAction} className="space-y-8">
       <input type="hidden" name="lineItems" value={encodeInvoiceLineItemsFormValue(lineItems)} readOnly />
 
-      <FormField label="Name" htmlFor="name" error={fieldErrors.name}>
-        <Input
-          id="name"
-          name="name"
-          value={name}
-          placeholder="e.g. Monthly retainer — Acme Co"
-          onChange={(event) => {
-            setName(event.target.value);
-            dismissCurrentErrors();
-          }}
-          aria-invalid={!!fieldErrors.name}
-          aria-describedby={fieldErrors.name ? "name-error" : undefined}
-        />
-      </FormField>
+      <fieldset className="space-y-4">
+        <legend className="text-text-primary text-base font-semibold">Schedule</legend>
 
-      <FormField label="Client" htmlFor="clientId" required error={fieldErrors.clientId}>
-        <SearchableSelect
-          id="clientId"
-          name="clientId"
-          value={clientId}
-          onChange={handleClientChange}
-          options={clientOptions}
-          required
-          placeholder="Search clients…"
-          emptyMessage="No matching clients"
-          aria-invalid={!!fieldErrors.clientId}
-          aria-describedby={fieldErrors.clientId ? "clientId-error" : undefined}
-        />
-      </FormField>
-
-      <FormField label="Project" htmlFor="projectId" error={fieldErrors.projectId}>
-        <SearchableSelect
-          id="projectId"
-          name="projectId"
-          value={projectId}
-          onChange={(next) => {
-            setProjectId(next);
-            dismissCurrentErrors();
-          }}
-          options={projectOptions}
-          disabled={!clientId}
-          placeholder="Search projects…"
-          emptyMessage="No matching projects"
-          aria-invalid={!!fieldErrors.projectId}
-          aria-describedby={fieldErrors.projectId ? "projectId-error" : undefined}
-        />
-      </FormField>
-
-      {mode === "create" && (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <FormField label="Frequency" htmlFor="frequency" required error={fieldErrors.frequency}>
-            <Select
-              id="frequency"
-              name="frequency"
-              value={frequency}
-              onChange={(event) => {
-                setFrequency(event.target.value as RecurrenceFrequencyValue);
-                dismissCurrentErrors();
-              }}
-              required
-              aria-invalid={!!fieldErrors.frequency}
-              aria-describedby={fieldErrors.frequency ? "frequency-error" : undefined}
-            >
-              {RECURRENCE_FREQUENCIES.map((value) => (
-                <option key={value} value={value}>
-                  {FREQUENCY_LABELS[value]}
-                </option>
-              ))}
-            </Select>
-            {frequency !== "WEEKLY" && (
-              <p className="text-text-muted mt-1 text-xs">
-                Month-end schedules automatically use the last valid day in shorter months.
-              </p>
-            )}
-          </FormField>
-
-          <FormField label="First issue date" htmlFor="firstIssueDate" required error={fieldErrors.firstIssueDate}>
-            <Input
-              id="firstIssueDate"
-              name="firstIssueDate"
-              type="date"
-              value={firstIssueDate}
-              required
-              onChange={(event) => {
-                setFirstIssueDate(event.target.value);
-                dismissCurrentErrors();
-              }}
-              aria-invalid={!!fieldErrors.firstIssueDate}
-              aria-describedby={fieldErrors.firstIssueDate ? "firstIssueDate-error" : undefined}
-            />
-          </FormField>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <FormField label="Invoice number prefix" htmlFor="invoiceNumberPrefix" required error={fieldErrors.invoiceNumberPrefix}>
+        <FormField label="Name" htmlFor="name" error={fieldErrors.name}>
           <Input
-            id="invoiceNumberPrefix"
-            name="invoiceNumberPrefix"
-            value={invoiceNumberPrefix}
+            id="name"
+            name="name"
+            value={name}
+            placeholder="e.g. Monthly retainer — Acme Co"
             onChange={(event) => {
-              setInvoiceNumberPrefix(event.target.value);
+              setName(event.target.value);
               dismissCurrentErrors();
             }}
-            placeholder="INV-"
+            aria-invalid={!!fieldErrors.name}
+            aria-describedby={fieldErrors.name ? "name-error" : undefined}
+          />
+        </FormField>
+
+        <FormField label="Client" htmlFor="clientId" required error={fieldErrors.clientId}>
+          <SearchableSelect
+            id="clientId"
+            name="clientId"
+            value={clientId}
+            onChange={handleClientChange}
+            options={clientOptions}
             required
-            aria-invalid={!!fieldErrors.invoiceNumberPrefix}
-            aria-describedby={fieldErrors.invoiceNumberPrefix ? "invoiceNumberPrefix-error" : undefined}
+            placeholder="Search clients…"
+            emptyMessage="No matching clients"
+            aria-invalid={!!fieldErrors.clientId}
+            aria-describedby={fieldErrors.clientId ? "clientId-error" : undefined}
+          />
+        </FormField>
+
+        <FormField label="Project" htmlFor="projectId" error={fieldErrors.projectId}>
+          <SearchableSelect
+            id="projectId"
+            name="projectId"
+            value={projectId}
+            onChange={(next) => {
+              setProjectId(next);
+              dismissCurrentErrors();
+            }}
+            options={projectOptions}
+            disabled={!clientId}
+            placeholder="Search projects…"
+            emptyMessage="No matching projects"
+            aria-invalid={!!fieldErrors.projectId}
+            aria-describedby={fieldErrors.projectId ? "projectId-error" : undefined}
           />
         </FormField>
 
         {mode === "create" && (
-          <FormField label="Starting number" htmlFor="startingSequence" error={fieldErrors.startingSequence}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FormField label="Frequency" htmlFor="frequency" required error={fieldErrors.frequency}>
+              <Select
+                id="frequency"
+                name="frequency"
+                value={frequency}
+                onChange={(event) => {
+                  setFrequency(event.target.value as RecurrenceFrequencyValue);
+                  dismissCurrentErrors();
+                }}
+                required
+                aria-invalid={!!fieldErrors.frequency}
+                aria-describedby={fieldErrors.frequency ? "frequency-error" : undefined}
+              >
+                {RECURRENCE_FREQUENCIES.map((value) => (
+                  <option key={value} value={value}>
+                    {FREQUENCY_LABELS[value]}
+                  </option>
+                ))}
+              </Select>
+              {frequency !== "WEEKLY" && (
+                <p className="text-text-muted mt-1 text-xs">
+                  Month-end schedules automatically use the last valid day in shorter months.
+                </p>
+              )}
+            </FormField>
+
+            <FormField label="First issue date" htmlFor="firstIssueDate" required error={fieldErrors.firstIssueDate}>
+              <Input
+                id="firstIssueDate"
+                name="firstIssueDate"
+                type="date"
+                value={firstIssueDate}
+                required
+                onChange={(event) => {
+                  setFirstIssueDate(event.target.value);
+                  dismissCurrentErrors();
+                }}
+                aria-invalid={!!fieldErrors.firstIssueDate}
+                aria-describedby={fieldErrors.firstIssueDate ? "firstIssueDate-error" : undefined}
+              />
+            </FormField>
+          </div>
+        )}
+      </fieldset>
+
+      <fieldset className="space-y-4">
+        <legend className="text-text-primary text-base font-semibold">Invoice numbering &amp; due date</legend>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <FormField label="Invoice number prefix" htmlFor="invoiceNumberPrefix" required error={fieldErrors.invoiceNumberPrefix}>
             <Input
-              id="startingSequence"
-              name="startingSequence"
-              type="number"
-              min={1}
-              step={1}
-              value={startingSequence}
+              id="invoiceNumberPrefix"
+              name="invoiceNumberPrefix"
+              value={invoiceNumberPrefix}
               onChange={(event) => {
-                setStartingSequence(event.target.value);
+                setInvoiceNumberPrefix(event.target.value);
                 dismissCurrentErrors();
               }}
-              aria-invalid={!!fieldErrors.startingSequence}
-              aria-describedby={fieldErrors.startingSequence ? "startingSequence-error" : undefined}
-            />
-          </FormField>
-        )}
-      </div>
-
-      <div aria-live="polite" className="border-border-default bg-surface-muted rounded-md border px-4 py-3 text-sm">
-        {numberPreview ? (
-          <span className="text-text-primary font-medium">Next invoice: {numberPreview}</span>
-        ) : (
-          <span className="text-text-muted">Enter a prefix to see the next invoice number.</span>
-        )}
-      </div>
-
-      <FormField label="Due date offset (days)" htmlFor="dueDateOffsetDays" error={fieldErrors.dueDateOffsetDays}>
-        <Input
-          id="dueDateOffsetDays"
-          name="dueDateOffsetDays"
-          type="number"
-          min={0}
-          step={1}
-          value={dueDateOffsetDays}
-          onChange={(event) => {
-            setDueDateOffsetDays(event.target.value);
-            dismissCurrentErrors();
-          }}
-          aria-invalid={!!fieldErrors.dueDateOffsetDays}
-          aria-describedby={fieldErrors.dueDateOffsetDays ? "dueDateOffsetDays-error" : undefined}
-        />
-        <p className="text-text-muted mt-1 text-xs">
-          Each generated invoice&rsquo;s due date is this many days after its issue date. Leave blank for no due date.
-        </p>
-      </FormField>
-
-      <div>
-        <FormLabel htmlFor="lineItems-list">Line items</FormLabel>
-        {fieldErrors.lineItems && (
-          <p id="lineItems-error" role="alert" className="text-danger mt-1 text-sm">
-            {fieldErrors.lineItems}
-          </p>
-        )}
-        <div id="lineItems-list" className="mt-2 space-y-3">
-          {lineItems.map((item, index) => (
-            <InvoiceLineItemRow
-              key={index}
-              index={index}
-              value={item}
-              onChange={(next) => updateLineItem(index, next)}
-              onRemove={() => removeLineItem(index)}
-              onMoveUp={() => moveLineItem(index, -1)}
-              onMoveDown={() => moveLineItem(index, 1)}
-              canMoveUp={index > 0}
-              canMoveDown={index < lineItems.length - 1}
-            />
-          ))}
-        </div>
-        <Button type="button" onClick={addLineItem} variant="secondary" className="mt-3">
-          Add line
-        </Button>
-      </div>
-
-      <div aria-live="polite" className="border-border-default bg-surface-muted rounded-md border px-4 py-3 text-sm">
-        {previewText ? (
-          <span className="text-text-primary font-medium">Total per invoice: {previewText}</span>
-        ) : (
-          <span className="text-text-muted">Enter valid line items to see a total preview.</span>
-        )}
-      </div>
-
-      <FormField label="Currency" htmlFor="currency" required error={fieldErrors.currency}>
-        <CurrencySelect
-          id="currency"
-          name="currency"
-          value={currency}
-          onChange={(next) => {
-            setCurrency(next);
-            dismissCurrentErrors();
-          }}
-          supportedCurrencies={currencyOptions}
-          required
-          aria-invalid={!!fieldErrors.currency}
-          aria-describedby={fieldErrors.currency ? "currency-error" : undefined}
-        />
-      </FormField>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <FormField label="Discount type" htmlFor="discountType" error={fieldErrors.discountType}>
-          <Select
-            id="discountType"
-            name="discountType"
-            value={discountType}
-            onChange={(event) => {
-              setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED");
-              dismissCurrentErrors();
-            }}
-            aria-invalid={!!fieldErrors.discountType}
-            aria-describedby={fieldErrors.discountType ? "discountType-error" : undefined}
-          >
-            {INVOICE_DISCOUNT_TYPES.map((option) => (
-              <option key={option} value={option}>
-                {option === "NONE" ? "No discount" : option === "PERCENTAGE" ? "Percentage" : "Fixed amount"}
-              </option>
-            ))}
-          </Select>
-        </FormField>
-
-        {discountType !== "NONE" && (
-          <FormField
-            label={discountType === "PERCENTAGE" ? "Discount (%)" : "Discount amount"}
-            htmlFor="discountValue"
-            required
-            error={fieldErrors.discountValue}
-          >
-            <Input
-              id="discountValue"
-              name="discountValue"
-              value={discountValue}
-              onChange={(event) => {
-                setDiscountValue(event.target.value);
-                dismissCurrentErrors();
-              }}
+              placeholder="INV-"
               required
-              aria-invalid={!!fieldErrors.discountValue}
-              aria-describedby={fieldErrors.discountValue ? "discountValue-error" : undefined}
+              aria-invalid={!!fieldErrors.invoiceNumberPrefix}
+              aria-describedby={fieldErrors.invoiceNumberPrefix ? "invoiceNumberPrefix-error" : undefined}
             />
           </FormField>
-        )}
-      </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <FormField label="Tax rate (%)" htmlFor="taxRatePercent" error={fieldErrors.taxRatePercent}>
+          {mode === "create" && (
+            <FormField label="Starting number" htmlFor="startingSequence" error={fieldErrors.startingSequence}>
+              <Input
+                id="startingSequence"
+                name="startingSequence"
+                type="number"
+                min={1}
+                step={1}
+                value={startingSequence}
+                onChange={(event) => {
+                  setStartingSequence(event.target.value);
+                  dismissCurrentErrors();
+                }}
+                aria-invalid={!!fieldErrors.startingSequence}
+                aria-describedby={fieldErrors.startingSequence ? "startingSequence-error" : undefined}
+              />
+            </FormField>
+          )}
+        </div>
+
+        <div aria-live="polite" className="border-border-default bg-surface-muted rounded-md border px-4 py-3 text-sm">
+          {numberPreview ? (
+            <span className="text-text-primary font-medium">Next invoice: {numberPreview}</span>
+          ) : (
+            <span className="text-text-muted">Enter a prefix to see the next invoice number.</span>
+          )}
+        </div>
+
+        <FormField label="Due date offset (days)" htmlFor="dueDateOffsetDays" error={fieldErrors.dueDateOffsetDays}>
           <Input
-            id="taxRatePercent"
-            name="taxRatePercent"
-            value={taxRatePercent}
+            id="dueDateOffsetDays"
+            name="dueDateOffsetDays"
+            type="number"
+            min={0}
+            step={1}
+            value={dueDateOffsetDays}
             onChange={(event) => {
-              setTaxRatePercent(event.target.value);
+              setDueDateOffsetDays(event.target.value);
               dismissCurrentErrors();
             }}
-            aria-invalid={!!fieldErrors.taxRatePercent}
-            aria-describedby={fieldErrors.taxRatePercent ? "taxRatePercent-error" : undefined}
+            aria-invalid={!!fieldErrors.dueDateOffsetDays}
+            aria-describedby={fieldErrors.dueDateOffsetDays ? "dueDateOffsetDays-error" : undefined}
+          />
+          <p className="text-text-muted mt-1 text-xs">
+            Each generated invoice&rsquo;s due date is this many days after its issue date. Leave blank for no due date.
+          </p>
+        </FormField>
+      </fieldset>
+
+      <fieldset className="space-y-4">
+        <legend className="text-text-primary text-base font-semibold">Invoice contents</legend>
+
+        <div>
+          <FormLabel htmlFor="lineItems-list">Line items</FormLabel>
+          {fieldErrors.lineItems && (
+            <p id="lineItems-error" role="alert" className="text-danger mt-1 text-sm">
+              {fieldErrors.lineItems}
+            </p>
+          )}
+          <div id="lineItems-list" className="mt-2 space-y-3">
+            {lineItems.map((item, index) => (
+              <InvoiceLineItemRow
+                key={index}
+                index={index}
+                value={item}
+                onChange={(next) => updateLineItem(index, next)}
+                onRemove={() => removeLineItem(index)}
+                onMoveUp={() => moveLineItem(index, -1)}
+                onMoveDown={() => moveLineItem(index, 1)}
+                canMoveUp={index > 0}
+                canMoveDown={index < lineItems.length - 1}
+              />
+            ))}
+          </div>
+          <Button type="button" onClick={addLineItem} variant="secondary" className="mt-3">
+            Add line
+          </Button>
+        </div>
+
+        <div aria-live="polite" className="border-border-default bg-surface-muted rounded-md border px-4 py-3 text-sm">
+          {previewText ? (
+            <span className="text-text-primary font-medium">Total per invoice: {previewText}</span>
+          ) : (
+            <span className="text-text-muted">Enter valid line items to see a total preview.</span>
+          )}
+        </div>
+
+        <FormField label="Currency" htmlFor="currency" required error={fieldErrors.currency}>
+          <CurrencySelect
+            id="currency"
+            name="currency"
+            value={currency}
+            onChange={(next) => {
+              setCurrency(next);
+              dismissCurrentErrors();
+            }}
+            supportedCurrencies={currencyOptions}
+            required
+            aria-invalid={!!fieldErrors.currency}
+            aria-describedby={fieldErrors.currency ? "currency-error" : undefined}
           />
         </FormField>
+      </fieldset>
 
-        <FormField label="Tax label" htmlFor="taxLabel" error={fieldErrors.taxLabel}>
-          {/*
-            Native <select> — one of three fields covered by the
-            consolidated post-settlement re-apply effect declared above
-            (alongside `frequency` and `discountType`'s state). See that
-            effect's own comment for why this is needed.
-          */}
-          <Select
-            id="taxLabel"
-            name="taxLabel"
-            value={taxLabel}
-            onChange={(event) => {
-              setTaxLabel(event.target.value as "TAX" | "VAT" | "GST");
-              dismissCurrentErrors();
-            }}
-            aria-invalid={!!fieldErrors.taxLabel}
-            aria-describedby={fieldErrors.taxLabel ? "taxLabel-error" : undefined}
-          >
-            {INVOICE_TAX_LABELS.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </Select>
-        </FormField>
-      </div>
+      <details
+        open={advancedOpen}
+        onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+        className="group border-border-default rounded-md border"
+      >
+        <summary className="text-text-secondary flex cursor-pointer list-none items-center justify-between gap-2 px-4 py-3 text-sm font-medium [&::-webkit-details-marker]:hidden">
+          Advanced options (discount, tax, notes)
+          <ChevronDownIcon className="h-3.5 w-3.5 shrink-0 transition-transform group-open:rotate-180" />
+        </summary>
 
-      <FormField label="Notes" htmlFor="notes" error={fieldErrors.notes}>
-        <Textarea
-          id="notes"
-          name="notes"
-          rows={3}
-          value={notes}
-          onChange={(event) => {
-            setNotes(event.target.value);
-            dismissCurrentErrors();
-          }}
-          aria-invalid={!!fieldErrors.notes}
-          aria-describedby={fieldErrors.notes ? "notes-error" : undefined}
-        />
-        <p className="text-text-muted mt-1 text-xs">Shown on every generated invoice.</p>
-      </FormField>
+        <div className="space-y-4 border-t px-4 py-4 border-border-default">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FormField label="Discount type" htmlFor="discountType" error={fieldErrors.discountType}>
+              <Select
+                id="discountType"
+                name="discountType"
+                value={discountType}
+                onChange={(event) => {
+                  setDiscountType(event.target.value as "NONE" | "PERCENTAGE" | "FIXED");
+                  dismissCurrentErrors();
+                }}
+                aria-invalid={!!fieldErrors.discountType}
+                aria-describedby={fieldErrors.discountType ? "discountType-error" : undefined}
+              >
+                {INVOICE_DISCOUNT_TYPES.map((option) => (
+                  <option key={option} value={option}>
+                    {option === "NONE" ? "No discount" : option === "PERCENTAGE" ? "Percentage" : "Fixed amount"}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
 
-      <FormField label="Internal notes" htmlFor="internalNotes" error={fieldErrors.internalNotes}>
-        <Textarea
-          id="internalNotes"
-          name="internalNotes"
-          rows={3}
-          value={internalNotes}
-          onChange={(event) => {
-            setInternalNotes(event.target.value);
-            dismissCurrentErrors();
-          }}
-          aria-invalid={!!fieldErrors.internalNotes}
-          aria-describedby={fieldErrors.internalNotes ? "internalNotes-error" : undefined}
-        />
-        <p className="text-text-muted mt-1 text-xs">Staff-only — never shown to the client.</p>
-      </FormField>
+            {discountType !== "NONE" && (
+              <FormField
+                label={discountType === "PERCENTAGE" ? "Discount (%)" : "Discount amount"}
+                htmlFor="discountValue"
+                required
+                error={fieldErrors.discountValue}
+              >
+                <Input
+                  id="discountValue"
+                  name="discountValue"
+                  value={discountValue}
+                  onChange={(event) => {
+                    setDiscountValue(event.target.value);
+                    dismissCurrentErrors();
+                  }}
+                  required
+                  aria-invalid={!!fieldErrors.discountValue}
+                  aria-describedby={fieldErrors.discountValue ? "discountValue-error" : undefined}
+                />
+              </FormField>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <FormField label="Tax rate (%)" htmlFor="taxRatePercent" error={fieldErrors.taxRatePercent}>
+              <Input
+                id="taxRatePercent"
+                name="taxRatePercent"
+                value={taxRatePercent}
+                onChange={(event) => {
+                  setTaxRatePercent(event.target.value);
+                  dismissCurrentErrors();
+                }}
+                aria-invalid={!!fieldErrors.taxRatePercent}
+                aria-describedby={fieldErrors.taxRatePercent ? "taxRatePercent-error" : undefined}
+              />
+            </FormField>
+
+            <FormField label="Tax label" htmlFor="taxLabel" error={fieldErrors.taxLabel}>
+              {/*
+                Native <select> — one of three fields covered by the
+                consolidated post-settlement re-apply effect declared
+                above (alongside `frequency` and `discountType`'s
+                state). See that effect's own comment for why this is
+                needed, and for why it still works correctly while this
+                disclosure is collapsed.
+              */}
+              <Select
+                id="taxLabel"
+                name="taxLabel"
+                value={taxLabel}
+                onChange={(event) => {
+                  setTaxLabel(event.target.value as "TAX" | "VAT" | "GST");
+                  dismissCurrentErrors();
+                }}
+                aria-invalid={!!fieldErrors.taxLabel}
+                aria-describedby={fieldErrors.taxLabel ? "taxLabel-error" : undefined}
+              >
+                {INVOICE_TAX_LABELS.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </Select>
+            </FormField>
+          </div>
+
+          <FormField label="Notes" htmlFor="notes" error={fieldErrors.notes}>
+            <Textarea
+              id="notes"
+              name="notes"
+              rows={3}
+              value={notes}
+              onChange={(event) => {
+                setNotes(event.target.value);
+                dismissCurrentErrors();
+              }}
+              aria-invalid={!!fieldErrors.notes}
+              aria-describedby={fieldErrors.notes ? "notes-error" : undefined}
+            />
+            <p className="text-text-muted mt-1 text-xs">Shown on every generated invoice.</p>
+          </FormField>
+
+          <FormField label="Internal notes" htmlFor="internalNotes" error={fieldErrors.internalNotes}>
+            <Textarea
+              id="internalNotes"
+              name="internalNotes"
+              rows={3}
+              value={internalNotes}
+              onChange={(event) => {
+                setInternalNotes(event.target.value);
+                dismissCurrentErrors();
+              }}
+              aria-invalid={!!fieldErrors.internalNotes}
+              aria-describedby={fieldErrors.internalNotes ? "internalNotes-error" : undefined}
+            />
+            <p className="text-text-muted mt-1 text-xs">Staff-only — never shown to the client.</p>
+          </FormField>
+        </div>
+      </details>
 
       {state.error && errorsVisible && (
         <p role="alert" className="text-danger text-sm">
