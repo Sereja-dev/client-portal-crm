@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
+import { selectSearchableOption } from "../support/select-searchable-option";
 
 /**
  * Invoice System Official Slice 3, sub-PR 3b — same session-injection
@@ -74,8 +75,8 @@ test.describe("staff Invoice create/edit", () => {
     // disabled={!clientId}) — select it first so Project's own selectOption
     // below finds an enabled control. fixtures.project belongs to
     // fixtures.clientA (test/fixtures/seed.ts).
-    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
-    await page.getByLabel("Project").selectOption(fixtures.project.id);
+    await selectSearchableOption(page, "Client", fixtures.clientA.name, fixtures.clientA.name);
+    await selectSearchableOption(page, "Project", fixtures.project.name, fixtures.project.name);
     await page.getByRole("radio", { name: "Itemized" }).check();
 
     const row1 = page.getByRole("group", { name: "Line item 1" });
@@ -152,8 +153,8 @@ test.describe("staff Invoice create/edit", () => {
     // disabled={!clientId}) — select it first so Project's own selectOption
     // below finds an enabled control. fixtures.project belongs to
     // fixtures.clientA (test/fixtures/seed.ts).
-    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
-    await page.getByLabel("Project").selectOption(fixtures.project.id);
+    await selectSearchableOption(page, "Client", fixtures.clientA.name, fixtures.clientA.name);
+    await selectSearchableOption(page, "Project", fixtures.project.name, fixtures.project.name);
     await page.getByRole("textbox", { name: "Amount" }).fill("500.00");
     await expect(page.getByText("Total: $500.00")).toBeVisible();
 
@@ -179,8 +180,8 @@ test.describe("staff Invoice create/edit", () => {
     // disabled={!clientId}) — select it first so Project's own selectOption
     // below finds an enabled control. fixtures.project belongs to
     // fixtures.clientA (test/fixtures/seed.ts).
-    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
-    await page.getByLabel("Project").selectOption(fixtures.project.id);
+    await selectSearchableOption(page, "Client", fixtures.clientA.name, fixtures.clientA.name);
+    await selectSearchableOption(page, "Project", fixtures.project.name, fixtures.project.name);
     await page.getByRole("radio", { name: "Itemized" }).check();
 
     const row1 = page.getByRole("group", { name: "Line item 1" });
@@ -216,8 +217,8 @@ test.describe("staff Invoice create/edit", () => {
     // disabled={!clientId}) — select it first so Project's own selectOption
     // below finds an enabled control. fixtures.project belongs to
     // fixtures.clientA (test/fixtures/seed.ts).
-    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
-    await page.getByLabel("Project").selectOption(fixtures.project.id);
+    await selectSearchableOption(page, "Client", fixtures.clientA.name, fixtures.clientA.name);
+    await selectSearchableOption(page, "Project", fixtures.project.name, fixtures.project.name);
     await page.getByRole("radio", { name: "Itemized" }).check();
 
     const row1 = page.getByRole("group", { name: "Line item 1" });
@@ -379,8 +380,8 @@ test.describe("staff Invoice list — DRAFT vs non-DRAFT row actions, read-only 
     // disabled={!clientId}) — select it first so Project's own selectOption
     // below finds an enabled control. fixtures.project belongs to
     // fixtures.clientA (test/fixtures/seed.ts).
-    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
-    await page.getByLabel("Project").selectOption(fixtures.project.id);
+    await selectSearchableOption(page, "Client", fixtures.clientA.name, fixtures.clientA.name);
+    await selectSearchableOption(page, "Project", fixtures.project.name, fixtures.project.name);
     await page.getByRole("radio", { name: "Itemized" }).check();
 
     const addLineButton = page.getByRole("button", { name: "Add line" });
@@ -1831,8 +1832,8 @@ test.describe("Invoice System Official Slice 5c — organization-wide Invoice-nu
     // disabled={!clientId}) — select it first so Project's own selectOption
     // below finds an enabled control. fixtures.project belongs to
     // fixtures.clientA (test/fixtures/seed.ts).
-    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
-    await page.getByLabel("Project").selectOption(fixtures.project.id);
+    await selectSearchableOption(page, "Client", fixtures.clientA.name, fixtures.clientA.name);
+    await selectSearchableOption(page, "Project", fixtures.project.name, fixtures.project.name);
     await page.getByRole("textbox", { name: "Amount" }).fill("100.00");
     await Promise.all([
       page.waitForResponse((r) => r.url().includes("/invoices/new") && r.request().method() === "POST"),
@@ -1845,8 +1846,8 @@ test.describe("Invoice System Official Slice 5c — organization-wide Invoice-nu
     // client-scoped constraint).
     await page.goto("/invoices/new");
     await page.getByLabel("Invoice number").fill(invoiceNumber);
-    await page.getByLabel("Client").selectOption(secondClientId);
-    await page.getByLabel("Project").selectOption(secondProjectId);
+    await selectSearchableOption(page, "Client", secondClientId);
+    await selectSearchableOption(page, "Project", secondProjectId);
     await page.getByRole("textbox", { name: "Amount" }).fill("200.00");
     await Promise.all([
       page.waitForResponse((r) => r.url().includes("/invoices/new") && r.request().method() === "POST"),

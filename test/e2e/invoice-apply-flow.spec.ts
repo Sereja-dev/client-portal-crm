@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
+import { selectSearchableOption } from "../support/select-searchable-option";
 
 /**
  * Invoice Templates V1 — the /invoices/new?templateId=<id> apply/prefill
@@ -135,7 +136,7 @@ test.describe("Invoice apply flow (V1)", () => {
 
     // Still an ordinary, unmodified target flow — Client selection is
     // untouched by applying a template.
-    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
+    await selectSearchableOption(page, "Client", fixtures.clientA.name, fixtures.clientA.name);
     await expect(preview.getByText(fixtures.clientA.name)).toBeVisible();
 
     // The whole point of this test: no hydration mismatch from the
@@ -214,7 +215,11 @@ test.describe("Invoice apply flow (V1)", () => {
   }) => {
     await actAs(context, baseURL!, fixtures.owner);
     await page.goto(`/invoices/new?templateId=${templateId}&clientId=${fixtures.clientA.id}`);
-    await expect(page.getByLabel("Client")).toHaveValue(fixtures.clientA.id);
+    // The Client field now displays the Client's own name (its own
+    // closed-state label, SearchableSelect — see invoice-relation-options
+    // .ts), not its raw id, even though the ?clientId= param itself is
+    // still the real id.
+    await expect(page.getByLabel("Client")).toHaveValue(fixtures.clientA.name);
     const row1 = page.getByRole("group", { name: "Line item 1" });
     await expect(row1.getByLabel("Description")).toHaveValue("Precise item");
   });

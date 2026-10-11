@@ -2,6 +2,7 @@ import { test, expect, type BrowserContext } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 import { selectCurrencyOption } from "../support/select-currency-option";
+import { selectSearchableOption } from "../support/select-searchable-option";
 
 /**
  * Invoice Live Preview V1 — the new document-style live preview panel
@@ -72,7 +73,7 @@ test.describe("Invoice Live Preview V1", () => {
     await expect(preview.getByText("Add a valid amount or line item to see totals.")).toBeVisible();
 
     await page.getByLabel("Invoice number").fill(`E2E-PREVIEW-${fixtures.runId}`);
-    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
+    await selectSearchableOption(page, "Client", fixtures.clientA.name, fixtures.clientA.name);
     await expect(preview.getByText(fixtures.clientA.name)).toBeVisible();
 
     await page.getByRole("radio", { name: "Itemized" }).check();
@@ -181,7 +182,17 @@ test.describe("Invoice Live Preview V1", () => {
     );
     expect(overflow).toBe(false);
 
-    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
+    // Mobile sanity for the new searchable Client control itself (Forms
+    // Improvement Slice A2.1 §26) — opens, filters, and selects correctly
+    // at this same 390x900 viewport this test already sets.
+    const clientField = page.getByLabel("Client");
+    await clientField.click();
+    await expect(page.getByRole("listbox")).toBeVisible();
+    const clientOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+    );
+    expect(clientOverflow).toBe(false);
+    await selectSearchableOption(page, "Client", fixtures.clientA.name, fixtures.clientA.name);
     await page.getByRole("textbox", { name: "Amount" }).fill("42.00");
     await expect(page.getByTestId("invoice-preview-total")).toHaveText("$42.00");
   });
