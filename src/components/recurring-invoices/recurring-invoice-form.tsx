@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -120,6 +120,29 @@ export function RecurringInvoiceForm({
     dismissCurrentErrors();
   }
 
+  // Recurring Invoice validation-reset remediation — these six fields
+  // were previously uncontrolled (`defaultValue` only). React 19's
+  // `useActionState` triggers a native `form.reset()` on every action
+  // settlement, success or rejection alike; an uncontrolled field's
+  // `defaultValue` prop never changes to reflect what was just
+  // submitted, so that native reset silently discarded whatever the
+  // user had typed — even when the validation error was on a completely
+  // unrelated field. Converting them to controlled `value`/`onChange`
+  // state (the same pattern every other field in this form already
+  // uses) fixes it: a failed submission no longer changes any of this
+  // state, so the next render repaints each field with exactly what the
+  // user had entered, regardless of native reset. Initial value is the
+  // exact same source each field's own `defaultValue` already was — no
+  // change to create defaults or edit-persisted values.
+  const [name, setName] = useState(defaultValues?.name ?? "");
+  const [firstIssueDate, setFirstIssueDate] = useState(defaultValues?.firstIssueDate ?? "");
+  const [dueDateOffsetDays, setDueDateOffsetDays] = useState(
+    defaultValues?.dueDateOffsetDays == null ? "" : String(defaultValues.dueDateOffsetDays),
+  );
+  const [taxLabel, setTaxLabel] = useState<"TAX" | "VAT" | "GST">(defaultValues?.taxLabel ?? "TAX");
+  const [notes, setNotes] = useState(defaultValues?.notes ?? "");
+  const [internalNotes, setInternalNotes] = useState(defaultValues?.internalNotes ?? "");
+
   const [frequency, setFrequency] = useState<RecurrenceFrequencyValue>(defaultValues?.frequency ?? "MONTHLY");
   const [invoiceNumberPrefix, setInvoiceNumberPrefix] = useState(defaultValues?.invoiceNumberPrefix ?? "");
   const [startingSequence, setStartingSequence] = useState(String(defaultValues?.startingSequence ?? 1));
@@ -127,6 +150,41 @@ export function RecurringInvoiceForm({
   const [discountType, setDiscountType] = useState<"NONE" | "PERCENTAGE" | "FIXED">(defaultValues?.discountType ?? "NONE");
   const [discountValue, setDiscountValue] = useState(defaultValues?.discountValue ?? "");
   const [taxRatePercent, setTaxRatePercent] = useState(defaultValues?.taxRatePercent ?? "");
+
+  // Validation-reset remediation, continued — a native <select>'s own
+  // controlled `value` is not reliably re-applied by React after an
+  // OUT-OF-BAND native form.reset() (the same underlying quirk already
+  // diagnosed in company-profile-form.tsx's own Currency/Time zone
+  // fields, there for an uncontrolled field; here it's controlled, and
+  // the field's own React state never changes on a failed submission,
+  // so a key-based remount keyed on anything derived from `state`
+  // doesn't help either — the native reset can still land after the
+  // remount commits, since requestFormReset() is scheduled relative to
+  // the action settling, not to any particular child's own re-render).
+  // A plain `<input>`/`<textarea>` never has this problem (confirmed by
+  // every other field in this form) — it's specific to native
+  // `<select>` elements, of which this form has exactly three:
+  // `frequency`, `discountType`, and `taxLabel`. Rather than one
+  // field-specific imperative-DOM-write effect per `<select>` (three
+  // near-identical copies), this single effect re-applies all three
+  // after every settlement, from one small shared helper. Each call
+  // safely no-ops when that particular `<select>` isn't currently
+  // rendered — `frequency` only exists in `mode === "create"`.
+  // Deliberately not reaching for a `ref` on the shared `Select`
+  // primitive (it isn't `forwardRef`-wrapped, and widening that shared
+  // component is outside this fix's own narrow, Recurring-Invoice-only
+  // scope) — each field's `id` is already unique on this page.
+  useEffect(() => {
+    function applySelectValue(id: string, value: string) {
+      const el = document.getElementById(id);
+      if (el instanceof HTMLSelectElement && el.value !== value) {
+        el.value = value;
+      }
+    }
+    applySelectValue("frequency", frequency);
+    applySelectValue("discountType", discountType);
+    applySelectValue("taxLabel", taxLabel);
+  }, [state, frequency, discountType, taxLabel]);
 
   const [lineItems, setLineItems] = useState<InvoiceLineItemFormValue[]>(
     defaultValues?.lineItems && defaultValues.lineItems.length > 0 ? defaultValues.lineItems : [BLANK_LINE_ITEM],
@@ -181,9 +239,12 @@ export function RecurringInvoiceForm({
         <Input
           id="name"
           name="name"
-          defaultValue={defaultValues?.name ?? ""}
+          value={name}
           placeholder="e.g. Monthly retainer — Acme Co"
-          onChange={dismissCurrentErrors}
+          onChange={(event) => {
+            setName(event.target.value);
+            dismissCurrentErrors();
+          }}
           aria-invalid={!!fieldErrors.name}
           aria-describedby={fieldErrors.name ? "name-error" : undefined}
         />
@@ -255,9 +316,12 @@ export function RecurringInvoiceForm({
               id="firstIssueDate"
               name="firstIssueDate"
               type="date"
-              defaultValue={defaultValues?.firstIssueDate}
+              value={firstIssueDate}
               required
-              onChange={dismissCurrentErrors}
+              onChange={(event) => {
+                setFirstIssueDate(event.target.value);
+                dismissCurrentErrors();
+              }}
               aria-invalid={!!fieldErrors.firstIssueDate}
               aria-describedby={fieldErrors.firstIssueDate ? "firstIssueDate-error" : undefined}
             />
@@ -317,8 +381,11 @@ export function RecurringInvoiceForm({
           type="number"
           min={0}
           step={1}
-          defaultValue={defaultValues?.dueDateOffsetDays ?? ""}
-          onChange={dismissCurrentErrors}
+          value={dueDateOffsetDays}
+          onChange={(event) => {
+            setDueDateOffsetDays(event.target.value);
+            dismissCurrentErrors();
+          }}
           aria-invalid={!!fieldErrors.dueDateOffsetDays}
           aria-describedby={fieldErrors.dueDateOffsetDays ? "dueDateOffsetDays-error" : undefined}
         />
@@ -438,11 +505,20 @@ export function RecurringInvoiceForm({
         </FormField>
 
         <FormField label="Tax label" htmlFor="taxLabel" error={fieldErrors.taxLabel}>
+          {/*
+            Native <select> — one of three fields covered by the
+            consolidated post-settlement re-apply effect declared above
+            (alongside `frequency` and `discountType`'s state). See that
+            effect's own comment for why this is needed.
+          */}
           <Select
             id="taxLabel"
             name="taxLabel"
-            defaultValue={defaultValues?.taxLabel ?? "TAX"}
-            onChange={dismissCurrentErrors}
+            value={taxLabel}
+            onChange={(event) => {
+              setTaxLabel(event.target.value as "TAX" | "VAT" | "GST");
+              dismissCurrentErrors();
+            }}
             aria-invalid={!!fieldErrors.taxLabel}
             aria-describedby={fieldErrors.taxLabel ? "taxLabel-error" : undefined}
           >
@@ -460,8 +536,11 @@ export function RecurringInvoiceForm({
           id="notes"
           name="notes"
           rows={3}
-          defaultValue={defaultValues?.notes ?? ""}
-          onChange={dismissCurrentErrors}
+          value={notes}
+          onChange={(event) => {
+            setNotes(event.target.value);
+            dismissCurrentErrors();
+          }}
           aria-invalid={!!fieldErrors.notes}
           aria-describedby={fieldErrors.notes ? "notes-error" : undefined}
         />
@@ -473,8 +552,11 @@ export function RecurringInvoiceForm({
           id="internalNotes"
           name="internalNotes"
           rows={3}
-          defaultValue={defaultValues?.internalNotes ?? ""}
-          onChange={dismissCurrentErrors}
+          value={internalNotes}
+          onChange={(event) => {
+            setInternalNotes(event.target.value);
+            dismissCurrentErrors();
+          }}
           aria-invalid={!!fieldErrors.internalNotes}
           aria-describedby={fieldErrors.internalNotes ? "internalNotes-error" : undefined}
         />
