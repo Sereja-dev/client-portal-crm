@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
+import { selectSearchableOption } from "../support/select-searchable-option";
 
 /**
  * Aqenra Quotes Phase 3 — Staff UI. Real browser coverage for the
@@ -148,7 +149,7 @@ test.describe("Create quote", () => {
     await page.goto("/quotes/new");
     await page.getByLabel("Quote number").fill(number);
     await page.getByRole("radio", { name: "Client" }).check();
-    await page.getByLabel("Select client").selectOption({ label: fixtures.clientA.name });
+    await selectSearchableOption(page, "Select client", fixtures.clientA.name, fixtures.clientA.name);
     await page.getByLabel("Issue date").fill("2026-06-01");
 
     const row1 = page.getByRole("group", { name: "Line item 1" });

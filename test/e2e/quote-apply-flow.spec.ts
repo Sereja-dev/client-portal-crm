@@ -1,6 +1,7 @@
 import { test, expect, type BrowserContext } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
+import { selectSearchableOption } from "../support/select-searchable-option";
 
 /**
  * Quote Templates Phase 2 — the /quotes/new?template=<id> apply/prefill
@@ -111,8 +112,10 @@ test.describe("Quote apply flow (Phase 2)", () => {
     // Still an ordinary, unmodified target flow — Client/Lead selection
     // is untouched by applying a template.
     await page.getByRole("radio", { name: "Client" }).check();
-    await page.getByLabel("Select client").selectOption({ label: fixtures.clientA.name });
-    await expect(page.getByLabel("Select client")).toHaveValue(fixtures.clientA.id);
+    await selectSearchableOption(page, "Select client", fixtures.clientA.name, fixtures.clientA.name);
+    // The closed-state display is now the Client's own name (SearchableSelect's
+    // label), not its raw id — see src/components/quotes/quote-form.tsx.
+    await expect(page.getByLabel("Select client")).toHaveValue(fixtures.clientA.name);
   });
 
   test("an archived template shows a generic unavailable notice and a blank form — never a broken page", async ({ context, baseURL, page }) => {

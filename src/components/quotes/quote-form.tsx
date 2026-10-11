@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { FormField, FormLabel } from "@/components/ui/form-field";
 import { InvoiceLineItemRow } from "@/components/invoices/invoice-line-item-row";
 import { CurrencySelect } from "@/components/invoices/currency-select";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useToast } from "@/components/toast/toast-provider";
 import { withToast } from "@/lib/toast-url";
 import { INVOICE_DISCOUNT_TYPES, INVOICE_TAX_LABELS } from "@/lib/validation/invoice";
@@ -114,6 +115,12 @@ export function QuoteForm({
   const [targetType, setTargetType] = useState<"lead" | "client" | null>(defaultValues?.targetType ?? null);
   const [leadId, setLeadId] = useState(defaultValues?.leadId ?? "");
   const [clientId, setClientId] = useState(defaultValues?.clientId ?? "");
+  // Forms Improvement Slice A2.3 — the exact same already-fetched Client
+  // list, mapped onto SearchableSelect's own flat option shape. A single
+  // trivial line — no separate helper file, matching this slice's own
+  // "don't create a new relational-options abstraction merely for a
+  // third similar file" instruction.
+  const clientOptions = clients.map((client) => ({ value: client.id, label: client.label }));
 
   const [number, setNumber] = useState(defaultValues?.number ?? "");
   const [title, setTitle] = useState(defaultValues?.title ?? "");
@@ -308,25 +315,19 @@ export function QuoteForm({
             <label htmlFor="target-client-select" className="sr-only">
               Select client
             </label>
-            <Select
+            <SearchableSelect
               id="target-client-select"
               value={clientId}
-              onChange={(event) => {
-                setClientId(event.target.value);
+              onChange={(next) => {
+                setClientId(next);
                 dismissErrors();
               }}
+              options={clientOptions}
               required
+              placeholder="Search clients…"
+              emptyMessage="No matching clients"
               aria-invalid={!!fieldErrors.target}
-            >
-              <option value="" disabled>
-                Select a client
-              </option>
-              {clients.map((client) => (
-                <option key={client.id} value={client.id}>
-                  {client.label}
-                </option>
-              ))}
-            </Select>
+            />
           </>
         )}
         {fieldErrors.target && (
