@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { FormField, FormLabel } from "@/components/ui/form-field";
+import { FormField, FormLabel, describedByIds } from "@/components/ui/form-field";
 import { InvoiceLineItemRow } from "@/components/invoices/invoice-line-item-row";
 import { CurrencySelect } from "@/components/invoices/currency-select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -558,7 +558,12 @@ export function QuoteForm({
             />
           </FormField>
 
-          <FormField label="Valid until" htmlFor="validUntil" error={fieldErrors.validUntil}>
+          <FormField
+            label="Valid until"
+            htmlFor="validUntil"
+            error={fieldErrors.validUntil}
+            description="After this date, an unaccepted quote is automatically marked Expired."
+          >
             <Input
               id="validUntil"
               type="date"
@@ -568,7 +573,7 @@ export function QuoteForm({
                 dismissErrors();
               }}
               aria-invalid={!!fieldErrors.validUntil}
-              aria-describedby={fieldErrors.validUntil ? "validUntil-error" : undefined}
+              aria-describedby={describedByIds("validUntil-description", fieldErrors.validUntil && "validUntil-error")}
             />
           </FormField>
         </div>

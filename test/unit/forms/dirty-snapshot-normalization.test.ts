@@ -139,6 +139,49 @@ describe("buildInvoiceDirtySnapshot / buildRecurringInvoiceDirtySnapshot / build
   });
 });
 
+describe("buildRecurringInvoiceDirtySnapshot — organization-currency create default is part of the clean baseline", () => {
+  // RecurringInvoiceForm's own isDirty is `!deepEqual(currentSnapshot,
+  // initialSnapshot)`, where initialSnapshot is captured once via
+  // `useState(() => currentDirtySnapshot)` on first render — the exact
+  // same render that reads the new organization-currency defaultValues
+  // into `currency` state. Prefilling currency therefore becomes part of
+  // the baseline by construction, not by any new C1a-specific logic; these
+  // two tests prove that construction directly at the snapshot level
+  // (the smallest layer that actually decides isDirty), matching this
+  // repo's own established "test the pure state-transition function, not
+  // a simulated interaction" convention (no jsdom here).
+  const base = {
+    clientId: "",
+    projectId: "",
+    name: "",
+    frequency: "MONTHLY" as const,
+    firstIssueDate: "",
+    invoiceNumberPrefix: "",
+    startingSequence: "1",
+    dueDateOffsetDays: "",
+    currency: "USD",
+    lineItems: [],
+    discountType: "NONE" as const,
+    discountValue: "",
+    taxRatePercent: "",
+    taxLabel: "TAX" as const,
+    notes: "",
+    internalNotes: "",
+  };
+
+  it("a pristine create page (currency prefilled from the organization default) is NOT dirty — the baseline snapshot already reflects the prefilled currency", () => {
+    const initial = buildRecurringInvoiceDirtySnapshot({ ...base, currency: "USD" });
+    const current = buildRecurringInvoiceDirtySnapshot({ ...base, currency: "USD" });
+    expect(deepEqual(current, initial)).toBe(true);
+  });
+
+  it("manually changing the currency away from the prefilled organization default still produces a real, detected difference", () => {
+    const initial = buildRecurringInvoiceDirtySnapshot({ ...base, currency: "USD" });
+    const current = buildRecurringInvoiceDirtySnapshot({ ...base, currency: "EUR" });
+    expect(deepEqual(current, initial)).toBe(false);
+  });
+});
+
 describe("buildQuoteDirtySnapshot — target normalization", () => {
   it("normalizes to { targetType, targetId } — the inactive side's own value is never compared", () => {
     const leadSnapshot = buildQuoteDirtySnapshot({
