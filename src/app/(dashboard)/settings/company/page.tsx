@@ -4,6 +4,7 @@ import { canManageCompanyProfile } from "@/lib/organization-setup/authorization"
 import { getSupportedCurrencies, getSupportedTimezones } from "@/lib/validation/company-profile";
 import { DefinitionList, DefinitionItem } from "@/components/ui/definition-list";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { UnsavedChangesScope } from "@/components/forms/unsaved-changes-scope";
 import { CompanyProfileForm } from "./company-profile-form";
 import { LogoUploadForm } from "./logo-upload-form";
 
@@ -39,7 +40,24 @@ export default async function CompanyProfilePage() {
 
       {canManage ? (
         <>
-          <CompanyProfileForm profile={profile} currencies={getSupportedCurrencies()} timezones={getSupportedTimezones()} />
+          {/*
+            Forms Improvement Slice C1b — the dirty scope wraps only
+            CompanyProfileForm, the one editable surface this slice
+            protects. LogoUploadForm stays an uninvolved sibling, exactly
+            as before: it is a separate <form>/Server Action pair with
+            its own independent mutation, and a successful logo upload
+            must never be able to make the profile form read as "dirty"
+            (see that component's own doc comment for why they're two
+            forms in the first place). This Server Component page never
+            becomes a Client Component itself — Next.js already supports
+            passing Server Component output as `children` into a Client
+            Component boundary like UnsavedChangesScope, the same
+            structural pattern Forms Improvement Slice C1a already
+            established for Invoice/Recurring Invoice/Quote.
+          */}
+          <UnsavedChangesScope>
+            <CompanyProfileForm profile={profile} currencies={getSupportedCurrencies()} timezones={getSupportedTimezones()} />
+          </UnsavedChangesScope>
           <LogoUploadForm currentLogoUrl={profile.logoUrl} />
         </>
       ) : (

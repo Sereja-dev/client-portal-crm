@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { updateCompanyProfileAction } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,10 +9,125 @@ import { CurrencySelect } from "@/components/invoices/currency-select";
 import { FormField } from "@/components/ui/form-field";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { callActionWithStaleRecovery } from "@/lib/action-error";
+import { deepEqual } from "@/lib/forms/deep-equal";
+import { useReportDirtyState } from "@/components/forms/use-report-dirty-state";
 import type { CompanyProfileFormState } from "@/types";
 import type { CompanyProfileData } from "@/lib/organization-setup/company-profile";
 
 const initialState: CompanyProfileFormState = { error: null };
+
+/**
+ * Forms Improvement Slice C1b — the one normalized shape
+ * CompanyProfileForm's own dirty-state comparison is built from.
+ * CompanyProfileForm stays fully uncontrolled (unlike Invoice/Recurring
+ * Invoice/Quote's own C1a integration, which already held every field
+ * in React state) — every field here is still read straight from the
+ * DOM via `FormData`, exactly as `updateCompanyProfileAction` itself
+ * does server-side, never converted to `useState`. `RawCompanyProfile
+ * Values` is the one raw-string shape both of this form's two actual
+ * data sources — the server-persisted `profile` prop (the initial
+ * baseline) and a live `FormData` read (every snapshot after that) —
+ * get normalized through identically, so the two can never drift apart
+ * from using two different rules.
+ *
+ * Deliberately NOT validation: an invalid-but-currently-typed value
+ * (e.g. a malformed Brand color) still normalizes to a real string and
+ * still counts as current Product state — this only decides what two
+ * values mean for *comparison*, never whether either one is acceptable
+ * to submit. The normalization rules themselves — trim required
+ * fields; trim optional fields to `null` when empty; uppercase currency
+ * — intentionally mirror src/lib/validation/company-profile.ts's own
+ * `parseCompanyProfileForm`, duplicated here rather than imported, the
+ * same established "keep both in sync, never share an import" rule
+ * `CompanyProfileFormState.values` itself already documents for this
+ * exact field list. Refactoring server validation to deduplicate this
+ * is explicitly out of scope for this slice.
+ */
+export type CompanyProfileDirtySnapshot = {
+  legalName: string;
+  displayName: string;
+  country: string;
+  currency: string;
+  timezone: string;
+  supportEmail: string | null;
+  website: string | null;
+  phone: string | null;
+  taxId: string | null;
+  brandColor: string | null;
+  streetAddress: string | null;
+  city: string | null;
+  state: string | null;
+  postalCode: string | null;
+};
+
+type RawCompanyProfileValues = {
+  legalName: string | null | undefined;
+  displayName: string | null | undefined;
+  country: string | null | undefined;
+  currency: string | null | undefined;
+  timezone: string | null | undefined;
+  supportEmail: string | null | undefined;
+  website: string | null | undefined;
+  phone: string | null | undefined;
+  taxId: string | null | undefined;
+  brandColor: string | null | undefined;
+  streetAddress: string | null | undefined;
+  city: string | null | undefined;
+  state: string | null | undefined;
+  postalCode: string | null | undefined;
+};
+
+function trimmedOrNull(value: string | null | undefined): string | null {
+  const trimmed = (value ?? "").trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export function buildCompanyProfileDirtySnapshot(raw: RawCompanyProfileValues): CompanyProfileDirtySnapshot {
+  return {
+    legalName: (raw.legalName ?? "").trim(),
+    displayName: (raw.displayName ?? "").trim(),
+    country: (raw.country ?? "").trim(),
+    currency: (raw.currency ?? "").trim().toUpperCase(),
+    timezone: (raw.timezone ?? "").trim(),
+    supportEmail: trimmedOrNull(raw.supportEmail),
+    website: trimmedOrNull(raw.website),
+    phone: trimmedOrNull(raw.phone),
+    taxId: trimmedOrNull(raw.taxId),
+    brandColor: trimmedOrNull(raw.brandColor),
+    streetAddress: trimmedOrNull(raw.streetAddress),
+    city: trimmedOrNull(raw.city),
+    state: trimmedOrNull(raw.state),
+    postalCode: trimmedOrNull(raw.postalCode),
+  };
+}
+
+/**
+ * The one live-DOM read this slice ever performs: every plain `Input`
+ * and the native Timezone `Select` primitive already fire a real native
+ * `input`/`change` event the form-level listener below catches, so by
+ * the time this runs, `FormData` already reflects the latest value for
+ * all of them. CurrencySelect is the one exception — see this file's
+ * own `recomputeCurrentSnapshot` for why its own onChange call site
+ * passes an explicit override instead of relying on this alone.
+ */
+function readFormDataRaw(formData: FormData): RawCompanyProfileValues {
+  return {
+    legalName: formData.get("legalName") as string | null,
+    displayName: formData.get("displayName") as string | null,
+    country: formData.get("country") as string | null,
+    currency: formData.get("currency") as string | null,
+    timezone: formData.get("timezone") as string | null,
+    supportEmail: formData.get("supportEmail") as string | null,
+    website: formData.get("website") as string | null,
+    phone: formData.get("phone") as string | null,
+    taxId: formData.get("taxId") as string | null,
+    brandColor: formData.get("brandColor") as string | null,
+    streetAddress: formData.get("streetAddress") as string | null,
+    city: formData.get("city") as string | null,
+    state: formData.get("state") as string | null,
+    postalCode: formData.get("postalCode") as string | null,
+  };
+}
 
 /**
  * Company Profile Failed-Validation Form State Preservation -- the one
@@ -71,8 +186,110 @@ export function CompanyProfileForm({
     initialState,
   );
 
+  // Forms Improvement Slice C1b — the initial clean baseline is built
+  // directly from the persisted `profile` prop, the exact same source
+  // every field's own `defaultValue={fieldDefault(...)}` already falls
+  // back to on a clean initial render (never from a later asynchronous
+  // profile-prop refresh, and never by reading the DOM, which doesn't
+  // exist yet during this first render). `currentSnapshot` starts as
+  // this identical value, so a pristine page always begins CLEAN.
+  const initialSnapshot = buildCompanyProfileDirtySnapshot({
+    legalName: profile.legalName,
+    displayName: profile.displayName,
+    country: profile.country,
+    currency: profile.currency,
+    timezone: profile.timezone,
+    supportEmail: profile.supportEmail,
+    website: profile.website,
+    phone: profile.phone,
+    taxId: profile.taxId,
+    brandColor: profile.brandColor,
+    streetAddress: profile.streetAddress,
+    city: profile.city,
+    state: profile.state,
+    postalCode: profile.postalCode,
+  });
+  const [baseline, setBaseline] = useState<CompanyProfileDirtySnapshot>(initialSnapshot);
+  const [currentSnapshot, setCurrentSnapshot] = useState<CompanyProfileDirtySnapshot>(initialSnapshot);
+
+  const formRef = useRef<HTMLFormElement>(null);
+  // Forms Improvement Slice C1b — the candidate baseline, captured from
+  // exactly what THIS submission's own FormData contains, at the moment
+  // it is submitted — never promoted to `baseline` until a real
+  // successful settlement confirms the server actually persisted it
+  // (see the settlement effect below). Overwritten on every new submit;
+  // a stale snapshot from an earlier failed attempt can never leak
+  // forward into a later success.
+  const pendingSubmittedSnapshotRef = useRef<CompanyProfileDirtySnapshot | null>(null);
+
+  function recomputeCurrentSnapshot(overrides?: Partial<RawCompanyProfileValues>) {
+    if (!formRef.current) return;
+    const raw = readFormDataRaw(new FormData(formRef.current));
+    setCurrentSnapshot(buildCompanyProfileDirtySnapshot({ ...raw, ...overrides }));
+  }
+
+  // Forms Improvement Slice C1b — submit-time candidate capture. A
+  // non-preventing `onSubmit` runs during the exact same synchronous
+  // native `submit` event React's own `action={formAction}` handling
+  // reads `FormData` from (confirmed directly against the installed
+  // react-dom source during this slice's own readiness audit), so this
+  // is guaranteed to see exactly what the Server Action receives.
+  // `preventDefault` is never called — the native action flow is
+  // completely untouched.
+  function handleSubmitCapture() {
+    if (!formRef.current) return;
+    pendingSubmittedSnapshotRef.current = buildCompanyProfileDirtySnapshot(readFormDataRaw(new FormData(formRef.current)));
+  }
+
+  // Forms Improvement Slice C1b — settlement handling. Keyed on the
+  // whole `state` object (never `state.message` alone, since
+  // `updateCompanyProfileAction` returns the identical message string
+  // on every successful save, so a second or third consecutive success
+  // would never re-trigger an effect keyed only on that string;
+  // `updateCompanyProfileAction` returns a fresh object literal on
+  // every call, so `state`'s own reference reliably changes on every
+  // settlement, success or failure alike). Runs exactly two things on
+  // every settlement:
+  //   1. Resync `currentSnapshot` from the live DOM. React 19 performs
+  //      a native post-settlement `form.reset()` on both outcomes
+  //      without firing any input/change event, so the DOM may have
+  //      already silently changed underneath whatever `onChange`/
+  //      `onInput` last observed — reading it fresh here keeps the
+  //      React-side "current" value from ever going stale relative to
+  //      what the page actually shows.
+  //   2. Promote the baseline, but ONLY on a real success-shaped
+  //      settlement (a non-null `message`, no `fieldErrors`, no
+  //      `values`, no top-level `error`) — and even then, promote the
+  //      SUBMITTED snapshot captured above, never a fresh live-DOM
+  //      read. This is the one safety property that matters: if the
+  //      user edited the form again in the (now-impossible, thanks to
+  //      the separately-shipped pending-disable fix, but still worth
+  //      defending regardless) window between submitting and
+  //      settling, the newly-dirty live value must never be mistaken
+  //      for what the server actually just persisted.
+  useEffect(() => {
+    if (!formRef.current) return;
+    const liveSnapshot = buildCompanyProfileDirtySnapshot(readFormDataRaw(new FormData(formRef.current)));
+    setCurrentSnapshot(liveSnapshot);
+
+    const isSuccess = state.message != null && state.fieldErrors === undefined && state.values === undefined && state.error === null;
+    if (isSuccess && pendingSubmittedSnapshotRef.current) {
+      setBaseline(pendingSubmittedSnapshotRef.current);
+    }
+  }, [state]);
+
+  const isDirty = !deepEqual(currentSnapshot, baseline);
+  useReportDirtyState(isDirty);
+
   return (
-    <form action={formAction} className={`mt-6 space-y-8 p-6 ${CARD_SURFACE_CLASSES}`}>
+    <form
+      ref={formRef}
+      action={formAction}
+      onSubmit={handleSubmitCapture}
+      onInput={() => recomputeCurrentSnapshot()}
+      onChange={() => recomputeCurrentSnapshot()}
+      className={`mt-6 space-y-8 p-6 ${CARD_SURFACE_CLASSES}`}
+    >
       {/*
         Company Settings Mid-Flight Edit Loss remediation — every field
         below stayed fully editable while a submission was pending, so a
@@ -150,6 +367,21 @@ export function CompanyProfileForm({
               id="currency"
               name="currency"
               defaultValue={fieldDefault(state.values?.currency, profile.currency)}
+              // Forms Improvement Slice C1b — CurrencySelect still never
+              // becomes a controlled input (no `value` prop is passed;
+              // see this field's own comment above). This `onChange` is
+              // its already-supported uncontrolled "notify on commit"
+              // callback, needed because committing a selection here
+              // never fires a native input/change event the form-level
+              // listener above could otherwise catch on its own (the
+              // hidden hidden-input's value changes via a React
+              // re-render, not native DOM mutation). The committed
+              // value is passed explicitly as an override rather than
+              // relying on a fresh FormData read, because React batches
+              // this component's own state update — reading the DOM
+              // again inside this same synchronous callback would still
+              // see the previous value, one render behind.
+              onChange={(value) => recomputeCurrentSnapshot({ currency: value })}
               supportedCurrencies={currencies}
               aria-invalid={!!state.fieldErrors?.currency}
               required

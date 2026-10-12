@@ -1,7 +1,47 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 import { selectCurrencyOption } from "../support/select-currency-option";
+
+/**
+ * Forms Improvement Slice C1b — the one way to observe
+ * UnsavedChangesScope's own `beforeunload` registration from outside
+ * the page, since Playwright has no scriptable hook into a native
+ * beforeunload dialog's registration state (the same limitation
+ * documented in unsaved-changes-protection.spec.ts's own header
+ * comment) and Company Settings has no local Cancel/Back control for a
+ * ConfirmDialog-based proxy the way Invoice/Recurring Invoice/Quote's
+ * own C1a tests use. This init script intercepts
+ * `window.addEventListener`/`removeEventListener` for exactly the
+ * `"beforeunload"` event type, before the app's own JS ever runs, and
+ * keeps a running count — `useBeforeUnloadGuard`'s own add/remove pair
+ * is the only thing in this app that ever registers one. A count above
+ * zero means the real browser would currently prompt on hard unload;
+ * zero means it would not. Nothing about the app itself is touched.
+ */
+async function installBeforeUnloadObserver(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    (window as unknown as { __beforeUnloadListenerCount: number }).__beforeUnloadListenerCount = 0;
+    const originalAdd = window.addEventListener.bind(window) as (...args: unknown[]) => void;
+    const originalRemove = window.removeEventListener.bind(window) as (...args: unknown[]) => void;
+    window.addEventListener = ((type: string, ...rest: unknown[]) => {
+      if (type === "beforeunload") {
+        (window as unknown as { __beforeUnloadListenerCount: number }).__beforeUnloadListenerCount++;
+      }
+      return originalAdd(type, ...rest);
+    }) as typeof window.addEventListener;
+    window.removeEventListener = ((type: string, ...rest: unknown[]) => {
+      if (type === "beforeunload") {
+        (window as unknown as { __beforeUnloadListenerCount: number }).__beforeUnloadListenerCount--;
+      }
+      return originalRemove(type, ...rest);
+    }) as typeof window.removeEventListener;
+  });
+}
+
+async function isBeforeUnloadGuarded(page: Page): Promise<boolean> {
+  return page.evaluate(() => (window as unknown as { __beforeUnloadListenerCount: number }).__beforeUnloadListenerCount > 0);
+}
 
 /**
  * Company Profile Timezone Persistence Diagnostic — real-browser
@@ -327,6 +367,222 @@ test.describe("Company Profile — timezone persistence diagnostic", () => {
 
       await expect(page.getByLabel("Currency")).toBeEnabled();
       await expect(page.getByLabel("Time zone")).toBeEnabled();
+    });
+  });
+
+  /**
+   * Forms Improvement Slice C1b — Company Settings unsaved-change
+   * protection. Approved scope: hard reload/tab-close/typed-URL via the
+   * existing UnsavedChangesScope/beforeunload mechanism only — no local
+   * Cancel/Back exists on this page (none is added here), and
+   * SettingsNav/sidebar/browser Back-Forward remain unprotected
+   * accepted limitations, matching C1a's own. See
+   * `installBeforeUnloadObserver`'s own header comment for how dirty
+   * state is observed here instead of via a ConfirmDialog.
+   */
+  test.describe("Forms Improvement Slice C1b — unsaved-change protection", () => {
+    test("pristine form: no unsaved protection", async ({ page, context, baseURL }) => {
+      await installBeforeUnloadObserver(page);
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      await expect(page.getByLabel("Legal company name")).toHaveValue("Acme Legal Name LLC");
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
+    });
+
+    test("plain field: editing makes the form dirty; reverting to the exact original value makes it clean again", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await installBeforeUnloadObserver(page);
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
+
+      const field = page.getByLabel("Legal company name");
+      await field.fill("Temporarily Different Name");
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(true);
+
+      await field.fill("Acme Legal Name LLC");
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
+    });
+
+    test("optional-field normalization: typing into an unset optional field and clearing it back to empty never produces a false-positive dirty state", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await installBeforeUnloadObserver(page);
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      // seedSingaporeProfile never sets supportEmail -- it is genuinely
+      // unset (persisted as null), which this form's own baseline
+      // normalizes the same way an empty submitted string would be.
+      const supportEmail = page.getByLabel("Support email");
+      await expect(supportEmail).toHaveValue("");
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
+
+      await supportEmail.fill("temp@example.com");
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(true);
+
+      await supportEmail.fill("");
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
+    });
+
+    test("validation failure: a rejected save does NOT re-anchor the baseline -- the form remains dirty and protected afterward", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await installBeforeUnloadObserver(page);
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      await page.getByLabel("Legal company name").fill("Rejected Attempt Name");
+      await page.getByLabel("Brand color").fill("not-a-color");
+
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST"),
+        page.getByRole("button", { name: "Save company profile" }).click(),
+      ]);
+      await expect(page.getByText("Enter a color as #RRGGBB.")).toBeVisible();
+
+      // Still dirty/protected -- the failed save must never have
+      // promoted the baseline.
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(true);
+    });
+
+    test("successful save: establishes a new clean baseline -- no unsaved protection immediately afterward", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await installBeforeUnloadObserver(page);
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      await page.getByLabel("Legal company name").fill("Successfully Saved Name");
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(true);
+
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST"),
+        page.getByRole("button", { name: "Save company profile" }).click(),
+      ]);
+      await expect(page.getByText("Company profile saved.")).toBeVisible();
+
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
+    });
+
+    test("post-save edit/revert: editing after a successful save is dirty again; reverting to the newly-saved value is clean again", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await installBeforeUnloadObserver(page);
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      const field = page.getByLabel("Legal company name");
+      await field.fill("Newly Saved Baseline");
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST"),
+        page.getByRole("button", { name: "Save company profile" }).click(),
+      ]);
+      await expect(page.getByText("Company profile saved.")).toBeVisible();
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
+
+      // The clean anchor moved from the original persisted value to the
+      // just-saved one -- reverting to the ORIGINAL value now, not the
+      // new one, must leave it dirty.
+      await field.fill("Acme Legal Name LLC");
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(true);
+
+      await field.fill("Newly Saved Baseline");
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
+    });
+
+    test("repeated successful saves: each save independently establishes its own new clean baseline, even though the success message is identical every time", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await installBeforeUnloadObserver(page);
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      const field = page.getByLabel("Legal company name");
+
+      for (const name of ["First Save", "Second Save", "Third Save"]) {
+        await field.fill(name);
+        await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(true);
+
+        await Promise.all([
+          page.waitForResponse((r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST"),
+          page.getByRole("button", { name: "Save company profile" }).click(),
+        ]);
+        await expect(page.getByText("Company profile saved.")).toBeVisible();
+        await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
+      }
+
+      const persisted = await dbQuery<{ legalName: string } | null>("organizationProfile", "findUnique", {
+        where: { organizationId: fixtures.orgA.id },
+        select: { legalName: true },
+      });
+      expect(persisted?.legalName).toBe("Third Save");
+    });
+
+    test("CurrencySelect and the native Timezone select participate in dirty/revert-to-clean the same as a plain field", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await installBeforeUnloadObserver(page);
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
+
+      await selectCurrencyOption(page, "Currency", "EUR");
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(true);
+
+      await selectCurrencyOption(page, "Currency", "USD");
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
+
+      await page.getByLabel("Time zone").selectOption("Asia/Bangkok");
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(true);
+
+      await page.getByLabel("Time zone").selectOption("Asia/Singapore");
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
+    });
+
+    test("a successful logo upload alone does not make the unrelated CompanyProfileForm dirty", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await installBeforeUnloadObserver(page);
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
+
+      const LOGO_PNG_BYTES = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        "base64",
+      );
+      await page.getByLabel("Choose logo").setInputFiles({
+        name: "e2e-logo.png",
+        mimeType: "image/png",
+        buffer: LOGO_PNG_BYTES,
+      });
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST"),
+        page.getByRole("button", { name: "Upload logo" }).click(),
+      ]);
+      await expect(page.getByRole("button", { name: "Replace logo" })).toBeVisible();
+
+      // The profile form was never touched -- it must still read clean.
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
     });
   });
 });
