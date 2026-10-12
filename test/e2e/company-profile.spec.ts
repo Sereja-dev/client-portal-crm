@@ -585,4 +585,298 @@ test.describe("Company Profile — timezone persistence diagnostic", () => {
       await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
     });
   });
+
+  /**
+   * Forms Improvement Slice D1 — Company Settings sticky Save + Discard
+   * changes. The sticky bar lives inside CompanyProfileForm's own
+   * <form>, reusing the exact BulkActionBar/TaskBulkToolbar visual
+   * convention already shipped elsewhere in this app. Discard is a
+   * remount (not native form.reset()), confirmed via ConfirmDialog, and
+   * restores the LATEST successfully-saved baseline (never necessarily
+   * the original first-mount value) while clearing any stale
+   * validation/success message and the C1b beforeunload guard.
+   */
+  test.describe("Forms Improvement Slice D1 — sticky Save + Discard changes", () => {
+    test("sticky Save action renders on desktop", async ({ page, context, baseURL }) => {
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      const saveButton = page.getByRole("button", { name: "Save company profile" });
+      await expect(saveButton).toBeVisible();
+      // `sticky` is applied to the action bar that wraps Save (and,
+      // when dirty, Discard) -- not to the <button> itself.
+      const actionBar = saveButton.locator("xpath=..");
+      await expect(actionBar).toHaveCSS("position", "sticky");
+    });
+
+    test("mobile ~390px: action bar is usable, buttons stack when dirty, no destructive horizontal overflow", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      await expect(page.getByRole("button", { name: "Save company profile" })).toBeVisible();
+      await page.getByLabel("Legal company name").fill("Mobile Edit");
+      await expect(page.getByRole("button", { name: "Discard changes" })).toBeVisible();
+
+      const scrollWidth = await page.evaluate(() => document.documentElement.scrollWidth);
+      const clientWidth = await page.evaluate(() => document.documentElement.clientWidth);
+      expect(scrollWidth).toBeLessThanOrEqual(clientWidth + 1);
+    });
+
+    test("pristine: Save is visible, Discard changes is absent", async ({ page, context, baseURL }) => {
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      await expect(page.getByRole("button", { name: "Save company profile" })).toBeVisible();
+      await expect(page.getByRole("button", { name: "Discard changes" })).toHaveCount(0);
+    });
+
+    test("dirty: Discard changes appears, hard-unload guard remains active", async ({ page, context, baseURL }) => {
+      await installBeforeUnloadObserver(page);
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      await page.getByLabel("Legal company name").fill("Dirty Edit");
+      await expect(page.getByRole("button", { name: "Discard changes" })).toBeVisible();
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(true);
+    });
+
+    test("confirmation dialog: exact copy; Keep editing preserves the dirty state and the typed value", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await installBeforeUnloadObserver(page);
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      const field = page.getByLabel("Legal company name");
+      await field.fill("Preserve Me");
+      await page.getByRole("button", { name: "Discard changes" }).click();
+
+      const dialog = page.getByRole("dialog");
+      await expect(dialog).toBeVisible();
+      await expect(dialog.getByText("Discard changes?")).toBeVisible();
+      await expect(dialog.getByText("Your unsaved company profile changes will be lost. This can't be undone.")).toBeVisible();
+      await expect(dialog.getByRole("button", { name: "Discard" })).toBeVisible();
+      await expect(dialog.getByRole("button", { name: "Keep editing" })).toBeVisible();
+
+      await dialog.getByRole("button", { name: "Keep editing" }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect(field).toHaveValue("Preserve Me");
+      await expect(page.getByRole("button", { name: "Discard changes" })).toBeVisible();
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(true);
+    });
+
+    test("basic discard: confirming restores the original baseline, clears the guard, and Discard disappears", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await installBeforeUnloadObserver(page);
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      const field = page.getByLabel("Legal company name");
+      await expect(field).toHaveValue("Acme Legal Name LLC");
+      await field.fill("Temporary Edit");
+
+      await page.getByRole("button", { name: "Discard changes" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
+
+      await expect(field).toHaveValue("Acme Legal Name LLC");
+      await expect(page.getByRole("button", { name: "Discard changes" })).toHaveCount(0);
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
+    });
+
+    test("successful-save baseline: discard after a successful save restores the saved value, not the original", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      const field = page.getByLabel("Legal company name");
+      await field.fill("Saved Baseline B");
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST"),
+        page.getByRole("button", { name: "Save company profile" }).click(),
+      ]);
+      await expect(page.getByText("Company profile saved.")).toBeVisible();
+
+      await field.fill("Unsaved Edit C");
+      await page.getByRole("button", { name: "Discard changes" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
+
+      await expect(field).toHaveValue("Saved Baseline B");
+    });
+
+    test("repeated successful saves: discard restores the most recently saved value", async ({ page, context, baseURL }) => {
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      const field = page.getByLabel("Legal company name");
+      for (const name of ["Saved B", "Saved C"]) {
+        await field.fill(name);
+        await Promise.all([
+          page.waitForResponse((r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST"),
+          page.getByRole("button", { name: "Save company profile" }).click(),
+        ]);
+        await expect(page.getByText("Company profile saved.")).toBeVisible();
+      }
+
+      await field.fill("Unsaved D");
+      await page.getByRole("button", { name: "Discard changes" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
+
+      await expect(field).toHaveValue("Saved C");
+    });
+
+    test("CurrencySelect: discard restores the current clean currency, and the submitted value matches", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      await selectCurrencyOption(page, "Currency", "EUR");
+      await page.getByRole("button", { name: "Discard changes" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
+      await expect(page.getByLabel("Currency")).toHaveValue("USD");
+
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST"),
+        page.getByRole("button", { name: "Save company profile" }).click(),
+      ]);
+      const persisted = await dbQuery<{ currency: string } | null>("organizationProfile", "findUnique", {
+        where: { organizationId: fixtures.orgA.id },
+        select: { currency: true },
+      });
+      expect(persisted?.currency).toBe("USD");
+    });
+
+    test("Timezone select: discard restores the current clean timezone", async ({ page, context, baseURL }) => {
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      await expect(page.getByLabel("Time zone")).toHaveValue("Asia/Singapore");
+      await page.getByLabel("Time zone").selectOption("Asia/Bangkok");
+      await page.getByRole("button", { name: "Discard changes" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
+      await expect(page.getByLabel("Time zone")).toHaveValue("Asia/Singapore");
+    });
+
+    test("validation error: a failed save stays dirty, and discard restores the clean baseline while clearing the stale error", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await installBeforeUnloadObserver(page);
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      await page.getByLabel("Legal company name").fill("Rejected Edit");
+      await page.getByLabel("Brand color").fill("not-a-color");
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST"),
+        page.getByRole("button", { name: "Save company profile" }).click(),
+      ]);
+      await expect(page.getByText("Enter a color as #RRGGBB.")).toBeVisible();
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(true);
+
+      await page.getByRole("button", { name: "Discard changes" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
+
+      await expect(page.getByText("Enter a color as #RRGGBB.")).not.toBeVisible();
+      await expect(page.getByLabel("Legal company name")).toHaveValue("Acme Legal Name LLC");
+      await expect(page.getByLabel("Brand color")).toHaveValue("");
+      await expect.poll(() => isBeforeUnloadGuarded(page)).toBe(false);
+    });
+
+    test("success message: a stale success message disappears after a subsequent discard", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      await page.getByLabel("Legal company name").fill("Saved Message Test");
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST"),
+        page.getByRole("button", { name: "Save company profile" }).click(),
+      ]);
+      await expect(page.getByText("Company profile saved.")).toBeVisible();
+
+      await page.getByLabel("Legal company name").fill("Temp After Save");
+      await page.getByRole("button", { name: "Discard changes" }).click();
+      await page.getByRole("dialog").getByRole("button", { name: "Discard" }).click();
+
+      await expect(page.getByText("Company profile saved.")).not.toBeVisible();
+    });
+
+    test("pending: Save shows loading, Discard (already visible because dirty) is disabled, existing fieldset-disable regression is preserved", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      // The real local round trip is fast enough that it can otherwise
+      // settle before even one assertion resolves (matching the
+      // existing delayed-route convention already established in
+      // global-search.spec.ts for exactly this kind of deterministic
+      // pending-window test).
+      await page.route(`**${COMPANY_PROFILE_PATH}`, async (route) => {
+        if (route.request().method() === "POST") {
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+        await route.continue();
+      });
+
+      const field = page.getByLabel("Legal company name");
+      await field.fill("Pending Edit");
+
+      const responsePromise = page.waitForResponse((r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST");
+      await page.getByRole("button", { name: "Save company profile" }).click();
+
+      await expect(field).toBeDisabled();
+      await expect(page.getByRole("button", { name: "Discard changes" })).toBeDisabled();
+
+      await responsePromise;
+    });
+
+    test("Logo boundary: uploading a logo alone never makes the profile Discard button appear", async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      await injectTestSession(context, fixtures.owner, baseURL!);
+      await page.goto(COMPANY_PROFILE_PATH);
+
+      const LOGO_PNG_BYTES = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+        "base64",
+      );
+      await page.getByLabel("Choose logo").setInputFiles({
+        name: "e2e-logo.png",
+        mimeType: "image/png",
+        buffer: LOGO_PNG_BYTES,
+      });
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST"),
+        page.getByRole("button", { name: "Upload logo" }).click(),
+      ]);
+      await expect(page.getByRole("button", { name: "Replace logo" })).toBeVisible();
+
+      await expect(page.getByRole("button", { name: "Discard changes" })).toHaveCount(0);
+    });
+  });
 });

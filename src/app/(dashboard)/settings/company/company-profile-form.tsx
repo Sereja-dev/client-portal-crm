@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/select";
 import { CurrencySelect } from "@/components/invoices/currency-select";
 import { FormField } from "@/components/ui/form-field";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ui/confirm-dialog";
 import { callActionWithStaleRecovery } from "@/lib/action-error";
 import { deepEqual } from "@/lib/forms/deep-equal";
 import { useReportDirtyState } from "@/components/forms/use-report-dirty-state";
@@ -170,6 +171,21 @@ function fieldDefault(submitted: string | null | undefined, persisted: string | 
  * validation/company-profile.ts's own nullable contract) — an OWNER can
  * save with none of them filled in, exactly as they always could before
  * this stage existed.
+ *
+ * Forms Improvement Slice D1 — `CompanyProfileForm` is now this thin
+ * outer wrapper; `CompanyProfileFormFields` below holds everything that
+ * used to live directly here (the `<form>`, `useActionState`, every
+ * field, and all of C1b's own dirty tracking), remounted via
+ * `key={resetGeneration}` on confirmed Discard. See
+ * `CompanyProfileFormFields`'s own header comment for exactly why a
+ * remount — not native `form.reset()` — is the correct discard
+ * mechanism, and why `profile` (received fresh here, unchanged, from
+ * the Server Component page on every navigation/revalidation) is
+ * already the right source for "restore to the LATEST successfully
+ * saved value," not merely the first-mount one. This wrapper owns
+ * nothing else — no duplicate baseline, no duplicate dirty state — so
+ * there is exactly one authoritative place (inside the remounted
+ * child) that ever decides what "clean" currently means.
  */
 export function CompanyProfileForm({
   profile,
@@ -179,6 +195,43 @@ export function CompanyProfileForm({
   profile: CompanyProfileData;
   currencies: readonly string[];
   timezones: readonly string[];
+}) {
+  const [resetGeneration, setResetGeneration] = useState(0);
+  return (
+    <CompanyProfileFormFields
+      key={resetGeneration}
+      profile={profile}
+      currencies={currencies}
+      timezones={timezones}
+      onDiscard={() => setResetGeneration((generation) => generation + 1)}
+    />
+  );
+}
+
+/**
+ * Forms Improvement Slice D1 — the discard mechanism is a remount, not
+ * native `form.reset()`. CurrencySelect's own hidden
+ * `<input type="hidden" value={currentValue}>` is React-`value`-driven
+ * (confirmed directly during this slice's own readiness audit), so a
+ * native reset has no effect on it at all — React simply re-renders it
+ * right back to whatever internal state CurrencySelect still holds.
+ * Only a full remount re-seeds that internal state from this
+ * component's own current `defaultValue` props. Remounting also
+ * destroys and recreates the `useActionState` call below, which is
+ * exactly what correctly clears a stale validation error or success
+ * message on Discard with no extra code — `state` simply starts over
+ * at `initialState`.
+ */
+function CompanyProfileFormFields({
+  profile,
+  currencies,
+  timezones,
+  onDiscard,
+}: {
+  profile: CompanyProfileData;
+  currencies: readonly string[];
+  timezones: readonly string[];
+  onDiscard: () => void;
 }) {
   const [state, formAction, pending] = useActionState(
     (prevState: CompanyProfileFormState, formData: FormData) =>
@@ -280,6 +333,8 @@ export function CompanyProfileForm({
 
   const isDirty = !deepEqual(currentSnapshot, baseline);
   useReportDirtyState(isDirty);
+
+  const discardDialogRef = useRef<ConfirmDialogHandle>(null);
 
   return (
     <form
@@ -558,9 +613,40 @@ export function CompanyProfileForm({
         </p>
       )}
 
-      <Button type="submit" loading={pending}>
-        {pending ? "Saving…" : "Save company profile"}
-      </Button>
+      {/*
+        Forms Improvement Slice D1 — the sticky action bar. Reuses the
+        exact `sticky bottom-4 z-10 ... rounded-lg border ... shadow-lg`
+        convention BulkActionBar/TaskBulkToolbar already ship in
+        production inside this same (dashboard) layout, rather than
+        inventing a new visual system. Lives inside this <form>, not
+        beside it, so Save remains a genuine native submit button for
+        this exact form. Save is always rendered (loading/disabled
+        while pending, otherwise always enabled — unchanged from
+        before); Discard renders only while `isDirty`, so a pristine
+        form never shows a disabled ghost control, matching
+        BulkActionBar's own "render nothing when there's nothing to act
+        on" precedent.
+      */}
+      <div className="border-border-default bg-surface sticky bottom-4 z-10 mt-4 flex flex-col gap-2 rounded-lg border p-4 shadow-lg sm:flex-row">
+        <Button type="submit" loading={pending}>
+          {pending ? "Saving…" : "Save company profile"}
+        </Button>
+        {isDirty && (
+          <Button type="button" variant="secondary" disabled={pending} onClick={() => discardDialogRef.current?.open()}>
+            Discard changes
+          </Button>
+        )}
+      </div>
+
+      <ConfirmDialog
+        ref={discardDialogRef}
+        title="Discard changes?"
+        description="Your unsaved company profile changes will be lost. This can't be undone."
+        confirmLabel="Discard"
+        cancelLabel="Keep editing"
+        destructive
+        onConfirm={onDiscard}
+      />
     </form>
   );
 }
