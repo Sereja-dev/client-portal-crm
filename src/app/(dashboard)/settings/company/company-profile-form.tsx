@@ -73,224 +73,246 @@ export function CompanyProfileForm({
 
   return (
     <form action={formAction} className={`mt-6 space-y-8 p-6 ${CARD_SURFACE_CLASSES}`}>
-      <fieldset className="space-y-4">
-        <legend className="text-text-primary text-base font-semibold">Business</legend>
+      {/*
+        Company Settings Mid-Flight Edit Loss remediation — every field
+        below stayed fully editable while a submission was pending, so a
+        user who kept typing (or just tabbed to the next field) in the
+        brief window between clicking Save and the action settling had
+        that edit silently discarded by React 19's own post-settlement
+        native form.reset() — on success *and* on a validation failure
+        alike, since the reset fires either way. A single outer, disabled
+        `<fieldset>` around every editable section is the narrow, native
+        fix: once no edit can physically occur during that window, there
+        is nothing left for the reset to discard. `disabled` on a
+        `<fieldset>` propagates to every descendant form control via the
+        browser's own native inheritance — no per-field `disabled` prop
+        needed, and this never changes what gets captured into the
+        submitted FormData (that capture happens synchronously at submit
+        time, strictly before this re-render applies `disabled`). The
+        five existing `<fieldset>`/`<legend>` sections below are
+        untouched inside it; the Save button and the error/status
+        messages stay outside, exactly where they already were.
+      */}
+      <fieldset disabled={pending} className="space-y-8">
+        <fieldset className="space-y-4">
+          <legend className="text-text-primary text-base font-semibold">Business</legend>
 
-        <FormField label="Display / company name" htmlFor="displayName" required error={state.fieldErrors?.displayName}>
-          <Input
-            id="displayName"
-            name="displayName"
-            type="text"
-            defaultValue={fieldDefault(state.values?.displayName, profile.displayName)}
-            aria-invalid={!!state.fieldErrors?.displayName}
-            required
-          />
-        </FormField>
+          <FormField label="Display / company name" htmlFor="displayName" required error={state.fieldErrors?.displayName}>
+            <Input
+              id="displayName"
+              name="displayName"
+              type="text"
+              defaultValue={fieldDefault(state.values?.displayName, profile.displayName)}
+              aria-invalid={!!state.fieldErrors?.displayName}
+              required
+            />
+          </FormField>
 
-        <FormField label="Legal company name" htmlFor="legalName" required error={state.fieldErrors?.legalName}>
-          <Input
-            id="legalName"
-            name="legalName"
-            type="text"
-            defaultValue={fieldDefault(state.values?.legalName, profile.legalName)}
-            aria-invalid={!!state.fieldErrors?.legalName}
-            required
-          />
-        </FormField>
+          <FormField label="Legal company name" htmlFor="legalName" required error={state.fieldErrors?.legalName}>
+            <Input
+              id="legalName"
+              name="legalName"
+              type="text"
+              defaultValue={fieldDefault(state.values?.legalName, profile.legalName)}
+              aria-invalid={!!state.fieldErrors?.legalName}
+              required
+            />
+          </FormField>
 
-        <FormField label="Currency" htmlFor="currency" required error={state.fieldErrors?.currency}>
-          {/*
-            Company Profile Timezone Persistence Diagnostic — still keyed
-            on fieldDefault(...), not the surrounding form and not bare
-            `profile.currency` alone, after Forms Improvement Slice A1
-            replaced the native select element here with CurrencySelect
-            (uncontrolled mode: `defaultValue` + its own internal state,
-            the same calling convention this field already used). The
-            original defect this `key` fixed was native-select-element-
-            specific (react-dom's own update-props path only re-runs
-            updateOptions() when `multiple` changes, so a plain prop
-            update never re-selects the right option after React 19's
-            post-action native form.reset() — see the full original
-            analysis in git history for this file). CurrencySelect is not
-            a native select element and doesn't carry that specific bug, but
-            the SEPARATE requirement the `key` also serves still applies
-            to any uncontrolled field here: after a REJECTED save, a
-            validation error on some OTHER field must never silently
-            revert an already-changed, valid currency choice back to its
-            last-persisted value. `key={fieldDefault(...)}` remains the
-            mechanism for that — it forces a fresh mount (and therefore a
-            fresh internal-state seed) exactly when the effective default
-            changes, never the whole form (which would also discard
-            useActionState's own in-flight success/error message), and
-            CurrencySelect still never becomes a controlled input here.
-          */}
-          <CurrencySelect
-            key={fieldDefault(state.values?.currency, profile.currency)}
-            id="currency"
-            name="currency"
-            defaultValue={fieldDefault(state.values?.currency, profile.currency)}
-            supportedCurrencies={currencies}
-            aria-invalid={!!state.fieldErrors?.currency}
-            required
-          />
-        </FormField>
+          <FormField label="Currency" htmlFor="currency" required error={state.fieldErrors?.currency}>
+            {/*
+              Company Profile Timezone Persistence Diagnostic — still keyed
+              on fieldDefault(...), not the surrounding form and not bare
+              `profile.currency` alone, after Forms Improvement Slice A1
+              replaced the native select element here with CurrencySelect
+              (uncontrolled mode: `defaultValue` + its own internal state,
+              the same calling convention this field already used). The
+              original defect this `key` fixed was native-select-element-
+              specific (react-dom's own update-props path only re-runs
+              updateOptions() when `multiple` changes, so a plain prop
+              update never re-selects the right option after React 19's
+              post-action native form.reset() — see the full original
+              analysis in git history for this file). CurrencySelect is not
+              a native select element and doesn't carry that specific bug, but
+              the SEPARATE requirement the `key` also serves still applies
+              to any uncontrolled field here: after a REJECTED save, a
+              validation error on some OTHER field must never silently
+              revert an already-changed, valid currency choice back to its
+              last-persisted value. `key={fieldDefault(...)}` remains the
+              mechanism for that — it forces a fresh mount (and therefore a
+              fresh internal-state seed) exactly when the effective default
+              changes, never the whole form (which would also discard
+              useActionState's own in-flight success/error message), and
+              CurrencySelect still never becomes a controlled input here.
+            */}
+            <CurrencySelect
+              key={fieldDefault(state.values?.currency, profile.currency)}
+              id="currency"
+              name="currency"
+              defaultValue={fieldDefault(state.values?.currency, profile.currency)}
+              supportedCurrencies={currencies}
+              aria-invalid={!!state.fieldErrors?.currency}
+              required
+            />
+          </FormField>
 
-        <FormField label="Time zone" htmlFor="timezone" required error={state.fieldErrors?.timezone}>
-          {/* See the Currency field's own comment above -- same defect, same fix. */}
-          <Select
-            key={fieldDefault(state.values?.timezone, profile.timezone)}
-            id="timezone"
-            name="timezone"
-            defaultValue={fieldDefault(state.values?.timezone, profile.timezone)}
-            aria-invalid={!!state.fieldErrors?.timezone}
-            required
-          >
-            <option value="" disabled>
-              Select a time zone
-            </option>
-            {timezones.map((tz) => (
-              <option key={tz} value={tz}>
-                {tz}
+          <FormField label="Time zone" htmlFor="timezone" required error={state.fieldErrors?.timezone}>
+            {/* See the Currency field's own comment above -- same defect, same fix. */}
+            <Select
+              key={fieldDefault(state.values?.timezone, profile.timezone)}
+              id="timezone"
+              name="timezone"
+              defaultValue={fieldDefault(state.values?.timezone, profile.timezone)}
+              aria-invalid={!!state.fieldErrors?.timezone}
+              required
+            >
+              <option value="" disabled>
+                Select a time zone
               </option>
-            ))}
-          </Select>
-        </FormField>
-      </fieldset>
+              {timezones.map((tz) => (
+                <option key={tz} value={tz}>
+                  {tz}
+                </option>
+              ))}
+            </Select>
+          </FormField>
+        </fieldset>
 
-      <fieldset className="space-y-4">
-        <legend className="text-text-primary text-base font-semibold">Contact</legend>
+        <fieldset className="space-y-4">
+          <legend className="text-text-primary text-base font-semibold">Contact</legend>
 
-        <FormField label="Support email" htmlFor="supportEmail" error={state.fieldErrors?.supportEmail}>
-          <Input
-            id="supportEmail"
-            name="supportEmail"
-            // Deliberately type="text", not type="email": a browser's own
-            // native format validation would block submission before this
-            // form's server-side validation ever runs, so a genuinely
-            // invalid value would never reach parseCompanyProfileForm and
-            // its own fieldError message would never have a chance to
-            // display — the exact same reasoning as brandColor above,
-            // and consistent with every other validated-but-optional
-            // field on this form already being type="text".
-            type="text"
-            defaultValue={fieldDefault(state.values?.supportEmail, profile.supportEmail)}
-            aria-invalid={!!state.fieldErrors?.supportEmail}
-          />
-        </FormField>
+          <FormField label="Support email" htmlFor="supportEmail" error={state.fieldErrors?.supportEmail}>
+            <Input
+              id="supportEmail"
+              name="supportEmail"
+              // Deliberately type="text", not type="email": a browser's own
+              // native format validation would block submission before this
+              // form's server-side validation ever runs, so a genuinely
+              // invalid value would never reach parseCompanyProfileForm and
+              // its own fieldError message would never have a chance to
+              // display — the exact same reasoning as brandColor above,
+              // and consistent with every other validated-but-optional
+              // field on this form already being type="text".
+              type="text"
+              defaultValue={fieldDefault(state.values?.supportEmail, profile.supportEmail)}
+              aria-invalid={!!state.fieldErrors?.supportEmail}
+            />
+          </FormField>
 
-        <FormField label="Website" htmlFor="website" error={state.fieldErrors?.website}>
-          <Input
-            id="website"
-            name="website"
-            type="text"
-            placeholder="https://"
-            defaultValue={fieldDefault(state.values?.website, profile.website)}
-            aria-invalid={!!state.fieldErrors?.website}
-          />
-        </FormField>
+          <FormField label="Website" htmlFor="website" error={state.fieldErrors?.website}>
+            <Input
+              id="website"
+              name="website"
+              type="text"
+              placeholder="https://"
+              defaultValue={fieldDefault(state.values?.website, profile.website)}
+              aria-invalid={!!state.fieldErrors?.website}
+            />
+          </FormField>
 
-        <FormField label="Phone" htmlFor="phone" error={state.fieldErrors?.phone}>
-          <Input
-            id="phone"
-            name="phone"
-            type="text"
-            defaultValue={fieldDefault(state.values?.phone, profile.phone)}
-            aria-invalid={!!state.fieldErrors?.phone}
-          />
-        </FormField>
-      </fieldset>
+          <FormField label="Phone" htmlFor="phone" error={state.fieldErrors?.phone}>
+            <Input
+              id="phone"
+              name="phone"
+              type="text"
+              defaultValue={fieldDefault(state.values?.phone, profile.phone)}
+              aria-invalid={!!state.fieldErrors?.phone}
+            />
+          </FormField>
+        </fieldset>
 
-      <fieldset className="space-y-4">
-        <legend className="text-text-primary text-base font-semibold">Address</legend>
+        <fieldset className="space-y-4">
+          <legend className="text-text-primary text-base font-semibold">Address</legend>
 
-        <FormField label="Country" htmlFor="country" required error={state.fieldErrors?.country}>
-          <Input
-            id="country"
-            name="country"
-            type="text"
-            defaultValue={fieldDefault(state.values?.country, profile.country)}
-            aria-invalid={!!state.fieldErrors?.country}
-            required
-          />
-        </FormField>
+          <FormField label="Country" htmlFor="country" required error={state.fieldErrors?.country}>
+            <Input
+              id="country"
+              name="country"
+              type="text"
+              defaultValue={fieldDefault(state.values?.country, profile.country)}
+              aria-invalid={!!state.fieldErrors?.country}
+              required
+            />
+          </FormField>
 
-        <FormField label="Street address" htmlFor="streetAddress" error={state.fieldErrors?.streetAddress}>
-          <Input
-            id="streetAddress"
-            name="streetAddress"
-            type="text"
-            defaultValue={fieldDefault(state.values?.streetAddress, profile.streetAddress)}
-            aria-invalid={!!state.fieldErrors?.streetAddress}
-          />
-        </FormField>
+          <FormField label="Street address" htmlFor="streetAddress" error={state.fieldErrors?.streetAddress}>
+            <Input
+              id="streetAddress"
+              name="streetAddress"
+              type="text"
+              defaultValue={fieldDefault(state.values?.streetAddress, profile.streetAddress)}
+              aria-invalid={!!state.fieldErrors?.streetAddress}
+            />
+          </FormField>
 
-        <FormField label="City" htmlFor="city" error={state.fieldErrors?.city}>
-          <Input
-            id="city"
-            name="city"
-            type="text"
-            defaultValue={fieldDefault(state.values?.city, profile.city)}
-            aria-invalid={!!state.fieldErrors?.city}
-          />
-        </FormField>
+          <FormField label="City" htmlFor="city" error={state.fieldErrors?.city}>
+            <Input
+              id="city"
+              name="city"
+              type="text"
+              defaultValue={fieldDefault(state.values?.city, profile.city)}
+              aria-invalid={!!state.fieldErrors?.city}
+            />
+          </FormField>
 
-        <FormField label="State / Province" htmlFor="state" error={state.fieldErrors?.state}>
-          <Input
-            id="state"
-            name="state"
-            type="text"
-            defaultValue={fieldDefault(state.values?.state, profile.state)}
-            aria-invalid={!!state.fieldErrors?.state}
-          />
-        </FormField>
+          <FormField label="State / Province" htmlFor="state" error={state.fieldErrors?.state}>
+            <Input
+              id="state"
+              name="state"
+              type="text"
+              defaultValue={fieldDefault(state.values?.state, profile.state)}
+              aria-invalid={!!state.fieldErrors?.state}
+            />
+          </FormField>
 
-        <FormField label="Postal code" htmlFor="postalCode" error={state.fieldErrors?.postalCode}>
-          <Input
-            id="postalCode"
-            name="postalCode"
-            type="text"
-            defaultValue={fieldDefault(state.values?.postalCode, profile.postalCode)}
-            aria-invalid={!!state.fieldErrors?.postalCode}
-          />
-        </FormField>
-      </fieldset>
+          <FormField label="Postal code" htmlFor="postalCode" error={state.fieldErrors?.postalCode}>
+            <Input
+              id="postalCode"
+              name="postalCode"
+              type="text"
+              defaultValue={fieldDefault(state.values?.postalCode, profile.postalCode)}
+              aria-invalid={!!state.fieldErrors?.postalCode}
+            />
+          </FormField>
+        </fieldset>
 
-      <fieldset className="space-y-4">
-        <legend className="text-text-primary text-base font-semibold">Tax</legend>
+        <fieldset className="space-y-4">
+          <legend className="text-text-primary text-base font-semibold">Tax</legend>
 
-        <FormField label="Tax ID / VAT" htmlFor="taxId" error={state.fieldErrors?.taxId}>
-          <Input
-            id="taxId"
-            name="taxId"
-            type="text"
-            defaultValue={fieldDefault(state.values?.taxId, profile.taxId)}
-            aria-invalid={!!state.fieldErrors?.taxId}
-          />
-        </FormField>
-      </fieldset>
+          <FormField label="Tax ID / VAT" htmlFor="taxId" error={state.fieldErrors?.taxId}>
+            <Input
+              id="taxId"
+              name="taxId"
+              type="text"
+              defaultValue={fieldDefault(state.values?.taxId, profile.taxId)}
+              aria-invalid={!!state.fieldErrors?.taxId}
+            />
+          </FormField>
+        </fieldset>
 
-      <fieldset className="space-y-4">
-        <legend className="text-text-primary text-base font-semibold">Branding</legend>
+        <fieldset className="space-y-4">
+          <legend className="text-text-primary text-base font-semibold">Branding</legend>
 
-        {/*
-          Deliberately type="text", not type="color": a native color
-          input has no "empty" state — it always submits a real hex
-          value (defaulting to black), which would silently overwrite
-          this nullable field with #000000 on every unrelated save for
-          an organization that never set one. A plain text field keeps
-          "unset" genuinely empty, the same as every other optional field
-          on this form.
-        */}
-        <FormField label="Brand color" htmlFor="brandColor" error={state.fieldErrors?.brandColor}>
-          <Input
-            id="brandColor"
-            name="brandColor"
-            type="text"
-            placeholder="#RRGGBB"
-            defaultValue={fieldDefault(state.values?.brandColor, profile.brandColor)}
-            aria-invalid={!!state.fieldErrors?.brandColor}
-          />
-        </FormField>
+          {/*
+            Deliberately type="text", not type="color": a native color
+            input has no "empty" state — it always submits a real hex
+            value (defaulting to black), which would silently overwrite
+            this nullable field with #000000 on every unrelated save for
+            an organization that never set one. A plain text field keeps
+            "unset" genuinely empty, the same as every other optional field
+            on this form.
+          */}
+          <FormField label="Brand color" htmlFor="brandColor" error={state.fieldErrors?.brandColor}>
+            <Input
+              id="brandColor"
+              name="brandColor"
+              type="text"
+              placeholder="#RRGGBB"
+              defaultValue={fieldDefault(state.values?.brandColor, profile.brandColor)}
+              aria-invalid={!!state.fieldErrors?.brandColor}
+            />
+          </FormField>
+        </fieldset>
       </fieldset>
 
       {state.error && (
