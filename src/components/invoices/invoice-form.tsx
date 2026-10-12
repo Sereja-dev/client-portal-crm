@@ -169,6 +169,22 @@ export function InvoiceForm({
   const [taxRatePercent, setTaxRatePercent] = useState(defaultValues?.taxRatePercent ?? "");
   const [taxLabel, setTaxLabel] = useState<"TAX" | "VAT" | "GST">(defaultValues?.taxLabel ?? "TAX");
   const [notes, setNotes] = useState(defaultValues?.notes ?? "");
+  // Invoice internal-notes validation-reset remediation — this field was
+  // the one remaining uncontrolled field in this form (every sibling
+  // field above, including `notes`, already uses the controlled
+  // value/onChange pattern). React 19's `useActionState` triggers a
+  // native `form.reset()` on every action settlement, success or
+  // rejection alike; an uncontrolled field's `defaultValue` prop never
+  // changes to reflect what was just submitted, so that native reset
+  // silently discarded whatever internal note the user had typed — even
+  // when the validation error was on a completely unrelated field. This
+  // is the exact same defect class already fixed for Recurring Invoice's
+  // own formerly-uncontrolled fields. Converting to controlled state (the
+  // same pattern every other field in this form already uses) fixes it.
+  // Initial value is the exact same source the old `defaultValue` already
+  // was — no change to create defaults, edit-persisted values, or
+  // duplicate/template prefill.
+  const [internalNotes, setInternalNotes] = useState(defaultValues?.internalNotes ?? "");
 
   // Invoice Live Preview V1 — "Advanced options" disclosure (Currency/
   // Discount/Tax/Notes/Internal notes). Opens automatically the first
@@ -607,8 +623,11 @@ export function InvoiceForm({
                 id="internalNotes"
                 name="internalNotes"
                 rows={3}
-                defaultValue={defaultValues?.internalNotes ?? ""}
-                onChange={dismissCurrentErrors}
+                value={internalNotes}
+                onChange={(event) => {
+                  setInternalNotes(event.target.value);
+                  dismissCurrentErrors();
+                }}
                 aria-invalid={!!fieldErrors.internalNotes}
                 aria-describedby={fieldErrors.internalNotes ? "internalNotes-error" : undefined}
               />
