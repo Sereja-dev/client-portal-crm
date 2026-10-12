@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { FormField, FormLabel } from "@/components/ui/form-field";
+import { FormField, FormLabel, describedByIds } from "@/components/ui/form-field";
 import { ChevronDownIcon } from "@/components/ui/icons";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { CurrencySelect } from "@/components/invoices/currency-select";
@@ -411,6 +411,17 @@ export function InvoiceForm({
   const isDirty = !deepEqual(currentDirtySnapshot, initialDirtySnapshot);
   useReportDirtyState(isDirty);
 
+  // Forms Helper-Text Accessibility remediation — the exact same
+  // condition that already decided whether this helper rendered at all;
+  // lifted out here only so both the `description` prop and this
+  // field's own `aria-describedby` read the identical value, so the id
+  // is never referenced unless the paragraph it names is actually in
+  // the DOM this render.
+  const projectNoProjectsDescription =
+    clientId && projectsForClient.length === 0
+      ? "This client has no projects yet — that’s fine, the invoice can stay project-less."
+      : undefined;
+
   return (
     // Mobile line-item overflow fix — proven pre-existing at ~390px,
     // independent of any feature using this form (reproduces on an
@@ -467,7 +478,7 @@ export function InvoiceForm({
           />
         </FormField>
 
-        <FormField label="Project" htmlFor="projectId" error={fieldErrors.projectId}>
+        <FormField label="Project" htmlFor="projectId" error={fieldErrors.projectId} description={projectNoProjectsDescription}>
           <SearchableSelect
             id="projectId"
             name="projectId"
@@ -481,11 +492,11 @@ export function InvoiceForm({
             placeholder="Search projects…"
             emptyMessage="No matching projects"
             aria-invalid={!!fieldErrors.projectId}
-            aria-describedby={fieldErrors.projectId ? "projectId-error" : undefined}
+            aria-describedby={describedByIds(
+              projectNoProjectsDescription && "projectId-description",
+              fieldErrors.projectId && "projectId-error",
+            )}
           />
-          {clientId && projectsForClient.length === 0 && (
-            <p className="text-text-muted mt-1 text-xs">This client has no projects yet — that&rsquo;s fine, the invoice can stay project-less.</p>
-          )}
         </FormField>
 
         <fieldset aria-describedby={fieldErrors.mode ? "mode-error" : undefined}>
@@ -734,7 +745,12 @@ export function InvoiceForm({
               />
             </FormField>
 
-            <FormField label="Internal notes" htmlFor="internalNotes" error={fieldErrors.internalNotes}>
+            <FormField
+              label="Internal notes"
+              htmlFor="internalNotes"
+              error={fieldErrors.internalNotes}
+              description="Staff-only — never shown to the client."
+            >
               <Textarea
                 id="internalNotes"
                 name="internalNotes"
@@ -745,9 +761,8 @@ export function InvoiceForm({
                   dismissCurrentErrors();
                 }}
                 aria-invalid={!!fieldErrors.internalNotes}
-                aria-describedby={fieldErrors.internalNotes ? "internalNotes-error" : undefined}
+                aria-describedby={describedByIds("internalNotes-description", fieldErrors.internalNotes && "internalNotes-error")}
               />
-              <p className="text-text-muted mt-1 text-xs">Staff-only — never shown to the client.</p>
             </FormField>
           </div>
         </details>

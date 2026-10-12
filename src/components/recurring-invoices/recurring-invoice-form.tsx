@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { FormField, FormLabel } from "@/components/ui/form-field";
+import { FormField, FormLabel, describedByIds } from "@/components/ui/form-field";
 import { ChevronDownIcon } from "@/components/ui/icons";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { CurrencySelect } from "@/components/invoices/currency-select";
@@ -394,6 +394,15 @@ export function RecurringInvoiceForm({
   const isDirty = !deepEqual(currentDirtySnapshot, initialDirtySnapshot);
   useReportDirtyState(isDirty);
 
+  // Forms Helper-Text Accessibility remediation — the exact same
+  // condition that already decided whether this helper rendered at
+  // all; lifted out here only so both the `description` prop and this
+  // field's own `aria-describedby` read the identical value, so the id
+  // is never referenced unless the paragraph it names is actually in
+  // the DOM this render.
+  const frequencyDescription =
+    frequency !== "WEEKLY" ? "Month-end schedules automatically use the last valid day in shorter months." : undefined;
+
   return (
     <form action={formAction} className="space-y-8">
       <input type="hidden" name="lineItems" value={encodeInvoiceLineItemsFormValue(lineItems)} readOnly />
@@ -451,7 +460,7 @@ export function RecurringInvoiceForm({
 
         {mode === "create" && (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <FormField label="Frequency" htmlFor="frequency" required error={fieldErrors.frequency}>
+            <FormField label="Frequency" htmlFor="frequency" required error={fieldErrors.frequency} description={frequencyDescription}>
               <Select
                 id="frequency"
                 name="frequency"
@@ -462,7 +471,10 @@ export function RecurringInvoiceForm({
                 }}
                 required
                 aria-invalid={!!fieldErrors.frequency}
-                aria-describedby={fieldErrors.frequency ? "frequency-error" : undefined}
+                aria-describedby={describedByIds(
+                  frequencyDescription && "frequency-description",
+                  fieldErrors.frequency && "frequency-error",
+                )}
               >
                 {RECURRENCE_FREQUENCIES.map((value) => (
                   <option key={value} value={value}>
@@ -470,11 +482,6 @@ export function RecurringInvoiceForm({
                   </option>
                 ))}
               </Select>
-              {frequency !== "WEEKLY" && (
-                <p className="text-text-muted mt-1 text-xs">
-                  Month-end schedules automatically use the last valid day in shorter months.
-                </p>
-              )}
             </FormField>
 
             <FormField label="First issue date" htmlFor="firstIssueDate" required error={fieldErrors.firstIssueDate}>
@@ -544,7 +551,12 @@ export function RecurringInvoiceForm({
           )}
         </div>
 
-        <FormField label="Due date offset (days)" htmlFor="dueDateOffsetDays" error={fieldErrors.dueDateOffsetDays}>
+        <FormField
+          label="Due date offset (days)"
+          htmlFor="dueDateOffsetDays"
+          error={fieldErrors.dueDateOffsetDays}
+          description="Each generated invoice’s due date is this many days after its issue date. Leave blank for no due date."
+        >
           <Input
             id="dueDateOffsetDays"
             name="dueDateOffsetDays"
@@ -557,11 +569,11 @@ export function RecurringInvoiceForm({
               dismissCurrentErrors();
             }}
             aria-invalid={!!fieldErrors.dueDateOffsetDays}
-            aria-describedby={fieldErrors.dueDateOffsetDays ? "dueDateOffsetDays-error" : undefined}
+            aria-describedby={describedByIds(
+              "dueDateOffsetDays-description",
+              fieldErrors.dueDateOffsetDays && "dueDateOffsetDays-error",
+            )}
           />
-          <p className="text-text-muted mt-1 text-xs">
-            Each generated invoice&rsquo;s due date is this many days after its issue date. Leave blank for no due date.
-          </p>
         </FormField>
       </fieldset>
 
@@ -719,7 +731,7 @@ export function RecurringInvoiceForm({
             </FormField>
           </div>
 
-          <FormField label="Notes" htmlFor="notes" error={fieldErrors.notes}>
+          <FormField label="Notes" htmlFor="notes" error={fieldErrors.notes} description="Shown on every generated invoice.">
             <Textarea
               id="notes"
               name="notes"
@@ -730,12 +742,16 @@ export function RecurringInvoiceForm({
                 dismissCurrentErrors();
               }}
               aria-invalid={!!fieldErrors.notes}
-              aria-describedby={fieldErrors.notes ? "notes-error" : undefined}
+              aria-describedby={describedByIds("notes-description", fieldErrors.notes && "notes-error")}
             />
-            <p className="text-text-muted mt-1 text-xs">Shown on every generated invoice.</p>
           </FormField>
 
-          <FormField label="Internal notes" htmlFor="internalNotes" error={fieldErrors.internalNotes}>
+          <FormField
+            label="Internal notes"
+            htmlFor="internalNotes"
+            error={fieldErrors.internalNotes}
+            description="Staff-only — never shown to the client."
+          >
             <Textarea
               id="internalNotes"
               name="internalNotes"
@@ -746,9 +762,8 @@ export function RecurringInvoiceForm({
                 dismissCurrentErrors();
               }}
               aria-invalid={!!fieldErrors.internalNotes}
-              aria-describedby={fieldErrors.internalNotes ? "internalNotes-error" : undefined}
+              aria-describedby={describedByIds("internalNotes-description", fieldErrors.internalNotes && "internalNotes-error")}
             />
-            <p className="text-text-muted mt-1 text-xs">Staff-only — never shown to the client.</p>
           </FormField>
         </div>
       </details>
