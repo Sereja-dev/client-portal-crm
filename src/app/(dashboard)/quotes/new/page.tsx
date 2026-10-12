@@ -6,6 +6,8 @@ import { QuoteTemplatePicker } from "@/components/quotes/quote-template-picker";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { UnsavedChangesScope } from "@/components/forms/unsaved-changes-scope";
+import { UnsavedChangesCancelLink } from "@/components/forms/unsaved-changes-cancel-link";
 import { getCompanyProfile } from "@/lib/organization-setup/company-profile";
 import { resolveInvoiceCurrencyDefault, getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
 import { formatDateOnly } from "@/lib/invoices/date-only";
@@ -142,12 +144,16 @@ export default async function NewQuotePage({ searchParams }: { searchParams: Pro
     // Forms Improvement Slice B2 — widened from max-w-2xl to max-w-5xl to
     // fit QuoteForm's own new two-column form+live-preview layout,
     // mirroring Invoice's identical new/page.tsx precedent exactly.
+    // Forms Improvement Slice C1a — wraps the same region in a
+    // dirty-tracking boundary; see Invoice's own new/page.tsx header
+    // comment for why this is purely structural.
+    <UnsavedChangesScope>
     <div className="mx-auto max-w-5xl">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Add quote</h1>
-        <Link href="/quotes" className={ACTION_LINK_CLASSES}>
+        <UnsavedChangesCancelLink href="/quotes" className={ACTION_LINK_CLASSES}>
           Cancel
-        </Link>
+        </UnsavedChangesCancelLink>
       </div>
 
       {leads.length === 0 && clients.length === 0 ? (
@@ -219,5 +225,6 @@ export default async function NewQuotePage({ searchParams }: { searchParams: Pro
         </>
       )}
     </div>
+    </UnsavedChangesScope>
   );
 }

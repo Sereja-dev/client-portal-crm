@@ -1,11 +1,12 @@
 import { notFound } from "next/navigation";
-import Link from "next/link";
 import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { InvoiceDraftPanel } from "@/components/invoices/invoice-draft-panel";
 import { InvoiceReadOnlyView } from "@/components/invoices/invoice-read-only-view";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { UnsavedChangesScope } from "@/components/forms/unsaved-changes-scope";
+import { UnsavedChangesCancelLink } from "@/components/forms/unsaved-changes-cancel-link";
 import { buildInvoiceTotalsViewModel } from "@/lib/invoices/totals-view-model";
 import { getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
 import { getCompanyProfile } from "@/lib/organization-setup/company-profile";
@@ -101,93 +102,98 @@ export default async function EditInvoicePage({
   const boundUpdateInvoiceAction = updateInvoiceAction.bind(null, invoice.id, invoice.updatedAt.toISOString());
 
   return (
-    <div className={`mx-auto ${isDraft ? "max-w-5xl" : "max-w-2xl"}`}>
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-text-primary text-2xl font-semibold tracking-tight">
-          {isDraft ? "Edit invoice" : "Invoice"}
-        </h1>
-        <Link href="/invoices" className={ACTION_LINK_CLASSES}>
-          Back
-        </Link>
-      </div>
-      <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-        {isDraft ? (
-          <InvoiceDraftPanel
-            invoiceId={invoice.id}
-            invoiceNumber={invoice.invoiceNumber}
-            expectedUpdatedAt={invoice.updatedAt.toISOString()}
-            canIssue={canIssue}
-            readiness={readiness}
-            action={boundUpdateInvoiceAction}
-            clients={clients ?? []}
-            projects={(projects ?? []).map((project) => ({ id: project.id, label: project.name, clientId: project.clientId }))}
-            currencyOptions={getSupportedInvoiceCurrencies()}
-            companyDisplayName={companyProfile?.displayName ?? ""}
-            defaultValues={{
-              invoiceNumber: invoice.invoiceNumber,
-              clientId: invoice.clientId,
-              projectId: invoice.projectId,
-              mode: invoice.lineItems.length > 0 ? "itemized" : "flat",
-              amount: invoice.amount.toString(),
-              lineItems: invoice.lineItems.map((li) => ({
+    // Forms Improvement Slice C1a — wraps both branches (harmless for the
+    // read-only one, which mounts no InvoiceForm and so never reports
+    // dirty). See new/page.tsx's own identical header comment.
+    <UnsavedChangesScope>
+      <div className={`mx-auto ${isDraft ? "max-w-5xl" : "max-w-2xl"}`}>
+        <div className="mb-6 flex items-center justify-between">
+          <h1 className="text-text-primary text-2xl font-semibold tracking-tight">
+            {isDraft ? "Edit invoice" : "Invoice"}
+          </h1>
+          <UnsavedChangesCancelLink href="/invoices" className={ACTION_LINK_CLASSES}>
+            Back
+          </UnsavedChangesCancelLink>
+        </div>
+        <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
+          {isDraft ? (
+            <InvoiceDraftPanel
+              invoiceId={invoice.id}
+              invoiceNumber={invoice.invoiceNumber}
+              expectedUpdatedAt={invoice.updatedAt.toISOString()}
+              canIssue={canIssue}
+              readiness={readiness}
+              action={boundUpdateInvoiceAction}
+              clients={clients ?? []}
+              projects={(projects ?? []).map((project) => ({ id: project.id, label: project.name, clientId: project.clientId }))}
+              currencyOptions={getSupportedInvoiceCurrencies()}
+              companyDisplayName={companyProfile?.displayName ?? ""}
+              defaultValues={{
+                invoiceNumber: invoice.invoiceNumber,
+                clientId: invoice.clientId,
+                projectId: invoice.projectId,
+                mode: invoice.lineItems.length > 0 ? "itemized" : "flat",
+                amount: invoice.amount.toString(),
+                lineItems: invoice.lineItems.map((li) => ({
+                  description: li.description,
+                  quantity: li.quantity.toString(),
+                  unitPrice: li.unitPrice.toString(),
+                })),
+                // The invoice row's own persisted currency — never silently
+                // replaced by the current organization default.
+                currency: invoice.currency,
+                issueDate: formatDateOnly(invoice.issueDate),
+                dueDate: invoice.dueDate ? formatDateOnly(invoice.dueDate) : "",
+                notes: invoice.notes ?? "",
+                internalNotes: invoice.internalNotes ?? "",
+                discountType: invoice.discountType,
+                discountValue: invoice.discountValue?.toString() ?? "",
+                taxRatePercent: invoice.taxRatePercent?.toString() ?? "",
+                taxLabel: invoice.taxLabel,
+              }}
+            />
+          ) : (
+            <InvoiceReadOnlyView
+              invoiceId={invoice.id}
+              invoiceNumber={invoice.invoiceNumber}
+              status={invoice.status}
+              projectId={invoice.projectId}
+              projectName={invoice.project?.name ?? null}
+              clientId={invoice.clientId}
+              clientName={invoice.client.name}
+              currency={invoice.currency}
+              issueDate={invoice.issueDate}
+              dueDate={invoice.dueDate}
+              paidAt={invoice.paidAt}
+              lineItems={invoice.lineItems.map((li) => ({
                 description: li.description,
-                quantity: li.quantity.toString(),
-                unitPrice: li.unitPrice.toString(),
-              })),
-              // The invoice row's own persisted currency — never silently
-              // replaced by the current organization default.
-              currency: invoice.currency,
-              issueDate: formatDateOnly(invoice.issueDate),
-              dueDate: invoice.dueDate ? formatDateOnly(invoice.dueDate) : "",
-              notes: invoice.notes ?? "",
-              internalNotes: invoice.internalNotes ?? "",
-              discountType: invoice.discountType,
-              discountValue: invoice.discountValue?.toString() ?? "",
-              taxRatePercent: invoice.taxRatePercent?.toString() ?? "",
-              taxLabel: invoice.taxLabel,
-            }}
-          />
-        ) : (
-          <InvoiceReadOnlyView
-            invoiceId={invoice.id}
-            invoiceNumber={invoice.invoiceNumber}
-            status={invoice.status}
-            projectId={invoice.projectId}
-            projectName={invoice.project?.name ?? null}
-            clientId={invoice.clientId}
-            clientName={invoice.client.name}
-            currency={invoice.currency}
-            issueDate={invoice.issueDate}
-            dueDate={invoice.dueDate}
-            paidAt={invoice.paidAt}
-            lineItems={invoice.lineItems.map((li) => ({
-              description: li.description,
-              quantity: li.quantity,
-              unitPrice: li.unitPrice,
-              lineTotal: li.lineTotal,
-            }))}
-            notes={invoice.notes}
-            internalNotes={invoice.internalNotes}
-            hasArchivedPdf={hasArchivedPdf}
-            canArchiveLegacy={canArchiveLegacy}
-            canSendEmail={canSendEmail}
-            emailAttempts={emailAttempts}
-            expectedUpdatedAt={invoice.updatedAt.toISOString()}
-            totals={buildInvoiceTotalsViewModel({
-              amount: invoice.amount,
-              subtotal: invoice.subtotal,
-              discountType: invoice.discountType,
-              discountAmount: invoice.discountAmount,
-              discountValue: invoice.discountValue,
-              taxRatePercent: invoice.taxRatePercent,
-              taxAmount: invoice.taxAmount,
-              taxLabel: invoice.taxLabel,
-              currency: invoice.currency,
-            })}
-          />
-        )}
-        <InvoiceAttachmentsSection invoiceId={invoice.id} organizationId={organizationId} />
+                quantity: li.quantity,
+                unitPrice: li.unitPrice,
+                lineTotal: li.lineTotal,
+              }))}
+              notes={invoice.notes}
+              internalNotes={invoice.internalNotes}
+              hasArchivedPdf={hasArchivedPdf}
+              canArchiveLegacy={canArchiveLegacy}
+              canSendEmail={canSendEmail}
+              emailAttempts={emailAttempts}
+              expectedUpdatedAt={invoice.updatedAt.toISOString()}
+              totals={buildInvoiceTotalsViewModel({
+                amount: invoice.amount,
+                subtotal: invoice.subtotal,
+                discountType: invoice.discountType,
+                discountAmount: invoice.discountAmount,
+                discountValue: invoice.discountValue,
+                taxRatePercent: invoice.taxRatePercent,
+                taxAmount: invoice.taxAmount,
+                taxLabel: invoice.taxLabel,
+                currency: invoice.currency,
+              })}
+            />
+          )}
+          <InvoiceAttachmentsSection invoiceId={invoice.id} organizationId={organizationId} />
+        </div>
       </div>
-    </div>
+    </UnsavedChangesScope>
   );
 }

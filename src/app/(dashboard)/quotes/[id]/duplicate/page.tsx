@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { QuoteForm, type QuoteTargetOption } from "@/components/quotes/quote-form";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { UnsavedChangesScope } from "@/components/forms/unsaved-changes-scope";
+import { UnsavedChangesCancelLink } from "@/components/forms/unsaved-changes-cancel-link";
 import { getCompanyProfile } from "@/lib/organization-setup/company-profile";
 import { getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
 import { getDuplicateSourceQuote } from "@/lib/quotes/duplicate-source";
@@ -90,12 +92,16 @@ export default async function DuplicateQuotePage({
   return (
     // Forms Improvement Slice B2 — widened from max-w-2xl to max-w-5xl to
     // fit QuoteForm's own new two-column form+live-preview layout.
+    // Forms Improvement Slice C1a — the duplicate-prefilled state is
+    // QuoteForm's own mount-time baseline; the duplicate form starts
+    // CLEAN, never compared against the source Quote.
+    <UnsavedChangesScope>
     <div className="mx-auto max-w-5xl">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Duplicate quote</h1>
-        <Link href="/quotes" className={ACTION_LINK_CLASSES}>
+        <UnsavedChangesCancelLink href="/quotes" className={ACTION_LINK_CLASSES}>
           Cancel
-        </Link>
+        </UnsavedChangesCancelLink>
       </div>
       <p className="text-text-secondary -mt-4 mb-6 text-sm">
         Creates a new draft pre-filled from quote {source.number}. Review and confirm the quote number before
@@ -120,5 +126,6 @@ export default async function DuplicateQuotePage({
         />
       </div>
     </div>
+    </UnsavedChangesScope>
   );
 }

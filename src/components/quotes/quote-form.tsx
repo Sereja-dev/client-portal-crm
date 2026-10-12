@@ -21,6 +21,9 @@ import type { InvoiceLineItemFormValue } from "@/lib/invoices/line-items-form";
 import type { QuoteFieldErrors, QuoteItemErrors, QuoteWritableInput } from "@/lib/validation/quote";
 import type { CreateQuoteResult, UpdateQuoteResult } from "@/app/(dashboard)/quotes/actions";
 import { QuotePreview } from "./quote-preview";
+import { deepEqual } from "@/lib/forms/deep-equal";
+import { useUnsavedChangesScope } from "@/components/forms/unsaved-changes-scope";
+import { useReportDirtyState } from "@/components/forms/use-report-dirty-state";
 
 const RATE_LIMIT_MESSAGE = "Too many requests. Please try again later.";
 const GENERIC_ERROR = "Something went wrong. Please try again.";
@@ -63,6 +66,71 @@ export type QuoteFormDefaults = {
   taxLabel?: "TAX" | "VAT" | "GST";
   items?: InvoiceLineItemFormValue[];
 };
+
+/**
+ * Forms Improvement Slice C1a — the normalized shape QuoteForm's own
+ * dirty-state comparison is built from, covering every Product-
+ * editable/submitted field (never presentation state — fieldErrors/
+ * itemErrors and every B2-preview-derived value are deliberately
+ * excluded; see this component's own `isDirty` comment below). Target
+ * is normalized to `{ targetType, targetId }` rather than comparing
+ * `leadId`/`clientId` independently — switching target type clears the
+ * inactive side immediately (handleTargetTypeChange's own existing
+ * behavior), so comparing the inactive side's own value would only ever
+ * produce a false dirty reading for a field the user can no longer even
+ * see.
+ */
+export type QuoteDirtySnapshot = {
+  targetType: "lead" | "client" | null;
+  targetId: string;
+  number: string;
+  title: string;
+  issueDate: string;
+  validUntil: string;
+  currency: string;
+  items: InvoiceLineItemFormValue[];
+  discountType: "NONE" | "PERCENTAGE" | "FIXED";
+  discountValue: string;
+  taxRatePercent: string;
+  taxLabel: "TAX" | "VAT" | "GST";
+  notes: string;
+};
+
+export function buildQuoteDirtySnapshot(values: {
+  targetType: "lead" | "client" | null;
+  leadId: string;
+  clientId: string;
+  number: string;
+  title: string;
+  issueDate: string;
+  validUntil: string;
+  currency: string;
+  items: InvoiceLineItemFormValue[];
+  discountType: "NONE" | "PERCENTAGE" | "FIXED";
+  discountValue: string;
+  taxRatePercent: string;
+  taxLabel: "TAX" | "VAT" | "GST";
+  notes: string;
+}): QuoteDirtySnapshot {
+  return {
+    targetType: values.targetType,
+    targetId: values.targetType === "lead" ? values.leadId : values.targetType === "client" ? values.clientId : "",
+    number: values.number,
+    title: values.title,
+    issueDate: values.issueDate,
+    validUntil: values.validUntil,
+    currency: values.currency,
+    items: values.items,
+    discountType: values.discountType,
+    // discountValue's own FormField isn't even rendered while
+    // discountType is NONE — a leftover/stale string there is never
+    // something the user could currently see or have just edited.
+    discountValue: values.discountType === "NONE" ? "" : values.discountValue,
+    taxRatePercent: values.taxRatePercent,
+    taxLabel: values.taxLabel,
+    notes: values.notes,
+  };
+}
 
 /**
  * Quotes / Estimates Phase 3 (Staff UI) — the single Create/Edit Quote
@@ -253,6 +321,36 @@ export function QuoteForm({
     return parsed.ok ? formatDateOnlyForDisplay(parsed.date, "en-US") : null;
   })();
 
+  // Forms Improvement Slice C1a — semantic dirty detection, mirroring
+  // InvoiceForm's own identical approach. Captured once at mount as the
+  // baseline (useState's own lazy initializer) — including the mount
+  // QuoteSentPanel performs once "Edit quote" is confirmed (that fresh
+  // QuoteForm instance's own first render IS its own clean baseline, no
+  // special-case code needed) and the remount a template application
+  // triggers (via the caller's own `key={appliedTemplateId ?? "blank"}`).
+  // Compared every render against the same snapshot shape built from
+  // current state.
+  const currentDirtySnapshot = buildQuoteDirtySnapshot({
+    targetType,
+    leadId,
+    clientId,
+    number,
+    title,
+    issueDate,
+    validUntil,
+    currency,
+    items,
+    discountType,
+    discountValue,
+    taxRatePercent,
+    taxLabel,
+    notes,
+  });
+  const [initialDirtySnapshot] = useState(() => currentDirtySnapshot);
+  const isDirty = !deepEqual(currentDirtySnapshot, initialDirtySnapshot);
+  const unsavedChangesScope = useUnsavedChangesScope();
+  useReportDirtyState(isDirty);
+
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     dismissErrors();
@@ -281,6 +379,16 @@ export function QuoteForm({
     startTransition(async () => {
       const result = await action(input);
       if (result.ok) {
+        // Forms Improvement Slice C1a — an explicit, narrow safety net:
+        // real client-side App Router transitions never fire
+        // `beforeunload` in the first place (this slice's own readiness
+        // audit, §C/§P), so this isn't strictly required for correctness
+        // today, but clearing it here deterministically tears down any
+        // active beforeunload listener the instant a save is known to
+        // have actually succeeded — never merely because submit was
+        // clicked or the transition started (see the validation/rate-
+        // limit/etc. branches below, none of which touch this).
+        unsavedChangesScope?.setIsDirty(false);
         router.push(withToast("/quotes", successToast));
         return;
       }

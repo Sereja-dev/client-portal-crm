@@ -9,6 +9,8 @@ import { QuoteLifecycleControls } from "@/components/quotes/quote-lifecycle-cont
 import { QuoteSentPanel } from "@/components/quotes/quote-sent-panel";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { UnsavedChangesScope } from "@/components/forms/unsaved-changes-scope";
+import { UnsavedChangesCancelLink } from "@/components/forms/unsaved-changes-cancel-link";
 import { getCompanyProfile } from "@/lib/organization-setup/company-profile";
 import { getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
 import { formatDateOnly } from "@/lib/invoices/date-only";
@@ -127,43 +129,48 @@ export default async function EditQuotePage({ params }: { params: Promise<{ id: 
       // Forms Improvement Slice B2 — widened from max-w-2xl to max-w-5xl
       // to fit QuoteForm's own new two-column form+live-preview layout,
       // mirroring Invoice's identical edit/page.tsx precedent exactly.
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Edit quote</h1>
-          <Link href="/quotes" className={ACTION_LINK_CLASSES}>
-            Back
-          </Link>
-        </div>
-        <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-          <QuoteForm
-            action={boundUpdateQuoteAction}
-            leads={leadOptions}
-            clients={clientOptions}
-            currencyOptions={getSupportedInvoiceCurrencies()}
-            defaultValues={formDefaults}
-            companyDisplayName={companyDisplayName}
-            submitLabel="Save changes"
-            pendingLabel="Saving…"
-            successToast="Quote updated"
-          />
-          <QuoteSendControl quoteId={quote.id} />
-          {/* §J — Archive/unarchive is available at any status, DRAFT
-              included; canReopen/canConvert both stay false here (a DRAFT
-              can never do either), so this renders only the Archive
-              control, never a stray Reopen/Convert one. */}
-          <div className="border-border-default mt-6 border-t pt-6">
-            <QuoteLifecycleControls
-              quoteId={quote.id}
-              status={quote.status}
-              validUntil={quote.validUntil}
-              convertedInvoiceId={quote.convertedInvoiceId}
-              archivedAt={quote.archivedAt}
-              clientId={null}
-              projects={[]}
+      // Forms Improvement Slice C1a — wraps the same region in a
+      // dirty-tracking boundary; see Invoice's own new/page.tsx header
+      // comment for why this is purely structural.
+      <UnsavedChangesScope>
+        <div className="mx-auto max-w-5xl">
+          <div className="mb-6 flex items-center justify-between">
+            <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Edit quote</h1>
+            <UnsavedChangesCancelLink href="/quotes" className={ACTION_LINK_CLASSES}>
+              Back
+            </UnsavedChangesCancelLink>
+          </div>
+          <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
+            <QuoteForm
+              action={boundUpdateQuoteAction}
+              leads={leadOptions}
+              clients={clientOptions}
+              currencyOptions={getSupportedInvoiceCurrencies()}
+              defaultValues={formDefaults}
+              companyDisplayName={companyDisplayName}
+              submitLabel="Save changes"
+              pendingLabel="Saving…"
+              successToast="Quote updated"
             />
+            <QuoteSendControl quoteId={quote.id} />
+            {/* §J — Archive/unarchive is available at any status, DRAFT
+                included; canReopen/canConvert both stay false here (a DRAFT
+                can never do either), so this renders only the Archive
+                control, never a stray Reopen/Convert one. */}
+            <div className="border-border-default mt-6 border-t pt-6">
+              <QuoteLifecycleControls
+                quoteId={quote.id}
+                status={quote.status}
+                validUntil={quote.validUntil}
+                convertedInvoiceId={quote.convertedInvoiceId}
+                archivedAt={quote.archivedAt}
+                clientId={null}
+                projects={[]}
+              />
+            </div>
           </div>
         </div>
-      </div>
+      </UnsavedChangesScope>
     );
   }
 
@@ -177,47 +184,54 @@ export default async function EditQuotePage({ params }: { params: Promise<{ id: 
       // wrapper div — there is no client-side-only width to apply
       // narrower while read-only without inventing a new layout
       // mechanism, which this slice's own scope excludes.
-      <div className="mx-auto max-w-5xl">
-        <div className="mb-6 flex items-center justify-between">
-          <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Quote</h1>
-          <Link href="/quotes" className={ACTION_LINK_CLASSES}>
-            Back
-          </Link>
+      // Forms Improvement Slice C1a — same reasoning applies to this
+      // Scope: it's harmless while QuoteSentPanel shows its own
+      // read-only presentation (no QuoteForm mounted, isDirty never
+      // becomes true), and is exactly what QuoteForm needs once "Edit
+      // quote" is confirmed and it mounts.
+      <UnsavedChangesScope>
+        <div className="mx-auto max-w-5xl">
+          <div className="mb-6 flex items-center justify-between">
+            <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Quote</h1>
+            <UnsavedChangesCancelLink href="/quotes" className={ACTION_LINK_CLASSES}>
+              Back
+            </UnsavedChangesCancelLink>
+          </div>
+          <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
+            <QuoteSentPanel
+              quoteId={quote.id}
+              archivedAt={quote.archivedAt}
+              companyDisplayName={companyDisplayName}
+              readOnly={{
+                number: quote.number,
+                validUntil: quote.validUntil,
+                convertedInvoiceId: quote.convertedInvoiceId,
+                target: { leadId: quote.leadId, clientId: quote.clientId, lead: quote.lead, client: quote.client },
+                title: quote.title,
+                issueDate: quote.issueDate,
+                recipientName: quote.recipientName,
+                recipientEmail: quote.recipientEmail,
+                lineItems: readOnlyLineItems,
+                currency: quote.currency,
+                subtotal: quote.subtotal.toString(),
+                discountType: quote.discountType,
+                discountAmount: quote.discountAmount?.toString() ?? null,
+                discountValue: quote.discountValue?.toString() ?? null,
+                taxRatePercent: quote.taxRatePercent?.toString() ?? null,
+                taxAmount: quote.taxAmount?.toString() ?? null,
+                taxLabel: quote.taxLabel,
+                total: quote.total.toString(),
+                notes: quote.notes,
+              }}
+              formAction={boundUpdateQuoteAction}
+              formDefaults={formDefaults}
+              leads={leadOptions}
+              clients={clientOptions}
+              currencyOptions={getSupportedInvoiceCurrencies()}
+            />
+          </div>
         </div>
-        <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-          <QuoteSentPanel
-            quoteId={quote.id}
-            archivedAt={quote.archivedAt}
-            companyDisplayName={companyDisplayName}
-            readOnly={{
-              number: quote.number,
-              validUntil: quote.validUntil,
-              convertedInvoiceId: quote.convertedInvoiceId,
-              target: { leadId: quote.leadId, clientId: quote.clientId, lead: quote.lead, client: quote.client },
-              title: quote.title,
-              issueDate: quote.issueDate,
-              recipientName: quote.recipientName,
-              recipientEmail: quote.recipientEmail,
-              lineItems: readOnlyLineItems,
-              currency: quote.currency,
-              subtotal: quote.subtotal.toString(),
-              discountType: quote.discountType,
-              discountAmount: quote.discountAmount?.toString() ?? null,
-              discountValue: quote.discountValue?.toString() ?? null,
-              taxRatePercent: quote.taxRatePercent?.toString() ?? null,
-              taxAmount: quote.taxAmount?.toString() ?? null,
-              taxLabel: quote.taxLabel,
-              total: quote.total.toString(),
-              notes: quote.notes,
-            }}
-            formAction={boundUpdateQuoteAction}
-            formDefaults={formDefaults}
-            leads={leadOptions}
-            clients={clientOptions}
-            currencyOptions={getSupportedInvoiceCurrencies()}
-          />
-        </div>
-      </div>
+      </UnsavedChangesScope>
     );
   }
 

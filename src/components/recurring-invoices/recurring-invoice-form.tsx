@@ -17,6 +17,8 @@ import { formatInvoiceCurrencyAmount } from "@/lib/invoices/currencies";
 import { composeInvoiceNumberCandidate } from "@/lib/recurring-invoices/numbering";
 import { encodeInvoiceLineItemsFormValue, type InvoiceLineItemFormValue } from "@/lib/invoices/line-items-form";
 import { InvoiceLineItemRow } from "@/components/invoices/invoice-line-item-row";
+import { deepEqual } from "@/lib/forms/deep-equal";
+import { useReportDirtyState } from "@/components/forms/use-report-dirty-state";
 import type { RecurringInvoiceFormState } from "@/types";
 
 const initialState: RecurringInvoiceFormState = { error: null };
@@ -48,6 +50,78 @@ type RecurringInvoiceFormDefaults = {
   notes?: string;
   internalNotes?: string;
 };
+
+/**
+ * Forms Improvement Slice C1a — the normalized shape RecurringInvoiceForm's
+ * own dirty-state comparison is built from, covering every Product-
+ * editable/submitted field (never presentation state — Advanced-
+ * disclosure open/closed, hasAdvancedError bookkeeping, and the native-
+ * select DOM-reapply effect's own internals are all deliberately
+ * excluded; see this component's own `isDirty` comment below). Mirrors
+ * InvoiceForm's own identical pattern. `frequency`/`firstIssueDate`/
+ * `startingSequence` are included unconditionally — in edit mode no
+ * control can ever change them (they're simply not rendered), so they
+ * stay constant and never contribute a false-positive on their own.
+ */
+export type RecurringInvoiceDirtySnapshot = {
+  clientId: string;
+  projectId: string;
+  name: string;
+  frequency: RecurrenceFrequencyValue;
+  firstIssueDate: string;
+  invoiceNumberPrefix: string;
+  startingSequence: string;
+  dueDateOffsetDays: string;
+  currency: string;
+  lineItems: InvoiceLineItemFormValue[];
+  discountType: "NONE" | "PERCENTAGE" | "FIXED";
+  discountValue: string;
+  taxRatePercent: string;
+  taxLabel: "TAX" | "VAT" | "GST";
+  notes: string;
+  internalNotes: string;
+};
+
+export function buildRecurringInvoiceDirtySnapshot(values: {
+  clientId: string;
+  projectId: string;
+  name: string;
+  frequency: RecurrenceFrequencyValue;
+  firstIssueDate: string;
+  invoiceNumberPrefix: string;
+  startingSequence: string;
+  dueDateOffsetDays: string;
+  currency: string;
+  lineItems: InvoiceLineItemFormValue[];
+  discountType: "NONE" | "PERCENTAGE" | "FIXED";
+  discountValue: string;
+  taxRatePercent: string;
+  taxLabel: "TAX" | "VAT" | "GST";
+  notes: string;
+  internalNotes: string;
+}): RecurringInvoiceDirtySnapshot {
+  return {
+    clientId: values.clientId,
+    projectId: values.projectId,
+    name: values.name,
+    frequency: values.frequency,
+    firstIssueDate: values.firstIssueDate,
+    invoiceNumberPrefix: values.invoiceNumberPrefix,
+    startingSequence: values.startingSequence,
+    dueDateOffsetDays: values.dueDateOffsetDays,
+    currency: values.currency,
+    lineItems: values.lineItems,
+    discountType: values.discountType,
+    // discountValue's own FormField isn't even rendered while
+    // discountType is NONE — a leftover/stale string there is never
+    // something the user could currently see or have just edited.
+    discountValue: values.discountType === "NONE" ? "" : values.discountValue,
+    taxRatePercent: values.taxRatePercent,
+    taxLabel: values.taxLabel,
+    notes: values.notes,
+    internalNotes: values.internalNotes,
+  };
+}
 
 /**
  * Recurring Invoices Phase 2A — the shared create/edit template form.
@@ -290,6 +364,35 @@ export function RecurringInvoiceForm({
     invoiceNumberPrefix.trim().length > 0 && Number.isInteger(previewSequenceNumber) && previewSequenceNumber > 0
       ? composeInvoiceNumberCandidate(invoiceNumberPrefix.trim(), previewSequenceNumber)
       : null;
+
+  // Forms Improvement Slice C1a — semantic dirty detection, mirroring
+  // InvoiceForm's own identical approach. Captured once at mount as the
+  // baseline (useState's own lazy initializer); compared every render
+  // against the same snapshot shape built from current state. Must never
+  // compete with or duplicate the validation-reset remediation's own
+  // native-select post-settlement reapply effect above — this reads the
+  // same React state that effect already keeps correct, nothing more.
+  const currentDirtySnapshot = buildRecurringInvoiceDirtySnapshot({
+    clientId,
+    projectId,
+    name,
+    frequency,
+    firstIssueDate,
+    invoiceNumberPrefix,
+    startingSequence,
+    dueDateOffsetDays,
+    currency,
+    lineItems,
+    discountType,
+    discountValue,
+    taxRatePercent,
+    taxLabel,
+    notes,
+    internalNotes,
+  });
+  const [initialDirtySnapshot] = useState(() => currentDirtySnapshot);
+  const isDirty = !deepEqual(currentDirtySnapshot, initialDirtySnapshot);
+  useReportDirtyState(isDirty);
 
   return (
     <form action={formAction} className="space-y-8">

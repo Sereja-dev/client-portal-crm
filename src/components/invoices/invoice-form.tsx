@@ -18,6 +18,8 @@ import { parseDateOnly, formatDateOnlyForDisplay } from "@/lib/invoices/date-onl
 import { encodeInvoiceLineItemsFormValue, type InvoiceLineItemFormValue } from "@/lib/invoices/line-items-form";
 import { InvoiceLineItemRow } from "./invoice-line-item-row";
 import { InvoicePreview } from "./invoice-preview";
+import { deepEqual } from "@/lib/forms/deep-equal";
+import { useReportDirtyState } from "@/components/forms/use-report-dirty-state";
 import type { InvoiceFormState } from "@/types";
 
 const initialState: InvoiceFormState = { error: null };
@@ -41,6 +43,77 @@ export type InvoiceFormDefaults = {
 };
 
 const BLANK_LINE_ITEM: InvoiceLineItemFormValue = { description: "", quantity: "", unitPrice: "" };
+
+/**
+ * Forms Improvement Slice C1a — the one normalized shape InvoiceForm's
+ * own dirty-state comparison is built from, covering every Product-
+ * editable/submitted field (never presentation state — see this
+ * component's own `isDirty` comment below for what's deliberately
+ * excluded and why). A pure, module-level function (not a method, not a
+ * closure) so it's trivially called twice per render with the exact same
+ * logic — once for "current," once (lazily, only on mount) for the
+ * baseline — with zero risk of the two ever drifting apart.
+ */
+export type InvoiceDirtySnapshot = {
+  clientId: string;
+  projectId: string;
+  invoiceNumber: string;
+  mode: "flat" | "itemized";
+  amount: string;
+  lineItems: InvoiceLineItemFormValue[];
+  currency: string;
+  issueDate: string;
+  dueDate: string;
+  discountType: "NONE" | "PERCENTAGE" | "FIXED";
+  discountValue: string;
+  taxRatePercent: string;
+  taxLabel: "TAX" | "VAT" | "GST";
+  notes: string;
+  internalNotes: string;
+};
+
+export function buildInvoiceDirtySnapshot(values: {
+  clientId: string;
+  projectId: string;
+  invoiceNumber: string;
+  mode: "flat" | "itemized";
+  amount: string;
+  lineItems: InvoiceLineItemFormValue[];
+  currency: string;
+  issueDate: string;
+  dueDate: string;
+  discountType: "NONE" | "PERCENTAGE" | "FIXED";
+  discountValue: string;
+  taxRatePercent: string;
+  taxLabel: "TAX" | "VAT" | "GST";
+  notes: string;
+  internalNotes: string;
+}): InvoiceDirtySnapshot {
+  return {
+    clientId: values.clientId,
+    projectId: values.projectId,
+    invoiceNumber: values.invoiceNumber,
+    mode: values.mode,
+    // Only the active mode's own source is ever rendered or submitted —
+    // the inactive one is never user-visible, so a stale value left over
+    // in it (e.g. from before the user switched modes) must never
+    // produce a false "dirty" reading on its own.
+    amount: values.mode === "flat" ? values.amount : "",
+    lineItems: values.mode === "itemized" ? values.lineItems : [],
+    currency: values.currency,
+    issueDate: values.issueDate,
+    dueDate: values.dueDate,
+    discountType: values.discountType,
+    // discountValue's own FormField isn't even rendered while
+    // discountType is NONE — a leftover/stale string there is never
+    // something the user could currently see or have just edited.
+    discountValue: values.discountType === "NONE" ? "" : values.discountValue,
+    taxRatePercent: values.taxRatePercent,
+    taxLabel: values.taxLabel,
+    notes: values.notes,
+    internalNotes: values.internalNotes,
+  };
+}
 
 /**
  * Invoice System Slice 2b — the DRAFT create/edit form (real production
@@ -294,6 +367,49 @@ export function InvoiceForm({
     return parsed.ok ? formatDateOnlyForDisplay(parsed.date, "en-US") : null;
   })();
   const flatServiceLabel = previewResult.ok ? previewResult.totals.displayedSubtotal : null;
+
+  // Forms Improvement Slice C1a — semantic dirty detection: a plain
+  // object of exactly the Product-editable/submitted state (never
+  // presentation state — Advanced-disclosure open/closed, errors, the
+  // live preview's own derived values are all deliberately excluded),
+  // normalized so a field that isn't currently meaningful never produces
+  // a false-positive warning: `amount` is irrelevant while `mode` is
+  // "itemized" (not rendered, not submitted) and vice versa for
+  // `lineItems`; `discountValue` is irrelevant whenever `discountType`
+  // is "NONE" (its own FormField isn't even rendered then). Captured
+  // once at mount as the baseline (`useState`'s own lazy initializer
+  // runs exactly once per mount — including the remount this same
+  // component gets on template application, via its caller's own
+  // `key={appliedTemplateId ?? "blank"}`, which is what makes a
+  // freshly-applied template read as the new clean baseline for free,
+  // with no special-case code needed here), then compared every render
+  // against the same snapshot shape built from current state.
+  //
+  // `internalNotes` participates here using the controlled state the
+  // Invoice internal-notes validation-reset remediation already shipped
+  // as baseline behavior — no new state is created for it, and it is
+  // Product-editable state like every other field in this snapshot, so
+  // it belongs in the comparison the same as `notes` does.
+  const currentDirtySnapshot = buildInvoiceDirtySnapshot({
+    clientId,
+    projectId,
+    invoiceNumber,
+    mode,
+    amount,
+    lineItems,
+    currency,
+    issueDate,
+    dueDate,
+    discountType,
+    discountValue,
+    taxRatePercent,
+    taxLabel,
+    notes,
+    internalNotes,
+  });
+  const [initialDirtySnapshot] = useState(() => currentDirtySnapshot);
+  const isDirty = !deepEqual(currentDirtySnapshot, initialDirtySnapshot);
+  useReportDirtyState(isDirty);
 
   return (
     // Mobile line-item overflow fix — proven pre-existing at ~390px,

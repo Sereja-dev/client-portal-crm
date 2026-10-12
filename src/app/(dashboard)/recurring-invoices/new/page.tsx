@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
@@ -6,6 +5,8 @@ import { getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
 import { RecurringInvoiceForm } from "@/components/recurring-invoices/recurring-invoice-form";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { UnsavedChangesScope } from "@/components/forms/unsaved-changes-scope";
+import { UnsavedChangesCancelLink } from "@/components/forms/unsaved-changes-cancel-link";
 import { createRecurringInvoiceAction } from "../actions";
 
 /**
@@ -27,24 +28,28 @@ export default async function NewRecurringInvoicePage() {
   ]);
 
   return (
-    <div className="mx-auto max-w-xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-text-primary text-2xl font-semibold tracking-tight">New recurring invoice</h1>
-        <Link href="/recurring-invoices" className={ACTION_LINK_CLASSES}>
-          Cancel
-        </Link>
+    // Forms Improvement Slice C1a — see Invoice's own new/page.tsx header
+    // comment for why this wrapping is purely structural.
+    <UnsavedChangesScope>
+      <div className="mx-auto max-w-xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-6 flex items-center justify-between">
+          <h1 className="text-text-primary text-2xl font-semibold tracking-tight">New recurring invoice</h1>
+          <UnsavedChangesCancelLink href="/recurring-invoices" className={ACTION_LINK_CLASSES}>
+            Cancel
+          </UnsavedChangesCancelLink>
+        </div>
+        <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
+          <RecurringInvoiceForm
+            mode="create"
+            action={createRecurringInvoiceAction}
+            clients={clients}
+            projects={projects.map((p) => ({ id: p.id, label: p.name, clientId: p.clientId }))}
+            currencyOptions={getSupportedInvoiceCurrencies()}
+            submitLabel="Create schedule"
+            pendingLabel="Creating…"
+          />
+        </div>
       </div>
-      <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-        <RecurringInvoiceForm
-          mode="create"
-          action={createRecurringInvoiceAction}
-          clients={clients}
-          projects={projects.map((p) => ({ id: p.id, label: p.name, clientId: p.clientId }))}
-          currencyOptions={getSupportedInvoiceCurrencies()}
-          submitLabel="Create schedule"
-          pendingLabel="Creating…"
-        />
-      </div>
-    </div>
+    </UnsavedChangesScope>
   );
 }

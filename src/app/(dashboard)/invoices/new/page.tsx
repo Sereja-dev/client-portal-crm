@@ -6,6 +6,8 @@ import { InvoiceTemplatePicker } from "@/components/invoices/invoice-template-pi
 import { EmptyState } from "@/components/ui/empty-state";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { UnsavedChangesScope } from "@/components/forms/unsaved-changes-scope";
+import { UnsavedChangesCancelLink } from "@/components/forms/unsaved-changes-cancel-link";
 import { getCompanyProfile } from "@/lib/organization-setup/company-profile";
 import { resolveInvoiceCurrencyDefault, getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
 import { formatDateOnly } from "@/lib/invoices/date-only";
@@ -134,14 +136,22 @@ export default async function NewInvoicePage({
     : undefined;
 
   return (
+    // Forms Improvement Slice C1a — wraps the existing header+form region
+    // in a client-side dirty-tracking boundary (purely structural; Next.js
+    // already supports passing this Server Component's own rendered
+    // output as `children` into a Client Component like UnsavedChangesScope,
+    // so this page itself stays a Server Component). The Cancel link
+    // below is the only visible change — same label/styling/destination/
+    // placement, now guarded while InvoiceForm reports itself dirty.
+    <UnsavedChangesScope>
     <div className="mx-auto max-w-5xl">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-text-primary text-2xl font-semibold tracking-tight">
           Add invoice
         </h1>
-        <Link href="/invoices" className={ACTION_LINK_CLASSES}>
+        <UnsavedChangesCancelLink href="/invoices" className={ACTION_LINK_CLASSES}>
           Cancel
-        </Link>
+        </UnsavedChangesCancelLink>
       </div>
 
       {clients.length === 0 ? (
@@ -204,5 +214,6 @@ export default async function NewInvoicePage({
         </>
       )}
     </div>
+    </UnsavedChangesScope>
   );
 }

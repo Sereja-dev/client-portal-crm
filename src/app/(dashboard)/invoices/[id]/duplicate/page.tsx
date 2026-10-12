@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { InvoiceForm } from "@/components/invoices/invoice-form";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { UnsavedChangesScope } from "@/components/forms/unsaved-changes-scope";
+import { UnsavedChangesCancelLink } from "@/components/forms/unsaved-changes-cancel-link";
 import { getDuplicateSourceInvoice } from "@/lib/invoices/duplicate-source";
 import { buildDuplicateInvoiceDefaults, type DuplicateSourceData } from "@/lib/invoices/duplicate";
 import { isSupportedInvoiceCurrency, getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
@@ -120,14 +122,20 @@ export default async function DuplicateInvoicePage({
   const defaults = buildDuplicateInvoiceDefaults(sourceData, today);
 
   return (
+    // Forms Improvement Slice C1a — see new/page.tsx's own identical
+    // header comment. The duplicate-prefilled state is InvoiceForm's own
+    // mount-time baseline (its own existing `defaultValues` prop) — the
+    // duplicate form starts CLEAN, never compared against the source
+    // Invoice itself.
+    <UnsavedChangesScope>
     <div className="mx-auto max-w-5xl">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-text-primary text-2xl font-semibold tracking-tight">
           Duplicate invoice
         </h1>
-        <Link href="/invoices" className={ACTION_LINK_CLASSES}>
+        <UnsavedChangesCancelLink href="/invoices" className={ACTION_LINK_CLASSES}>
           Cancel
-        </Link>
+        </UnsavedChangesCancelLink>
       </div>
       <p className="text-text-secondary -mt-4 mb-6 text-sm">
         Creates a new draft pre-filled from cancelled invoice {source.invoiceNumber}. Review and confirm the
@@ -150,5 +158,6 @@ export default async function DuplicateInvoicePage({
         />
       </div>
     </div>
+    </UnsavedChangesScope>
   );
 }

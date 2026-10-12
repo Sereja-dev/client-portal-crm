@@ -1,5 +1,4 @@
 import { notFound, redirect } from "next/navigation";
-import Link from "next/link";
 import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { getRecurringInvoice } from "@/lib/recurring-invoices/recurring-invoices";
@@ -7,6 +6,8 @@ import { getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
 import { RecurringInvoiceForm } from "@/components/recurring-invoices/recurring-invoice-form";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { UnsavedChangesScope } from "@/components/forms/unsaved-changes-scope";
+import { UnsavedChangesCancelLink } from "@/components/forms/unsaved-changes-cancel-link";
 import { updateRecurringInvoiceAction } from "../../actions";
 
 /**
@@ -44,44 +45,48 @@ export default async function EditRecurringInvoicePage({ params }: { params: Pro
   const boundUpdateAction = updateRecurringInvoiceAction.bind(null, schedule.id);
 
   return (
-    <div className="mx-auto max-w-xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Edit recurring invoice</h1>
-        <Link href={`/recurring-invoices/${schedule.id}`} className={ACTION_LINK_CLASSES}>
-          Cancel
-        </Link>
+    // Forms Improvement Slice C1a — see Invoice's own new/page.tsx header
+    // comment for why this wrapping is purely structural.
+    <UnsavedChangesScope>
+      <div className="mx-auto max-w-xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-6 flex items-center justify-between">
+          <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Edit recurring invoice</h1>
+          <UnsavedChangesCancelLink href={`/recurring-invoices/${schedule.id}`} className={ACTION_LINK_CLASSES}>
+            Cancel
+          </UnsavedChangesCancelLink>
+        </div>
+        <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
+          <RecurringInvoiceForm
+            mode="edit"
+            action={boundUpdateAction}
+            clients={clients}
+            projects={projects.map((p) => ({ id: p.id, label: p.name, clientId: p.clientId }))}
+            currencyOptions={getSupportedInvoiceCurrencies()}
+            defaultValues={{
+              name: schedule.name ?? "",
+              clientId: schedule.clientId,
+              projectId: schedule.projectId,
+              invoiceNumberPrefix: schedule.invoiceNumberPrefix,
+              startingSequence: schedule.nextSequence,
+              dueDateOffsetDays: schedule.dueDateOffsetDays,
+              currency: schedule.currency,
+              lineItems: schedule.lineItems.map((item) => ({
+                description: item.description,
+                quantity: item.quantity.toString(),
+                unitPrice: item.unitPrice.toString(),
+              })),
+              discountType: schedule.discountType,
+              discountValue: schedule.discountValue?.toString() ?? "",
+              taxRatePercent: schedule.taxRatePercent?.toString() ?? "",
+              taxLabel: schedule.taxLabel,
+              notes: schedule.notes ?? "",
+              internalNotes: schedule.internalNotes ?? "",
+            }}
+            submitLabel="Save changes"
+            pendingLabel="Saving…"
+          />
+        </div>
       </div>
-      <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-        <RecurringInvoiceForm
-          mode="edit"
-          action={boundUpdateAction}
-          clients={clients}
-          projects={projects.map((p) => ({ id: p.id, label: p.name, clientId: p.clientId }))}
-          currencyOptions={getSupportedInvoiceCurrencies()}
-          defaultValues={{
-            name: schedule.name ?? "",
-            clientId: schedule.clientId,
-            projectId: schedule.projectId,
-            invoiceNumberPrefix: schedule.invoiceNumberPrefix,
-            startingSequence: schedule.nextSequence,
-            dueDateOffsetDays: schedule.dueDateOffsetDays,
-            currency: schedule.currency,
-            lineItems: schedule.lineItems.map((item) => ({
-              description: item.description,
-              quantity: item.quantity.toString(),
-              unitPrice: item.unitPrice.toString(),
-            })),
-            discountType: schedule.discountType,
-            discountValue: schedule.discountValue?.toString() ?? "",
-            taxRatePercent: schedule.taxRatePercent?.toString() ?? "",
-            taxLabel: schedule.taxLabel,
-            notes: schedule.notes ?? "",
-            internalNotes: schedule.internalNotes ?? "",
-          }}
-          submitLabel="Save changes"
-          pendingLabel="Saving…"
-        />
-      </div>
-    </div>
+    </UnsavedChangesScope>
   );
 }
