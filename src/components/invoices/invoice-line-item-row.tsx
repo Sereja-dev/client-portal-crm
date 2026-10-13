@@ -61,9 +61,36 @@ export function InvoiceLineItemRow({
   canMoveDown: boolean;
 }) {
   return (
+    // Desktop line-item compression fix — below this point, the bare
+    // `1fr` Description track had no protective minimum: at any
+    // container width where Qty (7rem) + Unit price (8rem) + the
+    // action-button cluster (auto, content-sized) already claim their
+    // full space, the `1fr` track absorbed 100% of the remaining
+    // shortfall, silently collapsing Description to ~73–75px with no
+    // overflow of any kind to signal it (confirmed on Recurring Invoice
+    // at every desktop width, and dormant in Invoice/Quote's own
+    // >=1024px two-column layout — see the dedicated overflow-readiness
+    // audit). `minmax(10rem, 1fr)` gives Description a real floor
+    // instead; `overflow-x-auto` on this same element (the narrowest box
+    // that actually owns the grid — no new wrapper needed) is the
+    // fallback for the rare width where even Qty/Unit price/actions at
+    // their full fixed sizes plus a 10rem Description genuinely can't
+    // fit: the row scrolls locally, the page itself never does. Below
+    // `sm:`, `grid-cols-1` is unaffected — the stacked mobile layout
+    // never needs the scroll affordance, since a single column never
+    // exceeds its own container.
+    //
+    // `min-w-0` is required alongside `overflow-x-auto`, not optional —
+    // every browser's own UA stylesheet gives `<fieldset>` a default
+    // `min-width: min-content`, which (confirmed empirically while
+    // building this fix) overrides `overflow-x-auto` entirely: without
+    // it, the fieldset refuses to shrink below its own tracks' combined
+    // minimum and instead grows past its assigned width, pushing the
+    // overflow onto its parent and ultimately the page — exactly the
+    // page-level overflow this fix must never reintroduce.
     <fieldset
       aria-label={`Line item ${index + 1}`}
-      className="border-border-default grid grid-cols-1 gap-3 rounded-md border p-3 sm:grid-cols-[1fr_7rem_8rem_auto]"
+      className="border-border-default grid min-w-0 grid-cols-1 gap-3 overflow-x-auto rounded-md border p-3 sm:grid-cols-[minmax(10rem,1fr)_7rem_8rem_auto]"
     >
       <RowField
         id={`lineItems.${index}.description`}

@@ -577,7 +577,28 @@ export function RecurringInvoiceForm({
         </FormField>
       </fieldset>
 
-      <fieldset className="space-y-4">
+      {/*
+        Desktop line-item compression fix, continued — `<fieldset>`
+        carries a browser UA-stylesheet default of `min-width:
+        min-content` on every engine, and (confirmed empirically while
+        building this fix) that default is NOT limited by a descendant's
+        own `overflow-x-auto`/`min-width:0` opt-out the way a flex/grid
+        item's automatic-minimum-size exclusion is — the fieldset still
+        measures its line-item child's full un-scrolled content width
+        and refuses to shrink below it, pushing that width past this
+        card's own narrower boundary and out to the page. `min-w-0` here
+        is the standard, zero-visual-effect override for exactly this
+        quirk (this fieldset is already a plain block section meant to
+        fill its container, never to shrink-wrap its own content, so
+        removing its default minimum changes nothing about its normal
+        sizing). Invoice/Quote's own line-items are never wrapped in an
+        extra `<fieldset>` layer like this one (B1 sectioning is
+        Recurring-only), so they never hit this second layer of the
+        quirk — this is why the shared InvoiceLineItemRow's own
+        containment (min-w-0 + overflow-x-auto on the row itself) is
+        sufficient for them but not, on its own, for Recurring.
+      */}
+      <fieldset className="min-w-0 space-y-4">
         <legend className="text-text-primary text-base font-semibold">Invoice contents</legend>
 
         <div>
