@@ -2,6 +2,7 @@ import { test, expect, type BrowserContext } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 import { selectCurrencyOption } from "../support/select-currency-option";
+import { selectSearchableOption } from "../support/select-searchable-option";
 
 /**
  * Forms Improvement Slice A1 — real-browser coverage for the new shared
@@ -118,7 +119,10 @@ test.describe("Forms Improvement Slice A1 — searchable currency select", () =>
     await page.goto("/invoices/new");
 
     await page.getByLabel("Invoice number").fill(`A1-CURR-${fixtures.runId}`);
-    await page.getByLabel("Client").selectOption(fixtures.clientA.id);
+    // Client is the shared SearchableSelect (Forms Improvement Slice
+    // A2.1), not a native <select> — same interaction pattern already
+    // established in invoice-relational-selectors.spec.ts.
+    await selectSearchableOption(page, "Client", fixtures.clientA.name, fixtures.clientA.name);
     await page.getByRole("textbox", { name: "Amount" }).fill("100.00");
     await expect(page.getByTestId("invoice-preview-total")).toHaveText("$100.00");
 
@@ -205,7 +209,7 @@ test.describe("Forms Improvement Slice A1 — searchable currency select", () =>
     await expect(page.getByLabel("Currency")).toHaveValue("AUD");
   });
 
-  test("Recurring Invoice create: existing initial currency semantics unchanged, searchable selection works", async ({
+  test("Recurring Invoice create: current initial currency default renders correctly, searchable selection works", async ({
     context,
     baseURL,
     page,
@@ -213,14 +217,18 @@ test.describe("Forms Improvement Slice A1 — searchable currency select", () =>
     await actAs(context, baseURL!, fixtures.owner, fixtures.orgA.id);
     await page.goto("/recurring-invoices/new");
 
-    // Unchanged existing semantics per the slice brief §13 — RecurringInvoiceForm's
-    // own pre-existing default is `currencyOptions[0]`, i.e. the first
-    // supported currency in alphabetical order (AED, not USD — this app
-    // never added a settings-driven default for Recurring Invoice, and
-    // this slice must not invent one). This proves that exact pre-existing
-    // default survived the native-<select>-to-CurrencySelect swap
-    // unchanged, then exercises the new searchable selection on top of it.
-    await expect(page.getByLabel("Currency")).toHaveValue("AED");
+    // Forms Defaults + Helper Text slice — Recurring Invoice create now
+    // resolves its currency default through the same organization
+    // currency-default logic Invoice/Quote already use, rather than the
+    // old currencyOptions[0] alphabetical fallback (which this test
+    // originally asserted as "AED"). This fixture org has no
+    // OrganizationProfile.currency set, so the canonical resolver falls
+    // back to USD — the resolver's own exhaustive fallback semantics are
+    // covered by test/unit/recurring-invoices/currency-default.test.tsx;
+    // this file's own narrower job is just proving the searchable-select
+    // interaction still works starting from whatever that real current
+    // default is.
+    await expect(page.getByLabel("Currency")).toHaveValue("USD");
     await selectCurrencyOption(page, "Currency", "GBP");
     await expect(page.getByLabel("Currency")).toHaveValue("GBP");
   });
