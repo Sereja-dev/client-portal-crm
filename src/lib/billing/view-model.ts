@@ -122,10 +122,28 @@ function buildStatusNotice(
       }
       const expired = now.getTime() > trialEndsAt.getTime();
       if (expired) {
+        // P1 fix: entitlements.accessMode already reflects
+        // buildOrganizationEntitlements' own provider-unconfigured
+        // override (entitlements.ts) — the exact same corrected value
+        // server-side write enforcement itself reads, never a second,
+        // independent "is billing disabled" check here. If it's still
+        // FULL_ACCESS despite the trial's calendar expiry, nothing is
+        // actually being restricted right now, so this must never claim
+        // an "Upgrade" is required — there is no real checkout to send
+        // anyone to (requestPlanChangeAction's own "Billing provider is
+        // not configured" refusal is the same underlying fact, said
+        // honestly instead of as a false paywall).
+        if (entitlements.accessMode !== "FULL_ACCESS") {
+          return {
+            id: "status",
+            tone: "danger",
+            message: "Your trial has ended. Upgrade to continue creating new records.",
+          };
+        }
         return {
           id: "status",
-          tone: "danger",
-          message: "Your trial has ended. Upgrade to continue creating new records.",
+          tone: "info",
+          message: "Your trial has ended. Billing isn't configured yet, so your workspace keeps full access for now.",
         };
       }
       const days = trialDaysRemaining(trialEndsAt, now);

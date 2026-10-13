@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { computeAccessMode, LEGACY_ACCESS_MODE, type AccessMode } from "./access-mode";
 import { getOrganizationUsage, type OrganizationUsage, type PrismaClientOrTx } from "./usage";
 import { getPlan, isPlanKey, LEGACY_PLAN_KEY, type PlanKey } from "./plans";
+import { getBillingProviderAvailability } from "./provider-availability";
 
 /**
  * Billing & Subscriptions Stage 2 (docs/billing-architecture.md §7/§8/§13).
@@ -94,19 +95,64 @@ export function buildOrganizationEntitlements({
   subscription,
   usage,
   now,
+  providerConfigured,
 }: {
   subscription: SubscriptionStateForEntitlements | null;
   usage: OrganizationUsage & { pendingInvitations: number };
   now: Date;
+  /**
+   * Billing & Subscriptions Stage 2 correction (P1 — "billing-disabled
+   * trial-expiry enforcement"). Whether a real billing provider is
+   * actually reachable right now (`getBillingProviderAvailability().
+   * configured`) — the one fact `computeAccessMode()` itself deliberately
+   * never knows (see the override immediately below for why it stays
+   * that way). Always required, never defaulted, so no caller can
+   * silently forget it.
+   */
+  providerConfigured: boolean;
 }): OrganizationEntitlements {
   const planKey: PlanKey =
     subscription && isPlanKey(subscription.planKey) ? subscription.planKey : LEGACY_PLAN_KEY;
   const plan = getPlan(planKey);
   const isLegacyPlan = planKey === LEGACY_PLAN_KEY;
 
-  const accessMode: AccessMode = subscription
+  const rawAccessMode: AccessMode = subscription
     ? computeAccessMode(subscription, now)
     : LEGACY_ACCESS_MODE;
+
+  /**
+   * P1 fix: a calendar-expired trial must never become a dead-end
+   * paywall when no real billing provider is even configured — the
+   * customer would have no way to upgrade at all (requestPlanChangeAction
+   * already safely refuses with "Billing provider is not configured" in
+   * that case; the entitlement layer must not independently lock them
+   * out of ordinary writes first). `computeAccessMode()` itself
+   * deliberately stays the pure, provider-agnostic "what does the
+   * calendar/status say" state machine — Platform Admin's own
+   * observability queries (platform-dashboard.ts, organizations.ts) call
+   * it directly and intentionally keep showing that raw calendar truth
+   * unaffected by this override, so an operator can always see "this
+   * trial has genuinely lapsed" regardless of whether enforcement is
+   * currently acting on it. This is the one, single place that decides
+   * whether that raw result is actually enforceable right now — both
+   * server-side writes (via getOrganizationEntitlements below) and the
+   * Billing page's own status notice (view-model.ts's buildStatusNotice)
+   * read the corrected `accessMode` this produces, so the two can never
+   * disagree about what "billing disabled" means.
+   *
+   * Deliberately narrow: only the TRIALING-expired -> READ_ONLY
+   * transition is overridden. Every other status (ACTIVE, PAST_DUE,
+   * CANCELED, UNPAID, INCOMPLETE) keeps its existing behavior regardless
+   * of current provider configuration — none of those states can ever
+   * arise without a real, signature-verified provider webhook having
+   * created them in the first place (the webhook route rejects every
+   * event when the provider is unconfigured), so there is no equivalent
+   * "no way to ever have avoided this" trap for them to begin with.
+   */
+  const accessMode: AccessMode =
+    !providerConfigured && subscription?.status === "TRIALING" && rawAccessMode === "READ_ONLY"
+      ? "FULL_ACCESS"
+      : rawAccessMode;
 
   const canCreateNewResources = accessMode === "FULL_ACCESS";
 
@@ -171,10 +217,18 @@ export async function getOrganizationEntitlements(
   const client = options?.client ?? prisma;
   const now = options?.now ?? new Date();
 
-  const [subscription, usage, pendingInvitations] = await Promise.all([
+  const [subscription, usage, pendingInvitations, providerAvailability] = await Promise.all([
     client.subscription.findUnique({ where: { organizationId } }),
     getOrganizationUsage(client, organizationId),
     client.invitation.count({ where: { organizationId, status: "PENDING" } }),
+    // Zero-IO (see provider.ts's own header comment — never a network
+    // call), so this adds no meaningful latency to a call every write
+    // path already makes. Harmless to resolve a second time independently
+    // of view-model.ts's own getBillingPageData, which already calls this
+    // same function for its own, separate "Connect a billing provider..."
+    // display — both always compute the identical boolean from the
+    // identical source, so there is no risk of the two disagreeing.
+    getBillingProviderAvailability(),
   ]);
 
   return buildOrganizationEntitlements({
@@ -189,5 +243,6 @@ export async function getOrganizationEntitlements(
       : null,
     usage: { ...usage, pendingInvitations },
     now,
+    providerConfigured: providerAvailability.configured,
   });
 }

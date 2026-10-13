@@ -110,6 +110,44 @@ describe("TRIALING", () => {
     expect(vm.statusNotice.tone).toBe("danger");
     expect(vm.statusNotice.message).toContain("trial has ended");
   });
+
+  /**
+   * P1 fix — "billing-disabled trial-expiry enforcement". entitlements.
+   * accessMode already reflects buildOrganizationEntitlements' own
+   * provider-unconfigured override (entitlements.ts) by the time it
+   * reaches this view-model — these two tests prove buildStatusNotice
+   * reads exactly that corrected value, never re-deriving "is billing
+   * disabled" independently, and never showing a dead-end "Upgrade" CTA
+   * when nothing is actually being restricted.
+   */
+  it("expired trial, but accessMode is still FULL_ACCESS (provider unconfigured): does NOT say 'Upgrade to continue creating new records' — states the honest reason instead", () => {
+    const vm = build({
+      entitlements: entitlements({
+        planKey: "TRIAL",
+        subscriptionStatus: "TRIALING",
+        accessMode: "FULL_ACCESS",
+        trialEndsAt: new Date(NOW.getTime() - DAY_MS),
+      }),
+    });
+    expect(vm.trialExpired).toBe(true);
+    expect(vm.statusNotice.message).not.toContain("Upgrade to continue creating new records");
+    expect(vm.statusNotice.message).toContain("trial has ended");
+    expect(vm.statusNotice.message.toLowerCase()).toContain("billing isn't configured");
+    expect(vm.statusNotice.tone).not.toBe("danger");
+  });
+
+  it("expired trial with accessMode READ_ONLY (provider configured): preserves the existing 'Upgrade to continue creating new records' notice exactly", () => {
+    const vm = build({
+      entitlements: entitlements({
+        planKey: "TRIAL",
+        subscriptionStatus: "TRIALING",
+        accessMode: "READ_ONLY",
+        trialEndsAt: new Date(NOW.getTime() - DAY_MS),
+      }),
+    });
+    expect(vm.statusNotice.tone).toBe("danger");
+    expect(vm.statusNotice.message).toBe("Your trial has ended. Upgrade to continue creating new records.");
+  });
 });
 
 describe("ACTIVE", () => {
