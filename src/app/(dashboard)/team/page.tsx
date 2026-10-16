@@ -217,7 +217,11 @@ export default async function TeamPage() {
         {invitations.length === 0 ? (
           <EmptyState
             title="No pending invitations"
-            description="Invite someone below to add them to your organization."
+            description={
+              canManage
+                ? "Invite someone below to add them to your organization."
+                : "There are no pending invitations right now."
+            }
           />
         ) : (
           <>
