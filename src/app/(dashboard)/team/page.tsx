@@ -36,6 +36,21 @@ import {
   leaveOrganizationAction,
 } from "./actions";
 
+/**
+ * Team expired-invitation UX remediation. Invitation lifecycle stays
+ * MODEL A (computed expiry, confirmed in the dedicated audit) — status
+ * remains PENDING past expiresAt; nothing here ever writes the
+ * (unreachable) EXPIRED status. Mirrors the exact same
+ * `expiresAt <= now` rule already established locally in
+ * src/app/invite/[token]/page.tsx's own isExpired(), kept as its own
+ * small Team-local helper rather than a new shared abstraction — the
+ * two pages have no other reason to share code, and this one-line rule
+ * isn't worth the indirection.
+ */
+function isInvitationExpired(expiresAt: Date, now: Date): boolean {
+  return expiresAt.getTime() <= now.getTime();
+}
+
 export default async function TeamPage() {
   const { user, organizationId, membership } = await getCurrentMembership();
 
@@ -57,6 +72,9 @@ export default async function TeamPage() {
 
   const canManage = membership.role === Role.OWNER || membership.role === Role.ADMIN;
   const isOwner = membership.role === Role.OWNER;
+  // Computed once for this whole render, never recomputed per row — see
+  // isInvitationExpired's own header comment.
+  const now = new Date();
 
   return (
     <div className="space-y-10">
@@ -239,68 +257,89 @@ export default async function TeamPage() {
                   </tr>
                 </TableHead>
                 <TableBody>
-                  {invitations.map((invitation) => (
-                    <TableRow key={invitation.id}>
-                      <TableCell emphasis>{invitation.email}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={invitation.role} />
-                      </TableCell>
-                      <TableCell>
-                        {invitation.invitedBy?.name ??
-                          invitation.invitedBy?.email ??
-                          "—"}
-                      </TableCell>
-                      <TableCell>{invitation.expiresAt.toLocaleDateString()}</TableCell>
-                      <TableCell align="right">
-                        {canManage ? (
-                          <div className="flex items-center justify-end gap-4">
-                            <ResendInvitationForm
-                              action={resendInvitationAction.bind(null, invitation.id)}
-                              initialToken={invitation.token}
-                            />
-                            <CancelInvitationButton
-                              action={cancelInvitationAction.bind(null, invitation.id)}
-                              email={invitation.email}
-                            />
+                  {invitations.map((invitation) => {
+                    const expired = isInvitationExpired(invitation.expiresAt, now);
+                    return (
+                      <TableRow key={invitation.id}>
+                        <TableCell emphasis>{invitation.email}</TableCell>
+                        <TableCell>
+                          <StatusBadge status={invitation.role} />
+                        </TableCell>
+                        <TableCell>
+                          {invitation.invitedBy?.name ??
+                            invitation.invitedBy?.email ??
+                            "—"}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {invitation.expiresAt.toLocaleDateString()}
+                            {expired && <StatusBadge status="EXPIRED" />}
                           </div>
-                        ) : (
-                          <CopyLinkButton token={invitation.token} />
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                        </TableCell>
+                        <TableCell align="right">
+                          {canManage ? (
+                            <div className="flex items-center justify-end gap-4">
+                              <ResendInvitationForm
+                                action={resendInvitationAction.bind(null, invitation.id)}
+                                initialToken={invitation.token}
+                                initialExpired={expired}
+                              />
+                              <CancelInvitationButton
+                                action={cancelInvitationAction.bind(null, invitation.id)}
+                                email={invitation.email}
+                              />
+                            </div>
+                          ) : (
+                            !expired && <CopyLinkButton token={invitation.token} />
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
 
             <RecordCardList>
-              {invitations.map((invitation) => (
-                <RecordCard key={invitation.id}>
-                  <RecordCardField label="Email" value={invitation.email} emphasis />
-                  <RecordCardField label="Role" value={<StatusBadge status={invitation.role} />} />
-                  <RecordCardField
-                    label="Invited by"
-                    value={invitation.invitedBy?.name ?? invitation.invitedBy?.email ?? "—"}
-                  />
-                  <RecordCardField label="Expires" value={invitation.expiresAt.toLocaleDateString()} />
-                  <RecordCardActions>
-                    {canManage ? (
-                      <>
-                        <ResendInvitationForm
-                          action={resendInvitationAction.bind(null, invitation.id)}
-                          initialToken={invitation.token}
-                        />
-                        <CancelInvitationButton
-                          action={cancelInvitationAction.bind(null, invitation.id)}
-                          email={invitation.email}
-                        />
-                      </>
-                    ) : (
-                      <CopyLinkButton token={invitation.token} />
-                    )}
-                  </RecordCardActions>
-                </RecordCard>
-              ))}
+              {invitations.map((invitation) => {
+                const expired = isInvitationExpired(invitation.expiresAt, now);
+                return (
+                  <RecordCard key={invitation.id}>
+                    <RecordCardField label="Email" value={invitation.email} emphasis />
+                    <RecordCardField label="Role" value={<StatusBadge status={invitation.role} />} />
+                    <RecordCardField
+                      label="Invited by"
+                      value={invitation.invitedBy?.name ?? invitation.invitedBy?.email ?? "—"}
+                    />
+                    <RecordCardField
+                      label="Expires"
+                      value={
+                        <div className="flex items-center gap-2">
+                          {invitation.expiresAt.toLocaleDateString()}
+                          {expired && <StatusBadge status="EXPIRED" />}
+                        </div>
+                      }
+                    />
+                    <RecordCardActions>
+                      {canManage ? (
+                        <>
+                          <ResendInvitationForm
+                            action={resendInvitationAction.bind(null, invitation.id)}
+                            initialToken={invitation.token}
+                            initialExpired={expired}
+                          />
+                          <CancelInvitationButton
+                            action={cancelInvitationAction.bind(null, invitation.id)}
+                            email={invitation.email}
+                          />
+                        </>
+                      ) : (
+                        !expired && <CopyLinkButton token={invitation.token} />
+                      )}
+                    </RecordCardActions>
+                  </RecordCard>
+                );
+              })}
             </RecordCardList>
           </>
         )}
