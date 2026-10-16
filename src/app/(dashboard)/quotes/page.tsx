@@ -295,15 +295,19 @@ export default async function QuotesPage({
             }
           />
         ) : hasActiveParams ? (
-          <EmptyState
-            title="No matching quotes"
-            description="Try a different search term or clear your filters."
-            action={
-              <Link href="/quotes" className={PRIMARY_LINK_CLASSES}>
-                Clear filters
-              </Link>
-            }
-          />
+          listParams.archived && !listParams.q && !listParams.status && !listParams.targetType ? (
+            <EmptyState title="No archived quotes" description="Archived quotes will appear here." />
+          ) : (
+            <EmptyState
+              title="No matching quotes"
+              description="Try a different search term or clear your filters."
+              action={
+                <Link href="/quotes" className={PRIMARY_LINK_CLASSES}>
+                  Clear filters
+                </Link>
+              }
+            />
+          )
         ) : (
           <EmptyState
             title="No quotes yet"

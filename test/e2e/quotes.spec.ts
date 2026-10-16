@@ -42,6 +42,40 @@ test.describe("Quotes list", () => {
     await expect(page.getByRole("link", { name: "Create quote" })).toBeVisible();
   });
 
+  /**
+   * Quotes archived-empty-state classification remediation. `archived=1`
+   * alone, with zero archived Quotes, previously fell through to the
+   * generic filtered/no-results copy ("No matching quotes" + Clear
+   * filters) even though nothing was actually being filtered out of a
+   * real result set — it's genuinely empty. Reuses orgB (confirmed
+   * quote-free by test 1 above) rather than seeding a throwaway fixture:
+   * an org with zero quotes anywhere also has zero archived quotes,
+   * which is exactly the state this case needs, with no new mutation.
+   */
+  test("archived view with no other filters and zero archived quotes shows the archived-empty state, not generic no-results", async ({ context, baseURL, page }) => {
+    await injectTestSession(context, { id: fixtures.orgBOwner.id, email: fixtures.orgBOwner.email }, baseURL!);
+    await page.goto("/quotes?archived=1");
+    await expect(page.getByText("No archived quotes")).toBeVisible();
+    await expect(page.getByText("Archived quotes will appear here.")).toBeVisible();
+    await expect(page.getByText("No matching quotes")).not.toBeVisible();
+    await expect(page.getByRole("link", { name: "Clear filters" })).not.toBeVisible();
+  });
+
+  /**
+   * Same archived view, but with a real additional filter (`q`) active —
+   * the archived-empty copy must NOT take over here, since the actual
+   * reason for zero rows is (at least in principle) the search term, not
+   * "there are no archived quotes." Falls through to the existing
+   * generic filtered state unchanged.
+   */
+  test("archived view combined with a non-matching search still shows the generic no-results state, not the archived-empty state", async ({ context, baseURL, page }) => {
+    await injectTestSession(context, { id: fixtures.orgBOwner.id, email: fixtures.orgBOwner.email }, baseURL!);
+    await page.goto("/quotes?archived=1&q=no-such-quote-zzz");
+    await expect(page.getByText("No matching quotes")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Clear filters" })).toBeVisible();
+    await expect(page.getByText("No archived quotes")).not.toBeVisible();
+  });
+
   test("7/8. status column correctly shows Draft/Sent/Approved/Declined and the derived Expired/Converted states", async ({ context, baseURL, page }) => {
     await injectTestSession(context, { id: fixtures.owner.id, email: fixtures.owner.email }, baseURL!);
     const suffix = `${fixtures.runId}-${Date.now()}`;
