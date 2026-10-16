@@ -1,4 +1,5 @@
 import { TEST_MODE } from "@/lib/test-mode";
+import { getTransactionalReplyToEmail } from "@/lib/legal/platform-config";
 
 // Reads process.env.RESEND_API_KEY (a server-only secret) and is only ever
 // imported from "use server" action files, so this never reaches the
@@ -32,6 +33,20 @@ export type SendEmailInput = {
   attachments?: SendEmailAttachment[];
   timeoutMs?: number;
   idempotencyKey?: string;
+  /**
+   * E2 (Reply-To wiring). The one narrow opt-out for the platform-wide
+   * `PLATFORM_REPLY_TO_EMAIL` default this function applies to every send
+   * below — never an opt-IN (the default already covers every platform-
+   * originated flow with zero caller changes; see this function's own
+   * doc comment). `true` only for a flow whose email copy presents itself
+   * as originating from something other than the platform operator — at
+   * launch, that's exactly Invoice email (src/lib/invoices/email/
+   * send-invoice-email.ts), which reads as a message from the Aqenra
+   * customer's own business, not from Aqenra itself; routing a client's
+   * reply to Aqenra's own platform support would be misleading. Omit (or
+   * `false`) for every other caller.
+   */
+  disablePlatformReplyTo?: boolean;
 };
 
 export type SendEmailResult =
@@ -111,6 +126,18 @@ function acceptedResult(messageId: string | undefined): SendEmailResult {
  * deliver-notification-email.ts) compiles and behaves identically without
  * modification, and the request body it serializes is byte-identical to
  * before when none of the new fields are supplied.
+ *
+ * E2 (Reply-To wiring) — centralizes the platform Reply-To default here,
+ * not in any of this function's eight callers: `getTransactionalReplyToEmail()`
+ * (src/lib/legal/platform-config.ts) is resolved once, below, and its
+ * result — the operator-configured `PLATFORM_REPLY_TO_EMAIL`, already
+ * validated as a real address, or `null` for unset/blank/malformed —
+ * becomes the request's own `reply_to` field whenever both it is non-null
+ * AND the caller hasn't passed `disablePlatformReplyTo: true`. A caller
+ * never needs to read this env var itself, and a malformed value can
+ * never fail a send: `getTransactionalReplyToEmail()` already treats an
+ * invalid address as absent, so this function simply omits the field,
+ * exactly as if nothing had been configured at all.
  */
 export async function sendEmailViaResend(input: SendEmailInput): Promise<SendEmailResult> {
   // Malformed optional foundation fields fail before the TEST_MODE
@@ -156,6 +183,12 @@ export async function sendEmailViaResend(input: SendEmailInput): Promise<SendEma
     html: input.html,
     text: input.text,
   };
+  if (input.disablePlatformReplyTo !== true) {
+    const platformReplyTo = getTransactionalReplyToEmail();
+    if (platformReplyTo !== null) {
+      body.reply_to = platformReplyTo;
+    }
+  }
   if (input.attachments !== undefined) {
     body.attachments = input.attachments.map((attachment) => ({
       filename: attachment.filename,

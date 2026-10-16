@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const ORIGINAL_TEST_MODE = process.env.TEST_MODE;
 const ORIGINAL_API_KEY = process.env.RESEND_API_KEY;
 const ORIGINAL_FROM_EMAIL = process.env.INVITATION_FROM_EMAIL;
+const ORIGINAL_PLATFORM_REPLY_TO = process.env.PLATFORM_REPLY_TO_EMAIL;
 
 function restoreEnv() {
   if (ORIGINAL_TEST_MODE === undefined) delete process.env.TEST_MODE;
@@ -17,6 +18,8 @@ function restoreEnv() {
   else process.env.RESEND_API_KEY = ORIGINAL_API_KEY;
   if (ORIGINAL_FROM_EMAIL === undefined) delete process.env.INVITATION_FROM_EMAIL;
   else process.env.INVITATION_FROM_EMAIL = ORIGINAL_FROM_EMAIL;
+  if (ORIGINAL_PLATFORM_REPLY_TO === undefined) delete process.env.PLATFORM_REPLY_TO_EMAIL;
+  else process.env.PLATFORM_REPLY_TO_EMAIL = ORIGINAL_PLATFORM_REPLY_TO;
 }
 
 afterEach(() => {
@@ -43,6 +46,7 @@ describe("sendEmailViaResend / checkEmailProviderReadiness — TEST_MODE branch"
     process.env.TEST_MODE = "1";
     delete process.env.RESEND_API_KEY;
     delete process.env.INVITATION_FROM_EMAIL;
+    delete process.env.PLATFORM_REPLY_TO_EMAIL;
     vi.resetModules();
   });
 
@@ -101,6 +105,7 @@ describe("sendEmailViaResend — production adapter: existing (pre-Slice-4) beha
   beforeEach(() => {
     delete process.env.TEST_MODE;
     process.env.RESEND_API_KEY = "test-api-key";
+    delete process.env.PLATFORM_REPLY_TO_EMAIL;
     vi.resetModules();
   });
 
@@ -162,6 +167,7 @@ describe("sendEmailViaResend — production adapter: attachments (Requirement D)
   beforeEach(() => {
     delete process.env.TEST_MODE;
     process.env.RESEND_API_KEY = "test-api-key";
+    delete process.env.PLATFORM_REPLY_TO_EMAIL;
     vi.resetModules();
   });
 
@@ -212,6 +218,7 @@ describe("sendEmailViaResend — production adapter: Idempotency-Key header (Req
   beforeEach(() => {
     delete process.env.TEST_MODE;
     process.env.RESEND_API_KEY = "test-api-key";
+    delete process.env.PLATFORM_REPLY_TO_EMAIL;
     vi.resetModules();
   });
 
@@ -314,6 +321,7 @@ describe("sendEmailViaResend — production adapter: timeoutMs (Requirement F)",
   beforeEach(() => {
     delete process.env.TEST_MODE;
     process.env.RESEND_API_KEY = "test-api-key";
+    delete process.env.PLATFORM_REPLY_TO_EMAIL;
     vi.resetModules();
   });
 
@@ -388,6 +396,7 @@ describe("sendEmailViaResend — production adapter: 2xx response body parsing (
   beforeEach(() => {
     delete process.env.TEST_MODE;
     process.env.RESEND_API_KEY = "test-api-key";
+    delete process.env.PLATFORM_REPLY_TO_EMAIL;
     vi.resetModules();
   });
 
@@ -469,6 +478,7 @@ describe("sendEmailViaResend — production adapter: 2xx response body parsing (
 describe("checkEmailProviderReadiness — production adapter (Requirement C)", () => {
   beforeEach(() => {
     delete process.env.TEST_MODE;
+    delete process.env.PLATFORM_REPLY_TO_EMAIL;
     vi.resetModules();
   });
 
@@ -505,5 +515,133 @@ describe("checkEmailProviderReadiness — production adapter (Requirement C)", (
     process.env.INVITATION_FROM_EMAIL = "   ";
     const { checkEmailProviderReadiness } = await import("@/lib/email/resend-client");
     expect(checkEmailProviderReadiness()).toBe("not_configured");
+  });
+});
+
+/**
+ * E2 (Reply-To wiring). getTransactionalReplyToEmail()'s own exhaustive
+ * valid/unset/blank/malformed matrix already lives in
+ * test/unit/platform-email-config.test.ts — this file's job is narrower:
+ * prove sendEmailViaResend actually calls it and serializes its result as
+ * the real Resend request body's own `reply_to` field, under exactly the
+ * same real-fetch-interception technique already used above for
+ * attachments/Idempotency-Key, never a real network call.
+ */
+describe("sendEmailViaResend — production adapter: platform Reply-To (E2)", () => {
+  beforeEach(() => {
+    delete process.env.TEST_MODE;
+    process.env.RESEND_API_KEY = "test-api-key";
+    delete process.env.PLATFORM_REPLY_TO_EMAIL;
+    vi.resetModules();
+  });
+
+  it("includes reply_to with the exact configured address when PLATFORM_REPLY_TO_EMAIL is valid", async () => {
+    process.env.PLATFORM_REPLY_TO_EMAIL = "support@acme.example";
+    const fetchSpy = vi.fn().mockResolvedValue(mockResponse(200));
+    vi.stubGlobal("fetch", fetchSpy);
+    const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+    await sendEmailViaResend(BASE_INPUT);
+
+    const init = fetchSpy.mock.calls[0][1];
+    const parsedBody = JSON.parse(init.body as string);
+    expect(parsedBody.reply_to).toBe("support@acme.example");
+    // Every other field stays exactly what the "existing behavior
+    // unchanged" describe block above already asserts — repeated here
+    // only for the fields reply_to sits alongside, not duplicated per case.
+    expect(parsedBody.from).toBe(BASE_INPUT.from);
+    expect(parsedBody.to).toBe(BASE_INPUT.to);
+  });
+
+  it("omits reply_to entirely when PLATFORM_REPLY_TO_EMAIL is unset", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(mockResponse(200));
+    vi.stubGlobal("fetch", fetchSpy);
+    const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+    await sendEmailViaResend(BASE_INPUT);
+
+    const parsedBody = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect("reply_to" in parsedBody).toBe(false);
+  });
+
+  it("omits reply_to entirely when PLATFORM_REPLY_TO_EMAIL is blank/whitespace-only", async () => {
+    process.env.PLATFORM_REPLY_TO_EMAIL = "   ";
+    const fetchSpy = vi.fn().mockResolvedValue(mockResponse(200));
+    vi.stubGlobal("fetch", fetchSpy);
+    const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+    await sendEmailViaResend(BASE_INPUT);
+
+    const parsedBody = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect("reply_to" in parsedBody).toBe(false);
+  });
+
+  it("omits reply_to entirely when PLATFORM_REPLY_TO_EMAIL is malformed, and the send still proceeds normally", async () => {
+    process.env.PLATFORM_REPLY_TO_EMAIL = "not-an-email";
+    const fetchSpy = vi.fn().mockResolvedValue(mockResponse(200));
+    vi.stubGlobal("fetch", fetchSpy);
+    const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+    const result = await sendEmailViaResend(BASE_INPUT);
+
+    expect(result).toEqual({ ok: true });
+    const parsedBody = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect("reply_to" in parsedBody).toBe(false);
+  });
+
+  it("disablePlatformReplyTo: true omits reply_to even when a valid address is configured — the Invoice-email opt-out", async () => {
+    process.env.PLATFORM_REPLY_TO_EMAIL = "support@acme.example";
+    const fetchSpy = vi.fn().mockResolvedValue(mockResponse(200));
+    vi.stubGlobal("fetch", fetchSpy);
+    const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+    await sendEmailViaResend({ ...BASE_INPUT, disablePlatformReplyTo: true });
+
+    const parsedBody = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect("reply_to" in parsedBody).toBe(false);
+  });
+
+  it("disablePlatformReplyTo: false behaves identically to omitting the field", async () => {
+    process.env.PLATFORM_REPLY_TO_EMAIL = "support@acme.example";
+    const fetchSpy = vi.fn().mockResolvedValue(mockResponse(200));
+    vi.stubGlobal("fetch", fetchSpy);
+    const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+    await sendEmailViaResend({ ...BASE_INPUT, disablePlatformReplyTo: false });
+
+    const parsedBody = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+    expect(parsedBody.reply_to).toBe("support@acme.example");
+  });
+
+  it("attachments and Idempotency-Key continue to work exactly as before, alongside a configured Reply-To", async () => {
+    process.env.PLATFORM_REPLY_TO_EMAIL = "support@acme.example";
+    const fetchSpy = vi.fn().mockResolvedValue(mockResponse(200));
+    vi.stubGlobal("fetch", fetchSpy);
+    const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+    await sendEmailViaResend({
+      ...BASE_INPUT,
+      attachments: [{ filename: "Invoice-2026-001.pdf", content: "ZmFrZS1wZGYtYnl0ZXM=", content_type: "application/pdf" }],
+      idempotencyKey: "11111111-1111-4111-8111-111111111111",
+    });
+
+    const [, init] = fetchSpy.mock.calls[0];
+    const parsedBody = JSON.parse(init.body as string);
+    expect(parsedBody.reply_to).toBe("support@acme.example");
+    expect(parsedBody.attachments).toEqual([{ filename: "Invoice-2026-001.pdf", content: "ZmFrZS1wZGYtYnl0ZXM=", content_type: "application/pdf" }]);
+    expect(init.headers["Idempotency-Key"]).toBe("11111111-1111-4111-8111-111111111111");
+  });
+
+  it("TEST_MODE never calls fetch at all, regardless of PLATFORM_REPLY_TO_EMAIL", async () => {
+    process.env.TEST_MODE = "1";
+    process.env.PLATFORM_REPLY_TO_EMAIL = "support@acme.example";
+    vi.resetModules();
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+    const result = await sendEmailViaResend(BASE_INPUT);
+    expect(result).toEqual({ ok: true });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

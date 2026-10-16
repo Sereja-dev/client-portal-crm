@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { actAs, resetAuthMock } from "../../support/auth-mock";
 import type { Role } from "@/generated/prisma/enums";
+import type { SendEmailInput } from "@/lib/email/resend-client";
 
 /**
  * Invoice System Official Slice 4, PR 4b — the live send-invoice-email
@@ -152,6 +153,43 @@ describe("sendInvoiceEmail — Invoice System Official Slice 4, PR 4b", () => {
     expect(activitiesAfter).toBe(activitiesBefore);
     const portalDownloads = await prisma.portalDownloadRequest.count({ where: { organizationId: fixtures.orgA.id } });
     expect(portalDownloads).toBe(0);
+  });
+
+  // --- E2 (Reply-To wiring) — Invoice email's explicit platform-Reply-To opt-out ---
+
+  it("sends with disablePlatformReplyTo: true, regardless of whether a platform Reply-To is configured — Invoice email never gets the platform default", async () => {
+    const originalPlatformReplyTo = process.env.PLATFORM_REPLY_TO_EMAIL;
+    process.env.PLATFORM_REPLY_TO_EMAIL = "support@acme.example";
+    try {
+      const client = await seedClientWithEmail(fixtures, `reply-to-opt-out-${randomUUID().slice(0, 8)}@example.com`);
+      const draft = await seedDraftInvoice(fixtures, { clientId: client.id });
+      const issued = await issueInvoice({ actor: actorFor(fixtures, fixtures.owner, "OWNER"), invoiceId: draft.id, expectedUpdatedAt: draft.updatedAt.toISOString() });
+      expect(issued.ok).toBe(true);
+      const invoiceRow = draft;
+
+      let capturedInput: SendEmailInput | undefined;
+      const capturingProvider = async (input: SendEmailInput) => {
+        capturedInput = input;
+        return { ok: true as const, messageId: "msg_reply_to_opt_out" };
+      };
+
+      const result = await sendInvoiceEmail(
+        { actor: actorFor(fixtures, fixtures.owner, "OWNER"), invoiceId: invoiceRow.id, idempotencyKey: randomUUID() },
+        { sendEmail: capturingProvider },
+      );
+
+      expect(result).toMatchObject({ ok: true, outcome: "ACCEPTED" });
+      // The opt-out itself — this is the one thing this test exists to prove.
+      expect(capturedInput!.disablePlatformReplyTo).toBe(true);
+      // Normal Invoice send behavior is otherwise completely unaffected:
+      // recipient, attachment, and idempotency semantics are all intact.
+      expect(capturedInput!.to).toBe(client.email);
+      expect(capturedInput!.attachments).toHaveLength(1);
+      expect(typeof capturedInput!.idempotencyKey).toBe("string");
+    } finally {
+      if (originalPlatformReplyTo === undefined) delete process.env.PLATFORM_REPLY_TO_EMAIL;
+      else process.env.PLATFORM_REPLY_TO_EMAIL = originalPlatformReplyTo;
+    }
   });
 
   // --- DRAFT Issue + Send using the real Issue service ------------------------

@@ -45,6 +45,16 @@ export type PlatformLegalConfig = {
   tosEffectiveDate: string;
 };
 
+// The one email-shape check this module uses — shared by extractEmailAddress
+// below and getTransactionalReplyToEmail, so a malformed PLATFORM_REPLY_TO_EMAIL
+// is judged by the exact same rule as everywhere else in this file, never a
+// second, independently-drifting regex.
+const EMAIL_SHAPE_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function isValidEmailAddress(value: string): boolean {
+  return EMAIL_SHAPE_PATTERN.test(value);
+}
+
 /**
  * `INVITATION_FROM_EMAIL` is formatted as either `"Name <email@domain>"` or
  * a bare address (see .env.example) — this pulls just the address back out,
@@ -56,7 +66,7 @@ function extractEmailAddress(fromHeader: string | undefined): string | null {
   if (!fromHeader) return null;
   const angleMatch = fromHeader.match(/<([^>]+)>/);
   const candidate = (angleMatch ? angleMatch[1] : fromHeader).trim();
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(candidate) ? candidate : null;
+  return isValidEmailAddress(candidate) ? candidate : null;
 }
 
 function trimmedEnv(name: string): string | null {
@@ -134,6 +144,36 @@ export function getPlatformEmailConfig(): PlatformEmailConfig {
     senderConfigured: senderEmail !== null,
     replyToConfigured: explicitReplyTo !== null,
   };
+}
+
+/**
+ * E2 (Reply-To wiring). The one send-oriented accessor for
+ * `PLATFORM_REPLY_TO_EMAIL` — deliberately separate from
+ * `getPlatformEmailConfig().replyToEmail` above, which exists only for the
+ * Platform Admin Configuration page's own display and therefore
+ * intentionally falls back to `senderEmail` (so the page never shows a bare
+ * "Not set" when a reasonable reply address already exists). A real
+ * outbound send must never apply that same fallback — sending a
+ * `reply_to` identical to `from` would be a pointless, confusing header,
+ * and `sendEmailViaResend`'s own contract (src/lib/email/resend-client.ts)
+ * is "omit entirely when not explicitly configured," not "default to the
+ * sender." This function is that exact narrower contract: the explicitly-
+ * configured address only, validated the same way every other address in
+ * this file already is, or `null` — never `senderEmail`, never
+ * `supportEmail`/`PLATFORM_SUPPORT_EMAIL` (a distinct, separate config
+ * fact — see that field's own doc comment above). An invalid value is
+ * treated identically to an absent one: a malformed operator typo in this
+ * one env var must never become a reason any transactional email fails to
+ * send (sendEmailViaResend's own fail-safe omission relies on this
+ * function already having done that filtering, not on the caller
+ * re-checking it).
+ */
+export function getTransactionalReplyToEmail(): string | null {
+  const explicitReplyTo = trimmedEnv("PLATFORM_REPLY_TO_EMAIL");
+  if (explicitReplyTo && isValidEmailAddress(explicitReplyTo)) {
+    return explicitReplyTo;
+  }
+  return null;
 }
 
 export type PlatformDomainStatus = "Custom domain configured" | "Default domain" | "Not configured";

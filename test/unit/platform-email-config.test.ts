@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getPlatformEmailConfig } from "@/lib/legal/platform-config";
+import { getPlatformEmailConfig, getTransactionalReplyToEmail } from "@/lib/legal/platform-config";
 
 const EMAIL_ENV_KEYS = [
   "PLATFORM_SUPPORT_EMAIL",
@@ -105,5 +105,54 @@ describe("getPlatformEmailConfig", () => {
     expect(config.senderEmail).toBeNull();
     expect(config.senderConfigured).toBe(false);
     expect(config.replyToEmail).toBeNull();
+  });
+});
+
+/**
+ * E2 (Reply-To wiring) — getTransactionalReplyToEmail() is the narrower,
+ * send-oriented accessor sendEmailViaResend actually calls. Deliberately
+ * covered by its own describe block, separate from getPlatformEmailConfig's
+ * own (display-only, sender-fallback) tests above, since the two must never
+ * be confused with each other — that is the exact bug this function exists
+ * to avoid.
+ */
+describe("getTransactionalReplyToEmail", () => {
+  it("returns the configured address when it is a valid email", () => {
+    process.env.PLATFORM_REPLY_TO_EMAIL = "replies@acme.example";
+    expect(getTransactionalReplyToEmail()).toBe("replies@acme.example");
+  });
+
+  it("trims leading/trailing whitespace", () => {
+    process.env.PLATFORM_REPLY_TO_EMAIL = "  replies@acme.example  ";
+    expect(getTransactionalReplyToEmail()).toBe("replies@acme.example");
+  });
+
+  it("returns null when unset", () => {
+    expect(getTransactionalReplyToEmail()).toBeNull();
+  });
+
+  it("returns null when blank/whitespace-only", () => {
+    process.env.PLATFORM_REPLY_TO_EMAIL = "   ";
+    expect(getTransactionalReplyToEmail()).toBeNull();
+  });
+
+  it("returns null when malformed — never throws, never passes a garbage value through", () => {
+    process.env.PLATFORM_REPLY_TO_EMAIL = "not-an-email";
+    expect(getTransactionalReplyToEmail()).toBeNull();
+  });
+
+  it("never falls back to INVITATION_FROM_EMAIL's address, unlike the display-only replyToEmail field", () => {
+    process.env.INVITATION_FROM_EMAIL = "invites@acme.example";
+    // PLATFORM_REPLY_TO_EMAIL left unset.
+    expect(getTransactionalReplyToEmail()).toBeNull();
+    // The display-facing field, by contrast, does fall back — confirming
+    // the two are genuinely different contracts, not a regression.
+    expect(getPlatformEmailConfig().replyToEmail).toBe("invites@acme.example");
+  });
+
+  it("never falls back to PLATFORM_SUPPORT_EMAIL — a distinct, separate config fact", () => {
+    process.env.PLATFORM_SUPPORT_EMAIL = "support@acme.example";
+    // PLATFORM_REPLY_TO_EMAIL left unset.
+    expect(getTransactionalReplyToEmail()).toBeNull();
   });
 });

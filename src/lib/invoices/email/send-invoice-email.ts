@@ -386,6 +386,15 @@ export async function sendInvoiceEmail(
       attachments: [{ filename: buildInvoicePdfDownloadFilename(invoice.invoiceNumber), content: pdf.bytes.toString("base64"), content_type: pdf.contentType }],
       timeoutMs: PROVIDER_TIMEOUT_MS,
       idempotencyKey,
+      // E2 (Reply-To wiring) — explicit opt-out, not an oversight. This
+      // email's own subject/body already read as a message from the
+      // issuing organization ("Invoice ... from {issuerDisplayName}"),
+      // never from Aqenra itself, and the Product has no per-organization
+      // reply address yet (see that slice's own audit) — applying the
+      // platform-wide PLATFORM_REPLY_TO_EMAIL here would route a client's
+      // reply to Aqenra's own support inbox instead of to the business
+      // that actually billed them.
+      disablePlatformReplyTo: true,
     });
   } catch {
     providerResult = { ok: false, reason: "network_error" };
