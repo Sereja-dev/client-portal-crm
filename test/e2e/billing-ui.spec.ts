@@ -114,8 +114,13 @@ test.describe("OWNER", () => {
   // provider registry to the real MockBillingProvider, so Upgrade/Manage
   // navigate to a real mock checkout/portal session instead of showing
   // Stage 3's "not configured" toast. The full mock checkout → webhook →
-  // updated-plan flow, and the "not configured" copy for a genuinely
-  // unconfigured provider, are covered in test/e2e/billing-mock-flow.spec.ts.
+  // updated-plan flow is covered in test/e2e/billing-mock-flow.spec.ts.
+  // Genuinely-unconfigured-provider behavior (disabled Upgrade/Manage,
+  // no provider click-through) can never be represented here — TEST_MODE
+  // always resolves the provider registry to the configured Mock adapter
+  // — it's covered at the unit/component level instead: see
+  // test/unit/billing-view-model.test.ts (Plan CTA) and
+  // test/unit/current-plan-section.test.tsx (Manage subscription).
   test("Upgrade action navigates to the mock checkout page for the selected plan", async ({ page }) => {
     await setSubscription(fixtures.orgA.id, { planKey: "STARTER", status: "ACTIVE" });
     await page.goto("/settings/billing");
