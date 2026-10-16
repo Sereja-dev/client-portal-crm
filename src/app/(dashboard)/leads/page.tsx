@@ -217,16 +217,28 @@ export default async function LeadsPage({
           clearHref={buildLeadsHref({ view: "pipeline" })}
         />
 
-        {grandTotal === 0 && !hasActiveParams ? (
-          <EmptyState
-            title="No leads yet"
-            description="Leads are prospects working their way toward becoming a client — add your first one to start tracking your pipeline."
-            action={
-              <Link href="/leads/new" className={PRIMARY_LINK_CLASSES}>
-                Add your first lead
-              </Link>
-            }
-          />
+        {grandTotal === 0 ? (
+          hasActiveParams ? (
+            <EmptyState
+              title="No leads match your filters"
+              description="Try a different search term or clear your filters."
+              action={
+                <Link href={buildLeadsHref({ view: "pipeline" })} className={PRIMARY_LINK_CLASSES}>
+                  Clear filters
+                </Link>
+              }
+            />
+          ) : (
+            <EmptyState
+              title="No leads yet"
+              description="Leads are prospects working their way toward becoming a client — add your first one to start tracking your pipeline."
+              action={
+                <Link href="/leads/new" className={PRIMARY_LINK_CLASSES}>
+                  Add your first lead
+                </Link>
+              }
+            />
+          )
         ) : (
           <LeadPipelineBoard
             columns={columns}

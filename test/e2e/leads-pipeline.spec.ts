@@ -190,6 +190,44 @@ test.describe("Leads Pipeline UI", () => {
       await expect(page).toHaveURL(new RegExp(`q=${name}`));
       await expect(desktopColumn(page, "New").getByText(name)).toBeVisible();
     });
+
+    /**
+     * Leads Pipeline filtered-zero empty-state remediation. grandTotal
+     * (the sum of every column's own already-filtered count) was zero
+     * here, but hasActiveParams (q) was also true -- the old single
+     * `grandTotal === 0 && !hasActiveParams` condition fell through to
+     * rendering LeadPipelineBoard anyway, leaving the user looking at a
+     * board of columns each independently saying "No leads," with no
+     * explanation and no escape. Mirrors List's own identical
+     * classification/copy exactly (leads/page.tsx's "No leads match
+     * your filters" branch).
+     */
+    test("a non-matching search shows the filtered-zero empty state, not a bare empty board", async ({ page }) => {
+      const name = uniqueName();
+      await dbQuery("lead", "create", { data: { name, organizationId: fixtures.orgA.id, stage: "NEW" } });
+      await page.goto("/leads?view=pipeline&q=no-such-lead-zzz");
+      await expect(page.getByText("No leads match your filters")).toBeVisible();
+      await expect(page.getByText("Try a different search term or clear your filters.")).toBeVisible();
+      await expect(page.getByRole("link", { name: "Clear filters" })).toBeVisible();
+      await expect(desktopColumn(page, "New")).toHaveCount(0);
+    });
+
+    /**
+     * The filtered-zero Clear filters action must stay on Pipeline
+     * (buildLeadsHref({ view: "pipeline" }), the same href the
+     * SearchFilterBar's own existing "Clear" link already used) --
+     * never bounce to List, and never silently default via an omitted
+     * `view` either (Pipeline is the default today, but this stays
+     * explicit regardless, matching the already-established local
+     * convention).
+     */
+    test("Clear filters from the filtered-zero Pipeline state returns to Pipeline, not List", async ({ page }) => {
+      await page.goto("/leads?view=pipeline&q=no-such-lead-zzz");
+      await page.getByRole("link", { name: "Clear filters" }).click();
+      await expect(page).toHaveURL(/view=pipeline/);
+      await expect(page).not.toHaveURL(/q=no-such-lead-zzz/);
+      await expect(page.getByRole("link", { name: "Pipeline", exact: true })).toHaveAttribute("aria-current", "page");
+    });
   });
 
   test.describe("stage movement", () => {
