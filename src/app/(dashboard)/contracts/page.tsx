@@ -289,7 +289,7 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
               },
               {
                 name: "archived",
-                label: "Status",
+                label: "Archive status",
                 value: listParams.archived ? "1" : "",
                 options: [
                   { value: "", label: "Active" },
