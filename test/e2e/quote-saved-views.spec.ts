@@ -331,9 +331,11 @@ test.describe("Quote Saved Views (Tables Improvement Slice D2A)", () => {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     expect(overflow).toBe(false);
 
-    // Quotes has two filters both labeled "Status" (the status enum
-    // filter and the archived toggle, same pattern as Contracts) --
-    // either one proves SearchFilterBar itself remains usable here.
+    // Proves the status-enum filter (SearchFilterBar) remains usable
+    // here. The archived toggle now has its own distinct "Archive
+    // status" label (filter-label-ambiguity remediation), so "Status"
+    // resolves to exactly this one control -- `.first()` kept as a
+    // harmless no-op on a single match rather than removed.
     await expect(page.getByLabel("Status").first()).toBeVisible();
   });
 });

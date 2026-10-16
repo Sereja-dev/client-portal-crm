@@ -264,7 +264,7 @@ export default async function QuotesPage({
               },
               {
                 name: "archived",
-                label: "Status",
+                label: "Archive status",
                 value: listParams.archived ? "1" : "",
                 options: [
                   { value: "", label: "Active" },
