@@ -1,9 +1,11 @@
 import Link from "next/link";
-import { getCurrentUserOrganization } from "@/lib/current-user";
+import { getCurrentMembership } from "@/lib/current-user";
+import { getCachedEffectivePermissionSet } from "@/lib/permissions/resolver";
 import { DocumentsTabs } from "@/components/documents/documents-tabs";
 import { prisma } from "@/lib/prisma";
 import { listContracts } from "@/lib/contracts/queries";
 import { EmptyState } from "@/components/ui/empty-state";
+import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { SearchFilterBar } from "@/components/list/search-filter-bar";
 import { QuickFilterChips } from "@/components/list/quick-filter-chips";
 import { ContractListWithSelection, type ContractListRow } from "@/components/contracts/contract-list-with-selection";
@@ -77,11 +79,18 @@ const CONTRACT_SORT_OPTIONS = [
  * byte-for-byte unchanged from before this slice.
  */
 export default async function ContractsPage({ searchParams }: { searchParams: Promise<RawSearchParams> }) {
-  const { user, organizationId } = await getCurrentUserOrganization();
+  // Empty States Improvement, Slice A — switched from
+  // getCurrentUserOrganization() to getCurrentMembership() solely to
+  // bring `membership.role` into scope, the narrowest existing way to
+  // resolve CONTRACT_TEMPLATES_MANAGE below for the new secondary-action
+  // gate. One additional Membership findUnique — the same helper every
+  // sibling Finance/Sales list page (Invoices, Quotes) already calls for
+  // this exact reason. Everything else on this page is unchanged.
+  const { user, organizationId, membership } = await getCurrentMembership();
   const resolvedSearchParams = await searchParams;
   const listParams = parseContractListParams(resolvedSearchParams);
 
-  const [clientCount, clients, projects, contracts] = await Promise.all([
+  const [clientCount, clients, projects, contracts, effectivePermissions] = await Promise.all([
     prisma.client.count({ where: { organizationId } }),
     prisma.client.findMany({ where: { organizationId }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
     // Documents Slice A — same unfiltered "every org-scoped Project" shape
@@ -98,6 +107,7 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
       search: listParams.q || undefined,
       orderBy: buildContractOrderBy(listParams),
     }),
+    getCachedEffectivePermissionSet(organizationId, membership.role),
   ]);
 
   // listContracts()'s own `includeArchived` returns active+archived
@@ -336,6 +346,20 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
               <Link href="/contracts/new" className={PRIMARY_LINK_CLASSES}>
                 Create contract
               </Link>
+            }
+            secondaryAction={
+              // Empty States Improvement, Slice A — permission-gated:
+              // Contract Templates management (/settings/contract-templates)
+              // is OWNER/ADMIN-only by default (CONTRACT_TEMPLATES_MANAGE,
+              // configurable via RolePermissionOverride) while any role
+              // can create a Contract — a MEMBER following this link
+              // would otherwise land on that page's own "Not available"
+              // state.
+              effectivePermissions.CONTRACT_TEMPLATES_MANAGE ? (
+                <Link href="/settings/contract-templates" className={ACTION_LINK_CLASSES}>
+                  Browse templates
+                </Link>
+              ) : undefined
             }
           />
         )

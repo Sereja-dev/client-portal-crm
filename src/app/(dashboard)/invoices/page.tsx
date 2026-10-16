@@ -401,7 +401,7 @@ export default async function InvoicesPage({
         ) : (
           <EmptyState
             title="No invoices yet"
-            description="Get started by adding your first invoice."
+            description="Create your first invoice for a client. Once it's marked paid, the revenue can appear in your financial reporting."
             action={
               <Link
                 href="/invoices/new"
@@ -409,6 +409,21 @@ export default async function InvoicesPage({
               >
                 Add invoice
               </Link>
+            }
+            secondaryAction={
+              // Empty States Improvement, Slice A — permission-gated:
+              // Invoice Templates management (/settings/invoice-templates)
+              // is OWNER/ADMIN-only by default (INVOICE_TEMPLATES_MANAGE,
+              // configurable via RolePermissionOverride) while any role
+              // can create an Invoice — a MEMBER following this link
+              // would otherwise land on that page's own "Not available"
+              // state. `effectivePermissions` is already fetched above
+              // for FinanceTabs; no new query.
+              effectivePermissions.INVOICE_TEMPLATES_MANAGE ? (
+                <Link href="/settings/invoice-templates" className={ACTION_LINK_CLASSES}>
+                  Browse templates
+                </Link>
+              ) : undefined
             }
           />
         )

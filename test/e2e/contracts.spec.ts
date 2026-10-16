@@ -1,6 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
+import { testEmail } from "../support/run-id";
+import { TEST_EMAIL_DOMAIN } from "../support/env";
 
 /**
  * Contracts Phase 2 — Staff CRUD/list/detail lifecycle UI. Real browser
@@ -86,13 +89,54 @@ test.describe("Contracts Staff UI (Phase 2)", () => {
     await expect(page.getByRole("heading", { name: "Contracts" })).toBeVisible();
     await expect(page.getByText("No contracts yet")).toBeVisible();
     await expect(page.getByRole("link", { name: "Create contract" })).toBeVisible();
+    // Empty States Improvement, Slice A — the new secondary action is
+    // visible on the true first-time state only (OWNER has
+    // CONTRACT_TEMPLATES_MANAGE by default).
+    await expect(page.getByRole("link", { name: "Browse templates" })).toHaveAttribute(
+      "href",
+      "/settings/contract-templates",
+    );
 
     await page.goto("/contracts?archived=1");
     await expect(page.getByText("No archived contracts")).toBeVisible();
     await expect(page.getByText("No contracts yet")).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Browse templates" })).toHaveCount(0);
 
     await page.goto("/contracts?q=nonexistent-contract-xyz");
     await expect(page.getByText("No matching contracts")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Browse templates" })).toHaveCount(0);
+  });
+
+  test("true first-time, MEMBER: Browse templates is absent — Contract Templates management is OWNER/ADMIN-only by default", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    const member = await dbQuery<{ id: string; email: string }>("user", "create", {
+      data: {
+        id: randomUUID(),
+        email: testEmail("contracts-empty-member", TEST_EMAIL_DOMAIN, fixtures.runId),
+        name: "Contracts Empty State Member",
+      },
+    });
+    await dbQuery("membership", "create", {
+      data: { userId: member.id, organizationId: fixtures.orgB.id, role: "MEMBER" },
+    });
+
+    try {
+      // Overrides this describe block's own beforeEach (actAsOwner) with
+      // the throwaway MEMBER session for orgB.
+      await actAs(context, baseURL!, member, fixtures.orgB.id);
+      await page.goto("/contracts");
+      await expect(page.getByText("No contracts yet")).toBeVisible();
+      // A MEMBER can still create a Contract (canManageContracts() is
+      // "any role" — no permission catalog entry gates creation itself).
+      await expect(page.getByRole("link", { name: "Create contract" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Browse templates" })).toHaveCount(0);
+    } finally {
+      await dbQuery("membership", "deleteMany", { where: { userId: member.id, organizationId: fixtures.orgB.id } });
+      await dbQuery("user", "deleteMany", { where: { id: member.id } });
+    }
   });
 
   // Contract client-filter UUID fix — a malformed ?client= value must

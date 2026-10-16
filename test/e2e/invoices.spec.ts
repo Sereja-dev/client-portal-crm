@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { test, expect, type BrowserContext } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 import { selectSearchableOption } from "../support/select-searchable-option";
+import { testEmail, testSlug } from "../support/run-id";
+import { TEST_EMAIL_DOMAIN } from "../support/env";
 
 /**
  * Invoice System Official Slice 3, sub-PR 3b — same session-injection
@@ -1866,5 +1869,153 @@ test.describe("Invoice System Official Slice 5c — organization-wide Invoice-nu
     expect(matching[0].clientId).toBe(fixtures.clientA.id);
 
     await dbQuery("invoice", "deleteMany", { where: { invoiceNumber } });
+  });
+});
+
+/**
+ * Empty States Improvement, Slice A — the three Invoices list
+ * classification branches (prerequisite / filtered / true first-time),
+ * untouched by this slice except for the true first-time branch's copy
+ * and its new, permission-gated "Browse templates" secondary action.
+ */
+test.describe("Invoices list — empty states", () => {
+  test("true first-time: valid prerequisites (orgB has a Client, zero Invoices), OWNER sees the primary CTA and Browse templates", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await injectTestSession(context, { id: fixtures.orgBOwner.id, email: fixtures.orgBOwner.email }, baseURL!);
+    await page.goto("/invoices");
+    await expect(page.getByText("No invoices yet")).toBeVisible();
+    await expect(
+      page.getByText("Create your first invoice for a client. Once it's marked paid, the revenue can appear in your financial reporting."),
+    ).toBeVisible();
+    // .first() -- the page header also renders its own identical "Add
+    // invoice" link whenever clientCount > 0, pre-existing and unrelated
+    // to this slice; only the EmptyState's own copy of it is new context
+    // here.
+    await expect(page.getByRole("link", { name: "Add invoice" }).first()).toHaveAttribute("href", "/invoices/new");
+    await expect(page.getByRole("link", { name: "Browse templates" })).toHaveAttribute(
+      "href",
+      "/settings/invoice-templates",
+    );
+  });
+
+  test("true first-time, MEMBER: Browse templates is absent — Invoice Templates management is OWNER/ADMIN-only by default", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    const member = await dbQuery<{ id: string; email: string }>("user", "create", {
+      data: {
+        id: randomUUID(),
+        email: testEmail("invoices-empty-member", TEST_EMAIL_DOMAIN, fixtures.runId),
+        name: "Invoices Empty State Member",
+      },
+    });
+    await dbQuery("membership", "create", {
+      data: { userId: member.id, organizationId: fixtures.orgB.id, role: "MEMBER" },
+    });
+
+    try {
+      await context.clearCookies();
+      await injectTestSession(context, member, baseURL!);
+      await context.addCookies([
+        {
+          name: "active_organization_id",
+          value: fixtures.orgB.id,
+          domain: new URL(baseURL!).hostname,
+          path: "/",
+          httpOnly: true,
+          secure: new URL(baseURL!).protocol === "https:",
+          sameSite: "Lax",
+        },
+      ]);
+      await page.goto("/invoices");
+      await expect(page.getByText("No invoices yet")).toBeVisible();
+      // A MEMBER can still create an Invoice (no permission catalog entry
+      // gates that) — the primary CTA is unaffected by this slice.
+      // .first() -- same pre-existing header-link duplication as above.
+      await expect(page.getByRole("link", { name: "Add invoice" }).first()).toBeVisible();
+      await expect(page.getByRole("link", { name: "Browse templates" })).toHaveCount(0);
+    } finally {
+      await dbQuery("membership", "deleteMany", { where: { userId: member.id, organizationId: fixtures.orgB.id } });
+      await dbQuery("user", "deleteMany", { where: { id: member.id } });
+    }
+  });
+
+  test("filtered-zero: a non-matching search shows the generic no-results state, never Browse templates", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await injectTestSession(context, { id: fixtures.owner.id, email: fixtures.owner.email }, baseURL!);
+    await page.goto("/invoices?q=no-such-invoice-zzz");
+    await expect(page.getByText("No matching invoices")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Clear filters" })).toBeVisible();
+    await expect(page.getByText("No invoices yet")).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Browse templates" })).toHaveCount(0);
+  });
+
+  test("prerequisite-empty: a client-free organization still shows the existing prerequisite state, never Browse templates", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    const org = await dbQuery<{ id: string }>("organization", "create", {
+      data: { name: "Fresh Invoices Prereq Org", slug: testSlug("invoices-prereq", fixtures.runId) },
+    });
+    const owner = await dbQuery<{ id: string; email: string }>("user", "create", {
+      data: {
+        id: randomUUID(),
+        email: testEmail("invoices-prereq-owner", TEST_EMAIL_DOMAIN, fixtures.runId),
+        name: "Invoices Prereq Owner",
+      },
+    });
+    await dbQuery("membership", "create", { data: { userId: owner.id, organizationId: org.id, role: "OWNER" } });
+
+    try {
+      await injectTestSession(context, owner, baseURL!);
+      await context.addCookies([
+        {
+          name: "active_organization_id",
+          value: org.id,
+          domain: new URL(baseURL!).hostname,
+          path: "/",
+          httpOnly: true,
+          secure: new URL(baseURL!).protocol === "https:",
+          sameSite: "Lax",
+        },
+      ]);
+      await page.goto("/invoices");
+      await expect(page.getByText("You need a client first")).toBeVisible();
+      await expect(page.getByRole("link", { name: "Add client" })).toHaveAttribute("href", "/clients/new");
+      // Unchanged regression — no dead "Add invoice" link, and no
+      // secondary template link mixed into a state where creation isn't
+      // even valid yet.
+      await expect(page.getByRole("link", { name: "Add invoice" })).toHaveCount(0);
+      await expect(page.getByRole("link", { name: "Browse templates" })).toHaveCount(0);
+    } finally {
+      await dbQuery("membership", "deleteMany", { where: { userId: owner.id, organizationId: org.id } });
+      await dbQuery("user", "deleteMany", { where: { id: owner.id } });
+      await dbQuery("organization", "deleteMany", { where: { id: org.id } });
+    }
+  });
+
+  test("390px: the first-time state's two actions wrap cleanly with no page-level horizontal overflow", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await injectTestSession(context, { id: fixtures.orgBOwner.id, email: fixtures.orgBOwner.email }, baseURL!);
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/invoices");
+    // .first() -- same pre-existing header-link duplication as above.
+    await expect(page.getByRole("link", { name: "Add invoice" }).first()).toBeVisible();
+    await expect(page.getByRole("link", { name: "Browse templates" })).toBeVisible();
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+    );
+    expect(overflow).toBe(false);
   });
 });
