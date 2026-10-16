@@ -18,15 +18,31 @@ export function CurrentPlanSection({ data }: { data: BillingPageViewModel }) {
           </div>
         </div>
 
-        {data.permissions.canManageSubscription ? (
-          <ManageSubscriptionButton />
-        ) : (
+        {!data.permissions.canManageSubscription ? (
           <div className="text-right">
             <Button type="button" variant="secondary" disabled aria-disabled="true">
               Manage subscription
             </Button>
             <p className="text-text-muted mt-1 text-xs">Only the organization owner can manage billing.</p>
           </div>
+        ) : !data.providerAvailability.configured ? (
+          // Billing provider-unavailable UI remediation: manageSubscriptionAction
+          // already fails closed here ("Billing provider is not configured.",
+          // src/app/(dashboard)/settings/billing/actions.ts) — the real button
+          // must not stay clickable only to dead-end there. The string below is
+          // reused verbatim from that action's own copy, kept as a plain literal
+          // rather than imported from it: that module is "use server", and every
+          // one of its exports must be an async Server Action, so it has no
+          // constant this client component could import without an
+          // architecturally inappropriate server/client boundary violation.
+          <div className="text-right">
+            <Button type="button" variant="secondary" disabled aria-disabled="true">
+              Manage subscription
+            </Button>
+            <p className="text-text-muted mt-1 text-xs">Billing provider is not configured.</p>
+          </div>
+        ) : (
+          <ManageSubscriptionButton />
         )}
       </div>
 

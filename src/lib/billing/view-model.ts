@@ -326,8 +326,23 @@ function planDescription(planKey: PlanKey): string {
   }
 }
 
-/** Starter and Pro only — the two real, purchasable plans (this stage's own §7: TRIAL/LEGACY are never sold, never shown as a card). */
-function buildAvailablePlans(currentPlanKey: PlanKey, canManagePlan: boolean): PlanCardViewModel[] {
+/**
+ * Starter and Pro only — the two real, purchasable plans (this stage's own
+ * §7: TRIAL/LEGACY are never sold, never shown as a card).
+ *
+ * `providerConfigured` (billing provider-unavailable UI remediation):
+ * requestPlanChangeAction already fails closed with "Billing provider is
+ * not configured." when no real adapter is active — a non-current plan's
+ * CTA must not stay clickable only to dead-end there. This never
+ * re-resolves provider state itself; the caller already has
+ * providerAvailability.configured resolved once, from
+ * getBillingProviderAvailability(), and passes it straight through.
+ */
+function buildAvailablePlans(
+  currentPlanKey: PlanKey,
+  canManagePlan: boolean,
+  providerConfigured: boolean,
+): PlanCardViewModel[] {
   const purchasablePlanKeys = ALL_PLAN_KEYS.filter((key) => PLAN_CATALOG[key].billingAvailable);
   const currentIndex = purchasablePlanKeys.indexOf(currentPlanKey);
 
@@ -353,7 +368,7 @@ function buildAvailablePlans(currentPlanKey: PlanKey, canManagePlan: boolean): P
       description: planDescription(planKey),
       isCurrentPlan,
       ctaLabel,
-      ctaDisabled: isCurrentPlan || !canManagePlan,
+      ctaDisabled: isCurrentPlan || !canManagePlan || !providerConfigured,
     };
   });
 }
@@ -417,7 +432,7 @@ export function buildBillingPageViewModel({
     gracePeriodEndsAt: entitlements.gracePeriodEndsAt,
 
     usageRows: buildUsageRows(entitlements, pendingInvitations),
-    availablePlans: buildAvailablePlans(entitlements.planKey, canManagePlan),
+    availablePlans: buildAvailablePlans(entitlements.planKey, canManagePlan, providerAvailability.configured),
     permissions: { role, canManagePlan, canManageSubscription },
 
     providerConfigured: false,

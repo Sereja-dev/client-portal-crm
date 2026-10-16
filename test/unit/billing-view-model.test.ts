@@ -20,6 +20,21 @@ const PROVIDER_UNCONFIGURED = {
   portalAvailable: false,
 };
 
+/**
+ * Billing provider-unavailable UI remediation — the configured counterpart
+ * fixture. Every pre-existing "Upgrade/Downgrade stays enabled" test below
+ * now supplies this explicitly rather than relying on `build()`'s own
+ * unconfigured default, so the assertion actually states the fact it
+ * depends on (enabled requires a configured provider) instead of silently
+ * assuming it.
+ */
+const PROVIDER_CONFIGURED = {
+  configured: true,
+  provider: "PADDLE" as const,
+  checkoutAvailable: true,
+  portalAvailable: true,
+};
+
 function entitlements(overrides: Partial<OrganizationEntitlements> & { planKey: OrganizationEntitlements["planKey"] }): OrganizationEntitlements {
   return {
     subscriptionStatus: "ACTIVE",
@@ -291,23 +306,36 @@ describe("usage rows: pending invitations counted into Members", () => {
 });
 
 describe("plan cards", () => {
-  it("marks the current plan and disables its own CTA", () => {
-    const vm = build({ entitlements: entitlements({ planKey: "STARTER" }) });
-    const starter = vm.availablePlans.find((p) => p.planKey === "STARTER")!;
-    expect(starter.isCurrentPlan).toBe(true);
-    expect(starter.ctaLabel).toBe("Current plan");
-    expect(starter.ctaDisabled).toBe(true);
+  it("marks the current plan and disables its own CTA regardless of provider availability", () => {
+    const configured = build({
+      entitlements: entitlements({ planKey: "STARTER" }),
+      providerAvailability: PROVIDER_CONFIGURED,
+    });
+    const starterConfigured = configured.availablePlans.find((p) => p.planKey === "STARTER")!;
+    expect(starterConfigured.isCurrentPlan).toBe(true);
+    expect(starterConfigured.ctaLabel).toBe("Current plan");
+    expect(starterConfigured.ctaDisabled).toBe(true);
+
+    const unconfigured = build({ entitlements: entitlements({ planKey: "STARTER" }) });
+    const starterUnconfigured = unconfigured.availablePlans.find((p) => p.planKey === "STARTER")!;
+    expect(starterUnconfigured.ctaDisabled).toBe(true);
   });
 
-  it("offers Upgrade for a higher plan than the current one", () => {
-    const vm = build({ entitlements: entitlements({ planKey: "STARTER" }) });
+  it("offers Upgrade for a higher plan than the current one when the provider is configured", () => {
+    const vm = build({
+      entitlements: entitlements({ planKey: "STARTER" }),
+      providerAvailability: PROVIDER_CONFIGURED,
+    });
     const pro = vm.availablePlans.find((p) => p.planKey === "PRO")!;
     expect(pro.ctaLabel).toBe("Upgrade");
     expect(pro.ctaDisabled).toBe(false);
   });
 
-  it("offers Downgrade for a lower plan than the current one", () => {
-    const vm = build({ entitlements: entitlements({ planKey: "PRO" }) });
+  it("offers Downgrade for a lower plan than the current one when the provider is configured", () => {
+    const vm = build({
+      entitlements: entitlements({ planKey: "PRO" }),
+      providerAvailability: PROVIDER_CONFIGURED,
+    });
     const starter = vm.availablePlans.find((p) => p.planKey === "STARTER")!;
     expect(starter.ctaLabel).toBe("Downgrade");
     expect(starter.ctaDisabled).toBe(false);
@@ -321,11 +349,57 @@ describe("plan cards", () => {
     expect(planKeys.sort()).toEqual(["PRO", "STARTER"]);
   });
 
-  it("disables every non-current plan's CTA for a non-owner, with an explanatory reason surfaced via permissions", () => {
-    const vm = build({ entitlements: entitlements({ planKey: "STARTER" }), role: "MEMBER" });
-    expect(vm.permissions.canManagePlan).toBe(false);
+  it("disables every non-current plan's CTA for a non-owner, with an explanatory reason surfaced via permissions — regardless of provider availability", () => {
+    const configured = build({
+      entitlements: entitlements({ planKey: "STARTER" }),
+      role: "MEMBER",
+      providerAvailability: PROVIDER_CONFIGURED,
+    });
+    expect(configured.permissions.canManagePlan).toBe(false);
+    const proConfigured = configured.availablePlans.find((p) => p.planKey === "PRO")!;
+    expect(proConfigured.ctaDisabled).toBe(true);
+
+    const unconfigured = build({ entitlements: entitlements({ planKey: "STARTER" }), role: "MEMBER" });
+    expect(unconfigured.permissions.canManagePlan).toBe(false);
+    const proUnconfigured = unconfigured.availablePlans.find((p) => p.planKey === "PRO")!;
+    expect(proUnconfigured.ctaDisabled).toBe(true);
+  });
+
+  /**
+   * Billing provider-unavailable UI remediation (Defect 1 — Plan CTA).
+   * requestPlanChangeAction already fails closed with "Billing provider is
+   * not configured." when no real adapter is active — these prove the CTA
+   * itself is never actionable in that state for an otherwise-eligible
+   * OWNER, so the button never becomes a dead end that can only reach that
+   * refusal. ctaLabel (Upgrade/Downgrade) stays unchanged — only
+   * ctaDisabled is affected, matching Product's "still show the label,
+   * just make it non-actionable" contract.
+   */
+  it("disables an otherwise-eligible OWNER's Upgrade CTA when the provider is unconfigured, without changing its label", () => {
+    const vm = build({ entitlements: entitlements({ planKey: "STARTER" }), role: "OWNER" });
     const pro = vm.availablePlans.find((p) => p.planKey === "PRO")!;
+    expect(vm.permissions.canManagePlan).toBe(true);
+    expect(pro.ctaLabel).toBe("Upgrade");
     expect(pro.ctaDisabled).toBe(true);
+  });
+
+  it("disables an otherwise-eligible OWNER's Downgrade CTA when the provider is unconfigured, without changing its label", () => {
+    const vm = build({ entitlements: entitlements({ planKey: "PRO" }), role: "OWNER" });
+    const starter = vm.availablePlans.find((p) => p.planKey === "STARTER")!;
+    expect(vm.permissions.canManagePlan).toBe(true);
+    expect(starter.ctaLabel).toBe("Downgrade");
+    expect(starter.ctaDisabled).toBe(true);
+  });
+
+  it("re-enables Upgrade for the exact same OWNER/plan state once the provider becomes configured", () => {
+    const unconfigured = build({ entitlements: entitlements({ planKey: "STARTER" }), role: "OWNER" });
+    const configured = build({
+      entitlements: entitlements({ planKey: "STARTER" }),
+      role: "OWNER",
+      providerAvailability: PROVIDER_CONFIGURED,
+    });
+    expect(unconfigured.availablePlans.find((p) => p.planKey === "PRO")!.ctaDisabled).toBe(true);
+    expect(configured.availablePlans.find((p) => p.planKey === "PRO")!.ctaDisabled).toBe(false);
   });
 });
 
