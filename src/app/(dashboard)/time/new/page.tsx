@@ -3,11 +3,15 @@ import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { TimeEntryForm } from "@/components/time-entries/time-entry-form";
 import { isPrivilegedRole } from "@/lib/time-entries/permissions";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { parseSearchParam, type RawSearchParams } from "@/lib/list-params";
 import { isUuid } from "@/lib/validation/time-entry";
 import { createTimeEntryAction } from "../actions";
+
+const PRIMARY_LINK_CLASSES =
+  "focus-visible:ring-focus-ring rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
 
 /**
  * Time Tracking Phase 2A — "Log time". A MEMBER never sees a member
@@ -64,19 +68,31 @@ export default async function NewTimeEntryPage({
           Cancel
         </Link>
       </div>
-      <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-        <TimeEntryForm
-          action={createTimeEntryAction}
-          actorId={user.id}
-          canSelectMember={canSelectMember}
-          members={members}
-          projects={projects}
-          tasks={tasks}
-          defaultValues={prefillProjectId ? { projectId: prefillProjectId } : undefined}
-          submitLabel="Log time"
-          pendingLabel="Logging…"
+      {projects.length === 0 ? (
+        <EmptyState
+          title="You need a project first"
+          description="Time entries must belong to a project. Add one before logging time."
+          action={
+            <Link href="/projects/new" className={PRIMARY_LINK_CLASSES}>
+              Add project
+            </Link>
+          }
         />
-      </div>
+      ) : (
+        <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
+          <TimeEntryForm
+            action={createTimeEntryAction}
+            actorId={user.id}
+            canSelectMember={canSelectMember}
+            members={members}
+            projects={projects}
+            tasks={tasks}
+            defaultValues={prefillProjectId ? { projectId: prefillProjectId } : undefined}
+            submitLabel="Log time"
+            pendingLabel="Logging…"
+          />
+        </div>
+      )}
     </div>
   );
 }

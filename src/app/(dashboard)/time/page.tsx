@@ -79,12 +79,28 @@ export default async function TimeEntriesPage({ searchParams }: { searchParams: 
           >
             {showArchived ? "Show active" : "Show archived"}
           </Link>
-          <Link href="/time/new" className={PRIMARY_LINK_CLASSES}>
-            Log time
-          </Link>
+          {projects.length > 0 && (
+            <Link href="/time/new" className={PRIMARY_LINK_CLASSES}>
+              Log time
+            </Link>
+          )}
         </div>
       </div>
 
+      {/*
+        Time Entries zero-Project prerequisite remediation — the filter
+        bar deliberately stays rendered regardless of `projects.length`,
+        unlike the analogous Tasks/Invoices/Contracts/Recurring Invoices
+        guards. TimeEntry.projectId is nullable with onDelete: SetNull
+        (unlike those siblings' own required/Cascade or Restrict
+        relations) — an organization can have zero *current* Projects
+        while still holding genuine historical TimeEntry rows (a Project
+        that was later deleted). Those rows must stay filterable by
+        date/member/billable/archived state; the Project dropdown simply
+        degrades to "All projects" with no sub-options, which is a
+        harmless affordance, never a dead end (filtering is never a
+        required action the way Create is).
+      */}
       <TimeEntryFilterBar
         from={fromDate ? formatDateOnly(fromDate) : ""}
         to={toDate ? formatDateOnly(toDate) : ""}
@@ -98,21 +114,31 @@ export default async function TimeEntriesPage({ searchParams }: { searchParams: 
       />
 
       {visibleEntries.length === 0 ? (
-        <EmptyState
-          title={showArchived ? "No archived time entries" : hasActiveFilters ? "No matching time entries" : "No time entries yet"}
-          description={
-            showArchived
-              ? "Archived time entries will appear here."
-              : "Log time against a project to start tracking work here."
-          }
-          action={
-            !showArchived && !hasActiveFilters ? (
+        showArchived ? (
+          <EmptyState title="No archived time entries" description="Archived time entries will appear here." />
+        ) : hasActiveFilters ? (
+          <EmptyState title="No matching time entries" description="Log time against a project to start tracking work here." />
+        ) : projects.length === 0 ? (
+          <EmptyState
+            title="You need a project first"
+            description="Time entries must belong to a project. Add one before logging time."
+            action={
+              <Link href="/projects/new" className={PRIMARY_LINK_CLASSES}>
+                Add project
+              </Link>
+            }
+          />
+        ) : (
+          <EmptyState
+            title="No time entries yet"
+            description="Log time against a project to start tracking work here."
+            action={
               <Link href="/time/new" className={PRIMARY_LINK_CLASSES}>
                 Log time
               </Link>
-            ) : undefined
-          }
-        />
+            }
+          />
+        )
       ) : (
         <Table>
           <TableHead>
