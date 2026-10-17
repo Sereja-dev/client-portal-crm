@@ -746,6 +746,225 @@ test.describe("Security / isolation", () => {
   });
 });
 
+test.describe("Recent searches", () => {
+  test("selecting a live result records it; reopening with an empty query shows it under Recent; selecting it navigates to the same canonical URL", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+    await gotoAndSettle(page, `${baseURL}/dashboard`);
+
+    await search(page, fixtures.clientA.name);
+    // Scoped to the Clients group specifically -- a Project/Invoice
+    // result's own subtitle also contains the Client's name as secondary-
+    // field context (see search-result-item.tsx), so an unscoped
+    // getByRole("option", { name: /Test Client A/ }) is ambiguous.
+    await page.getByRole("group", { name: "Clients" }).getByRole("option", { name: new RegExp(fixtures.clientA.name) }).click();
+    await page.waitForURL(new RegExp(`/clients/${fixtures.clientA.id}`));
+
+    await openSearch(page);
+    await expect(page.getByText("Recent", { exact: true })).toBeVisible();
+    const recentOption = page.getByRole("option", { name: new RegExp(fixtures.clientA.name) });
+    await expect(recentOption).toBeVisible();
+    // The neutral first-time prompt is gone now that a recent exists.
+    await expect(page.getByText("Search clients, projects, tasks, invoices, and comments.")).toHaveCount(0);
+
+    await recentOption.click();
+    await page.waitForURL(new RegExp(`/clients/${fixtures.clientA.id}`));
+  });
+
+  test("ArrowDown selects a recent result and Enter navigates to it, with no live-search request involved", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+    await gotoAndSettle(page, `${baseURL}/dashboard`);
+
+    // Creates one real recent through an actual Search selection (not a
+    // fixture/db shortcut) — exactly the §32 requirement.
+    await search(page, fixtures.project.name);
+    // Scoped to the Projects group -- a Task/Invoice result's own subtitle
+    // also contains the Project's name as secondary-field context.
+    await page.getByRole("group", { name: "Projects" }).getByRole("option", { name: new RegExp(fixtures.project.name) }).click();
+    await page.waitForURL(new RegExp(`/projects/${fixtures.project.id}`));
+
+    let requestCount = 0;
+    page.on("request", (req) => {
+      if (req.url().includes("/api/search")) requestCount += 1;
+    });
+
+    await openSearch(page);
+    const recentOption = page.getByRole("option", { name: new RegExp(fixtures.project.name) });
+    await expect(recentOption).toHaveAttribute("aria-selected", "true");
+    await searchInput(page).press("ArrowDown"); // wraps back to the same single item
+    await expect(recentOption).toHaveAttribute("aria-selected", "true");
+    await searchInput(page).press("Enter");
+
+    await page.waitForURL(new RegExp(`/projects/${fixtures.project.id}`));
+    expect(requestCount).toBe(0);
+  });
+
+  test("Clear immediately removes the Recent section and returns the neutral idle prompt; it stays cleared after reopening", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+    await gotoAndSettle(page, `${baseURL}/dashboard`);
+
+    await search(page, fixtures.clientA.name);
+    // Scoped to the Clients group specifically -- a Project/Invoice
+    // result's own subtitle also contains the Client's name as secondary-
+    // field context (see search-result-item.tsx), so an unscoped
+    // getByRole("option", { name: /Test Client A/ }) is ambiguous.
+    await page.getByRole("group", { name: "Clients" }).getByRole("option", { name: new RegExp(fixtures.clientA.name) }).click();
+    await page.waitForURL(new RegExp(`/clients/${fixtures.clientA.id}`));
+
+    await openSearch(page);
+    await expect(page.getByText("Recent", { exact: true })).toBeVisible();
+
+    await page.getByRole("button", { name: "Clear" }).click();
+    await expect(page.getByText("Recent", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Search clients, projects, tasks, invoices, and comments.")).toBeVisible();
+    // Clear does not close the dialog.
+    await expect(page.getByRole("dialog")).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog")).toBeHidden();
+    await openSearch(page);
+    await expect(page.getByText("Recent", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Search clients, projects, tasks, invoices, and comments.")).toBeVisible();
+  });
+
+  test("below-minimum query: recents stay visible at 0 and 1 characters, and are replaced by live search at 2", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+    await gotoAndSettle(page, `${baseURL}/dashboard`);
+
+    await search(page, fixtures.clientA.name);
+    // Scoped to the Clients group specifically -- a Project/Invoice
+    // result's own subtitle also contains the Client's name as secondary-
+    // field context (see search-result-item.tsx), so an unscoped
+    // getByRole("option", { name: /Test Client A/ }) is ambiguous.
+    await page.getByRole("group", { name: "Clients" }).getByRole("option", { name: new RegExp(fixtures.clientA.name) }).click();
+    await page.waitForURL(new RegExp(`/clients/${fixtures.clientA.id}`));
+
+    await openSearch(page);
+    const recentOption = page.getByRole("option", { name: new RegExp(fixtures.clientA.name) });
+    await expect(recentOption).toBeVisible();
+
+    await searchInput(page).fill("x");
+    await expect(recentOption).toBeVisible();
+    await expect(page.getByText("Recent", { exact: true })).toBeVisible();
+
+    await searchInput(page).fill("xy");
+    await expect(page.getByText("Recent", { exact: true })).toHaveCount(0);
+
+    await searchInput(page).fill("");
+    await expect(recentOption).toBeVisible();
+  });
+
+  test("org isolation: a recent selected in org A is absent after switching to org B via the real switcher", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+    await gotoAndSettle(page, `${baseURL}/dashboard`);
+
+    await search(page, fixtures.clientA.name);
+    // Scoped to the Clients group specifically -- a Project/Invoice
+    // result's own subtitle also contains the Client's name as secondary-
+    // field context (see search-result-item.tsx), so an unscoped
+    // getByRole("option", { name: /Test Client A/ }) is ambiguous.
+    await page.getByRole("group", { name: "Clients" }).getByRole("option", { name: new RegExp(fixtures.clientA.name) }).click();
+    await page.waitForURL(new RegExp(`/clients/${fixtures.clientA.id}`));
+
+    // Same real end-to-end switcher mechanism the existing "switching the
+    // active organization... clears stale search state" test above uses.
+    await page.locator("summary", { hasText: "Test Org A" }).click();
+    await page.getByRole("button", { name: /Test Org B/ }).click();
+    await expect(page.locator("summary", { hasText: "Test Org B" })).toBeVisible();
+    await expect(page).toHaveURL(/\/dashboard/);
+
+    await openSearch(page);
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("Recent", { exact: true })).toHaveCount(0);
+    // Scoped to the dialog -- the dashboard page underneath it can
+    // legitimately mention this Client's name for unrelated reasons (e.g.
+    // an overdue-invoice widget), which would be a false positive here.
+    await expect(dialog.getByText(fixtures.clientA.name)).toHaveCount(0);
+    await expect(dialog.getByText("Search clients, projects, tasks, invoices, and comments.")).toBeVisible();
+  });
+
+  test("user isolation: a recent selected by one user is absent when a different user signs in on the same org, same browser", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+    await gotoAndSettle(page, `${baseURL}/dashboard`);
+
+    await search(page, fixtures.clientA.name);
+    // Scoped to the Clients group specifically -- a Project/Invoice
+    // result's own subtitle also contains the Client's name as secondary-
+    // field context (see search-result-item.tsx), so an unscoped
+    // getByRole("option", { name: /Test Client A/ }) is ambiguous.
+    await page.getByRole("group", { name: "Clients" }).getByRole("option", { name: new RegExp(fixtures.clientA.name) }).click();
+    await page.waitForURL(new RegExp(`/clients/${fixtures.clientA.id}`));
+
+    // Switches identity in the SAME browser context (localStorage is
+    // per-origin, not per-session, so this is the real condition the
+    // org+user-scoped key shape exists to defend against — a stale
+    // cookie clear alone would not prove isolation the way this does).
+    await actAsMember(context, baseURL!, fixtures.member, fixtures.orgA.id);
+    await gotoAndSettle(page, `${baseURL}/dashboard`);
+
+    await openSearch(page);
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByText("Recent", { exact: true })).toHaveCount(0);
+    // Scoped to the dialog -- the dashboard page underneath it can
+    // legitimately mention this Client's name for unrelated reasons (e.g.
+    // an overdue-invoice widget), which would be a false positive here.
+    await expect(dialog.getByText(fixtures.clientA.name)).toHaveCount(0);
+    await expect(dialog.getByText("Search clients, projects, tasks, invoices, and comments.")).toBeVisible();
+  });
+
+  test("accessibility: aria-activedescendant points at the active recent row, and no live result-count is announced for recents", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+    await gotoAndSettle(page, `${baseURL}/dashboard`);
+
+    await search(page, fixtures.clientA.name);
+    // Scoped to the Clients group specifically -- a Project/Invoice
+    // result's own subtitle also contains the Client's name as secondary-
+    // field context (see search-result-item.tsx), so an unscoped
+    // getByRole("option", { name: /Test Client A/ }) is ambiguous.
+    await page.getByRole("group", { name: "Clients" }).getByRole("option", { name: new RegExp(fixtures.clientA.name) }).click();
+    await page.waitForURL(new RegExp(`/clients/${fixtures.clientA.id}`));
+
+    await openSearch(page);
+    await expect(page.getByText("Recent", { exact: true })).toBeVisible();
+
+    const recentOptionId = await page.getByRole("option", { name: new RegExp(fixtures.clientA.name) }).getAttribute("id");
+    expect(recentOptionId).toMatch(/^global-search-recent-option-/);
+    await expect(searchInput(page)).toHaveAttribute("aria-activedescendant", recentOptionId!);
+    await expect(searchInput(page)).toHaveAttribute("aria-expanded", "true");
+
+    // No "N results" claim for a list of previously-opened records.
+    const status = page.getByRole("status");
+    await expect(status).not.toHaveText(/result/i);
+  });
+});
+
 test.describe("Mobile", () => {
   test.use({ viewport: { width: 375, height: 667 } });
 
@@ -756,5 +975,32 @@ test.describe("Mobile", () => {
     await searchInput(page).fill(fixtures.project.name);
     const projectGroup = page.getByRole("group", { name: "Projects" });
     await expect(projectGroup.getByRole("option", { name: new RegExp(fixtures.project.name) })).toBeVisible();
+  });
+
+  test("Recent section fits the dialog with no horizontal overflow, and Clear remains reachable", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+    await gotoAndSettle(page, `${baseURL}/dashboard`);
+
+    await search(page, fixtures.clientA.name);
+    // Scoped to the Clients group specifically -- a Project/Invoice
+    // result's own subtitle also contains the Client's name as secondary-
+    // field context (see search-result-item.tsx), so an unscoped
+    // getByRole("option", { name: /Test Client A/ }) is ambiguous.
+    await page.getByRole("group", { name: "Clients" }).getByRole("option", { name: new RegExp(fixtures.clientA.name) }).click();
+    await page.waitForURL(new RegExp(`/clients/${fixtures.clientA.id}`));
+
+    await openSearch(page);
+    await expect(page.getByText("Recent", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Clear" })).toBeVisible();
+
+    const overflow = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
   });
 });

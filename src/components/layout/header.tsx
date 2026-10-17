@@ -7,12 +7,15 @@ import type { OrganizationSwitcherItem } from "@/lib/current-user";
 
 export function Header({
   email,
+  userId,
   organizations,
   unreadNotificationCount,
   recentNotifications,
   aiAssistantAvailable,
 }: {
   email: string;
+  /** Global Search Slice B — (dashboard)/layout.tsx's own already-resolved getCurrentMembership() result, threaded through to GlobalSearch's recents feature at zero extra query cost. Never used for anything else here. */
+  userId: string;
   organizations: OrganizationSwitcherItem[];
   unreadNotificationCount: number;
   recentNotifications: NotificationBellItem[];
@@ -41,7 +44,7 @@ export function Header({
           new prop/fetch needed: `organizations` (already server-resolved
           in (dashboard)/layout.tsx) already carries the active org's id.
         */}
-        <GlobalSearch key={activeOrganizationId} />
+        <GlobalSearch key={activeOrganizationId} organizationId={activeOrganizationId ?? null} userId={userId} />
         <AiAssistantTrigger available={aiAssistantAvailable} />
         <NotificationBell
           initialUnreadCount={unreadNotificationCount}

@@ -21,7 +21,14 @@ import { isSearchShortcut, shouldHandleSearchShortcut, type EditableTargetLike }
  * structural guarantee Comments & Mentions relied on for its own portal
  * exclusion.
  */
-export function GlobalSearch() {
+export function GlobalSearch({
+  organizationId,
+  userId,
+}: {
+  /** Global Search Slice B — passed straight through from header.tsx's own already-resolved identity; never fetched here. See search-dialog.tsx's own header comment. */
+  organizationId: string | null;
+  userId: string | null;
+}) {
   const dialogHandleRef = useRef<SearchDialogHandle>(null);
 
   useEffect(() => {
@@ -62,7 +69,7 @@ export function GlobalSearch() {
           ⌘K
         </kbd>
       </button>
-      <SearchDialog ref={dialogHandleRef} />
+      <SearchDialog ref={dialogHandleRef} organizationId={organizationId} userId={userId} />
     </>
   );
 }

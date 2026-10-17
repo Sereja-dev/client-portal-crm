@@ -1,6 +1,6 @@
 import { SearchResultItem } from "./search-result-item";
 import { flatResultKey, type FlatSearchResult } from "@/lib/search-ui/flatten-results";
-import type { SearchResultType } from "@/lib/search/types";
+import type { SearchResult, SearchResultType } from "@/lib/search/types";
 
 const GROUP_LABEL: Record<SearchResultType, string> = {
   CLIENT: "Clients",
@@ -38,7 +38,7 @@ export function SearchResultGroupSection({
   query: string;
   activeIndex: number;
   onHover: (flatIndex: number) => void;
-  onSelect: () => void;
+  onSelect: (result: SearchResult) => void;
   itemRefs: React.RefObject<Map<number, HTMLAnchorElement | null>>;
 }) {
   if (items.length === 0) return null;
@@ -52,6 +52,7 @@ export function SearchResultGroupSection({
         {items.map((item) => (
           <SearchResultItem
             key={flatResultKey(item)}
+            id={`global-search-option-${item.flatIndex}`}
             result={item}
             query={query}
             isActive={item.flatIndex === activeIndex}

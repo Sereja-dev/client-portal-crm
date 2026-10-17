@@ -2,10 +2,74 @@
 
 import { useMemo, type ReactNode, type RefObject } from "react";
 import { SearchResultGroupSection } from "./search-result-group";
+import { SearchResultItem } from "./search-result-item";
 import { SEARCH_UNAUTHORIZED_MESSAGE, SEARCH_GENERIC_ERROR_MESSAGE } from "@/lib/search-ui/response-mapping";
 import { groupFlatResults } from "@/lib/search-ui/flatten-results";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { RecentSearchResult } from "@/lib/search-ui/recent-searches";
+import type { SearchResult } from "@/lib/search/types";
 import type { GlobalSearchState } from "./use-global-search";
+
+/**
+ * Global Search Slice B (Search Improvement — recent selected results).
+ * Rendered only inside the `idle` branch below, when the query is empty/
+ * below the minimum length AND at least one recent result exists for the
+ * current organization+user — mutually exclusive with every live-search
+ * branch, so this and a live results listbox are never both on screen
+ * (Slice B spec §19's "do not mix recents + live results"). Reuses
+ * SearchResultItem directly (same row visual language, same real-<Link>
+ * navigation semantics) with query="" (SearchHighlight/buildHighlightSegments
+ * already degrade an empty query to plain, unhighlighted text — there is
+ * no "match" to highlight for a recent) and an explicit, distinctly-
+ * prefixed id per row so it can never collide with a live option's own
+ * `global-search-option-{flatIndex}` id.
+ */
+function RecentSearchResultsSection({
+  recents,
+  activeRecentIndex,
+  onHover,
+  onSelect,
+  onClear,
+  itemRefs,
+}: {
+  recents: RecentSearchResult[];
+  activeRecentIndex: number;
+  onHover: (index: number) => void;
+  onSelect: (result: SearchResult) => void;
+  onClear: () => void;
+  itemRefs: RefObject<Map<number, HTMLAnchorElement | null>>;
+}) {
+  return (
+    <div role="group">
+      <div className="flex items-center justify-between px-3 pt-2 pb-1">
+        <p className="text-text-muted text-xs font-semibold tracking-wide uppercase">Recent</p>
+        <button
+          type="button"
+          onClick={onClear}
+          className="text-text-muted hover:text-text-primary focus-visible:ring-focus-ring rounded text-xs font-medium transition-colors hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+        >
+          Clear
+        </button>
+      </div>
+      <ul>
+        {recents.map((recent, index) => (
+          <SearchResultItem
+            key={`${recent.type}:${recent.id}`}
+            id={`global-search-recent-option-${index}`}
+            result={{ ...recent, preview: null }}
+            query=""
+            isActive={index === activeRecentIndex}
+            onHover={() => onHover(index)}
+            onSelect={onSelect}
+            ref={(el) => {
+              itemRefs.current.set(index, el);
+            }}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 /**
  * Global Search Slice A (Search Improvement — loading skeleton). A
@@ -59,12 +123,23 @@ export function SearchResults({
   onHover,
   onSelect,
   itemRefs,
+  recents,
+  activeRecentIndex,
+  onRecentHover,
+  onClearRecents,
+  recentItemRefs,
 }: {
   state: GlobalSearchState;
   listboxId: string;
   onHover: (flatIndex: number) => void;
-  onSelect: () => void;
+  onSelect: (result: SearchResult) => void;
   itemRefs: RefObject<Map<number, HTMLAnchorElement | null>>;
+  /** Global Search Slice B — empty whenever there's nothing to show, or no resolvable organizationId+userId yet (see use-recent-search-results.ts). */
+  recents: RecentSearchResult[];
+  activeRecentIndex: number;
+  onRecentHover: (index: number) => void;
+  onClearRecents: () => void;
+  recentItemRefs: RefObject<Map<number, HTMLAnchorElement | null>>;
 }) {
   const totalResults = state.flatResults.length;
   // Memoized on `state.groups` specifically (not `state` as a whole) so a
@@ -76,11 +151,41 @@ export function SearchResults({
   let body: ReactNode;
 
   if (state.phase === "idle") {
-    body = (
-      <p className="text-text-muted px-3 py-8 text-center text-sm">
-        Search clients, projects, tasks, invoices, and comments.
-      </p>
-    );
+    // Global Search Slice B — recents only ever render here: `idle` means
+    // the query is empty or below the minimum length (use-global-search.ts's
+    // own setQuery), the one state Slice B's spec explicitly scopes this
+    // to (§22: "below-minimum query still has no live results, so recents
+    // remain useful... once query length >= 2, live search state owns the
+    // results body"). Deliberately no `liveMessage` here (left "") — a
+    // list of previously-opened results is not the outcome of a live
+    // search, so it must never be announced as if it reports a match
+    // count the way the real `results` branch below does (§20).
+    if (recents.length > 0) {
+      // Same `id={listboxId} role="listbox"` wrapper the live `results`
+      // branch below uses — never both rendered at once, so reusing the
+      // id is safe, and SearchInput's own `aria-controls={listboxId}`/
+      // `aria-expanded` gate (computed from the same "does a listbox
+      // exist" condition in search-dialog.tsx) resolves correctly either
+      // way.
+      body = (
+        <div id={listboxId} role="listbox" aria-label="Recent searches" className="max-h-96 overflow-y-auto py-1">
+          <RecentSearchResultsSection
+            recents={recents}
+            activeRecentIndex={activeRecentIndex}
+            onHover={onRecentHover}
+            onSelect={onSelect}
+            onClear={onClearRecents}
+            itemRefs={recentItemRefs}
+          />
+        </div>
+      );
+    } else {
+      body = (
+        <p className="text-text-muted px-3 py-8 text-center text-sm">
+          Search clients, projects, tasks, invoices, and comments.
+        </p>
+      );
+    }
   } else if (state.phase === "unauthorized") {
     liveMessage = SEARCH_UNAUTHORIZED_MESSAGE;
     body = <p className="text-text-muted px-3 py-8 text-center text-sm">{SEARCH_UNAUTHORIZED_MESSAGE}</p>;

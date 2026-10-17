@@ -3,9 +3,9 @@
 import Link from "next/link";
 import type { Ref } from "react";
 import { SearchHighlight } from "./search-highlight";
-import type { FlatSearchResult } from "@/lib/search-ui/flatten-results";
+import type { SearchResult } from "@/lib/search/types";
 
-const TYPE_LABEL: Record<FlatSearchResult["type"], string> = {
+const TYPE_LABEL: Record<SearchResult["type"], string> = {
   CLIENT: "Client",
   PROJECT: "Project",
   TASK: "Task",
@@ -35,8 +35,22 @@ const TYPE_LABEL: Record<FlatSearchResult["type"], string> = {
  * `url` is always the backend's own already-allowlisted `result-links.ts`
  * output (see src/lib/search/types.ts) — this component never constructs
  * or mutates it.
+ *
+ * Global Search Slice B — `id` is now an explicit, caller-supplied prop
+ * (was: internally derived from a `FlatSearchResult.flatIndex` this
+ * component no longer needs) so the exact same row renderer serves both a
+ * live result (its own `global-search-option-{flatIndex}` id, unchanged)
+ * and a Recent result (a distinctly-prefixed `global-search-recent-
+ * option-{index}` id — see search-results.tsx) without ever risking an
+ * accidental id collision between the two, even though the two are never
+ * actually rendered at the same time. `onSelect` now reports which
+ * `SearchResult` was chosen (was: a bare notification) so the one shared
+ * selection handler (search-dialog.tsx) can record it as a Recent result
+ * regardless of whether the click came from a live result or an existing
+ * Recent row being re-selected.
  */
 export function SearchResultItem({
+  id,
   result,
   query,
   isActive,
@@ -44,22 +58,23 @@ export function SearchResultItem({
   onSelect,
   ref,
 }: {
-  result: FlatSearchResult;
+  id: string;
+  result: SearchResult;
   query: string;
   isActive: boolean;
   onHover: () => void;
-  onSelect: () => void;
+  onSelect: (result: SearchResult) => void;
   ref?: Ref<HTMLAnchorElement>;
 }) {
   return (
-    <li id={`global-search-option-${result.flatIndex}`} role="option" aria-selected={isActive}>
+    <li id={id} role="option" aria-selected={isActive}>
       <Link
         ref={ref}
         href={result.url}
         tabIndex={-1}
         prefetch={false}
         onMouseEnter={onHover}
-        onClick={onSelect}
+        onClick={() => onSelect(result)}
         className={`block rounded-md px-3 py-2 transition-colors ${
           isActive ? "bg-accent-subtle" : "hover:bg-[var(--hover)]"
         }`}
