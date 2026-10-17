@@ -8,6 +8,7 @@ import { getDisabledInAppTypes } from "@/lib/notifications/preferences";
 import { formatNotification } from "@/lib/notifications/format-notification";
 import type { NotificationBellItem } from "@/components/notifications/notification-bell";
 import { Sidebar } from "@/components/layout/sidebar";
+import { MobileNavigation } from "@/components/layout/mobile-navigation";
 import { getCachedEffectivePermissionSet } from "@/lib/permissions/resolver";
 import { Header } from "@/components/layout/header";
 import { DemoBanner } from "@/components/layout/demo-banner";
@@ -125,6 +126,16 @@ export default async function DashboardLayout({
   // other config/env detail.
   const aiAssistantAvailable = isAiAssistantAvailable();
 
+  // Mobile Navigation Foundation (Mobile Improvement Slice A) — built
+  // once, reused by both Sidebar and MobileNavigation (each calls the
+  // same pure buildSidebarGroups(permissions) internally), so there is
+  // exactly one place this object's three fields are ever written.
+  const sidebarPermissions = {
+    recurringInvoicesManage: effectivePermissions.RECURRING_INVOICES_MANAGE,
+    analyticsView: effectivePermissions.ANALYTICS_VIEW,
+    reportsView: effectivePermissions.REPORTS_VIEW,
+  };
+
   return (
     // Design System page migration Batch 2 — bg-gray-50 replaced with
     // bg-surface-recessed: globals.css's own token comment names "page
@@ -159,14 +170,7 @@ export default async function DashboardLayout({
           Organization, and this component only ever reads the prop below.
         */}
         <ThemePreferenceReconciler mode={dbThemeModeToRuntimeMode(currentUser.themeMode)} />
-        <Sidebar
-          disablePrefetch={TEST_MODE}
-          permissions={{
-            recurringInvoicesManage: effectivePermissions.RECURRING_INVOICES_MANAGE,
-            analyticsView: effectivePermissions.ANALYTICS_VIEW,
-            reportsView: effectivePermissions.REPORTS_VIEW,
-          }}
-        />
+        <Sidebar disablePrefetch={TEST_MODE} permissions={sidebarPermissions} />
         {/*
           min-w-0: at the md breakpoint this becomes a flex row item next to
           the now-fixed-width Sidebar. Flex items default to `min-width:
@@ -201,6 +205,7 @@ export default async function DashboardLayout({
           */}
           <main className="flex-1 p-6">
             <div className="mx-auto max-w-7xl">{children}</div>
+            <MobileNavigation permissions={sidebarPermissions} disablePrefetch={TEST_MODE} />
           </main>
         </div>
       </div>

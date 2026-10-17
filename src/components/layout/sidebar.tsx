@@ -255,7 +255,16 @@ export function Sidebar({
   return (
     <nav
       aria-label="Primary"
-      className="border-border-default bg-surface-recessed flex shrink-0 gap-1 overflow-x-auto border-b p-3 md:w-56 md:flex-col md:gap-0.5 md:overflow-x-visible md:border-r md:border-b-0 md:p-4"
+      // Mobile Navigation Foundation (Mobile Improvement Slice A) —
+      // below `md` this <nav> is now `hidden` entirely, replaced by
+      // MobileNavigation's own bottom nav + More drawer
+      // ((dashboard)/layout.tsx). Every class below `md:` here (the
+      // previous horizontal-scroll strip's own layout) is now dead
+      // weight — left untouched rather than pruned, since this
+      // component's own desktop (`md:` and up) behavior must stay
+      // byte-for-byte unchanged, and removing unused-but-harmless
+      // classes is out of this slice's scope.
+      className="border-border-default bg-surface-recessed hidden shrink-0 gap-1 overflow-x-auto border-b p-3 md:flex md:w-56 md:flex-col md:gap-0.5 md:overflow-x-visible md:border-r md:border-b-0 md:p-4"
     >
       <span className="text-text-primary hidden px-2 pb-4 text-lg font-semibold tracking-tight md:block">
         {siteConfig.name}
