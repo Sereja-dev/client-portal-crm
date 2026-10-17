@@ -1,14 +1,19 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { getCompanyProfile } from "@/lib/organization-setup/company-profile";
 import { resolveInvoiceCurrencyDefault, getSupportedInvoiceCurrencies } from "@/lib/invoices/currencies";
 import { RecurringInvoiceForm } from "@/components/recurring-invoices/recurring-invoice-form";
+import { EmptyState } from "@/components/ui/empty-state";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { UnsavedChangesScope } from "@/components/forms/unsaved-changes-scope";
 import { UnsavedChangesCancelLink } from "@/components/forms/unsaved-changes-cancel-link";
 import { createRecurringInvoiceAction } from "../actions";
+
+const PRIMARY_LINK_CLASSES =
+  "focus-visible:ring-focus-ring rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
 
 /**
  * Recurring Invoices Phase 2A — "New schedule". OWNER/ADMIN-only — a
@@ -52,18 +57,30 @@ export default async function NewRecurringInvoicePage() {
             Cancel
           </UnsavedChangesCancelLink>
         </div>
-        <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
-          <RecurringInvoiceForm
-            mode="create"
-            action={createRecurringInvoiceAction}
-            clients={clients}
-            projects={projects.map((p) => ({ id: p.id, label: p.name, clientId: p.clientId }))}
-            currencyOptions={getSupportedInvoiceCurrencies()}
-            defaultValues={{ currency: currencyDefault.currency }}
-            submitLabel="Create schedule"
-            pendingLabel="Creating…"
+        {clients.length === 0 ? (
+          <EmptyState
+            title="You need a client first"
+            description="Recurring invoices must belong to a client. Add one before creating a schedule."
+            action={
+              <Link href="/clients/new" className={PRIMARY_LINK_CLASSES}>
+                Add client
+              </Link>
+            }
           />
-        </div>
+        ) : (
+          <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
+            <RecurringInvoiceForm
+              mode="create"
+              action={createRecurringInvoiceAction}
+              clients={clients}
+              projects={projects.map((p) => ({ id: p.id, label: p.name, clientId: p.clientId }))}
+              currencyOptions={getSupportedInvoiceCurrencies()}
+              defaultValues={{ currency: currencyDefault.currency }}
+              submitLabel="Create schedule"
+              pendingLabel="Creating…"
+            />
+          </div>
+        )}
       </div>
     </UnsavedChangesScope>
   );

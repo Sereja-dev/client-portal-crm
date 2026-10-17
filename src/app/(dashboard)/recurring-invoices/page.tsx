@@ -78,14 +78,28 @@ export default async function RecurringInvoicesPage({ searchParams }: { searchPa
           <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Recurring Invoices</h1>
           <p className="text-text-secondary mt-1 text-sm">Schedules that automatically generate draft invoices.</p>
         </div>
-        <Link href="/recurring-invoices/new" className={PRIMARY_LINK_CLASSES}>
-          New schedule
-        </Link>
+        {clients.length > 0 && (
+          <Link href="/recurring-invoices/new" className={PRIMARY_LINK_CLASSES}>
+            New schedule
+          </Link>
+        )}
       </div>
 
-      <RecurringInvoiceFilterBar status={status ?? ""} clientId={clientId ?? ""} clients={clients} hasActiveFilters={hasActiveFilters} />
+      {clients.length > 0 && (
+        <RecurringInvoiceFilterBar status={status ?? ""} clientId={clientId ?? ""} clients={clients} hasActiveFilters={hasActiveFilters} />
+      )}
 
-      {schedules.length === 0 ? (
+      {clients.length === 0 ? (
+        <EmptyState
+          title="You need a client first"
+          description="Recurring invoices must belong to a client. Add one before creating a schedule."
+          action={
+            <Link href="/clients/new" className={PRIMARY_LINK_CLASSES}>
+              Add client
+            </Link>
+          }
+        />
+      ) : schedules.length === 0 ? (
         <EmptyState
           title={hasActiveFilters ? "No matching schedules" : "No recurring invoices yet"}
           description={
