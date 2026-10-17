@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext } from "@playwright/test";
-import { seedE2EFixtures, cleanupTestData, type TestFixtures } from "./fixtures";
+import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 
 /**
@@ -41,6 +41,15 @@ async function actAs(
 test.describe("Client Profile Hub", () => {
   test.beforeAll(async () => {
     fixtures = await seedE2EFixtures();
+    // seedE2EFixtures() always seeds one pending ClientInvitation for
+    // clientA (fixtures.clientInvitation) -- removed once, here, so the
+    // Portal Access pending-invitations tests below can rely on clientA's
+    // own genuine "zero pending invitations" state, mirroring Team's own
+    // identical precedent (test/e2e/team.spec.ts) for the same class of
+    // fixture. No test in this file exercises the populated-invitation-
+    // row rendering path (that path is unchanged and already covered
+    // elsewhere), so this row is never needed.
+    await dbQuery("clientInvitation", "delete", { where: { id: fixtures.clientInvitation.id } });
   });
 
   test.afterAll(async () => {
@@ -113,6 +122,40 @@ test.describe("Client Profile Hub", () => {
     await actAs(context, baseURL!, fixtures.owner, fixtures.orgA.id);
     await page.goto(`/clients/${fixtures.clientA.id}`);
     await expect(page.getByRole("link", { name: "Invite to portal" })).toBeVisible();
+  });
+
+  test("Portal Access pending-invitations empty state: OWNER sees the actionable copy and the Invite form", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    // The file-level beforeAll above already removed clientA's one
+    // seeded pending ClientInvitation, so clientA is at zero pending
+    // invitations here.
+    await actAs(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+    await page.goto(`/clients/${fixtures.clientA.id}`);
+
+    // exact: true -- "No pending invitations" (the title) is otherwise an
+    // ambiguous case-insensitive substring match against the MEMBER-only
+    // description's own "There are no pending invitations right now."
+    await expect(page.getByText("No pending invitations", { exact: true })).toBeVisible();
+    await expect(page.getByText("Invite a contact below to give them portal access.")).toBeVisible();
+    await expect(page.getByText("There are no pending invitations right now.")).not.toBeVisible();
+    await expect(page.getByRole("heading", { name: "Invite a contact" })).toBeVisible();
+  });
+
+  test("Portal Access pending-invitations empty state: MEMBER sees neutral copy, no actionable copy, no Invite form", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await actAs(context, baseURL!, fixtures.member, fixtures.orgA.id);
+    await page.goto(`/clients/${fixtures.clientA.id}`);
+
+    await expect(page.getByText("No pending invitations", { exact: true })).toBeVisible();
+    await expect(page.getByText("There are no pending invitations right now.")).toBeVisible();
+    await expect(page.getByText("Invite a contact below to give them portal access.")).not.toBeVisible();
+    await expect(page.getByRole("heading", { name: "Invite a contact" })).toHaveCount(0);
   });
 
   test("Clients list: the Name link opens the profile, the Edit link is unchanged", async ({ context, baseURL, page }) => {

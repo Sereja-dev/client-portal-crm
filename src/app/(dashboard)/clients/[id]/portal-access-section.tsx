@@ -106,7 +106,11 @@ export async function ClientPortalAccessSection({
         {invitations.length === 0 ? (
           <EmptyState
             title="No pending invitations"
-            description="Invite a contact below to give them portal access."
+            description={
+              canManage
+                ? "Invite a contact below to give them portal access."
+                : "There are no pending invitations right now."
+            }
           />
         ) : (
           <Table>
