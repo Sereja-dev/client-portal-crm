@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getCurrentMembership } from "@/lib/current-user";
 import { prisma } from "@/lib/prisma";
 import { parseEnumParam, type RawSearchParams } from "@/lib/list-params";
+import { isUuid } from "@/lib/validation/time-entry";
 import { getTagsForEntities } from "@/lib/tags/list-query";
 import { ClientProfileHeader, canManagePortalAccess } from "./profile-header";
 import { ClientContactsSection } from "./contacts-section";
@@ -107,6 +108,20 @@ export default async function ClientProfilePage({
   searchParams: Promise<RawSearchParams>;
 }) {
   const { id } = await params;
+  // A malformed/non-UUID route id (a mistyped URL, a stale bookmark, a
+  // placeholder like a doc's own "<client-id>" pasted into the address
+  // bar instead of a real id) must never reach Prisma — `id` is
+  // `@db.Uuid` on Client, and the Postgres driver rejects a non-UUID
+  // string before any query even runs, throwing an uncaught
+  // PrismaClientKnownRequestError (P2007) that the dashboard's generic
+  // error boundary then renders as "Something went wrong" instead of a
+  // clean, expected 404. Same isUuid() helper Project Hub's own
+  // `projects/[id]/page.tsx` already uses for this exact reason — this is
+  // format validation only, never a security boundary (the tenancy check
+  // below still fully applies to every well-formed id).
+  if (!isUuid(id)) {
+    notFound();
+  }
   const { user, organizationId, membership } = await getCurrentMembership();
   const resolvedSearchParams = await searchParams;
   // Unknown/invalid `tab` falls back to Overview — never an error, never

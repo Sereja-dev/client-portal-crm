@@ -111,6 +111,28 @@ test.describe("Client Profile Hub", () => {
     await expect(page.getByText("Page not found")).toBeVisible();
   });
 
+  // Production incident: a malformed, non-UUID route id -- a mistyped
+  // URL, a stale bookmark, a placeholder value pasted into the address
+  // bar instead of a real id -- must resolve through the same clean
+  // not-found boundary as any other inaccessible Client, not the
+  // generic dashboard error boundary a raw Prisma P2007 (invalid input
+  // syntax for type uuid) would otherwise surface as. Mirrors Project
+  // Hub's own identical coverage (test/e2e/project-hub.spec.ts) exactly.
+  // Uses page.goto() -- a genuine hard document navigation -- matching
+  // exactly how the Production symptom was observed and reproduced.
+  for (const malformedId of ["123", "not-a-uuid"]) {
+    test(`a malformed route id (${malformedId}) renders the clean not-found boundary, never the generic error boundary`, async ({
+      context,
+      baseURL,
+      page,
+    }) => {
+      await actAs(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+      await page.goto(`/clients/${malformedId}`);
+      await expect(page.getByText("Page not found")).toBeVisible();
+      await expect(page.getByText("Something went wrong")).toHaveCount(0);
+    });
+  }
+
   test("MEMBER never sees the Invite to portal quick action; OWNER does", async ({ context, baseURL, page }) => {
     await actAs(context, baseURL!, fixtures.member, fixtures.orgA.id);
     await page.goto(`/clients/${fixtures.clientA.id}`);
