@@ -319,6 +319,60 @@ test.describe("States", () => {
     await page.unroute("**/api/search**");
   });
 
+  test("a fresh query with no prior results shows the loading skeleton, never the old plain 'Searching…' text, with no selectable options — then the skeleton is replaced once results arrive", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+    await gotoAndSettle(page, `${baseURL}/dashboard`);
+
+    // Blocks the one and only request this test ever makes on a manually-
+    // released promise (same deterministic-gate pattern as the "Race
+    // conditions" test below), rather than a fixed delay — the dialog's
+    // first-ever loading state (nothing cached yet — the `totalResults >
+    // 0` branch cannot win here) must have no chance of resolving before
+    // every assertion about it has run, regardless of how fast or slow
+    // this machine happens to execute them.
+    let releaseResponse: () => void = () => {};
+    const responseReleased = new Promise<void>((resolve) => {
+      releaseResponse = resolve;
+    });
+    await page.route("**/api/search**", async (route) => {
+      await responseReleased;
+      await route.continue();
+    });
+
+    await search(page, fixtures.clientA.name);
+
+    const skeleton = page.getByTestId("search-results-skeleton");
+    await expect(skeleton).toBeVisible();
+    // The old plain, visible loading paragraph is gone — this is the one
+    // thing this slice actually changes. Exactly one match remains: the
+    // sr-only live region itself (a 1x1px clipped element Playwright's
+    // own toBeVisible() still reports as "visible," so a count of 1 here
+    // — not 0 — is the correct proof that no *second*, genuinely visible
+    // copy of this text exists anywhere else in the dialog).
+    await expect(page.getByText("Searching…", { exact: true })).toHaveCount(1);
+    // Decorative only: no option exists inside the skeleton (or anywhere
+    // else yet), so there is nothing a keyboard arrow press could land on.
+    await expect(page.getByRole("option")).toHaveCount(0);
+    await expect(page.getByRole("listbox")).toHaveCount(0);
+    // The one accessible loading announcement is unchanged — still the
+    // sr-only live region, still this exact string.
+    await expect(page.getByRole("status")).toHaveText("Searching…");
+
+    // No page.unroute() needed here: the handler above resolves itself
+    // via route.continue() once released, and this test makes no further
+    // search request afterward (same reasoning as the "Race conditions"
+    // test below, which releases its own gate the same way).
+    releaseResponse();
+
+    const clientGroup = page.getByRole("group", { name: "Clients" });
+    await expect(clientGroup.getByRole("option", { name: new RegExp(fixtures.clientA.name) })).toBeVisible();
+    await expect(skeleton).toHaveCount(0);
+  });
+
   test("no results shows the exact 'No results found.' message", async ({ context, baseURL, page }) => {
     await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
     await gotoAndSettle(page, `${baseURL}/dashboard`);
