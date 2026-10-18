@@ -153,6 +153,50 @@ test.describe("Contract mobile filter disclosure (Mobile Improvement Slice B1)",
       expect(overflow).toBe(false);
     });
 
+    test("Search composition regression: the Search button stays visually above the Filter disclosure, collapsed and expanded (Production defect fix)", async ({ page }) => {
+      await seedContract({ status: "DRAFT" });
+      await page.goto("/contracts");
+
+      const searchInput = page.locator("form").getByLabel("Search");
+      const searchButton = page.locator("form").getByRole("button", { name: "Search", exact: true });
+      const summary = filterToggle(page);
+
+      await expect(searchInput).toBeVisible();
+      await expect(searchButton).toBeVisible();
+      await expect(summary).toBeVisible();
+
+      // Collapsed: the Search button must sit on/above the Filter
+      // summary's own row, never below it. A small tolerance absorbs
+      // sub-pixel/line-height rounding -- this is not a pixel-perfect
+      // layout assertion, just "never below."
+      const inputBoxCollapsed = (await searchInput.boundingBox())!;
+      const buttonBoxCollapsed = (await searchButton.boundingBox())!;
+      const summaryBoxCollapsed = (await summary.boundingBox())!;
+      expect(buttonBoxCollapsed.y).toBeLessThanOrEqual(summaryBoxCollapsed.y + 2);
+      // The button must also actually be adjacent to the input it
+      // submits -- same row, not pushed onto a later line by something
+      // in between (the defect this regression test targets).
+      expect(Math.abs(buttonBoxCollapsed.y - inputBoxCollapsed.y)).toBeLessThanOrEqual(20);
+
+      // Expanded: opening Filter must never move the Search button --
+      // <summary> is always the disclosure's own first visual row
+      // regardless of open/closed state, so the same "button is at/
+      // above the summary's row" invariant must still hold once the
+      // secondary fields (Status/Client/Project/Archive/Sort/Clear)
+      // render below it.
+      await summary.click();
+      await expect(disclosure(page)).toHaveAttribute("open", "");
+      await expect(page.getByLabel("Status").first()).toBeVisible();
+
+      const buttonBoxExpanded = (await searchButton.boundingBox())!;
+      const summaryBoxExpanded = (await summary.boundingBox())!;
+      expect(buttonBoxExpanded.y).toBeLessThanOrEqual(summaryBoxExpanded.y + 2);
+      // And the button must not have moved at all between collapsed and
+      // expanded states -- proving the expanded filter content never
+      // displaces it downward.
+      expect(Math.abs(buttonBoxExpanded.y - buttonBoxCollapsed.y)).toBeLessThanOrEqual(2);
+    });
+
     test("auto-submit progression: selecting Status submits immediately, increments the count, and the resulting fresh load opens the disclosure", async ({ page }) => {
       const draft = await seedContract({ status: "DRAFT" });
       const sent = await seedContract({ status: "SENT" });

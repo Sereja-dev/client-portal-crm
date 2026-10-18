@@ -112,6 +112,10 @@ export function SearchFilterBar({
 
       {mobileFilterDisclosure ? (
         <>
+          <div className="flex items-center gap-3">
+            <Button type="submit">Search</Button>
+          </div>
+
           <MobileFilterDisclosure activeCount={mobileFilterDisclosure.activeCount}>
             {secondaryControls}
             {hasActiveParams && (
@@ -122,10 +126,6 @@ export function SearchFilterBar({
               </div>
             )}
           </MobileFilterDisclosure>
-
-          <div className="flex items-center gap-3">
-            <Button type="submit">Search</Button>
-          </div>
         </>
       ) : (
         <>
