@@ -37,6 +37,7 @@ import {
   buildInvoiceOrderBy,
   buildInvoicesHref,
   nextInvoiceSortCombined,
+  computeInvoiceActiveFilterCount,
   INVOICE_QUICK_FILTERS,
   type InvoiceSortField,
 } from "./query";
@@ -136,6 +137,9 @@ export default async function InvoicesPage({
 
   const totalPages = getTotalPages(total);
   const hasActiveParams = Boolean(listParams.q || listParams.status);
+  // Mobile Improvement Slice B2 — never includes q or sort — see
+  // computeInvoiceActiveFilterCount's own doc comment.
+  const mobileActiveFilterCount = computeInvoiceActiveFilterCount(listParams);
 
   // Tables Improvement Slice A — the one shared base every quick-filter
   // chip and every sortable header builds its own href from, so `q` is
@@ -367,6 +371,7 @@ export default async function InvoicesPage({
             ]}
             sort={{ value: listParams.sortCombined, options: SORT_OPTIONS }}
             hasActiveParams={hasActiveParams}
+            mobileFilterDisclosure={{ activeCount: mobileActiveFilterCount }}
           />
         </>
       )}

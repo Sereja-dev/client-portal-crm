@@ -8,7 +8,13 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SearchFilterBar } from "@/components/list/search-filter-bar";
 import { Pagination } from "@/components/list/pagination";
 import { TASK_STATUSES, TASK_PRIORITIES } from "@/lib/validation/task";
-import { parseTaskListParams, buildTaskWhere, buildTaskOrderBy, type TaskListParams } from "./query";
+import {
+  parseTaskListParams,
+  buildTaskWhere,
+  buildTaskOrderBy,
+  computeTaskActiveFilterCount,
+  type TaskListParams,
+} from "./query";
 import { parseTaskView, parseBoardMobileStatus, buildTasksHref } from "./view-params";
 import { fetchTaskBoardColumns } from "./board-query";
 import { TaskListWithSelection, type TaskListRow } from "@/components/tasks/task-list-with-selection";
@@ -89,6 +95,11 @@ export default async function TasksPage({
   const hasActiveParams = Boolean(
     listParams.q || listParams.status || listParams.priority || listParams.overdue || listParams.mine || listParams.dueThisWeek,
   );
+  // Mobile Improvement Slice B2 — never includes q, sort, or view mode,
+  // and deliberately excludes overdue/mine/dueThisWeek (chip-only, no
+  // in-disclosure representation) — see computeTaskActiveFilterCount's
+  // own doc comment for the exact approved rule.
+  const mobileActiveFilterCount = computeTaskActiveFilterCount(listParams);
 
   // A single, cheap count decides the header text, the empty-state
   // branch, and whether List/Board even has anything to render — shared
@@ -190,6 +201,7 @@ export default async function TasksPage({
               ...(listParams.dueThisWeek ? [{ name: "dueThisWeek", value: "true" }] : []),
               ...(view !== "list" ? [{ name: "view", value: view }] : []),
             ]}
+            mobileFilterDisclosure={{ activeCount: mobileActiveFilterCount }}
           />
         </>
       )}

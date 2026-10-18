@@ -65,6 +65,33 @@ export function parseTaskListParams(
 }
 
 /**
+ * Mobile Improvement Slice B2 — the exact, Product-approved active-count
+ * rule for the two fields collapsed into Tasks' own mobile Filter
+ * disclosure: status/priority, each worth at most 1 — never q, never
+ * sort, never view mode, never page. The "High priority" quick-filter
+ * chip sets this exact same `priority` param (see the page's own
+ * QuickFilterChip construction), so there is only ever one `priority`
+ * value to count regardless of which control last set it.
+ *
+ * Deliberately excludes overdue/mine/dueThisWeek and projectId: none of
+ * these four are ever rendered as a field inside the disclosure (no
+ * corresponding dropdown exists for any of them — overdue/mine/
+ * dueThisWeek are pure quick-chip-only booleans carried as hidden form
+ * fields, and projectId isn't part of this form at all), so opening the
+ * disclosure by default for one of them would show an expanded Status/
+ * Priority block that doesn't reflect what's actually active — nothing
+ * inside the disclosure would change if a user cleared one of these.
+ */
+export function computeTaskActiveFilterCount(
+  listParams: Pick<TaskListParams, "status" | "priority">,
+): number {
+  let count = 0;
+  if (listParams.status) count += 1;
+  if (listParams.priority) count += 1;
+  return count;
+}
+
+/**
  * UTC calendar-day start for `date` — the same small, deliberately
  * un-exported local copy convention `dashboard/query.ts`'s own identical
  * helper already documents (see that file's header comment on

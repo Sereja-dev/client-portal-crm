@@ -378,6 +378,10 @@ test.describe("Project Saved Views (Tables Improvement Slice D2B)", () => {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     expect(overflow).toBe(false);
 
+    // Mobile Improvement Slice B2 — Status now lives inside the mobile
+    // Filter disclosure, collapsed by default here (no status is
+    // active for this q-only saved view), so it must be opened first.
+    await page.locator("details.mobile-filter-disclosure > summary").click();
     await expect(page.getByLabel("Status")).toBeVisible();
   });
 });

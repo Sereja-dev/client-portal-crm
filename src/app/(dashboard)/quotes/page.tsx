@@ -19,7 +19,13 @@ import {
   RecordCard,
   RecordCardField,
 } from "@/components/ui/record-list";
-import { QUOTE_STATUS_FILTER_VALUES, parseQuoteListParams, buildQuoteWhere, buildQuoteOrderBy } from "./query";
+import {
+  QUOTE_STATUS_FILTER_VALUES,
+  parseQuoteListParams,
+  buildQuoteWhere,
+  buildQuoteOrderBy,
+  computeQuoteActiveFilterCount,
+} from "./query";
 import { serializeQuoteSavedViewParams } from "./saved-view";
 import { QuoteSavedViews } from "@/components/quotes/quote-saved-views";
 import {
@@ -93,6 +99,9 @@ export default async function QuotesPage({
   const canCreate = leadCount > 0 || clientCount > 0;
   const totalPages = getTotalPages(total);
   const hasActiveParams = Boolean(listParams.q || listParams.status || listParams.targetType || listParams.archived);
+  // Mobile Improvement Slice B2 — never includes q or sort — see
+  // computeQuoteActiveFilterCount's own doc comment.
+  const mobileActiveFilterCount = computeQuoteActiveFilterCount(listParams);
 
   const sharedParams = {
     ...(listParams.q ? { q: listParams.q } : {}),
@@ -274,6 +283,7 @@ export default async function QuotesPage({
             ]}
             sort={{ value: listParams.sortCombined, options: SORT_OPTIONS }}
             hasActiveParams={hasActiveParams}
+            mobileFilterDisclosure={{ activeCount: mobileActiveFilterCount }}
           />
         </>
       )}

@@ -35,6 +35,22 @@ export function parseInvoiceListParams(
   return { q, status, sortField: field, sortDir: dir, sortCombined: combined, page };
 }
 
+/**
+ * Mobile Improvement Slice B2 — the exact, Product-approved active-count
+ * rule for the one field collapsed into Invoices' own mobile Filter
+ * disclosure: status, worth at most 1 — never q, never sort, never
+ * page, never Saved View selection state. The quick-filter chips share
+ * this exact same `status` param (see the page's own quickFilterChips
+ * construction), so there is only ever one `status` value to count
+ * here regardless of which control last set it — never double-counts a
+ * chip against the dropdown.
+ */
+export function computeInvoiceActiveFilterCount(
+  listParams: Pick<InvoiceListParams, "status">,
+): number {
+  return listParams.status ? 1 : 0;
+}
+
 export function buildInvoiceWhere(
   organizationId: string,
   { q, status }: Pick<InvoiceListParams, "q" | "status">,

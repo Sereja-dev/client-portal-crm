@@ -331,6 +331,11 @@ test.describe("Quote Saved Views (Tables Improvement Slice D2A)", () => {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     expect(overflow).toBe(false);
 
+    // Mobile Improvement Slice B2 — Status now lives inside the mobile
+    // Filter disclosure, collapsed by default here (no status/target/
+    // archived is active for this q-only saved view), so it must be
+    // opened first.
+    await page.locator("details.mobile-filter-disclosure > summary").click();
     // Proves the status-enum filter (SearchFilterBar) remains usable
     // here. The archived toggle now has its own distinct "Archive
     // status" label (filter-label-ambiguity remediation), so "Status"

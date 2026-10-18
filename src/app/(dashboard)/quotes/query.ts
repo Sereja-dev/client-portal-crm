@@ -61,6 +61,26 @@ export function parseQuoteListParams(searchParams: RawSearchParams): QuoteListPa
   return { q, status, targetType, archived, sortField: field, sortDir: dir, sortCombined: combined, page };
 }
 
+/**
+ * Mobile Improvement Slice B2 — the exact, Product-approved active-count
+ * rule for the three fields collapsed into Quotes' own mobile Filter
+ * disclosure: status/targetType/archived, each worth at most 1 — never
+ * q, never sort, never page, never Saved View selection state. `status`
+ * already includes the derived EXPIRED/CONVERTED filter values
+ * (QUOTE_STATUS_FILTER_VALUES) exactly as it did before this slice —
+ * this only counts whether the param is set, never which of its
+ * existing values it holds.
+ */
+export function computeQuoteActiveFilterCount(
+  listParams: Pick<QuoteListParams, "status" | "targetType" | "archived">,
+): number {
+  let count = 0;
+  if (listParams.status) count += 1;
+  if (listParams.targetType) count += 1;
+  if (listParams.archived) count += 1;
+  return count;
+}
+
 export function buildQuoteWhere(
   organizationId: string,
   { q, status, targetType, archived }: Pick<QuoteListParams, "q" | "status" | "targetType" | "archived">,

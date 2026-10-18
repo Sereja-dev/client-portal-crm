@@ -29,6 +29,7 @@ import {
   parseClientListParams,
   buildClientWhere,
   buildClientOrderBy,
+  computeClientActiveFilterCount,
 } from "./query";
 import { serializeClientSavedViewParams } from "./saved-view";
 import { ClientSavedViews } from "@/components/clients/client-saved-views";
@@ -138,6 +139,11 @@ export default async function ClientsPage({
 
   const totalPages = getTotalPages(total);
   const hasActiveParams = Boolean(listParams.q || listParams.status || listParams.tagId);
+  // Mobile Improvement Slice B2 — never includes q (Search stays
+  // externally visible, outside the mobile disclosure) or sort (not a
+  // filtering constraint) — see computeClientActiveFilterCount's own
+  // doc comment for the exact approved rule.
+  const mobileActiveFilterCount = computeClientActiveFilterCount(listParams);
 
   // CSV Import/Export Phase 1 — the exact same filter params Pagination
   // (below) already builds, minus `page`: an export always covers every
@@ -323,6 +329,7 @@ export default async function ClientsPage({
         ]}
         sort={{ value: listParams.sortCombined, options: SORT_OPTIONS }}
         hasActiveParams={hasActiveParams}
+        mobileFilterDisclosure={{ activeCount: mobileActiveFilterCount }}
       />
 
       {total === 0 ? (

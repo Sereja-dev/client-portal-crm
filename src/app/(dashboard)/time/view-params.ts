@@ -46,3 +46,30 @@ export function parseTimeEntryBillableFilter(searchParams: RawSearchParams): boo
   if (raw === "false") return false;
   return undefined;
 }
+
+/**
+ * Mobile Improvement Slice B2 — the exact, Product-approved active-count
+ * rule for the five fields collapsed into Time's own mobile Filter
+ * disclosure: from/to/projectId/userId/billable, each worth at most 1.
+ * Takes the already-parsed values directly (page.tsx's own five
+ * separate `parseTimeEntry*Filter` calls), not a raw searchParams
+ * re-parse. `archived` is intentionally excluded — it's controlled by
+ * its own separate "Show archived" link (a view switch, not a filter
+ * refinement — see TimeEntryFilterBar's own header comment), never
+ * rendered inside this disclosure at all.
+ */
+export function computeTimeEntryActiveFilterCount(filters: {
+  from: Date | undefined;
+  to: Date | undefined;
+  projectId: string | undefined;
+  userId: string | undefined;
+  billable: boolean | undefined;
+}): number {
+  let count = 0;
+  if (filters.from) count += 1;
+  if (filters.to) count += 1;
+  if (filters.projectId) count += 1;
+  if (filters.userId) count += 1;
+  if (filters.billable !== undefined) count += 1;
+  return count;
+}

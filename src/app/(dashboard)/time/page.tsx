@@ -16,6 +16,7 @@ import {
   parseTimeEntryProjectFilter,
   parseTimeEntryUserFilter,
   parseTimeEntryBillableFilter,
+  computeTimeEntryActiveFilterCount,
 } from "./view-params";
 
 // Same base+"primary" Button classes as a plain `<Link>` styled to
@@ -63,6 +64,9 @@ export default async function TimeEntriesPage({ searchParams }: { searchParams: 
   const memberOptions = members.map((m) => ({ id: m.user.id, name: m.user.name }));
 
   const hasActiveFilters = Boolean(fromDate || toDate || projectId || userId || billable !== undefined);
+  // Mobile Improvement Slice B2 — see computeTimeEntryActiveFilterCount's
+  // own doc comment for the exact approved rule (archived excluded).
+  const mobileActiveFilterCount = computeTimeEntryActiveFilterCount({ from: fromDate, to: toDate, projectId, userId, billable });
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
@@ -111,6 +115,7 @@ export default async function TimeEntriesPage({ searchParams }: { searchParams: 
         projects={projects}
         members={memberOptions}
         hasActiveFilters={hasActiveFilters}
+        mobileActiveFilterCount={mobileActiveFilterCount}
       />
 
       {visibleEntries.length === 0 ? (

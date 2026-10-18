@@ -11,6 +11,7 @@ import {
   parseActivityListParams,
   buildActivityWhere,
   dateInputValue,
+  computeActivityActiveFilterCount,
 } from "./query";
 import type { RawSearchParams } from "@/lib/list-params";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
@@ -90,6 +91,9 @@ export default async function ActivityPage({
       listParams.dateFrom ||
       listParams.dateTo,
   );
+  // Mobile Improvement Slice B2 — see computeActivityActiveFilterCount's
+  // own doc comment for the exact approved rule.
+  const mobileActiveFilterCount = computeActivityActiveFilterCount(listParams);
 
   const activeFilterParams: Record<string, string> = {
     ...(listParams.entityType ? { entityType: listParams.entityType } : {}),
@@ -118,6 +122,7 @@ export default async function ActivityPage({
         dateTo={dateInputValue(listParams.dateTo)}
         members={memberships.map((m) => m.user)}
         hasActiveFilters={hasActiveFilters}
+        mobileActiveFilterCount={mobileActiveFilterCount}
       />
 
       {listParams.cursorInvalid && (

@@ -25,6 +25,7 @@ import {
   parseProjectListParams,
   buildProjectWhere,
   buildProjectOrderBy,
+  computeProjectActiveFilterCount,
 } from "./query";
 import { serializeProjectSavedViewParams } from "./saved-view";
 import { ProjectSavedViews } from "@/components/projects/project-saved-views";
@@ -114,6 +115,9 @@ export default async function ProjectsPage({
 
   const totalPages = getTotalPages(total);
   const hasActiveParams = Boolean(listParams.q || listParams.status);
+  // Mobile Improvement Slice B2 — never includes q or sort — see
+  // computeProjectActiveFilterCount's own doc comment.
+  const mobileActiveFilterCount = computeProjectActiveFilterCount(listParams);
 
   // Tables Improvement Slice E3C — these are the EXACT SAME header/cell
   // JSX calls (TableHeaderCell/TableCell, with the exact same Link/
@@ -264,6 +268,7 @@ export default async function ProjectsPage({
             ]}
             sort={{ value: listParams.sortCombined, options: SORT_OPTIONS }}
             hasActiveParams={hasActiveParams}
+            mobileFilterDisclosure={{ activeCount: mobileActiveFilterCount }}
           />
         </>
       )}

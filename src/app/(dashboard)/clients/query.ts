@@ -50,6 +50,24 @@ export function parseClientListParams(
 }
 
 /**
+ * Mobile Improvement Slice B2 — the exact, Product-approved active-count
+ * rule for the two fields collapsed into Clients' own mobile Filter
+ * disclosure: status/tagId, each worth at most 1 — never q (Search
+ * stays externally visible), never sort (not a filtering constraint),
+ * never page (pagination), never Saved View selection state. Mirrors
+ * Contracts' own computeContractActiveFilterCount exactly (same
+ * Pick<...>-narrowed signature, same plain-addition shape).
+ */
+export function computeClientActiveFilterCount(
+  listParams: Pick<ClientListParams, "status" | "tagId">,
+): number {
+  let count = 0;
+  if (listParams.status) count += 1;
+  if (listParams.tagId) count += 1;
+  return count;
+}
+
+/**
  * Custom Statuses Phase 2B (Section P) — the `status` filter is resolved
  * against ANY live CustomStatusDefinition (system or custom, active or
  * archived — resolveStatusDefinitionByKey) by key, replacing the fixed

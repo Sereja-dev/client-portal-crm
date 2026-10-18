@@ -391,6 +391,10 @@ test.describe("Invoice table workflow (Tables Improvement Slice A)", () => {
       await page.setViewportSize({ width: 390, height: 900 });
       await page.goto("/invoices");
 
+      // Mobile Improvement Slice B2 — Sort by now lives inside the
+      // mobile Filter disclosure, collapsed by default here (no status
+      // active), so it must be opened first.
+      await page.locator("details.mobile-filter-disclosure > summary").click();
       await expect(page.getByLabel("Sort by")).toBeVisible();
       // No `<th>`/columnheader markup at all at this width — mobile has
       // no headers, sortable or otherwise.

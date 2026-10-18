@@ -38,6 +38,20 @@ export function parseProjectListParams(
 }
 
 /**
+ * Mobile Improvement Slice B2 — the exact, Product-approved active-count
+ * rule for the one field collapsed into Projects' own mobile Filter
+ * disclosure: status, worth at most 1 — never q, never sort, never
+ * page, never Saved View selection state. Mirrors Contracts' own
+ * computeContractActiveFilterCount / Clients' own
+ * computeClientActiveFilterCount exactly.
+ */
+export function computeProjectActiveFilterCount(
+  listParams: Pick<ProjectListParams, "status">,
+): number {
+  return listParams.status ? 1 : 0;
+}
+
+/**
  * Custom Statuses Phase 2B (Section P) — see buildClientWhere's own
  * identical comment; the `?status=IN_PROGRESS`-shaped legacy URL keeps
  * working for free via resolveStatusDefinitionByKey's own lower-case-key

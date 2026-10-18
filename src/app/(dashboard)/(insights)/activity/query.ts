@@ -87,6 +87,25 @@ export function parseActivityListParams(searchParams: RawSearchParams): Activity
   return { entityType, actionGroup, actorId, dateFrom, dateTo, cursor, cursorInvalid };
 }
 
+/**
+ * Mobile Improvement Slice B2 — the exact, Product-approved active-count
+ * rule for the five fields collapsed into Activity's own mobile Filter
+ * disclosure: entityType/actionGroup/actorId/dateFrom/dateTo, each
+ * worth at most 1. Never cursor/cursorInvalid (pagination-related, not
+ * a user-facing filtering constraint).
+ */
+export function computeActivityActiveFilterCount(
+  listParams: Pick<ActivityListParams, "entityType" | "actionGroup" | "actorId" | "dateFrom" | "dateTo">,
+): number {
+  let count = 0;
+  if (listParams.entityType) count += 1;
+  if (listParams.actionGroup) count += 1;
+  if (listParams.actorId) count += 1;
+  if (listParams.dateFrom) count += 1;
+  if (listParams.dateTo) count += 1;
+  return count;
+}
+
 function endOfDay(date: Date): Date {
   const d = new Date(date);
   d.setHours(23, 59, 59, 999);
