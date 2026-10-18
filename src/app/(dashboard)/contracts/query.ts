@@ -207,6 +207,28 @@ export const CONTRACT_QUICK_FILTERS: readonly { label: string; status: ContractS
   { label: "Accepted", status: "ACCEPTED" },
 ];
 
+/**
+ * Mobile Improvement Slice B1 — the exact, Product-approved active-count
+ * rule for the four fields collapsed into Contracts' own mobile Filter
+ * disclosure: status/clientId/projectId/archived, each worth at most 1 —
+ * never q (Search stays externally visible by design), never sort (not
+ * a filtering constraint), never page, never Saved View selection state.
+ * Quick-filter chips and the Status dropdown share the exact same
+ * `status` param (see CONTRACT_QUICK_FILTERS above) — there is only ever
+ * one `status` value to count here regardless of which control last set
+ * it, so this never double-counts a chip against the dropdown.
+ */
+export function computeContractActiveFilterCount(
+  listParams: Pick<ContractListParams, "status" | "clientId" | "projectId" | "archived">,
+): number {
+  let count = 0;
+  if (listParams.status) count += 1;
+  if (listParams.clientId) count += 1;
+  if (listParams.projectId) count += 1;
+  if (listParams.archived) count += 1;
+  return count;
+}
+
 export type ContractEntityFilterOption = { value: string; label: string };
 
 /**

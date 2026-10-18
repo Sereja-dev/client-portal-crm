@@ -390,3 +390,47 @@ li[id^="comment-"]:target {
   outline: 2px solid #facc15;
   outline-offset: -2px;
 }
+
+/*
+ * Mobile Improvement Slice B1 — MobileFilterDisclosure
+ * (src/components/list/mobile-filter-disclosure.tsx). A native
+ * <details> used as a mobile-only collapsible filter panel: below `md`
+ * it behaves like any other <details>, closed/open per its own `open`
+ * attribute (computed once, server-side, from the surface's own
+ * canonical active-filter count — never client JS). At `md` and up, the
+ * whole disclosure mechanism must become inert: every field stays
+ * visible, with no toggle affordance at all (the component's own
+ * `<summary>` is separately hidden via a plain `md:hidden` class on the
+ * element itself).
+ *
+ * Forcing a CLOSED <details> to render its content at `md`+ is NOT just
+ * a `display` override. Current Chromium (confirmed directly against
+ * the exact engine this repo's own Playwright suite runs, 151.x)
+ * generates the non-summary content as an internal `::details-content`
+ * pseudo-element box, and its own UA stylesheet collapses a closed
+ * <details> via THAT pseudo — `content-visibility: hidden` plus
+ * `height: 0px` — not via `display: none` on the light-DOM children.
+ * Overriding only the light-DOM content wrapper's own `display` (an
+ * earlier version of this rule did exactly that) changes nothing
+ * observable: the child itself still reports `display: block`, but its
+ * containing `::details-content` box stays zero-height and non-
+ * rendered, so the field controls end up with a real but zero-size
+ * layout box — invisible to users and to any visibility-aware query
+ * (confirmed directly: Playwright's `toBeVisible()`/`toBeHidden()`
+ * assertions, and axe/ARIA tooling generally, treat a zero-area box as
+ * hidden regardless of its own `display` value). The fix targets that
+ * pseudo-element directly instead, which is where the UA stylesheet's
+ * own collapse rule actually lives.
+ *
+ * An author-origin rule always wins over the user-agent stylesheet's
+ * own default for the same property, so no `!important` is needed
+ * here. Scoped to this one dedicated class only — Sidebar's own desktop
+ * `<details>` groups, OrganizationSwitcher, and NotificationBell (all
+ * native `<details>` elsewhere in this app) are completely unaffected.
+ */
+@media (min-width: 768px) {
+  .mobile-filter-disclosure:not([open])::details-content {
+    content-visibility: visible;
+    height: auto;
+  }
+}

@@ -347,6 +347,11 @@ test.describe("Contract table workflow (Tables Improvement Slice B)", () => {
       await page.keyboard.press("Escape");
 
       await expect(page.getByRole("link", { name: "Draft" })).toBeVisible();
+      // Mobile Improvement Slice B1 — Sort by now lives inside the
+      // mobile Filter disclosure, collapsed by default here (no
+      // status/client/project/archived active), so it must be opened
+      // first to reach it.
+      await page.locator("details.mobile-filter-disclosure > summary").click();
       await expect(page.getByLabel("Sort by")).toBeVisible();
       await expect(page.getByRole("columnheader")).toHaveCount(0);
 

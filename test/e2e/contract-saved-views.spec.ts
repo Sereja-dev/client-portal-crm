@@ -337,6 +337,12 @@ test.describe("Contract Saved Views (Tables Improvement Slice D1)", () => {
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     expect(overflow).toBe(false);
 
+    // Mobile Improvement Slice B1 — Client now lives inside the mobile
+    // Filter disclosure, collapsed by default here (no status/client/
+    // project/archived is active for this q-only saved view), so it
+    // must be opened first; the disclosure itself is still proof the
+    // field remains reachable and unbroken at this viewport.
+    await page.locator("details.mobile-filter-disclosure > summary").click();
     await expect(page.getByLabel("Client")).toBeVisible();
   });
 });

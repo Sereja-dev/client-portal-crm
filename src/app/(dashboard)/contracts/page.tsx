@@ -17,6 +17,7 @@ import {
   buildContractsHref,
   nextContractSortCombined,
   buildContractEntityFilterOptions,
+  computeContractActiveFilterCount,
   CONTRACT_STATUS_FILTER_VALUES,
   CONTRACT_QUICK_FILTERS,
   type ContractSortField,
@@ -121,6 +122,11 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
   const hasActiveParams = Boolean(
     listParams.q || listParams.status || listParams.clientId || listParams.projectId || listParams.archived,
   );
+  // Mobile Improvement Slice B1 — never includes q (Search stays
+  // externally visible, outside the mobile disclosure) or sort (not a
+  // filtering constraint) — see computeContractActiveFilterCount's own
+  // doc comment for the exact approved rule.
+  const mobileActiveFilterCount = computeContractActiveFilterCount(listParams);
 
   // Tables Improvement Slice B — the one shared base every quick-filter
   // chip and the sortable header builds its own href from, so no
@@ -309,6 +315,7 @@ export default async function ContractsPage({ searchParams }: { searchParams: Pr
             ]}
             sort={{ value: listParams.sortCombined, options: CONTRACT_SORT_OPTIONS }}
             hasActiveParams={hasActiveParams}
+            mobileFilterDisclosure={{ activeCount: mobileActiveFilterCount }}
           />
         </>
       )}
