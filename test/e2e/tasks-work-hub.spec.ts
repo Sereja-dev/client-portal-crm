@@ -101,7 +101,24 @@ test.describe("Tasks Work Hub", () => {
     await expect(card).toBeVisible();
 
     const targetColumn = page.locator("#board-column-IN_PROGRESS");
-    const cardBox = await card.boundingBox();
+
+    // Root-cause audit (Mobile Improvement Slice B2 checkpoint) — a
+    // single one-shot boundingBox() read on the drag handle can
+    // transiently race a page-commit event that never changes the
+    // element's own real visibility/geometry (confirmed directly: the
+    // handle stays connected, correctly sized, and visible throughout
+    // every observed failure) — Playwright's own actionability waiting
+    // covers locator actions/assertions, not this standalone geometry
+    // read. Mirrors the exact bounded retry shape leads-pipeline-dnd.
+    // spec.ts's own dragCardToColumn() already uses for targetColumn's
+    // live position, narrowed to "retry until non-null" here since the
+    // audit showed targetBox itself never needed this (it stayed
+    // non-null in every measured failure) — only cardBox does.
+    let cardBox = await card.boundingBox();
+    for (let attempt = 0; !cardBox && attempt < 10; attempt += 1) {
+      await page.waitForTimeout(20);
+      cardBox = await card.boundingBox();
+    }
     const targetBox = await targetColumn.boundingBox();
     expect(cardBox && targetBox).toBeTruthy();
 
