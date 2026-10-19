@@ -723,7 +723,13 @@ export function QuoteForm({
           />
         </FormField>
 
-        <div className="flex gap-3 pt-2">
+        {/*
+          Mobile Improvement Slice C — mobile-only sticky primary action.
+          See invoice-form.tsx's own identical comment for the full
+          rationale; this is the exact same byte-identical class string,
+          applied locally here (no shared component extraction).
+        */}
+        <div className="border-border-default bg-surface sticky bottom-4 z-10 mt-4 flex gap-3 rounded-lg border p-4 shadow-lg md:static md:z-auto md:mt-0 md:rounded-none md:border-0 md:bg-transparent md:p-0 md:pt-2 md:shadow-none">
           <Button type="submit" loading={pending} disabled={pending}>
             {pending ? pendingLabel : submitLabel}
           </Button>

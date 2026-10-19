@@ -773,7 +773,21 @@ export function InvoiceForm({
           </p>
         )}
 
-        <div className="flex gap-3 pt-2">
+        {/*
+          Mobile Improvement Slice C — mobile-only sticky primary action.
+          Reuses the exact `sticky bottom-4 z-10 ... shadow-lg` convention
+          Company Settings/BulkActionBar/TaskBulkToolbar already ship in
+          production (`position: sticky`, never `fixed` — stays in normal
+          document flow, so it can never compete with the mobile bottom
+          nav, which this route's own focused-form classifier already
+          hides). Every `md:` property resets this exact container back
+          to its original, unchanged `flex gap-3 pt-2` — no border, no
+          background, no shadow, not sticky — at `md` and up. The
+          existing Button itself (same type="submit", same label/pending/
+          loading props) is only repositioned, never duplicated or
+          reimplemented; no Discard, no new dirty-state tracking.
+        */}
+        <div className="border-border-default bg-surface sticky bottom-4 z-10 mt-4 flex gap-3 rounded-lg border p-4 shadow-lg md:static md:z-auto md:mt-0 md:rounded-none md:border-0 md:bg-transparent md:p-0 md:pt-2 md:shadow-none">
           <Button type="submit" loading={pending}>
             {pending ? pendingLabel : submitLabel}
           </Button>
