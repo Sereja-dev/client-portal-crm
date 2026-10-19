@@ -406,13 +406,16 @@ test.describe("Time mobile filter disclosure", () => {
     await actAsOwner(page, baseURL!);
   });
 
-  test("390px: no Search field; compact Filter summary replaces the dense 5-control block; Filter/Clear stay outside, fields collapse", async ({ page }) => {
+  test("390px: no Search field; compact Filter summary replaces the dense 5-control block; Apply/Clear stay outside, fields collapse", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 900 });
     await page.goto("/time");
 
     await expect(page.locator("form").getByLabel("Search")).toHaveCount(0);
     await expect(filterToggle(page)).toHaveText("Filter");
-    await expect(page.getByRole("button", { name: "Filter", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Apply", exact: true })).toBeVisible();
+    // B2 duplicate-action remediation -- the submit button and the
+    // disclosure toggle must never share an identical visible label.
+    await expect(page.getByRole("button", { name: "Filter", exact: true })).toHaveCount(0);
     await expect(page.getByLabel("From")).toBeHidden();
     await expect(page.getByLabel("To")).toBeHidden();
     await expect(page.getByLabel("Project")).toBeHidden();
@@ -433,12 +436,12 @@ test.describe("Time mobile filter disclosure", () => {
 
     // B1 Search-composition regression class, applied to Time's own
     // different composition path (a custom filter bar, not
-    // SearchFilterBar): the Filter submit button must stay at/above the
+    // SearchFilterBar): the Apply submit button must stay at/above the
     // disclosure's own row even once expanded, never pushed below the
     // five now-visible fields.
-    const filterButtonBox = (await page.getByRole("button", { name: "Filter", exact: true }).boundingBox())!;
+    const applyButtonBox = (await page.getByRole("button", { name: "Apply", exact: true }).boundingBox())!;
     const summaryBox = (await filterToggle(page).boundingBox())!;
-    expect(filterButtonBox.y).toBeLessThanOrEqual(summaryBox.y + 2);
+    expect(applyButtonBox.y).toBeLessThanOrEqual(summaryBox.y + 2);
 
     await page.goto("/time?from=2026-01-01");
     await expect(filterToggle(page)).toHaveText("Filter (1)");
@@ -453,11 +456,39 @@ test.describe("Time mobile filter disclosure", () => {
     await expect(disclosure(page)).not.toHaveAttribute("open", "");
   });
 
-  test("desktop (1280px): every field visible without expanding", async ({ page }) => {
+  test("390px: From requires explicit Apply (no auto-submit), while Project/Member/Billable keep auto-submitting", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.goto("/time");
+
+    await filterToggle(page).click();
+    await page.getByLabel("From").fill("2026-02-01");
+    // Changing a native date input alone must never submit the form --
+    // this is the exact reason the Apply button is functionally
+    // required, not merely decorative.
+    await expect(page).not.toHaveURL(/from=/);
+
+    await page.getByRole("button", { name: "Apply", exact: true }).click();
+    await expect(page).toHaveURL(/from=2026-02-01/);
+    await expect(filterToggle(page)).toHaveText("Filter (1)");
+
+    // Billable (AutoSubmitSelect) still auto-submits on its own, with
+    // no Apply click, and preserves the already-applied From value.
+    await page.getByLabel("Billable").selectOption("true");
+    await expect(page).toHaveURL(/billable=true/);
+    await expect(page).toHaveURL(/from=2026-02-01/);
+    await expect(filterToggle(page)).toHaveText("Filter (2)");
+
+    await page.locator("form").getByRole("link", { name: "Clear filters" }).click();
+    await expect(page).not.toHaveURL(/from=|billable=/);
+  });
+
+  test("desktop (1280px): every field visible without expanding, Apply is the only visible submit action", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/time");
 
     await expect(filterToggle(page)).toBeHidden();
+    await expect(page.getByRole("button", { name: "Apply", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Filter", exact: true })).toHaveCount(0);
     await expect(page.getByLabel("From")).toBeVisible();
     await expect(page.getByLabel("To")).toBeVisible();
     await expect(page.getByLabel("Project")).toBeVisible();
@@ -471,13 +502,16 @@ test.describe("Activity mobile filter disclosure", () => {
     await actAsOwner(page, baseURL!);
   });
 
-  test("390px: no Search field; collapsed by default; Filter/Clear stay outside, fields collapse", async ({ page }) => {
+  test("390px: no Search field; collapsed by default; Apply/Clear stay outside, fields collapse", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 900 });
     await page.goto("/activity");
 
     await expect(page.locator("form").getByLabel("Search")).toHaveCount(0);
     await expect(filterToggle(page)).toHaveText("Filter");
-    await expect(page.getByRole("button", { name: "Filter", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Apply", exact: true })).toBeVisible();
+    // B2 duplicate-action remediation -- the submit button and the
+    // disclosure toggle must never share an identical visible label.
+    await expect(page.getByRole("button", { name: "Filter", exact: true })).toHaveCount(0);
     await expect(page.getByLabel("Entity")).toBeHidden();
     await expect(page.getByLabel("Category")).toBeHidden();
     await expect(page.getByLabel("Member")).toBeHidden();
@@ -499,9 +533,9 @@ test.describe("Activity mobile filter disclosure", () => {
 
     // B1 Search-composition regression class, applied to Activity's own
     // different composition path -- see Time's own identical comment.
-    const filterButtonBox = (await page.getByRole("button", { name: "Filter", exact: true }).boundingBox())!;
+    const applyButtonBox = (await page.getByRole("button", { name: "Apply", exact: true }).boundingBox())!;
     const summaryBox = (await filterToggle(page).boundingBox())!;
-    expect(filterButtonBox.y).toBeLessThanOrEqual(summaryBox.y + 2);
+    expect(applyButtonBox.y).toBeLessThanOrEqual(summaryBox.y + 2);
 
     await page.goto("/activity?entityType=CLIENT");
     await expect(filterToggle(page)).toHaveText("Filter (1)");
@@ -512,11 +546,34 @@ test.describe("Activity mobile filter disclosure", () => {
     await expect(filterToggle(page)).toHaveText("Filter");
   });
 
-  test("desktop (1280px): every field visible without expanding", async ({ page }) => {
+  test("390px: dateFrom requires explicit Apply (no auto-submit), while the existing selects keep auto-submitting", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.goto("/activity");
+
+    await filterToggle(page).click();
+    await page.getByLabel("From").fill("2026-02-01");
+    await expect(page).not.toHaveURL(/dateFrom=/);
+
+    await page.getByRole("button", { name: "Apply", exact: true }).click();
+    await expect(page).toHaveURL(/dateFrom=2026-02-01/);
+    await expect(filterToggle(page)).toHaveText("Filter (1)");
+
+    await page.getByLabel("Entity").selectOption("CLIENT");
+    await expect(page).toHaveURL(/entityType=CLIENT/);
+    await expect(page).toHaveURL(/dateFrom=2026-02-01/);
+    await expect(filterToggle(page)).toHaveText("Filter (2)");
+
+    await page.locator("form").getByRole("link", { name: "Clear", exact: true }).click();
+    await expect(page).not.toHaveURL(/dateFrom=|entityType=/);
+  });
+
+  test("desktop (1280px): every field visible without expanding, Apply is the only visible submit action", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/activity");
 
     await expect(filterToggle(page)).toBeHidden();
+    await expect(page.getByRole("button", { name: "Apply", exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Filter", exact: true })).toHaveCount(0);
     await expect(page.getByLabel("Entity")).toBeVisible();
     await expect(page.getByLabel("Category")).toBeVisible();
     await expect(page.getByLabel("Member")).toBeVisible();

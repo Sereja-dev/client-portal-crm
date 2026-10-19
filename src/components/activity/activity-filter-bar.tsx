@@ -21,8 +21,15 @@ const ACTION_GROUP_OPTIONS = [
  * this wraps MobileFilterDisclosure directly rather than needing an
  * opt-in prop the way the shared SearchFilterBar does. No Search field
  * exists on this surface — same reasoning as TimeEntryFilterBar's own
- * identical B2 comment: the Filter submit button and Clear link stay
- * outside the disclosure, only the five field controls collapse.
+ * identical B2 comment: the submit button and Clear link stay outside
+ * the disclosure, only the five field controls collapse.
+ *
+ * B2 duplicate-action remediation — see TimeEntryFilterBar's own
+ * identical comment: the submit button is labeled "Apply", not
+ * "Filter", since it predates B2 and does something completely
+ * different from the disclosure's own generic "Filter"/"Filter (N)"
+ * summary (submit vs. expand/collapse) — both reading "Filter" read as
+ * one confusing, possibly-duplicate control at mobile width.
  */
 export function ActivityFilterBar({
   entityType,
@@ -50,7 +57,7 @@ export function ActivityFilterBar({
       className={`mt-6 flex flex-wrap items-end gap-4 p-4 ${CARD_SURFACE_CLASSES}`}
     >
       <div className="flex items-center gap-3">
-        <Button type="submit">Filter</Button>
+        <Button type="submit">Apply</Button>
         {hasActiveFilters && (
           <Link href="/activity" className={ACTION_LINK_CLASSES}>
             Clear

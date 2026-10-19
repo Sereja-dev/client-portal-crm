@@ -24,10 +24,20 @@ import { MobileFilterDisclosure } from "@/components/list/mobile-filter-disclosu
  * prop the way the shared SearchFilterBar does. No Search field exists
  * on this surface, so — reusing B1's own proven "whatever submits the
  * form stays outside, adjacent and reachable" lesson (the exact class
- * of defect its own Search composition remediation fixed) — the Filter
- * submit button and Clear link stay outside the disclosure, exactly
- * where the Search button lives on every SearchFilterBar B2 surface;
- * only the five field controls collapse.
+ * of defect its own Search composition remediation fixed) — the submit
+ * button and Clear link stay outside the disclosure, exactly where the
+ * Search button lives on every SearchFilterBar B2 surface; only the
+ * five field controls collapse.
+ *
+ * B2 duplicate-action remediation — labeled "Apply", not "Filter": this
+ * button predates B2 (it already existed, unlabeled-conflict, as the
+ * only way to submit the non-auto-submitting From/To date fields) and
+ * the disclosure's own generic "Filter"/"Filter (N)" summary is a
+ * completely different action (expand/collapse, never a submit) — both
+ * reading "Filter" read as one confusing, possibly-duplicate control at
+ * mobile width. Renaming only the submit action keeps the disclosure
+ * label consistent with every other B1/B2 surface and changes nothing
+ * about either control's real behavior.
  */
 export function TimeEntryFilterBar({
   from,
@@ -57,7 +67,7 @@ export function TimeEntryFilterBar({
       {showArchived && <input type="hidden" name="archived" value="1" />}
 
       <div className="flex items-center gap-3">
-        <Button type="submit">Filter</Button>
+        <Button type="submit">Apply</Button>
         {hasActiveFilters && (
           <Link href={showArchived ? "/time?archived=1" : "/time"} className={ACTION_LINK_CLASSES}>
             Clear filters
