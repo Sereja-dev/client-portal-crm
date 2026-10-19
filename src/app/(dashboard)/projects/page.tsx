@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { PAGE_SIZE, getOffset, getTotalPages, buildFilterOptionsWithUnavailableValue, type RawSearchParams } from "@/lib/list-params";
 import { listCustomStatusDefinitions } from "@/lib/custom-statuses/definitions";
 import { DeleteButton } from "@/components/ui/delete-button";
+import { RowActionMenu, RowActionMenuItem } from "@/components/ui/row-action-menu";
 import { deleteProjectAction } from "./actions";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { resolveStatusPresentation } from "@/lib/custom-statuses/presentation";
@@ -171,14 +172,18 @@ export default async function ProjectsPage({
               <PencilIcon className="h-3.5 w-3.5" />
               Edit
             </Link>
-            <DeleteButton
-              action={deleteProjectAction.bind(null, project.id)}
-              itemName={project.name}
-              confirmTitle="Delete project"
-              confirmDescription={`Delete ${project.name}? This action cannot be undone.`}
-              successMessage="Project deleted"
-              conflictMessage="This project can't be deleted because it has existing invoices."
-            />
+            <RowActionMenu label={`More actions for project ${project.name}`}>
+              <RowActionMenuItem>
+                <DeleteButton
+                  action={deleteProjectAction.bind(null, project.id)}
+                  itemName={project.name}
+                  confirmTitle="Delete project"
+                  confirmDescription={`Delete ${project.name}? This action cannot be undone.`}
+                  successMessage="Project deleted"
+                  conflictMessage="This project can't be deleted because it has existing invoices."
+                />
+              </RowActionMenuItem>
+            </RowActionMenu>
           </div>
         </TableCell>
       ),
@@ -348,14 +353,18 @@ export default async function ProjectsPage({
                     <PencilIcon className="h-3.5 w-3.5" />
                     Edit
                   </Link>
-                  <DeleteButton
-                    action={deleteProjectAction.bind(null, project.id)}
-                    itemName={project.name}
-                    confirmTitle="Delete project"
-                    confirmDescription={`Delete ${project.name}? This action cannot be undone.`}
-                    successMessage="Project deleted"
-                    conflictMessage="This project can't be deleted because it has existing invoices."
-                  />
+                  <RowActionMenu label={`More actions for project ${project.name}`}>
+                    <RowActionMenuItem>
+                      <DeleteButton
+                        action={deleteProjectAction.bind(null, project.id)}
+                        itemName={project.name}
+                        confirmTitle="Delete project"
+                        confirmDescription={`Delete ${project.name}? This action cannot be undone.`}
+                        successMessage="Project deleted"
+                        conflictMessage="This project can't be deleted because it has existing invoices."
+                      />
+                    </RowActionMenuItem>
+                  </RowActionMenu>
                 </RecordCardActions>
               </RecordCard>
             ))}

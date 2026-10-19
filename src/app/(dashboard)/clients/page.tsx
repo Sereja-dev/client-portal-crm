@@ -10,6 +10,7 @@ import { listTags } from "@/lib/tags/definitions";
 import { getTagsForEntities } from "@/lib/tags/list-query";
 import { TagChipList } from "@/components/tags/tag-chip-list";
 import { DeleteButton } from "@/components/ui/delete-button";
+import { RowActionMenu, RowActionMenuItem } from "@/components/ui/row-action-menu";
 import { deleteClientAction } from "./actions";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { resolveStatusPresentation } from "@/lib/custom-statuses/presentation";
@@ -214,14 +215,18 @@ export default async function ClientsPage({
               <PencilIcon className="h-3.5 w-3.5" />
               Edit
             </Link>
-            <DeleteButton
-              action={deleteClientAction.bind(null, client.id)}
-              itemName={client.name}
-              confirmTitle="Delete client"
-              confirmDescription={`Delete ${client.name}? This action cannot be undone.`}
-              successMessage="Client deleted"
-              conflictMessage="This client can't be deleted because it has existing invoices."
-            />
+            <RowActionMenu label={`More actions for client ${client.name}`}>
+              <RowActionMenuItem>
+                <DeleteButton
+                  action={deleteClientAction.bind(null, client.id)}
+                  itemName={client.name}
+                  confirmTitle="Delete client"
+                  confirmDescription={`Delete ${client.name}? This action cannot be undone.`}
+                  successMessage="Client deleted"
+                  conflictMessage="This client can't be deleted because it has existing invoices."
+                />
+              </RowActionMenuItem>
+            </RowActionMenu>
           </div>
         </TableCell>
       ),
@@ -398,14 +403,18 @@ export default async function ClientsPage({
                     <PencilIcon className="h-3.5 w-3.5" />
                     Edit
                   </Link>
-                  <DeleteButton
-                    action={deleteClientAction.bind(null, client.id)}
-                    itemName={client.name}
-                    confirmTitle="Delete client"
-                    confirmDescription={`Delete ${client.name}? This action cannot be undone.`}
-                    successMessage="Client deleted"
-                    conflictMessage="This client can't be deleted because it has existing invoices."
-                  />
+                  <RowActionMenu label={`More actions for client ${client.name}`}>
+                    <RowActionMenuItem>
+                      <DeleteButton
+                        action={deleteClientAction.bind(null, client.id)}
+                        itemName={client.name}
+                        confirmTitle="Delete client"
+                        confirmDescription={`Delete ${client.name}? This action cannot be undone.`}
+                        successMessage="Client deleted"
+                        conflictMessage="This client can't be deleted because it has existing invoices."
+                      />
+                    </RowActionMenuItem>
+                  </RowActionMenu>
                 </RecordCardActions>
               </RecordCard>
             ))}

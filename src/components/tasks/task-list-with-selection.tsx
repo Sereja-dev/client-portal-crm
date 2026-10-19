@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { DeleteButton } from "@/components/ui/delete-button";
+import { RowActionMenu, RowActionMenuItem } from "@/components/ui/row-action-menu";
 import { PencilIcon } from "@/components/ui/icons";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
@@ -153,13 +154,17 @@ export function TaskListWithSelection({
                         <PencilIcon className="h-3.5 w-3.5" />
                         Edit
                       </Link>
-                      <DeleteButton
-                        action={deleteTaskAction.bind(null, task.id)}
-                        itemName={task.title}
-                        confirmTitle="Delete task"
-                        confirmDescription={`Delete "${task.title}"? This action cannot be undone.`}
-                        successMessage="Task deleted"
-                      />
+                      <RowActionMenu label={`More actions for task ${task.title}`}>
+                        <RowActionMenuItem>
+                          <DeleteButton
+                            action={deleteTaskAction.bind(null, task.id)}
+                            itemName={task.title}
+                            confirmTitle="Delete task"
+                            confirmDescription={`Delete "${task.title}"? This action cannot be undone.`}
+                            successMessage="Task deleted"
+                          />
+                        </RowActionMenuItem>
+                      </RowActionMenu>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -221,13 +226,17 @@ export function TaskListWithSelection({
                   <PencilIcon className="h-3.5 w-3.5" />
                   Edit
                 </Link>
-                <DeleteButton
-                  action={deleteTaskAction.bind(null, task.id)}
-                  itemName={task.title}
-                  confirmTitle="Delete task"
-                  confirmDescription={`Delete "${task.title}"? This action cannot be undone.`}
-                  successMessage="Task deleted"
-                />
+                <RowActionMenu label={`More actions for task ${task.title}`}>
+                  <RowActionMenuItem>
+                    <DeleteButton
+                      action={deleteTaskAction.bind(null, task.id)}
+                      itemName={task.title}
+                      confirmTitle="Delete task"
+                      confirmDescription={`Delete "${task.title}"? This action cannot be undone.`}
+                      successMessage="Task deleted"
+                    />
+                  </RowActionMenuItem>
+                </RowActionMenu>
               </RecordCardActions>
             </RecordCard>
           );

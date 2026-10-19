@@ -69,6 +69,16 @@ import { MoreIcon } from "@/components/ui/icons";
  *    click/Escape handling once the dialog itself has closed.
  *  - touch-usable: every interaction is a plain click/tap, no
  *    hover-only affordance of any kind.
+ *
+ * Mobile Improvement Slice B3 — the trigger is `h-10 w-10` below `md`
+ * (40×40px, comfortably inside common mobile touch-target guidance) and
+ * `h-8 w-8` at `md` and up (32×32px, unchanged from this component's
+ * original, already-shipped desktop size on Invoices/Contracts) —
+ * mobile-only, not global, since the Product concern was raised during
+ * mobile verification specifically and desktop's existing size already
+ * has no reported issue. `computePosition()` reads the trigger's own
+ * live `getBoundingClientRect()`, so no positioning logic needed any
+ * change for this.
  */
 export function RowActionMenu({
   label = "More actions",
@@ -173,7 +183,7 @@ export function RowActionMenu({
         aria-controls={open ? menuId : undefined}
         aria-label={label}
         onClick={() => (open ? closeMenu(false) : openMenu())}
-        className="text-text-secondary hover:text-text-primary focus-visible:ring-focus-ring inline-flex h-8 w-8 items-center justify-center rounded-md transition-colors hover:bg-[var(--hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+        className="text-text-secondary hover:text-text-primary focus-visible:ring-focus-ring inline-flex h-10 w-10 items-center justify-center rounded-md transition-colors hover:bg-[var(--hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 md:h-8 md:w-8"
       >
         <MoreIcon className="h-4 w-4" />
       </button>
