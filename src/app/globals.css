@@ -65,6 +65,27 @@
   --border-subtle: #F3F4F6; /* gray-100 */
   --border-default: #E5E7EB; /* gray-200 — the dominant existing ad hoc border color */
   --border-strong: #D1D5DB; /* gray-300 */
+  /* Accessibility Improvement A3 — a dedicated token, deliberately
+     separate from --border-strong (which stays untouched: it's shared by
+     60+ unrelated consumers — Button's secondary variant, ConfirmDialog,
+     EmptyState, dialogs, cards, error/access-denied pages — and changing
+     it here would restyle all of them, not just form controls). Input/
+     Select/Textarea/SearchableSelect's own resting border (--border-strong,
+     #D1D5DB) measured only ~1.47:1 against the control's own --surface
+     fill (and ~1.35:1 against --surface-recessed, the page's own ambient
+     background behind an unwrapped form) — both well below WCAG 1.4.11's
+     3:1 minimum for the one visual cue that identifies a field's own
+     boundary (confirmed: the --surface/--surface-recessed gap itself is
+     only ~1.09:1, too subtle on its own to serve as a second cue, in
+     both Light and Dark). #7C8595 is the smallest same-hue (no hue
+     shift from --border-strong's own cool-gray family), no-ceiling-
+     collision darkening that restores a safe margin above 3:1 without
+     reading as text-weight (it stays meaningfully lighter than
+     --text-muted, #6B7280 at ~4.83:1, so a resting field never looks as
+     emphasized as muted copy):
+       vs --surface (#ffffff):          3.72:1
+       vs --surface-recessed (#F5F5F7): 3.42:1 */
+  --border-form-control: #7C8595;
 
   /* BRAND (accent/accent-hover above are the existing, unchanged values) */
   --accent-active: #191536; /* Round-3-approved pressed/active shade */
@@ -277,6 +298,20 @@
   --border-subtle: rgba(255, 255, 255, 0.06);
   --border-default: rgba(255, 255, 255, 0.14);
   --border-strong: rgba(255, 255, 255, 0.22);
+  /* Accessibility Improvement A3 — same reasoning as Light's own
+     --border-form-control comment: --border-strong here is left
+     untouched (60+ unrelated consumers), and the --surface/--surface-
+     recessed gap a resting form control sits against is just as
+     imperceptible in Dark (~1.09:1) as it is in Light, so the border
+     remains the real boundary cue here too — not merely "for symmetry."
+     --border-strong's own 0.22 alpha, composited over --surface
+     (#1B1F26), measures only ~2.05:1. Raising only the alpha (no hue
+     change) to 0.40 restores a safe margin, verified via correct alpha
+     compositing before the WCAG luminance calculation:
+       vs --surface (#1B1F26):          ~3.77:1
+       vs --surface-recessed (#14171C): higher still (darker base under
+                                         the same composited color) */
+  --border-form-control: rgba(255, 255, 255, 0.40);
 
   /* FOCUS — pure black (Light's value, matching today's
      focus-visible:ring-black) would be invisible on a near-black
@@ -362,6 +397,7 @@
   --color-border-subtle: var(--border-subtle);
   --color-border-default: var(--border-default);
   --color-border-strong: var(--border-strong);
+  --color-border-form-control: var(--border-form-control);
 
   --color-accent-active: var(--accent-active);
   --color-accent-subtle: var(--accent-subtle);

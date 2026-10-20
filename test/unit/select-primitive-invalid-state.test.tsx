@@ -17,9 +17,17 @@ import { Select } from "@/components/ui/select";
 describe("Select — real render, invalid-state visual contract", () => {
   // Design System Phase 2 — the raw border-red-400/focus:ring-red-500 and
   // border-gray-300/focus:ring-black classes are replaced with the
-  // semantic --danger and --border-strong/--accent tokens (via the
+  // semantic --danger and --border-form-control/--accent tokens (via the
   // shared formControlClasses helper — see its own doc comment), so
   // Select renders correctly on Dark's own surface.
+  //
+  // Accessibility Improvement A3+A5 — the resting valid border moved
+  // from --border-strong to the dedicated --border-form-control token
+  // (WCAG 1.4.11 contrast correction), and focus moved from focus: to
+  // focus-visible: with a wider ring (see form-control-classes.ts's own
+  // header comment) — updated here to match, mechanically, with no
+  // change to what this test is actually proving (danger vs. ordinary
+  // branch selection stays correct).
   it("renders the danger border/focus classes when aria-invalid is true", () => {
     const html = renderToStaticMarkup(
       <Select aria-invalid={true} name="currency" id="currency">
@@ -27,19 +35,19 @@ describe("Select — real render, invalid-state visual contract", () => {
       </Select>,
     );
     expect(html).toMatch(/\bborder-danger\b/);
-    expect(html).toMatch(/\bfocus:ring-danger\b/);
-    expect(html).not.toMatch(/\bborder-border-strong\b/);
+    expect(html).toMatch(/\bfocus-visible:ring-danger\b/);
+    expect(html).not.toMatch(/\bborder-border-form-control\b/);
     expect(html).not.toMatch(/\bborder-red-400\b/);
   });
 
-  it("renders the ordinary border-strong/accent focus classes when aria-invalid is false or absent", () => {
+  it("renders the ordinary border-form-control/accent focus classes when aria-invalid is false or absent", () => {
     const html = renderToStaticMarkup(
       <Select aria-invalid={false} name="currency" id="currency">
         <option value="USD">USD</option>
       </Select>,
     );
-    expect(html).toMatch(/\bborder-border-strong\b/);
-    expect(html).toMatch(/\bfocus:ring-accent\b/);
+    expect(html).toMatch(/\bborder-border-form-control\b/);
+    expect(html).toMatch(/\bfocus-visible:ring-accent\b/);
     expect(html).not.toMatch(/\bborder-danger\b/);
     expect(html).not.toMatch(/\bborder-gray-300\b/);
     expect(html).not.toMatch(/\bfocus:ring-black\b/);
