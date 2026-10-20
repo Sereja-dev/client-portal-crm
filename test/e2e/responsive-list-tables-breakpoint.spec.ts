@@ -165,18 +165,31 @@ test.describe("Tasks — Actions column and Edit/Delete controls fully contained
     await expect(actionsHeader).toBeVisible();
 
     const row = page.getByRole("row", { name: new RegExp(fixtures.task.title) });
-    // getByRole naturally excludes the DeleteButton's own unopened
-    // <dialog> (native dialogs without the `open` attribute have no box
-    // and are not part of the accessible/rendered tree) — this resolves
-    // to exactly the one real, visible trigger control, never its
-    // hidden confirmation-dialog counterpart.
+    // Stale-test correction — Mobile Improvement Slice B3 already shipped
+    // relocating Tasks' own Delete out of the row and behind the shared
+    // RowActionMenu overflow trigger ("More actions for task <title>",
+    // portaled to document.body); this file's own Tasks assertions were
+    // never updated to match at the time. Delete-in-overflow semantics
+    // (opening the menu, ConfirmDialog, Cancel-preserves-the-record) are
+    // already exhaustively covered by test/e2e/mobile-row-actions-rollout.spec.ts
+    // — this file's own job is still only the breakpoint/containment
+    // geometry of whichever controls are actually directly visible in
+    // the row today (Log time, Edit, the overflow trigger itself), so it
+    // is updated to match that shipped contract rather than reopening
+    // overflow-menu behavior here.
+    const logTimeButton = row.getByRole("button", { name: "Log time" });
     const editLink = row.getByRole("link", { name: /Edit/ });
-    const deleteButton = row.getByRole("button", { name: "Delete" });
+    const menuTrigger = row.getByRole("button", { name: `More actions for task ${fixtures.task.title}` });
+    await expect(logTimeButton).toBeVisible();
     await expect(editLink).toBeVisible();
-    await expect(deleteButton).toBeVisible();
+    await expect(menuTrigger).toBeVisible();
+    // Delete itself is no longer a direct row control at all — confirming
+    // its continued absence here guards against a future regression that
+    // silently reintroduces it outside the overflow menu.
+    await expect(row.getByRole("button", { name: "Delete" })).toHaveCount(0);
 
     const viewportSize = page.viewportSize()!;
-    for (const locator of [actionsHeader, editLink, deleteButton]) {
+    for (const locator of [actionsHeader, logTimeButton, editLink, menuTrigger]) {
       const box = await locator.boundingBox();
       expect(box, "expected a real bounding box").not.toBeNull();
       expect(box!.x + box!.width, "control's right edge must not exceed the viewport width").toBeLessThanOrEqual(viewportSize.width);
@@ -194,13 +207,19 @@ test.describe("Tasks — Actions column and Edit/Delete controls fully contained
 
     const card = page.locator("li", { hasText: fixtures.task.title });
     await expect(card).toBeVisible();
+    // Stale-test correction — see the 1280px test above's own identical
+    // comment: Delete has shipped behind the overflow menu (Mobile
+    // Improvement Slice B3) on this card too, not merely the desktop row.
+    const logTimeButton = card.getByRole("button", { name: "Log time" });
     const editLink = card.getByRole("link", { name: /Edit/ });
-    const deleteButton = card.getByRole("button", { name: "Delete" });
+    const menuTrigger = card.getByRole("button", { name: `More actions for task ${fixtures.task.title}` });
+    await expect(logTimeButton).toBeVisible();
     await expect(editLink).toBeVisible();
-    await expect(deleteButton).toBeVisible();
+    await expect(menuTrigger).toBeVisible();
+    await expect(card.getByRole("button", { name: "Delete" })).toHaveCount(0);
 
     const viewportSize = page.viewportSize()!;
-    for (const locator of [editLink, deleteButton]) {
+    for (const locator of [editLink, logTimeButton, menuTrigger]) {
       const box = await locator.boundingBox();
       expect(box).not.toBeNull();
       expect(box!.x + box!.width).toBeLessThanOrEqual(viewportSize.width);
