@@ -28,7 +28,7 @@ export default async function LoginPage({
 
   return (
     <AuthCard>
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight text-gray-900">
+      <h1 className="mb-6 text-2xl font-semibold tracking-tight text-text-primary">
         Sign in
       </h1>
       {sessionExpired && (

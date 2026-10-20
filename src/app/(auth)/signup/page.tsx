@@ -34,7 +34,7 @@ export default async function SignupPage({
 
   return (
     <AuthCard>
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight text-gray-900">
+      <h1 className="mb-6 text-2xl font-semibold tracking-tight text-text-primary">
         Create an account
       </h1>
       <SignupForm redirectTo={redirectTo} invitation={invitation} />

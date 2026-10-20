@@ -19,6 +19,29 @@ const AUTH_CARD = readFileSync(join(__dirname, "../../src/components/auth/auth-c
 const LOGIN_FORM = readFileSync(join(__dirname, "../../src/app/(auth)/login/login-form.tsx"), "utf-8");
 const SIGNUP_FORM = readFileSync(join(__dirname, "../../src/app/(auth)/signup/signup-form.tsx"), "utf-8");
 
+// A4 remediation (dark-mode heading defect) — the four Staff Auth page
+// components, each of which renders its own <h1> directly (outside of
+// AuthCard/LoginForm/SignupForm/ForgotPasswordForm/ResetPasswordForm,
+// none of which were ever in scope for this bug). Read separately from
+// the three files above: these pages still intentionally retain OTHER,
+// explicitly deferred literal-color elements (login's session-expired
+// amber banner; reset-password's invalid-link gray paragraphs and black
+// link) — so, unlike AUTH_CARD/LOGIN_FORM/SIGNUP_FORM above, this suite
+// must never assert "no literal color anywhere in this file," only that
+// each page's own <h1> specifically is semantic.
+const LOGIN_PAGE = readFileSync(join(__dirname, "../../src/app/(auth)/login/page.tsx"), "utf-8");
+const SIGNUP_PAGE = readFileSync(join(__dirname, "../../src/app/(auth)/signup/page.tsx"), "utf-8");
+const FORGOT_PASSWORD_PAGE = readFileSync(join(__dirname, "../../src/app/(auth)/forgot-password/page.tsx"), "utf-8");
+const RESET_PASSWORD_PAGE = readFileSync(join(__dirname, "../../src/app/(auth)/reset-password/page.tsx"), "utf-8");
+
+// Extracts every <h1 className="...">'s own class string — scoped
+// narrowly to the heading element itself, never the rest of the file
+// (which, for reset-password/page.tsx specifically, still legitimately
+// contains other, deferred literal-color classes on sibling elements).
+function headingClassStrings(source: string): string[] {
+  return [...source.matchAll(/<h1\s+className="([^"]*)"/g)].map((m) => m[1]);
+}
+
 // Matches a literal Tailwind color utility (e.g. bg-gray-50, text-red-600,
 // border-gray-200) but never a --color-* CSS custom property reference,
 // a semantic class like `text-text-secondary`/`bg-surface-recessed`, or
@@ -84,6 +107,55 @@ describe("Accessibility Improvement A4 — Staff Auth theme-token migration", ()
     it("reuses the existing shared ACTION_LINK_CLASSES constant for all three links, rather than hand-rolled literal classes", () => {
       expect(SIGNUP_FORM).toMatch(/import\s*\{\s*ACTION_LINK_CLASSES\s*\}\s*from\s*"@\/components\/ui\/action-link-classes"/);
       expect(SIGNUP_FORM.match(/ACTION_LINK_CLASSES/g)?.length).toBe(4); // 1 import + 3 call sites (Terms, Privacy, Sign in)
+    });
+  });
+
+  describe("Staff Auth page headings (A4 remediation — dark-mode heading defect)", () => {
+    it("login/page.tsx's 'Sign in' heading is semantic", () => {
+      const headings = headingClassStrings(LOGIN_PAGE);
+      expect(headings).toHaveLength(1);
+      expect(headings[0]).toMatch(/\btext-text-primary\b/);
+      expect(headings[0]).not.toMatch(/\btext-gray-900\b/);
+    });
+
+    it("signup/page.tsx's 'Create an account' heading is semantic", () => {
+      const headings = headingClassStrings(SIGNUP_PAGE);
+      expect(headings).toHaveLength(1);
+      expect(headings[0]).toMatch(/\btext-text-primary\b/);
+      expect(headings[0]).not.toMatch(/\btext-gray-900\b/);
+    });
+
+    it("forgot-password/page.tsx's 'Forgot your password?' heading is semantic", () => {
+      const headings = headingClassStrings(FORGOT_PASSWORD_PAGE);
+      expect(headings).toHaveLength(1);
+      expect(headings[0]).toMatch(/\btext-text-primary\b/);
+      expect(headings[0]).not.toMatch(/\btext-gray-900\b/);
+    });
+
+    it("reset-password/page.tsx's BOTH headings ('Set a new password' and 'This link is invalid or has expired') are semantic", () => {
+      const headings = headingClassStrings(RESET_PASSWORD_PAGE);
+      expect(headings).toHaveLength(2);
+      for (const headingClasses of headings) {
+        expect(headingClasses).toMatch(/\btext-text-primary\b/);
+        expect(headingClasses).not.toMatch(/\btext-gray-900\b/);
+      }
+    });
+
+    it("reset-password/page.tsx's deferred invalid-link paragraph/link colors are intentionally untouched by this remediation", () => {
+      // Narrow, explicit guard against scope creep in the OTHER
+      // direction: confirms the deferred findings this slice's own brief
+      // explicitly excluded are still present, so a future change can't
+      // silently fix (or silently leave broken) these without it being a
+      // deliberate, visible decision.
+      expect(RESET_PASSWORD_PAGE).toMatch(/text-gray-600/);
+      expect(RESET_PASSWORD_PAGE).toMatch(/text-black/);
+      expect(RESET_PASSWORD_PAGE).toMatch(/focus-visible:ring-black/);
+    });
+
+    it("login/page.tsx's deferred session-expired amber banner is intentionally untouched by this remediation", () => {
+      expect(LOGIN_PAGE).toMatch(/border-amber-200/);
+      expect(LOGIN_PAGE).toMatch(/bg-amber-50/);
+      expect(LOGIN_PAGE).toMatch(/text-amber-800/);
     });
   });
 

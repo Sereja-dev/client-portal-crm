@@ -16,7 +16,7 @@ export default async function ForgotPasswordPage() {
 
   return (
     <AuthCard>
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight text-gray-900">Forgot your password?</h1>
+      <h1 className="mb-6 text-2xl font-semibold tracking-tight text-text-primary">Forgot your password?</h1>
       <ForgotPasswordForm action={requestPasswordReset} loginPath="/login" />
     </AuthCard>
   );

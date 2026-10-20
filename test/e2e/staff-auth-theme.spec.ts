@@ -110,6 +110,71 @@ test.describe("Staff Auth theme-awareness — /signup (Dark representative)", ()
   });
 });
 
+/**
+ * A4 remediation — dark-mode heading defect. The page's own <h1> (e.g.
+ * "Sign in") lives in page.tsx, not in AuthCard/LoginForm/SignupForm —
+ * none of which the describe blocks above ever read into, since their
+ * own locators (`main > span` for AuthCard's own brand text) never
+ * descend into `{children}` where the page's own heading actually
+ * renders. These are the real, previously-missing computed-style
+ * assertions on that exact element.
+ */
+test.describe("Staff Auth page headings — real computed-style proof of the A4 dark-mode fix", () => {
+  test("Light /login: the 'Sign in' heading resolves to the Light semantic --text-primary color", async ({ page }) => {
+    await page.goto("/login");
+    await expect.poll(() => resolvedAttr(page)).toBe("light");
+
+    const heading = page.getByRole("heading", { name: "Sign in" });
+    const color = await heading.evaluate((el) => getComputedStyle(el).color);
+    expect(color).toContain("23, 23, 23"); // --text-primary Light #171717
+  });
+
+  test("Dark /login: the 'Sign in' heading resolves to the Dark semantic --text-primary color, never the old literal gray-900", async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await setThemeCookie(context, baseURL!, "dark.dark");
+    await page.goto("/login");
+    await expect.poll(() => resolvedAttr(page)).toBe("dark");
+
+    const heading = page.getByRole("heading", { name: "Sign in" });
+    const color = await heading.evaluate((el) => getComputedStyle(el).color);
+    expect(color).toContain("236, 237, 238"); // --text-primary Dark #ECEDEE
+    expect(color).not.toContain("17, 24, 39"); // the old literal text-gray-900 (#111827) must never remain
+  });
+
+  test("Dark /signup: the 'Create an account' heading resolves to the Dark semantic --text-primary color", async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await setThemeCookie(context, baseURL!, "dark.dark");
+    await page.goto("/signup");
+    await expect.poll(() => resolvedAttr(page)).toBe("dark");
+
+    const heading = page.getByRole("heading", { name: "Create an account" });
+    const color = await heading.evaluate((el) => getComputedStyle(el).color);
+    expect(color).toContain("236, 237, 238");
+    expect(color).not.toContain("17, 24, 39");
+  });
+
+  test("Dark /forgot-password (representative shared Auth page): the heading resolves to the Dark semantic --text-primary color", async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await setThemeCookie(context, baseURL!, "dark.dark");
+    await page.goto("/forgot-password");
+    await expect.poll(() => resolvedAttr(page)).toBe("dark");
+
+    const heading = page.getByRole("heading", { name: "Forgot your password?" });
+    const color = await heading.evaluate((el) => getComputedStyle(el).color);
+    expect(color).toContain("236, 237, 238");
+    expect(color).not.toContain("17, 24, 39");
+  });
+});
+
 test.describe("Staff Auth link focus — semantic focus ring, not literal black", () => {
   test("Light: Tab-focusing 'Forgot password?' produces a real ring whose color matches --focus-ring (identical to the old literal black value)", async ({
     page,

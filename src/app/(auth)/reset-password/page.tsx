@@ -21,12 +21,12 @@ export default async function ResetPasswordPage() {
     <AuthCard>
       {user ? (
         <>
-          <h1 className="mb-6 text-2xl font-semibold tracking-tight text-gray-900">Set a new password</h1>
+          <h1 className="mb-6 text-2xl font-semibold tracking-tight text-text-primary">Set a new password</h1>
           <ResetPasswordForm action={resetPassword} signOutAction={signOutAndGoToLogin} />
         </>
       ) : (
         <div className="space-y-4 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight text-gray-900">This link is invalid or has expired</h1>
+          <h1 className="text-2xl font-semibold tracking-tight text-text-primary">This link is invalid or has expired</h1>
           <p className="text-sm text-gray-600">Request a new password reset link to continue.</p>
           <p className="text-sm text-gray-600">
             <Link
