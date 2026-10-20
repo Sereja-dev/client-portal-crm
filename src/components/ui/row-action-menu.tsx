@@ -1,6 +1,14 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FocusEvent as ReactFocusEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import { createPortal } from "react-dom";
 import { MoreIcon } from "@/components/ui/icons";
 
@@ -79,6 +87,25 @@ import { MoreIcon } from "@/components/ui/icons";
  * has no reported issue. `computePosition()` reads the trigger's own
  * live `getBoundingClientRect()`, so no positioning logic needed any
  * change for this.
+ *
+ * Accessibility Improvement A1 — this panel is now a TRUE WAI-ARIA menu-
+ * button widget, not merely menu-shaped markup: opening it (via click,
+ * Enter/Space on the trigger, or ArrowDown while the trigger is focused
+ * and closed) moves real DOM focus onto its own first enabled menu item;
+ * ArrowDown/ArrowUp/Home/End then rove real focus between items (see
+ * `getMenuItems()`/`handleMenuKeyDown()` below); Escape still closes and
+ * returns focus to the trigger exactly as before. Tab/Shift+Tab are
+ * deliberately NOT trapped or cycled — a true ARIA menu is not a modal,
+ * so focus is allowed to leave via the browser's own natural tab order;
+ * `handleMenuBlur()` simply closes the now-orphaned panel once that
+ * happens, rather than fighting it. Each menu item's own real
+ * `role="menuitem"` + roving (script-only) `tabIndex={-1}` is applied by
+ * `RowActionMenuItem` itself, imperatively, via a ref — see that
+ * component's own header comment for why cloning `children` with new
+ * props cannot reach the real control here, and why a ref-based DOM
+ * query is both sufficient and consistent with this app's existing
+ * conventions (NotificationBell's own `close()` already queries/mutates
+ * its popover's DOM the same way).
  */
 export function RowActionMenu({
   label = "More actions",
@@ -134,6 +161,36 @@ export function RowActionMenu({
     }
   }
 
+  // Accessibility Improvement A1 — the panel's own current real menu
+  // items, freshly queried rather than cached: which actions exist (e.g.
+  // Archive vs. Restore) can differ between opens, and a disabled item
+  // (DeleteButton/ContractArchiveRestoreAction's own `disabled={pending}`
+  // mid-action) must never receive roving focus. Scoped to
+  // `[role="menuitem"]` specifically — not a generic `button, a[href]`
+  // query — so a DeleteButton's own nested, currently-closed
+  // ConfirmDialog (a real DOM descendant of this panel while it's open;
+  // see this component's own header comment) never counts as a second
+  // item: only the one control each RowActionMenuItem itself tags this
+  // way (see that component's own header comment) is ever included.
+  function getMenuItems(): HTMLElement[] {
+    const panel = menuRef.current;
+    if (!panel) return [];
+    return Array.from(panel.querySelectorAll<HTMLElement>('[role="menuitem"]')).filter(
+      (item) => !item.hasAttribute("disabled"),
+    );
+  }
+
+  // Accessibility Improvement A1 — moves real focus onto the panel's own
+  // first enabled item as soon as it exists in the DOM. No arbitrary
+  // timeout: this only runs when `open` flips true, by which point React
+  // has already committed the portaled panel (and every RowActionMenuItem
+  // child's own role-tagging effect — child effects run before this
+  // parent effect on the same commit).
+  useEffect(() => {
+    if (!open) return;
+    getMenuItems()[0]?.focus();
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
 
@@ -169,6 +226,73 @@ export function RowActionMenu({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- closeMenu/computePosition are stable-enough local closures re-created each render; re-running this effect only on `open` (not every render) is the intended behavior, matching this exact "mount/unmount listeners only while open" shape every other imperative-dialog-ish component in this app already uses.
   }, [open]);
 
+  // Accessibility Improvement A1 — WAI-ARIA menu-button roving focus.
+  // Enter/Space are deliberately not handled here: the focused element is
+  // always a real <button>/<a>, so its own native key handling already
+  // fires its click exactly once. Escape is also deliberately not handled
+  // here — it stays owned by the document-level listener above (which
+  // this keydown still reaches via bubbling, but the switch below simply
+  // ignores it), the same single source of truth whether focus is on the
+  // trigger or inside the panel.
+  function handleMenuKeyDown(event: ReactKeyboardEvent<HTMLDivElement>): void {
+    const items = getMenuItems();
+    if (items.length === 0) return;
+    const currentIndex = items.indexOf(document.activeElement as HTMLElement);
+
+    switch (event.key) {
+      case "ArrowDown":
+        event.preventDefault();
+        items[currentIndex === -1 ? 0 : (currentIndex + 1) % items.length].focus();
+        break;
+      case "ArrowUp":
+        event.preventDefault();
+        items[currentIndex === -1 ? items.length - 1 : (currentIndex - 1 + items.length) % items.length].focus();
+        break;
+      case "Home":
+        event.preventDefault();
+        items[0].focus();
+        break;
+      case "End":
+        event.preventDefault();
+        items[items.length - 1].focus();
+        break;
+      default:
+        break;
+    }
+  }
+
+  // Accessibility Improvement A1 — Tab/Shift+Tab are real menu-button
+  // semantics, never a Tab-trap: neither key is intercepted above, so the
+  // browser moves focus on to whatever naturally follows/precedes this
+  // portaled panel in document order. This only reacts to that already-
+  // decided move by closing the now-orphaned panel — it never calls
+  // `.focus()` itself, so focus is never fought or redirected a second
+  // time. `relatedTarget` is the element about to receive focus; a move
+  // into DeleteButton's own ConfirmDialog (a real DOM descendant of this
+  // panel while it's open) still satisfies `contains()`, so confirming a
+  // destructive action never closes this panel prematurely.
+  function handleMenuBlur(event: ReactFocusEvent<HTMLDivElement>): void {
+    const next = event.relatedTarget as Node | null;
+    if (next && menuRef.current?.contains(next)) {
+      return;
+    }
+    closeMenu(false);
+  }
+
+  // Accessibility Improvement A1 — ArrowDown on the still-closed trigger
+  // opens the menu and (via the focus-first-item effect above) focuses
+  // its first item, matching standard menu-button keyboard semantics.
+  // Enter/Space need no handling here: both already fire this native
+  // <button>'s own onClick below. ArrowUp-opens-last-item is deliberately
+  // not implemented — optional per this slice's own scope, and
+  // unnecessary complexity for a two-state trigger.
+  function handleTriggerKeyDown(event: ReactKeyboardEvent<HTMLButtonElement>): void {
+    if (!open && event.key === "ArrowDown") {
+      event.preventDefault();
+      openMenu();
+    }
+  }
+
   if (!hasContent) {
     return null;
   }
@@ -183,6 +307,7 @@ export function RowActionMenu({
         aria-controls={open ? menuId : undefined}
         aria-label={label}
         onClick={() => (open ? closeMenu(false) : openMenu())}
+        onKeyDown={handleTriggerKeyDown}
         className="text-text-secondary hover:text-text-primary focus-visible:ring-focus-ring inline-flex h-10 w-10 items-center justify-center rounded-md transition-colors hover:bg-[var(--hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 md:h-8 md:w-8"
       >
         <MoreIcon className="h-4 w-4" />
@@ -196,6 +321,8 @@ export function RowActionMenu({
             id={menuId}
             role="menu"
             aria-label={label}
+            onKeyDown={handleMenuKeyDown}
+            onBlur={handleMenuBlur}
             style={{ position: "fixed", top: position.top, left: position.left, width: MENU_WIDTH }}
             className="border-border-default bg-surface z-50 rounded-md border py-1 shadow-lg"
             // Deliberately no onClick here that closes the menu — see
@@ -217,10 +344,41 @@ export function RowActionMenu({
  * second, competing role to the same accessibility tree node). Kept
  * deliberately tiny: this is spacing/hover-affordance only, never a
  * second place item-click behavior is defined.
+ *
+ * Accessibility Improvement A1 — this is also where the real `menuitem`
+ * role/roving tab stop actually gets applied, imperatively, via a ref.
+ * Every current child (`DeleteButton`, `ContractArchiveRestoreAction`) is
+ * a fixed-signature component that does not spread arbitrary props onto
+ * its own root node, so `cloneElement(children, {role, tabIndex})` would
+ * silently drop both props rather than ever reaching the real `<button>`
+ * — there is no DOM for them to land on. Querying/mutating the already-
+ * rendered DOM instead sidesteps that entirely, and needs no change to
+ * either component's own call signature; it's the same "find it via a
+ * ref, mutate it imperatively" shape NotificationBell's own `close()`
+ * already uses elsewhere in this app. `querySelector` (singular) returns
+ * the first match in document order — always this item's own trigger
+ * control, never a Cancel/Confirm button belonging to that same
+ * trigger's own `ConfirmDialog`, which every current child renders
+ * later/deeper in the same subtree (see DeleteButton's/
+ * ContractArchiveRestoreAction's own render output). `tabIndex = -1`
+ * (not 0) is deliberate: a menu item is never part of the ordinary
+ * sequential Tab order — RowActionMenu's own Arrow/Home/End handling
+ * moves real focus between items programmatically instead (see that
+ * component's own header comment for why Tab itself is left alone,
+ * closing the menu naturally, rather than cycling through these).
  */
 export function RowActionMenuItem({ children }: { children: ReactNode }) {
+  const itemRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const interactive = itemRef.current?.querySelector<HTMLElement>("button, a[href]");
+    if (!interactive) return;
+    interactive.setAttribute("role", "menuitem");
+    interactive.tabIndex = -1;
+  }, []);
+
   return (
-    <div role="none" className="hover:bg-[var(--hover)] px-1 py-0.5">
+    <div ref={itemRef} role="none" className="hover:bg-[var(--hover)] px-1 py-0.5">
       {children}
     </div>
   );

@@ -85,7 +85,11 @@ test.describe("Clients mobile row actions", () => {
     expect(triggerBox.height).toBeGreaterThanOrEqual(40);
 
     await menuTrigger.click();
-    const deleteButton = page.getByRole("button", { name: "Delete" });
+    // Accessibility Improvement A1 — the open menu's own real control
+    // now correctly exposes role="menuitem" (an explicit ARIA role
+    // overrides the native <button>'s own implicit role); ConfirmDialog's
+    // own Cancel button below is untouched and still role="button".
+    const deleteButton = page.getByRole("menuitem", { name: "Delete" });
     await expect(deleteButton).toBeVisible();
     await deleteButton.click();
 
@@ -118,7 +122,7 @@ test.describe("Clients mobile row actions", () => {
     expect(triggerBox.height).toBeLessThanOrEqual(34);
 
     await menuTrigger.click();
-    await expect(page.getByRole("button", { name: "Delete" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Delete" })).toBeVisible();
   });
 });
 
@@ -155,7 +159,9 @@ test.describe("Projects mobile row actions", () => {
     await expect(card.getByRole("button", { name: "Delete" })).toHaveCount(0);
 
     await card.getByRole("button", { name: `More actions for project ${project.name}` }).click();
-    const deleteButton = page.getByRole("button", { name: "Delete" });
+    // Accessibility Improvement A1 — see the Clients block above's own
+    // identical comment.
+    const deleteButton = page.getByRole("menuitem", { name: "Delete" });
     await expect(deleteButton).toBeVisible();
     await deleteButton.click();
 
@@ -176,7 +182,7 @@ test.describe("Projects mobile row actions", () => {
     await expect(row.getByRole("link", { name: "Edit" })).toBeVisible();
     await expect(row.getByRole("button", { name: "Delete" })).toHaveCount(0);
     await row.getByRole("button", { name: `More actions for project ${project.name}` }).click();
-    await expect(page.getByRole("button", { name: "Delete" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Delete" })).toBeVisible();
   });
 });
 
@@ -221,7 +227,9 @@ test.describe("Tasks mobile row actions", () => {
     await expect(card.getByRole("button", { name: "Delete" })).toHaveCount(0);
 
     await card.getByRole("button", { name: `More actions for task ${task.title}` }).click();
-    const deleteButton = page.getByRole("button", { name: "Delete" });
+    // Accessibility Improvement A1 — see the Clients block above's own
+    // identical comment.
+    const deleteButton = page.getByRole("menuitem", { name: "Delete" });
     await expect(deleteButton).toBeVisible();
     await deleteButton.click();
 
@@ -243,7 +251,7 @@ test.describe("Tasks mobile row actions", () => {
     await expect(row.getByRole("link", { name: "Edit" })).toBeVisible();
     await expect(row.getByRole("button", { name: "Delete" })).toHaveCount(0);
     await row.getByRole("button", { name: `More actions for task ${task.title}` }).click();
-    await expect(page.getByRole("button", { name: "Delete" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Delete" })).toBeVisible();
   });
 
   test("B2 filter regression: List/Board toggle and the mobile Filter disclosure are unaffected by the row-action change", async ({ page }) => {

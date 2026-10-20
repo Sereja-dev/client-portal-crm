@@ -18,6 +18,22 @@ import { RowActionMenu, RowActionMenuItem } from "@/components/ui/row-action-men
  * real-browser coverage, exactly matching this task's own "focus/
  * keyboard behavior if existing component-test infrastructure supports
  * it" allowance.
+ *
+ * Accessibility Improvement A1 — the same constraint applies to this
+ * slice's own new WAI-ARIA menu-button behavior: focusing the first item
+ * on open, Arrow/Home/End roving focus, and `RowActionMenuItem`'s own
+ * `role="menuitem"` tagging are all `useEffect`-driven DOM mutations
+ * that never run during a server-side static render — there is nothing
+ * new and SSR-observable for this file to assert on `useEffect`'s own
+ * side effects (no DOM/component-interaction harness exists in this
+ * repo; `renderToStaticMarkup` is the deliberate, documented choice
+ * here). That real interactive behavior is covered instead by
+ * test/e2e/row-action-menu-keyboard.spec.ts's own real-browser,
+ * real-keyboard coverage (see that file's own header comment). What
+ * genuinely IS new and SSR-practical — confirming the static markup
+ * itself still never bakes a `menuitem` role onto anything up front
+ * (it is only ever applied imperatively, post-mount, to the one real
+ * interactive child) — is covered below.
  */
 describe("RowActionMenu — real render (closed state)", () => {
   it("renders a real <button> trigger with the caller-supplied accessible name", () => {
@@ -76,5 +92,25 @@ describe("RowActionMenuItem — real render", () => {
     );
     expect(html).toMatch(/role="none"/);
     expect(html).toContain("Delete");
+  });
+
+  // Accessibility Improvement A1 — the real `role="menuitem"`/`tabIndex=-1`
+  // tagging happens inside a `useEffect`, which `renderToStaticMarkup`
+  // never runs — so the static markup must still show the interactive
+  // child exactly as the caller wrote it (plain `type="button"`, no
+  // `role`/`tabIndex` baked in up front). A static markup with
+  // `role="menuitem"` already present would mean someone tried to move
+  // this into JSX/cloneElement instead of the ref-based effect this
+  // component actually relies on — which this slice's own audit proved
+  // cannot reach DeleteButton's/ContractArchiveRestoreAction's real
+  // `<button>` (both are fixed-signature components that never spread
+  // arbitrary props onto their own root node).
+  it("never bakes role=\"menuitem\" into the static markup up front — that is applied imperatively, post-mount, by its own effect", () => {
+    const html = renderToStaticMarkup(
+      <RowActionMenuItem>
+        <button type="button">Delete</button>
+      </RowActionMenuItem>,
+    );
+    expect(html).not.toMatch(/role="menuitem"/);
   });
 });

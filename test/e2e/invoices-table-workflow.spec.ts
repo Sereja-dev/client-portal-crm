@@ -100,7 +100,13 @@ test.describe("Invoice table workflow (Tables Improvement Slice A)", () => {
       await expect(menuTrigger).toHaveAttribute("aria-expanded", "true");
 
       // Delete is portaled (document.body), never a row descendant.
-      const deleteButton = page.getByRole("button", { name: "Delete" });
+      // Accessibility Improvement A1 — the open menu's own real control
+      // now correctly exposes role="menuitem" (not "button"): an explicit
+      // ARIA role always overrides a native element's implicit role, so
+      // this is the item's real accessible role now, not merely a test
+      // convention. ConfirmDialog's own Cancel/Confirm buttons (below)
+      // are untouched by this and still expose role="button".
+      const deleteButton = page.getByRole("menuitem", { name: "Delete" });
       await expect(deleteButton).toBeVisible();
 
       await deleteButton.click();
@@ -123,7 +129,7 @@ test.describe("Invoice table workflow (Tables Improvement Slice A)", () => {
 
       const row = page.getByRole("row", { name: new RegExp(invoice.invoiceNumber) });
       await row.getByRole("button", { name: `More actions for invoice ${invoice.invoiceNumber}` }).click();
-      await page.getByRole("button", { name: "Delete" }).click();
+      await page.getByRole("menuitem", { name: "Delete" }).click();
       await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
 
       await expect(page.getByText("Invoice deleted")).toBeVisible();
@@ -376,7 +382,7 @@ test.describe("Invoice table workflow (Tables Improvement Slice A)", () => {
       const menuTrigger = card.getByRole("button", { name: `More actions for invoice ${draft.invoiceNumber}` });
       await expect(menuTrigger).toBeVisible();
       await menuTrigger.click();
-      await expect(page.getByRole("button", { name: "Delete" })).toBeVisible();
+      await expect(page.getByRole("menuitem", { name: "Delete" })).toBeVisible();
       await page.keyboard.press("Escape");
 
       // Quick chips remain usable (wrap, never cause page overflow).

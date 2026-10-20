@@ -93,9 +93,17 @@ test.describe("Contract table workflow (Tables Improvement Slice B)", () => {
       await expect(menuTrigger).toBeVisible();
       await menuTrigger.click();
 
-      const archiveButton = page.getByRole("button", { name: "Archive" });
+      // Accessibility Improvement A1 — the open menu's own real controls
+      // now correctly expose role="menuitem" (an explicit ARIA role
+      // overrides the native <button>'s own implicit role); ConfirmDialog's
+      // own Cancel/Archive buttons below are untouched and still
+      // role="button". "Restore" is likewise checked as a menuitem — it
+      // genuinely never exists as a "button" anymore, so leaving that
+      // role unchanged here would make this assertion trivially true
+      // regardless of whether Restore is actually absent from the menu.
+      const archiveButton = page.getByRole("menuitem", { name: "Archive" });
       await expect(archiveButton).toBeVisible();
-      await expect(page.getByRole("button", { name: "Restore" })).toHaveCount(0);
+      await expect(page.getByRole("menuitem", { name: "Restore" })).toHaveCount(0);
 
       await archiveButton.click();
       const dialog = page.getByRole("dialog");
@@ -115,7 +123,7 @@ test.describe("Contract table workflow (Tables Improvement Slice B)", () => {
 
       const row = page.getByRole("row", { name: new RegExp(contract.contractNumber) });
       await row.getByRole("button", { name: `More actions for contract ${contract.contractNumber}` }).click();
-      await page.getByRole("button", { name: "Archive" }).click();
+      await page.getByRole("menuitem", { name: "Archive" }).click();
       await page.getByRole("dialog").getByRole("button", { name: "Archive" }).click();
 
       await expect(page.getByText("Contract archived")).toBeVisible();
@@ -131,7 +139,9 @@ test.describe("Contract table workflow (Tables Improvement Slice B)", () => {
       await expect(row.getByRole("link", { name: "Edit" })).toHaveCount(0);
 
       await row.getByRole("button", { name: `More actions for contract ${contract.contractNumber}` }).click();
-      await expect(page.getByRole("button", { name: "Archive" })).toBeVisible();
+      // Accessibility Improvement A1 — see this spec's own earlier
+      // identical comment.
+      await expect(page.getByRole("menuitem", { name: "Archive" })).toBeVisible();
       // No lifecycle row controls of any kind.
       await expect(page.getByRole("button", { name: "Send contract" })).toHaveCount(0);
       await expect(page.getByRole("button", { name: "Record acceptance" })).toHaveCount(0);
@@ -147,8 +157,11 @@ test.describe("Contract table workflow (Tables Improvement Slice B)", () => {
       await expect(row.getByRole("link", { name: "Edit" })).toHaveCount(0);
 
       await row.getByRole("button", { name: `More actions for contract ${contract.contractNumber}` }).click();
-      await expect(page.getByRole("button", { name: "Restore" })).toBeVisible();
-      await expect(page.getByRole("button", { name: "Archive" })).toHaveCount(0);
+      // Accessibility Improvement A1 — see this spec's own earlier
+      // identical comment on why both the positive and negative
+      // assertion here must target role="menuitem".
+      await expect(page.getByRole("menuitem", { name: "Restore" })).toBeVisible();
+      await expect(page.getByRole("menuitem", { name: "Archive" })).toHaveCount(0);
     });
 
     test("Escape closes the open menu and returns focus to the trigger", async ({ page }) => {
@@ -343,7 +356,9 @@ test.describe("Contract table workflow (Tables Improvement Slice B)", () => {
       const menuTrigger = card.getByRole("button", { name: `More actions for contract ${draft.contractNumber}` });
       await expect(menuTrigger).toBeVisible();
       await menuTrigger.click();
-      await expect(page.getByRole("button", { name: "Archive" })).toBeVisible();
+      // Accessibility Improvement A1 — see this spec's own earlier
+      // identical comment.
+      await expect(page.getByRole("menuitem", { name: "Archive" })).toBeVisible();
       await page.keyboard.press("Escape");
 
       await expect(page.getByRole("link", { name: "Draft" })).toBeVisible();

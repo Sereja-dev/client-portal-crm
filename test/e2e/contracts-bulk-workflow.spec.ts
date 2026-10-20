@@ -156,8 +156,11 @@ test.describe("Contract bulk workflow (Tables Improvement Slice C)", () => {
     await expect(row.getByRole("checkbox")).toHaveCount(0);
     await expect(page.getByRole("region", { name: "Bulk actions" })).toHaveCount(0);
     // Restore remains available via the existing per-row overflow menu.
+    // Accessibility Improvement A1 — the open menu's own real control now
+    // correctly exposes role="menuitem" (an explicit ARIA role overrides
+    // the native <button>'s own implicit role).
     await row.getByRole("button", { name: `More actions for contract ${archived.contractNumber}` }).click();
-    await expect(page.getByRole("button", { name: "Restore" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Restore" })).toBeVisible();
   });
 
   test("changing a filter resets the selection — a stale selected id never silently survives into a new result set", async ({ page }) => {

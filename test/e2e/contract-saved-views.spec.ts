@@ -137,8 +137,11 @@ test.describe("Contract Saved Views (Tables Improvement Slice D1)", () => {
     await expect(page.getByRole("checkbox")).toHaveCount(0);
     // Existing per-row behavior (View, not Edit; Restore in the overflow menu) is unchanged.
     await expect(page.getByRole("link", { name: "View" }).first()).toBeVisible();
+    // Accessibility Improvement A1 — the open menu's own real control now
+    // correctly exposes role="menuitem" (an explicit ARIA role overrides
+    // the native <button>'s own implicit role).
     await page.getByRole("button", { name: new RegExp(`More actions for contract ${archived.contractNumber}`) }).click();
-    await expect(page.getByRole("button", { name: "Restore" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Restore" })).toBeVisible();
   });
 
   test("stale Client filter: survives a full Save -> Apply round-trip, still fail-closed -- 'Unavailable client' renders again, zero rows, never silently broadened", async ({ page }) => {

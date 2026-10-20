@@ -301,8 +301,11 @@ test.describe("Contract Column Customization (Tables Improvement Slice E2)", () 
     await expect(row).toBeVisible();
     await expect(row.getByRole("checkbox")).toHaveCount(0);
     await expect(row.getByRole("link", { name: "View" })).toBeVisible();
+    // Accessibility Improvement A1 — the open menu's own real control now
+    // correctly exposes role="menuitem" (an explicit ARIA role overrides
+    // the native <button>'s own implicit role).
     await row.getByRole("button", { name: `More actions for contract ${archived.contractNumber}` }).click();
-    await expect(page.getByRole("button", { name: "Restore" })).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: "Restore" })).toBeVisible();
   });
 
   test("stale entity filter regression: Columns remains usable with a stale client filter, and toggling/resetting a column never clears the stale intent", async ({ page }) => {

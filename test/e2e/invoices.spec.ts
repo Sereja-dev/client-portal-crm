@@ -131,7 +131,10 @@ test.describe("staff Invoice create/edit", () => {
     await expect(row.getByText("Draft")).toBeVisible();
     await expect(row.getByRole("link", { name: "Edit" })).toBeVisible();
     await row.getByRole("button", { name: `More actions for invoice ${invoiceNumber}` }).click();
-    await expect(page.getByRole("button", { name: "Delete" })).toBeVisible();
+    // Accessibility Improvement A1 — the open menu's own real control
+    // now correctly exposes role="menuitem" (an explicit ARIA role
+    // overrides the native <button>'s own implicit role).
+    await expect(page.getByRole("menuitem", { name: "Delete" })).toBeVisible();
     await page.keyboard.press("Escape");
 
     // Reopens as the EDITABLE DRAFT form (never the read-only view), with
@@ -761,7 +764,10 @@ test.describe("Duplicate-as-new-DRAFT — completing official Invoice System Sli
     const row = page.getByRole("row", { name: new RegExp(suggestedNumber) });
     await expect(row.getByRole("link", { name: "Edit" })).toBeVisible();
     await row.getByRole("button", { name: `More actions for invoice ${suggestedNumber}` }).click();
-    await expect(page.getByRole("button", { name: "Delete" })).toBeVisible();
+    // Accessibility Improvement A1 — see this spec's own earlier
+    // identical comment: the open menu's own real control now correctly
+    // exposes role="menuitem", not "button".
+    await expect(page.getByRole("menuitem", { name: "Delete" })).toBeVisible();
     await page.keyboard.press("Escape");
 
     // Source remains byte-for-byte unchanged after a real duplicate was
