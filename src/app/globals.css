@@ -242,7 +242,33 @@
      softer off-white the way body text does. */
   --text-primary: var(--foreground);
   --text-secondary: #A0A6B0;
-  --text-muted: #767C87;
+  /* Accessibility Improvement A2 — #767C87 measured below WCAG AA's
+     4.5:1 for normal text against every real background this token is
+     actually painted on in Dark mode (RecordCardField labels, Table
+     headers, FormField helper text, placeholders, EmptyState copy):
+       --surface (#1B1F26):          3.94:1
+       --surface-muted (#171A20):    4.15:1
+       --surface-recessed (#14171C): 4.28:1
+       --background (#0E1014):       4.54:1 — passes, but is the least
+                                       representative context; most
+                                       --text-muted usage actually sits
+                                       on --surface/--surface-recessed,
+                                       never the bare page background.
+     #868C97 is the smallest same-hue (no hue shift — same neutral
+     family as #767C87/#A0A6B0), same-direction lightness increase that
+     restores a safe margin above 4.5:1 on every one of those real
+     backgrounds, verified against the exact WCAG relative-luminance
+     formula:
+       --surface:          4.89:1
+       --surface-muted:    5.15:1
+       --surface-recessed: 5.31:1
+       --background:       5.63:1
+     Still clearly quieter than --text-secondary (6.75:1 on --surface) —
+     this reads as a modest lightness step, not a collapse into the
+     secondary tier. Light mode's own --text-muted (#6B7280, line 61)
+     already passes 4.5:1 on its own real backgrounds and is
+     deliberately left unchanged. */
+  --text-muted: #868C97;
   --text-inverse: #ffffff;
 
   /* BORDERS — light-on-dark, low opacity; "hairline" stays the
