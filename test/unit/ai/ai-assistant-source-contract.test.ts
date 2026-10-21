@@ -98,10 +98,27 @@ describe("ai-assistant-panel.tsx — source-contract wiring", () => {
 });
 
 describe("ai-assistant-trigger.tsx — source-contract wiring", () => {
-  it("renders a genuinely disabled native button when unavailable — no working click path", () => {
-    const unavailableBlock = TRIGGER_SOURCE.slice(TRIGGER_SOURCE.indexOf("if (!available)"), TRIGGER_SOURCE.indexOf("return (\n    <>"));
-    expect(unavailableBlock).toMatch(/\bdisabled\b/);
+  // Unfinished Features Cleanup (Block 17) — the unavailable branch no
+  // longer renders any button/affordance at all (Product decision: a
+  // permanently-disabled control is itself the unfinished-looking
+  // surface, not merely its own "coming soon" wording). This slices the
+  // exact same `if (!available) { ... }` block the prior version of
+  // this test sliced, and asserts it is now nothing but `return null;`
+  // — never a disabled button, never an onClick, never a "coming soon"
+  // string surviving anywhere in the file.
+  it("renders nothing at all when unavailable — no disabled button, no click path, no 'coming soon' wording anywhere in the file", () => {
+    const unavailableBlockStart = TRIGGER_SOURCE.indexOf("if (!available)");
+    const unavailableBlockEnd = TRIGGER_SOURCE.indexOf("\n\n  return (", unavailableBlockStart);
+    const unavailableBlock = TRIGGER_SOURCE.slice(unavailableBlockStart, unavailableBlockEnd);
+    expect(unavailableBlock).toMatch(/return\s+null;/);
+    expect(unavailableBlock).not.toMatch(/\bdisabled\b/);
     expect(unavailableBlock).not.toMatch(/onClick/);
+    // Comment-stripped (this file's own stripComments(), defined below) —
+    // the doc comment above this component is explicitly ALLOWED to
+    // mention the old, removed "coming soon" string in prose while
+    // explaining what was removed and why (not user-visible); only the
+    // real, rendered markup must never reintroduce it.
+    expect(stripComments(TRIGGER_SOURCE).toLowerCase()).not.toContain("coming soon");
   });
 
   it("never imports server-only AI internals directly", () => {

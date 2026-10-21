@@ -11,26 +11,25 @@ import { AiAssistantTrigger } from "@/components/ai/ai-assistant-trigger";
  * pipeline; its one real limitation (no event handlers in static markup)
  * is covered instead by the companion source-contract test and the E2E
  * suite (test/e2e/ai-assistant-drawer.spec.ts).
+ *
+ * Unfinished Features Cleanup (Block 17) — the `available=false` branch
+ * previously rendered a permanently-disabled "AI Assistant (coming
+ * soon)" button; Product decided that's exactly the kind of
+ * unfinished-looking surface this block exists to eliminate, so this
+ * branch now renders nothing at all. The `available=true` describe
+ * block below is unchanged from before this slice — the real, working
+ * feature's own coverage is not weakened.
  */
 
 describe("AiAssistantTrigger — available=false (Production, no provider yet)", () => {
   const html = renderToStaticMarkup(<AiAssistantTrigger available={false} />);
 
-  it("renders a genuinely disabled native button", () => {
-    expect(html).toMatch(/<button[^>]*\bdisabled=""/);
+  it("renders nothing at all — no disabled button, no affordance of any kind", () => {
+    expect(html).toBe("");
   });
 
-  it("communicates 'coming soon' without exposing mock/TEST_MODE/provider wording", () => {
-    expect(html.toLowerCase()).toContain("coming soon");
-    expect(html.toLowerCase()).not.toContain("mock");
-    expect(html.toLowerCase()).not.toContain("test_mode");
-    expect(html.toLowerCase()).not.toContain("provider");
-    expect(html.toLowerCase()).not.toContain("vendor");
-    expect(html.toLowerCase()).not.toContain("config");
-  });
-
-  it("has an accessible label communicating unavailability", () => {
-    expect(html).toContain('aria-label="AI Assistant (coming soon)"');
+  it("never mentions 'coming soon' — the old disabled placeholder is gone entirely, not merely hidden", () => {
+    expect(html.toLowerCase()).not.toContain("coming soon");
   });
 
   it("never renders the panel/dialog at all when unavailable", () => {

@@ -49,8 +49,21 @@ export function PlanCard({
         <li>{formatFileSize(plan.maxStorageBytes)} storage</li>
       </ul>
 
-      {/* No fake dollar amounts — this stage's own §7 rule: only ever this generic copy until a real provider is connected. */}
-      <p className="text-text-muted mt-4 text-xs">Pricing configured by the product owner.</p>
+      {/*
+        Unfinished Features Cleanup (Block 17) — this card previously
+        showed a generic "Pricing configured by the product owner."
+        line here instead of a real dollar amount (this stage's own §7
+        rule: no fake pricing until a real provider is connected). This
+        card is now only ever reached once PlansSection's own top-level
+        gate (plans-section.tsx) has already confirmed a provider IS
+        configured — so that line would be reachable on a genuinely
+        working billing flow, which is exactly the internal-sounding
+        copy Product decided must never reach ordinary Staff users,
+        configured or not. No replacement price line is added — no real
+        price exists in this view-model to show (PlanCardViewModel
+        carries no price field at all), and inventing placeholder copy
+        here would be the same class of problem this removal fixes.
+      */}
 
       <div className="mt-4">
         <PlanActionButton

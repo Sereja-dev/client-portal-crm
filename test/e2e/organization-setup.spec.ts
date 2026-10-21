@@ -436,32 +436,39 @@ test.describe("Payment Details", () => {
   });
 });
 
+/**
+ * Unfinished Features Cleanup (Block 17) — the custom-domain input/save
+ * form (OWNER-only) and the read-only custom-domain status display
+ * (everyone else) were both removed: no DNS/domain verification or
+ * routing of any kind exists anywhere in this app, so every custom
+ * domain a Staff user could previously save here sat at "Pending"
+ * forever with zero real effect. Both roles now see the exact same
+ * page — the real, always-current generated subdomain, nothing else.
+ * The underlying backend (updateDomainSettingsAction, getDomainSettings,
+ * OrganizationDomainSettings) is unchanged and still has its own direct
+ * integration coverage in test/integration/organization-setup/
+ * domain-settings.test.ts — this block only proves what the Staff-facing
+ * PAGE itself now renders.
+ */
 test.describe("Domain Settings", () => {
-  test("OWNER sees the generated subdomain and can save a custom domain", async ({ page, context, baseURL }) => {
+  test("OWNER sees only the generated subdomain — no custom-domain input, no Save action", async ({ page, context, baseURL }) => {
     await actAsMember(context, baseURL!, fixtures.owner, fixtures.orgA.id);
     await page.goto("/settings/domain");
     await expect(page.getByRole("heading", { name: "Domain settings", level: 1 })).toBeVisible();
     await expect(page.getByText(`${fixtures.orgA.slug}.`)).toBeVisible();
 
-    const customDomain = `${fixtures.runId}-custom.example.com`;
-    await page.getByLabel("Custom domain").fill(customDomain);
-    await Promise.all([
-      page.waitForResponse((r) => r.url().includes("/settings/domain") && r.request().method() === "POST"),
-      page.getByRole("button", { name: "Save domain settings" }).click(),
-    ]);
-    await expect(page.getByText("Domain settings saved.")).toBeVisible();
-    await expect(page).not.toHaveURL(/\/login/);
-
-    await page.reload();
-    await expect(page).toHaveURL(/\/settings\/domain/);
-    await expect(page.getByLabel("Custom domain")).toHaveValue(customDomain);
+    await expect(page.getByLabel("Custom domain")).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Save domain settings" })).toHaveCount(0);
+    await expect(page.getByText(/domain verification/i)).toHaveCount(0);
+    await expect(page.getByText(/only the organization owner/i)).toHaveCount(0);
   });
 
-  test("MEMBER can view the generated subdomain but cannot edit", async ({ page, context, baseURL }) => {
+  test("MEMBER sees the exact same read-only page as OWNER — no custom-domain input, no Save action", async ({ page, context, baseURL }) => {
     await actAsMember(context, baseURL!, fixtures.member, fixtures.orgA.id);
     await page.goto("/settings/domain");
     await expect(page.getByText(`${fixtures.orgA.slug}.`)).toBeVisible();
-    await expect(page.getByText("Only the organization owner can update domain settings.")).toBeVisible();
+
+    await expect(page.getByLabel("Custom domain")).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Save domain settings" })).toHaveCount(0);
   });
 });

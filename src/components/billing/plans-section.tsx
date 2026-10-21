@@ -1,17 +1,32 @@
 import type { BillingPageViewModel } from "@/lib/billing/view-model";
 import { PlanCard } from "./plan-card";
 
+/**
+ * Unfinished Features Cleanup (Block 17) — this section used to render
+ * unconditionally, with an operator-instruction subtitle ("Connect a
+ * billing provider to publish pricing.") standing in for real pricing
+ * whenever no provider was configured. Product decided that's exactly
+ * the kind of unfinished-looking surface this block exists to eliminate
+ * — a Staff user should never see plan cards with a dead-end Upgrade
+ * button and internal setup instructions. The condition is placed here,
+ * at this component's own top — the highest boundary that can decide
+ * not to render the whole block at once — rather than scattered across
+ * PlanCard/PlanActionButton, so the entire unfinished Plans block
+ * disappears cleanly in one place. When a provider IS configured, this
+ * renders exactly as before this slice: the real plan cards, with their
+ * own real, working Upgrade/Downgrade action (see plan-action-button.tsx,
+ * unchanged).
+ */
 export function PlansSection({ data }: { data: BillingPageViewModel }) {
+  if (!data.providerAvailability.configured) {
+    return null;
+  }
+
   return (
     <section aria-labelledby="billing-plans-heading">
       <h2 id="billing-plans-heading" className="text-text-primary text-base font-semibold">
         Plans
       </h2>
-      <p className="text-text-muted mt-1 text-sm">
-        {data.providerAvailability.configured
-          ? ""
-          : "Connect a billing provider to publish pricing."}
-      </p>
       <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
         {data.availablePlans.map((plan) => (
           <PlanCard key={plan.planKey} plan={plan} permissions={data.permissions} />

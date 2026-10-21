@@ -27,22 +27,24 @@ import { AiAssistantPanel, type AiAssistantPanelHandle } from "./ai-assistant-pa
  * else from src/lib/ai/ except the panel's own client.ts contract
  * (transitively, via AiAssistantPanel) — it has no way to know, and no
  * reason to care, WHY the feature is or isn't available.
+ *
+ * Unfinished Features Cleanup (Block 17) — when `available` is false
+ * (Production's own real, permanent state today: neither AI_PROVIDER nor
+ * AQENRA_OPENAI_API_KEY is set there), this renders nothing at all. A
+ * disabled "AI Assistant (coming soon)" button previously stood in here —
+ * removed per Product decision: a permanently-disabled control
+ * unconditionally shown to every Staff user is exactly the kind of
+ * unfinished-looking surface this block exists to eliminate, and the
+ * header reads cleaner with one fewer always-dead control between
+ * Search and Notifications. `available={true}` is completely untouched
+ * below — the real, working feature (and everything it depends on) is
+ * not part of this change.
  */
 export function AiAssistantTrigger({ available }: { available: boolean }) {
   const panelHandleRef = useRef<AiAssistantPanelHandle>(null);
 
   if (!available) {
-    return (
-      <button
-        type="button"
-        disabled
-        aria-label="AI Assistant (coming soon)"
-        className="border-border-strong text-text-muted flex cursor-not-allowed items-center gap-2 rounded-md border px-3 py-1.5 text-sm opacity-60"
-      >
-        <SparkleIcon className="h-4 w-4 shrink-0" />
-        <span className="hidden sm:inline">AI Assistant</span>
-      </button>
-    );
+    return null;
   }
 
   return (
