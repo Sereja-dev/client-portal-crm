@@ -75,8 +75,15 @@ test.describe("ConfirmDialog — Client delete (DeleteButton, useState/try-catch
       await expect(row).toBeVisible();
 
       // A. Dialog opening — real trigger, real accessible dialog, bounded
-      // content naming this exact client, both controls present.
-      await row.getByRole("button", { name: "Delete" }).click();
+      // content naming this exact client, both controls present. Delete
+      // lives behind the row's own RowActionMenu ("..." kebab) — its
+      // panel is portaled onto document.body (row-action-menu.tsx), so
+      // the "Delete" menuitem itself is looked up page-scoped, not
+      // row-scoped, once the menu is open — same pattern already
+      // established in row-action-menu-keyboard.spec.ts and
+      // mobile-row-actions-rollout.spec.ts.
+      await row.getByRole("button", { name: `More actions for client ${clientName}` }).click();
+      await page.getByRole("menuitem", { name: "Delete" }).click();
       const dialog = page.getByRole("dialog");
       await expect(dialog).toBeVisible();
       await expect(dialog.getByRole("heading", { name: "Delete client" })).toBeVisible();
@@ -109,7 +116,11 @@ test.describe("ConfirmDialog — Client delete (DeleteButton, useState/try-catch
       // Cancel could not have accidentally submitted the mutation above:
       // the record above is still proven present before this step even
       // begins.
-      await page.getByRole("row", { name: new RegExp(clientName) }).getByRole("button", { name: "Delete" }).click();
+      await page
+        .getByRole("row", { name: new RegExp(clientName) })
+        .getByRole("button", { name: `More actions for client ${clientName}` })
+        .click();
+      await page.getByRole("menuitem", { name: "Delete" }).click();
       const reopenedDialog = page.getByRole("dialog");
       await expect(reopenedDialog).toBeVisible();
       await Promise.all([
@@ -290,15 +301,30 @@ test.describe("Dialog centering (Phase 3.1) — ConfirmDialog and MarkLeadLostDi
       // actually has an ARIA row role — the mobile RecordCardList's own
       // <li> cards (the only ones visible below the xl breakpoint) do
       // not, so a role-based lookup would find nothing once the
-      // viewport is resized below.
-      await page.locator("tr, li").filter({ hasText: clientName }).getByRole("button", { name: "Delete" }).first().click();
+      // viewport is resized below. Delete lives behind the row/card's own
+      // RowActionMenu ("..." kebab); its panel is portaled onto
+      // document.body, so the "Delete" menuitem itself is looked up
+      // page-scoped once the menu is open.
+      await page
+        .locator("tr, li")
+        .filter({ hasText: clientName })
+        .getByRole("button", { name: `More actions for client ${clientName}` })
+        .first()
+        .click();
+      await page.getByRole("menuitem", { name: "Delete" }).click();
       await expect(page.getByRole("dialog")).toBeVisible();
       await expectDialogCentered(page);
       await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
 
       await page.setViewportSize({ width: 390, height: 844 });
       await page.reload();
-      await page.locator("tr, li").filter({ hasText: clientName }).getByRole("button", { name: "Delete" }).first().click();
+      await page
+        .locator("tr, li")
+        .filter({ hasText: clientName })
+        .getByRole("button", { name: `More actions for client ${clientName}` })
+        .first()
+        .click();
+      await page.getByRole("menuitem", { name: "Delete" }).click();
       await expect(page.getByRole("dialog")).toBeVisible();
       await expectDialogCentered(page);
       await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
