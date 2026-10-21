@@ -575,27 +575,63 @@ test.describe("Client Portal identity", () => {
 });
 
 test.describe("Onboarding checklist integration", () => {
-  test("the Setup Wizard steps appear in the existing dashboard checklist, right after Welcome", async ({ page, context, baseURL }) => {
+  test("a freshly-provisioned organization reaches the Dashboard with the current onboarding card initialized at 0 of 5, Company Profile first", async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    // Onboarding Redesign — this test previously asserted the pre-redesign
+    // long <ul>/<li> checklist (src/lib/onboarding/steps.ts's legacy
+    // 12-step catalog), which the Dashboard no longer renders at all (see
+    // src/components/onboarding/onboarding-card.tsx's own doc comment:
+    // "never a long list underneath"). It now proves the current
+    // cross-system contract instead: organization provisioning produces a
+    // real, fresh workspace whose Dashboard shows the short 5-step
+    // OnboardingCard (src/lib/onboarding/visible-steps.ts), not a
+    // rendering smoke test. The full behavior matrix (partial progress,
+    // skip/dismiss, role-gated CTAs, ARIA progressbar semantics) is
+    // already exhaustively covered by test/e2e/onboarding-ui.spec.ts and
+    // is intentionally not duplicated here.
+    //
     // A dedicated, fresh organization — not fixtures.orgA, which other
     // tests in this same file progressively complete Company/Payment/
-    // Domain setup for (their own OWNER flows above) and whose checklist
-    // could otherwise already be fully complete/hidden by the time this
-    // test runs, an ordering coupling this test must not depend on.
+    // Domain setup for (their own OWNER flows above) and whose onboarding
+    // card could otherwise already be fully complete/hidden by the time
+    // this test runs, an ordering coupling this test must not depend on.
     const org = await dbQuery<{ id: string }>("organization", "create", {
-      data: { name: `E2E Setup Wizard Checklist ${fixtures.runId}`, slug: `e2e-setup-wizard-checklist-${fixtures.runId}` },
+      data: { name: `E2E Onboarding Integration ${fixtures.runId}`, slug: `e2e-onboarding-integration-${fixtures.runId}` },
     });
     await dbQuery("membership", "create", { data: { userId: fixtures.owner.id, organizationId: org.id, role: "OWNER" } });
 
     try {
       await actAsMember(context, baseURL!, fixtures.owner, org.id);
       await page.goto("/dashboard");
-      // Scoped to the checklist's own row (not a bare page-wide text
-      // search): Stage 7.1.1's "Up next" completion summary also quotes
-      // these same step labels in its own text, so an unscoped
-      // page.getByText(label) now matches both and violates strict mode.
-      for (const label of ["Set up your company profile", "Add payment receiving details", "Review your domain settings"]) {
-        await expect(page.getByRole("listitem").filter({ hasText: label })).toBeVisible();
-      }
+
+      const onboardingCard = page.getByRole("region", { name: "Getting started" });
+      await expect(onboardingCard).toBeVisible();
+
+      // Progress is truthful for a genuinely fresh workspace.
+      await expect(onboardingCard.getByText("0 of 5 complete")).toBeVisible();
+      await expect(onboardingCard.getByRole("progressbar", { name: "Onboarding progress" })).toHaveAttribute(
+        "aria-valuenow",
+        "0",
+      );
+
+      // Current exact copy for the first next step — not the obsolete
+      // legacy label ("Set up your company profile").
+      await expect(onboardingCard.getByText("Set up company profile")).toBeVisible();
+
+      // The old long checklist structure is gone: scoped to the
+      // onboarding card itself (not a page-wide claim — unrelated
+      // Dashboard content may legitimately use lists elsewhere).
+      await expect(onboardingCard.getByRole("listitem")).toHaveCount(0);
+
+      // "Want to explore first?" / "Start with sample data" is a
+      // legitimate fresh-workspace affordance, not Demo-state leakage —
+      // the real Demo banner (src/components/layout/demo-banner.tsx) is
+      // a distinct, separate element this real (non-demo) organization
+      // must not render.
+      await expect(page.getByRole("status").filter({ hasText: "Demo workspace" })).toHaveCount(0);
     } finally {
       await dbQuery("membership", "deleteMany", { where: { organizationId: org.id } });
       await dbQuery("organization", "delete", { where: { id: org.id } });
