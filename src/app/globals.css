@@ -107,6 +107,21 @@
   --info: #2A5C99;
   --info-subtle: #EAF1F9;
 
+  /* Visual Design Improvement V1 — dedicated SOLID destructive-button
+     tokens, deliberately separate from --danger/--danger-subtle above
+     (those are calibrated as a text/border color — see button.tsx's own
+     dangerOutline/danger variant comments for why a solid white-on-fill
+     background needs its own pair instead). Same hue family as --danger
+     (a restrained, non-neon red), chosen so white/--text-inverse foreground
+     clears WCAG AA's 4.5:1 for normal text with margin, verified against
+     the exact WCAG relative-luminance formula:
+       --danger-button (#DC2626) white-on-fill:       4.83:1
+       --danger-button-hover (#B91C1C) white-on-fill:  6.47:1
+     Hover is the darker of the two here, matching Light's existing
+     --accent -> --accent-hover direction (darker on hover). */
+  --danger-button: #DC2626;
+  --danger-button-hover: #B91C1C;
+
   /*
    * INTERACTIVE — plain custom properties only (var(--selected) /
    * var(--hover) / var(--disabled), or a Tailwind arbitrary value like
@@ -334,6 +349,23 @@
   --info: #6FA8E8;
   --info-subtle: rgba(111, 168, 232, 0.14);
 
+  /* Visual Design Improvement V1 — same reasoning as Light's own
+     --danger-button comment: --danger here (#E8756A, a light coral) is
+     calibrated as TEXT on a near-black surface, not as a solid
+     white-on-fill button background — white text on #E8756A measures
+     well below 4.5:1. Reuses the exact same two Light hex values
+     (#DC2626/#B91C1C), just with their base/hover roles swapped, so
+     Dark gets LIGHTER on hover — matching Dark's existing
+     --accent -> --accent-hover direction (the opposite of Light's
+     darker-on-hover) — while staying comfortably clear of neon/
+     over-saturated (same restrained hue as Light's own value, not a
+     brighter one), verified against the exact WCAG relative-luminance
+     formula:
+       --danger-button (#B91C1C) white-on-fill:       6.47:1
+       --danger-button-hover (#DC2626) white-on-fill:  4.83:1 */
+  --danger-button: #B91C1C;
+  --danger-button-hover: #DC2626;
+
   /* INTERACTIVE — selected stays an alias of accent-subtle, same as
      Light (same role, not a concept that should diverge). hover is a
      restrained translucent white wash rather than a named surface hex,
@@ -413,6 +445,11 @@
   --color-danger-subtle: var(--danger-subtle);
   --color-info: var(--info);
   --color-info-subtle: var(--info-subtle);
+
+  /* Visual Design Improvement V1 — see the :root/Dark SEMANTIC comments
+     above for why these are dedicated tokens, separate from --danger. */
+  --color-danger-button: var(--danger-button);
+  --color-danger-button-hover: var(--danger-button-hover);
 }
 
 body {

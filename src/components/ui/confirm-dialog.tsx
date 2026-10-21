@@ -2,6 +2,7 @@
 
 import { useId, useImperativeHandle, useRef, type ReactNode, type Ref } from "react";
 import { DIALOG_CENTER_CLASSES } from "./dialog-classes";
+import { Button } from "./button";
 
 export type ConfirmDialogHandle = {
   open: () => void;
@@ -73,28 +74,39 @@ export function ConfirmDialog({
         >
           {cancelLabel}
         </button>
-        <button
-          type="button"
-          onClick={() => {
-            dialogRef.current?.close();
-            onConfirm();
-          }}
-          // The destructive fill is a literal, deliberately theme-invariant
-          // red — NOT the --danger token, which is calibrated as a text/
-          // border color (legible on both Light and Dark surfaces), not a
-          // solid white-on-fill button background (Dark's --danger is a
-          // light coral; white text on it fails contrast — see this PR's
-          // own audit notes). bg-red-600 already renders identically, and
-          // legibly, regardless of the surrounding page's theme, so it
-          // needs no token migration here.
-          className={`rounded-md px-4 py-2 text-sm font-medium text-white transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 ${
-            destructive
-              ? "bg-red-600 hover:bg-red-700 focus-visible:ring-red-600"
-              : "bg-accent hover:bg-accent-hover focus-visible:ring-focus-ring"
-          }`}
-        >
-          {confirmLabel}
-        </button>
+        {destructive ? (
+          // Visual Design Improvement V1 — migrated off the previous
+          // literal bg-red-600/hover:bg-red-700/focus-visible:ring-red-600
+          // to the shared Button `danger` variant (button.tsx), backed by
+          // the new dedicated --danger-button/-hover tokens (globals.css)
+          // rather than --danger itself (calibrated as text/border, not a
+          // solid fill — see that variant's own comment). The one visible
+          // delta from before: the focus ring is now the same shared
+          // --focus-ring every other Button variant already uses, instead
+          // of a one-off red ring — a normalization, not a regression
+          // (still clearly visible in both Light and Dark).
+          <Button
+            type="button"
+            variant="danger"
+            onClick={() => {
+              dialogRef.current?.close();
+              onConfirm();
+            }}
+          >
+            {confirmLabel}
+          </Button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              dialogRef.current?.close();
+              onConfirm();
+            }}
+            className="focus-visible:ring-focus-ring rounded-md bg-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+          >
+            {confirmLabel}
+          </button>
+        )}
       </div>
     </dialog>
   );

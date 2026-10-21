@@ -40,6 +40,28 @@ const VARIANT_CLASSES = {
   // danger-subtle, the token's own designed "wash over an opaque surface"
   // pairing (the same pattern StatusBadge already relies on).
   dangerOutline: "border border-border-strong bg-surface text-danger hover:bg-danger-subtle",
+  // Visual Design Improvement V1 — low-emphasis action: no resting
+  // background/border at all (a true "ghost"), text-text-secondary
+  // matching the same resting weight Sidebar's own inactive links
+  // already use. hover:bg-[var(--hover)] is the identical wash
+  // secondary/Sidebar/Appearance-selector already rely on — never a new
+  // hover token. The shared focus-visible ring and disabled treatment
+  // below (common to every variant) are untouched, so this needs nothing
+  // variant-specific for either.
+  ghost: "text-text-secondary hover:bg-[var(--hover)]",
+  // Visual Design Improvement V1 — a SOLID destructive action (the
+  // ConfirmDialog migration below is this variant's first consumer).
+  // Deliberately NOT --danger/--danger-subtle: those are calibrated as a
+  // text/border color, not a white-on-fill button background (Dark's
+  // --danger is a light coral — white text on it fails contrast, see
+  // dangerOutline's own comment above). --danger-button/-hover are two
+  // new, dedicated tokens (globals.css) calibrated the same way every
+  // other semantic pair in this app already is: measured against the
+  // exact WCAG relative-luminance formula, white-on-fill, in both
+  // themes. text-inverse (not a literal white) is the same "text on a
+  // vivid solid fill" role globals.css's own Dark SEMANTIC comment
+  // already documents for primary's white text.
+  danger: "bg-danger-button text-text-inverse hover:bg-danger-button-hover",
 } as const;
 
 export type ButtonVariant = keyof typeof VARIANT_CLASSES;
