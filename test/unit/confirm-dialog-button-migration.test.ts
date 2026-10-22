@@ -11,6 +11,13 @@ import { describe, expect, it } from "vitest";
  * proves only the one thing that test suite cannot see directly — which
  * concrete implementation (the shared Button primitive vs. a raw literal
  * className) the destructive branch actually renders through.
+ *
+ * Visual Design Improvement V2 — ConfirmDialog's own native <dialog>/
+ * DIALOG_CENTER_CLASSES markup moved into the new shared DialogShell
+ * (dialog-shell.tsx); the "native dialog architecture unchanged" check
+ * below now asserts ConfirmDialog renders <DialogShell> (not a literal
+ * <dialog>) — dialog-shell-contract.test.ts separately proves DialogShell
+ * itself still carries the real <dialog>/DIALOG_CENTER_CLASSES markup.
  */
 
 const source = readFileSync("src/components/ui/confirm-dialog.tsx", "utf8");
@@ -44,9 +51,14 @@ describe("ConfirmDialog — destructive action migrated to the shared Button `da
     expect(cancelButtonMatch![0]).toContain("hover:bg-[var(--hover)]");
   });
 
-  it("native <dialog> architecture (centering, labelling, backdrop-close) is unchanged", () => {
-    expect(source).toMatch(/<dialog\b/);
-    expect(source).toMatch(/DIALOG_CENTER_CLASSES/);
+  it("renders via the shared DialogShell (native <dialog>/DIALOG_CENTER_CLASSES now live there — see dialog-shell-contract.test.ts), with labelling/backdrop-close/showModal unchanged on ConfirmDialog's own side", () => {
+    expect(source).toMatch(/import\s*\{[^}]*\bDialogShell\b[^}]*\}\s*from\s*"\.\/dialog-shell"/);
+    expect(renderedSource).toMatch(/<DialogShell\b/);
+    // Comment-stripped: this file's own top doc comment legitimately
+    // describes ConfirmDialog as "built on the native <dialog> element"
+    // in prose — only the real rendered markup must never reintroduce a
+    // literal <dialog> tag now that DialogShell owns it.
+    expect(renderedSource).not.toMatch(/<dialog\b/);
     expect(source).toMatch(/aria-labelledby=\{titleId\}/);
     expect(source).toMatch(/aria-describedby=\{descriptionId\}/);
     expect(source).toMatch(/showModal\(\)/);

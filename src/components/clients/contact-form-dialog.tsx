@@ -1,7 +1,8 @@
 "use client";
 
 import { useId, type RefObject } from "react";
-import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
+import { DialogShell, DialogTitle } from "@/components/ui/dialog-shell";
+import { CloseIcon } from "@/components/ui/icons";
 import { ContactForm, type ContactFormDefaults } from "./contact-form";
 import type { ClientContactFormState } from "@/types";
 
@@ -43,27 +44,25 @@ export function ContactFormDialog({
   const titleId = useId();
 
   return (
-    <dialog
+    <DialogShell
       ref={dialogRef}
+      maxWidth="md"
       aria-labelledby={titleId}
       onClick={(event) => {
         if (event.target === event.currentTarget) {
           (event.currentTarget as HTMLDialogElement).close();
         }
       }}
-      className={`border-border-default bg-surface w-full max-w-md rounded-lg border p-6 shadow-xl backdrop:bg-black/40 ${DIALOG_CENTER_CLASSES}`}
     >
       <div className="mb-4 flex items-center justify-between">
-        <h2 id={titleId} className="text-text-primary text-base font-semibold">
-          {title}
-        </h2>
+        <DialogTitle id={titleId}>{title}</DialogTitle>
         <button
           type="button"
           onClick={(event) => (event.currentTarget.closest("dialog") as HTMLDialogElement | null)?.close()}
           aria-label="Close"
           className="text-text-muted focus-visible:ring-focus-ring rounded p-1 hover:text-text-secondary focus:outline-none focus-visible:ring-2"
         >
-          ✕
+          <CloseIcon className="h-4 w-4" />
         </button>
       </div>
       <ContactForm
@@ -73,6 +72,6 @@ export function ContactFormDialog({
         isPrimaryContact={isPrimaryContact}
         onSuccess={() => dialogRef.current?.close()}
       />
-    </dialog>
+    </DialogShell>
   );
 }

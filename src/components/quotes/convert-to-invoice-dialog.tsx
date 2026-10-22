@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { FormField } from "@/components/ui/form-field";
 import { Button } from "@/components/ui/button";
-import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
+import { DialogShell, DialogTitle, DialogDescription, DialogActions } from "@/components/ui/dialog-shell";
 import { useToast } from "@/components/toast/toast-provider";
 import type { ConvertQuoteToInvoiceResult } from "@/app/(dashboard)/quotes/actions";
 
@@ -121,7 +121,7 @@ export function ConvertToInvoiceDialog({
   }
 
   return (
-    <dialog
+    <DialogShell
       ref={dialogRef}
       aria-labelledby={titleId}
       onClick={(event) => {
@@ -129,17 +129,19 @@ export function ConvertToInvoiceDialog({
           dialogRef.current?.close();
         }
       }}
-      className={`border-border-default bg-surface w-full max-w-sm rounded-lg border p-6 shadow-xl backdrop:bg-black/40 ${DIALOG_CENTER_CLASSES}`}
     >
-      <h2 id={titleId} className="text-text-primary text-base font-semibold">
-        Convert to invoice
-      </h2>
-      <p className="text-text-secondary mt-2 text-sm">
+      <DialogTitle id={titleId}>Convert to invoice</DialogTitle>
+      <DialogDescription>
         Creates a new draft invoice from this quote&rsquo;s own totals and line items. The client and amounts are carried
         over automatically.
-      </p>
+      </DialogDescription>
 
-      <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+      {/* Visual Design Improvement V2 — space-y-4 scoped to this inner
+          div, not <form> itself, so it never shares a margin-top utility
+          with DialogActions' own mt-6 below (see TaskQuickLogDialog's
+          identical comment for the full reasoning). */}
+      <form onSubmit={handleSubmit} className="mt-4">
+        <div className="space-y-4">
         <FormField label="Invoice number" htmlFor={numberFieldId} required error={numberError}>
           <Input
             id={numberFieldId}
@@ -164,8 +166,9 @@ export function ConvertToInvoiceDialog({
             ))}
           </Select>
         </FormField>
+        </div>
 
-        <div className="mt-6 flex justify-end gap-3">
+        <DialogActions>
           <button
             type="button"
             onClick={() => dialogRef.current?.close()}
@@ -176,8 +179,8 @@ export function ConvertToInvoiceDialog({
           <Button type="submit" loading={submitting} disabled={submitting}>
             Convert
           </Button>
-        </div>
+        </DialogActions>
       </form>
-    </dialog>
+    </DialogShell>
   );
 }

@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FormField } from "@/components/ui/form-field";
-import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
+import { DialogShell, DialogTitle, DialogActions } from "@/components/ui/dialog-shell";
 import { createTimeEntryAction } from "@/app/(dashboard)/time/actions";
 import type { TimeEntryFormState } from "@/types";
 
@@ -62,7 +62,7 @@ export function TaskQuickLogDialog({
   }));
 
   return (
-    <dialog
+    <DialogShell
       ref={dialogRef}
       aria-labelledby="quick-log-title"
       onClick={(event) => {
@@ -70,13 +70,25 @@ export function TaskQuickLogDialog({
           dialogRef.current?.close();
         }
       }}
-      className={`border-border-default bg-surface w-full max-w-sm rounded-lg border p-6 shadow-xl backdrop:bg-black/40 ${DIALOG_CENTER_CLASSES}`}
     >
-      <h2 id="quick-log-title" className="text-text-primary text-base font-semibold">
-        Log time — {taskTitle}
-      </h2>
+      <DialogTitle id="quick-log-title">Log time — {taskTitle}</DialogTitle>
 
-      <form action={formAction} className="mt-4 space-y-4">
+      {/*
+       * Visual Design Improvement V2 — the field list keeps its own
+       * `space-y-4` scope on this inner wrapper, deliberately NOT on
+       * <form> itself: DialogActions below has its own `mt-6` margin,
+       * and nesting it inside a `space-y-4` parent would put two
+       * separate margin-top utilities on the same element (the sibling
+       * rule space-y-4 generates, plus DialogActions' own mt-6) —
+       * exactly the "which utility wins is a build-order detail, not a
+       * reliable one" class of bug button.tsx's own history already
+       * documents (there as a bg-/text-color conflict; here it would be
+       * a margin conflict). Keeping DialogActions a sibling of this div,
+       * not a descendant, avoids the conflict entirely rather than
+       * relying on which rule happens to win.
+       */}
+      <form action={formAction} className="mt-4">
+        <div className="space-y-4">
         <input type="hidden" name="taskId" value={taskId} />
         <input type="hidden" name="projectId" value={projectId} />
         <input type="hidden" name="userId" value={currentUserId} />
@@ -126,8 +138,9 @@ export function TaskQuickLogDialog({
             {state.error ?? state.fieldErrors?.taskId ?? state.fieldErrors?.projectId ?? state.fieldErrors?.userId}
           </p>
         )}
+        </div>
 
-        <div className="flex justify-end gap-3 pt-2">
+        <DialogActions>
           <button
             type="button"
             onClick={() => dialogRef.current?.close()}
@@ -138,8 +151,8 @@ export function TaskQuickLogDialog({
           <Button type="submit" loading={pending}>
             {pending ? "Logging…" : "Log time"}
           </Button>
-        </div>
+        </DialogActions>
       </form>
-    </dialog>
+    </DialogShell>
   );
 }

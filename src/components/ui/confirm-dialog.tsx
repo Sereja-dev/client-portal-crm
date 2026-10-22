@@ -1,8 +1,8 @@
 "use client";
 
 import { useId, useImperativeHandle, useRef, type ReactNode, type Ref } from "react";
-import { DIALOG_CENTER_CLASSES } from "./dialog-classes";
 import { Button } from "./button";
+import { DialogShell, DialogTitle, DialogDescription, DialogActions } from "./dialog-shell";
 
 export type ConfirmDialogHandle = {
   open: () => void;
@@ -49,7 +49,7 @@ export function ConfirmDialog({
   }));
 
   return (
-    <dialog
+    <DialogShell
       ref={dialogRef}
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
@@ -58,15 +58,10 @@ export function ConfirmDialog({
           dialogRef.current?.close();
         }
       }}
-      className={`border-border-default bg-surface w-full max-w-sm rounded-lg border p-6 shadow-xl backdrop:bg-black/40 ${DIALOG_CENTER_CLASSES}`}
     >
-      <h2 id={titleId} className="text-text-primary text-base font-semibold">
-        {title}
-      </h2>
-      <p id={descriptionId} className="text-text-secondary mt-2 text-sm">
-        {description}
-      </p>
-      <div className="mt-6 flex justify-end gap-3">
+      <DialogTitle id={titleId}>{title}</DialogTitle>
+      <DialogDescription id={descriptionId}>{description}</DialogDescription>
+      <DialogActions>
         <button
           type="button"
           onClick={() => dialogRef.current?.close()}
@@ -107,7 +102,7 @@ export function ConfirmDialog({
             {confirmLabel}
           </button>
         )}
-      </div>
-    </dialog>
+      </DialogActions>
+    </DialogShell>
   );
 }

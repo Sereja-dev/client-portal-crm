@@ -23,11 +23,15 @@
  * description) stays fully reachable and scrolls internally instead of
  * running off-screen with no way to scroll to its own buttons.
  *
- * Shared by every centered modal dialog in the app: ConfirmDialog,
- * MarkLeadLostDialog, the inline Suspend-organization dialog
- * (organization-suspension-controls.tsx), and SearchDialog. Deliberately
- * NOT used by AIAssistantPanel's own <dialog> — that one is an
- * intentionally edge-anchored slide-in drawer (full-height on mobile,
+ * Shared by every centered modal dialog in the app — as of Visual Design
+ * Improvement V2, primarily via DialogShell (dialog-shell.tsx), which
+ * ConfirmDialog/ContactFormDialog/TaskQuickLogDialog/ConvertToInvoiceDialog
+ * now all consume for their shared visual shell; MarkLeadLostDialog, the
+ * inline Suspend-organization dialog (organization-suspension-
+ * controls.tsx), and SearchDialog still apply it directly (not yet
+ * migrated to DialogShell — out of V2's narrow 2–3-dialog proof scope).
+ * Deliberately NOT used by AIAssistantPanel's own <dialog> — that one is
+ * an intentionally edge-anchored slide-in drawer (full-height on mobile,
  * right-anchored on desktop), not a centered modal, and already defines
  * its own complete positioning (`m-0` plus `md:inset-y-0 md:left-auto
  * md:ml-auto`) — applying this would fight that, not fix anything.
