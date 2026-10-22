@@ -14,7 +14,20 @@ export function RecentActivity({ items }: { items: { id: string; display: Activi
   return (
     <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
       <div className="flex items-center justify-between">
-        <h3 className="text-text-primary text-sm font-semibold">Recent activity</h3>
+        {/*
+          Dashboard heading hierarchy fix — this section is a direct
+          sibling of NeedsAttention's/TodaySection's own <h2> (all three
+          are direct children of the same Dashboard page.tsx wrapper, no
+          intervening parent heading), not nested under anything. <h3>
+          was correct when this sat alongside three other h3-level peer
+          widgets under an h2 "Breakdowns" section (pre-"Redesign
+          dashboard workspace"); that commit removed those peers and the
+          h2 "Breakdowns" context, introducing today's h2-level
+          NeedsAttention/TodaySection siblings, but left this file
+          untouched — orphaning it at the wrong level. Semantic-only:
+          className/copy/layout are unchanged.
+        */}
+        <h2 className="text-text-primary text-sm font-semibold">Recent activity</h2>
         <Link href="/activity" className={ACTION_LINK_CLASSES}>
           View all activity
         </Link>
