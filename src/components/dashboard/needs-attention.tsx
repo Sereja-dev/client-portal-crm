@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { formatCurrency } from "@/lib/format";
 import { formatDateOnlyForDisplay } from "@/lib/invoices/date-only";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { SectionTitle } from "@/components/ui/page-section";
 import type {
   UpcomingOrOverdueTask,
   NeedsAttentionInvoice,
@@ -72,7 +73,7 @@ export function NeedsAttention({
 
   return (
     <div>
-      <h2 className="text-text-primary text-lg font-semibold tracking-tight">Needs attention</h2>
+      <SectionTitle>Needs attention</SectionTitle>
 
       {allEmpty ? (
         <div className={`mt-4 p-6 text-center ${CARD_SURFACE_CLASSES}`}>

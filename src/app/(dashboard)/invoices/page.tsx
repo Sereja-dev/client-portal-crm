@@ -13,6 +13,7 @@ import { deleteInvoiceAction } from "./actions";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PencilIcon } from "@/components/ui/icons";
+import { PAGE_SECTION_STACK_CLASSES, PAGE_SUBSECTION_STACK_CLASSES } from "@/components/ui/page-section";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { SearchFilterBar } from "@/components/list/search-filter-bar";
 import { Pagination } from "@/components/list/pagination";
@@ -274,6 +275,17 @@ export default async function InvoicesPage({
     >
     <div>
       <FinanceTabs recurringInvoicesManage={effectivePermissions.RECURRING_INVOICES_MANAGE} />
+      {/*
+        Visual Design Improvement V4 — scoped to start AFTER FinanceTabs
+        deliberately: SectionTabs (finance-tabs.tsx) already carries its
+        own mb-6, and starting PAGE_SECTION_STACK_CLASSES's own space-y-8
+        here (rather than on the outer div, which would make FinanceTabs
+        its first child) avoids any ambiguity about how that existing
+        margin and this new one interact — this wrapper only governs the
+        gaps between the header, the filters sub-section, and the table/
+        empty-state below it.
+      */}
+      <div className={PAGE_SECTION_STACK_CLASSES}>
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-text-primary text-2xl font-semibold tracking-tight">
@@ -294,7 +306,7 @@ export default async function InvoicesPage({
       </div>
 
       {clientCount > 0 && (
-        <>
+        <div className={PAGE_SUBSECTION_STACK_CLASSES}>
           <QuickFilterChips label="Invoice quick filters" chips={quickFilterChips} />
 
           {/*
@@ -373,7 +385,7 @@ export default async function InvoicesPage({
             hasActiveParams={hasActiveParams}
             mobileFilterDisclosure={{ activeCount: mobileActiveFilterCount }}
           />
-        </>
+        </div>
       )}
 
       {total === 0 ? (
@@ -530,6 +542,7 @@ export default async function InvoicesPage({
           />
         </>
       )}
+    </div>
     </div>
     </ColumnVisibilityProvider>
   );

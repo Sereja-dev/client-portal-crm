@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { SectionTitle } from "@/components/ui/page-section";
 import type { UpcomingOrOverdueTask, TodayCalendarEvent } from "@/app/(dashboard)/dashboard/query";
 
 const itemLinkClass =
@@ -22,7 +23,7 @@ export function TodaySection({
 }) {
   return (
     <div>
-      <h2 className="text-text-primary text-lg font-semibold tracking-tight">Today</h2>
+      <SectionTitle>Today</SectionTitle>
       <div className="mt-4 grid grid-cols-1 gap-6 md:grid-cols-2">
         <section className={`p-6 ${CARD_SURFACE_CLASSES}`}>
           <h3 className="text-text-primary mb-4 text-sm font-semibold">Tasks due today</h3>

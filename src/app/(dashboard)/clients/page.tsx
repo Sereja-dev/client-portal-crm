@@ -16,6 +16,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { resolveStatusPresentation } from "@/lib/custom-statuses/presentation";
 import { EmptyState } from "@/components/ui/empty-state";
 import { PencilIcon } from "@/components/ui/icons";
+import { PAGE_SECTION_STACK_CLASSES, PAGE_SUBSECTION_STACK_CLASSES } from "@/components/ui/page-section";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { SearchFilterBar } from "@/components/list/search-filter-bar";
 import { Pagination } from "@/components/list/pagination";
@@ -241,7 +242,7 @@ export default async function ClientsPage({
       knownColumnIds={CLIENT_COLUMN_IDS}
       mandatoryColumnIds={CLIENT_MANDATORY_COLUMN_IDS}
     >
-    <div>
+    <div className={PAGE_SECTION_STACK_CLASSES}>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-text-primary text-2xl font-semibold tracking-tight">
@@ -271,6 +272,17 @@ export default async function ClientsPage({
         </div>
       </div>
 
+      {/*
+        Visual Design Improvement V4 — Saved Views/Columns and
+        SearchFilterBar grouped into one PAGE_SUBSECTION_STACK_CLASSES
+        cluster (the already-dominant space-y-4 sub-group rhythm,
+        formalized): they're one logical "filters" control band, not two
+        independent page sections, so they get the tighter sub-group gap
+        between themselves while still sitting a full
+        PAGE_SECTION_STACK_CLASSES gap below the page header and above
+        the table/empty-state content (both via the outer div below).
+      */}
+      <div className={PAGE_SUBSECTION_STACK_CLASSES}>
       {/*
         Tables Improvement Slice D2B — same placement contract as
         Invoices/Contracts/Quotes (D1 locked spec §25): below the page
@@ -336,6 +348,7 @@ export default async function ClientsPage({
         hasActiveParams={hasActiveParams}
         mobileFilterDisclosure={{ activeCount: mobileActiveFilterCount }}
       />
+      </div>
 
       {total === 0 ? (
         hasActiveParams ? (
