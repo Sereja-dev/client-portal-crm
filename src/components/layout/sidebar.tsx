@@ -237,8 +237,30 @@ const TOP_LEVEL_ROW_BASE =
 const CHILD_ROW_BASE =
   "block rounded-md px-3 py-1.5 text-sm font-normal transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
 
+/**
+ * Visual Design Improvement V3 — a subtle left accent bar, added ONLY to
+ * the actual active DESTINATION row (both link types that call this
+ * function: the single-destination top-level Link, and a multi-item
+ * group's own active child Link). The softer group/parent summary
+ * treatment below (`groupActive ? "bg-[var(--selected)] text-accent" :
+ * ...`) is a completely separate, untouched className expression — it
+ * never calls this function, so it can never pick up the new bar.
+ *
+ * `border-l-2` is present on BOTH branches (transparent when inactive)
+ * so the 2px border never shifts a row's own content width between
+ * active and inactive — only its color changes, never its layout.
+ * text-inverse (white in both Light and Dark — see globals.css's own
+ * Dark SEMANTIC comment: "text on a vivid solid fill", the same role
+ * button.tsx's danger variant already uses this exact token for) reads
+ * clearly against the row's own solid bg-accent fill; --accent itself
+ * would be invisible against its own identical background. The existing
+ * background/text/aria-current active treatment is completely
+ * unchanged — this is purely an additional cue, never the only one.
+ */
 function activeLinkClasses(active: boolean): string {
-  return active ? "bg-accent text-white" : "text-text-secondary hover:bg-[var(--hover)]";
+  return active
+    ? "border-l-2 border-text-inverse bg-accent text-white"
+    : "border-l-2 border-transparent text-text-secondary hover:bg-[var(--hover)]";
 }
 
 export function Sidebar({

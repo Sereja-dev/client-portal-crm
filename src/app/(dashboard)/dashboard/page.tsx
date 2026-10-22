@@ -1,6 +1,7 @@
 import { getCurrentMembership } from "@/lib/current-user";
 import { formatCurrency } from "@/lib/format";
 import { MetricCard } from "@/components/dashboard/metric-card";
+import { ClientsIcon, WorkIcon, CheckIcon, DocumentsIcon, FinanceIcon } from "@/components/ui/icons";
 import { DashboardActions } from "@/components/dashboard/dashboard-actions";
 import { NeedsAttention } from "@/components/dashboard/needs-attention";
 import { TodaySection } from "@/components/dashboard/today-section";
@@ -86,20 +87,22 @@ export default async function DashboardPage() {
       <StartWithSampleData eligible={sampleDataEligible} />
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
-        <MetricCard label="Clients" value={analytics.kpis.totalClients} href="/clients" />
-        <MetricCard label="Active projects" value={analytics.kpis.activeProjects} href="/projects" />
-        <MetricCard label="Open tasks" value={analytics.kpis.openTasks} href="/tasks" />
+        <MetricCard label="Clients" value={analytics.kpis.totalClients} href="/clients" icon={ClientsIcon} />
+        <MetricCard label="Active projects" value={analytics.kpis.activeProjects} href="/projects" icon={WorkIcon} />
+        <MetricCard label="Open tasks" value={analytics.kpis.openTasks} href="/tasks" icon={CheckIcon} />
         <MetricCard
           label="Outstanding invoices"
           value={analytics.currency ? formatCurrency(analytics.kpis.outstandingAmount, analytics.currency) : "—"}
           href="/invoices"
           hint={`${analytics.kpis.outstandingCount} ${analytics.kpis.outstandingCount === 1 ? "invoice" : "invoices"}`}
+          icon={DocumentsIcon}
         />
         <MetricCard
           label="Revenue"
           value={analytics.currency ? formatCurrency(analytics.kpis.paidThisMonth, analytics.currency) : "—"}
           href="/invoices"
           hint="Paid this month"
+          icon={FinanceIcon}
         />
       </div>
 
