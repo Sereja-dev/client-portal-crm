@@ -2,34 +2,36 @@ import type { ReactNode } from "react";
 
 /**
  * Visual Design Improvement V4 — the smallest shared section-hierarchy/
- * spacing primitive, wiring two dormant Design System tokens
- * (globals.css) that were defined since an earlier phase but never
- * consumed by any component until now: `--aqenra-fs-section-title`/
- * `--aqenra-fw-section-title` (0.8125rem/600) here, and the already-
- * dominant `space-y-8`/`space-y-4` page rhythm below, formalized as
- * named constants rather than invented fresh. No token value changed.
+ * spacing primitive. The `space-y-8`/`space-y-4` page rhythm below is
+ * the already-dominant convention observed across /dashboard and other
+ * pages, formalized as named constants rather than invented fresh.
+ *
+ * Dashboard section-hierarchy correction (post-Production manual
+ * smoke) — SectionTitle originally wired the dormant
+ * `--aqenra-fs-section-title`/`--aqenra-fw-section-title` tokens
+ * (0.8125rem/13px, 600). Production review found that size genuinely
+ * too small: it's identical to `--aqenra-fs-label` (0.8125rem) — a
+ * form-field-label-scale token, never battle-tested against real
+ * nested content before this component's first use of it — and it
+ * rendered SMALLER than the real h3 headings nested beneath it
+ * (TodaySection's "Tasks due today"/"Today's events",
+ * NeedsAttention's own category titles, both text-sm/14px font-
+ * semibold), inverting the intended hierarchy. Reverted to
+ * `text-lg font-semibold tracking-tight` (18px/600) — the single most
+ * common real h2 treatment already proven elsewhere in this app (and
+ * the exact pre-V4 classes NeedsAttention/TodaySection's own headings
+ * used), not a new, unproven value. The two dormant tokens themselves
+ * are untouched in globals.css — they may still correctly serve a
+ * genuine future compact-label/metadata role elsewhere; only
+ * SectionTitle's own consumption of them has stopped.
  *
  * Deliberately NOT a page-title replacement — h1 (`text-2xl font-
- * semibold tracking-tight text-text-primary`) was already found
- * consistent across the app and is untouched by this slice; the
- * section-title token is smaller (13px) than every existing h2 variant
- * it replaces (14–20px across different pages), matching a compact,
- * confident label rather than a second, competing heading size — never
- * uppercase (no global all-caps convention introduced), never an
- * accent bar or underline (no decorative styling).
- *
- * Arbitrary-property syntax (`[font-size:var(--aqenra-fs-section-
- * title)]`) is required because these --aqenra- tokens are deliberately
- * NOT mirrored into `@theme inline` (would silently override Tailwind's
- * own reserved font-size/weight scale app-wide) — the same reasoning
- * dialog-shell.tsx's own radius/shadow wiring already documents.
+ * semibold tracking-tight text-text-primary`) remains untouched and
+ * stays visibly the strongest element on the page.
  */
 export function SectionTitle({ id, children }: { id?: string; children: ReactNode }) {
   return (
-    <h2
-      id={id}
-      className="text-text-primary tracking-wide [font-size:var(--aqenra-fs-section-title)] [font-weight:var(--aqenra-fw-section-title)]"
-    >
+    <h2 id={id} className="text-text-primary text-lg font-semibold tracking-tight">
       {children}
     </h2>
   );

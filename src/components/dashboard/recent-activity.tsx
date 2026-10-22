@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ActivityDisplayModel } from "@/lib/activity/format-activity";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
+import { SectionTitle } from "@/components/ui/page-section";
 
 /**
  * Compact preview of the Activity Timeline — reuses formatActivity()'s
@@ -15,19 +16,21 @@ export function RecentActivity({ items }: { items: { id: string; display: Activi
     <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
       <div className="flex items-center justify-between">
         {/*
-          Dashboard heading hierarchy fix — this section is a direct
-          sibling of NeedsAttention's/TodaySection's own <h2> (all three
-          are direct children of the same Dashboard page.tsx wrapper, no
-          intervening parent heading), not nested under anything. <h3>
-          was correct when this sat alongside three other h3-level peer
-          widgets under an h2 "Breakdowns" section (pre-"Redesign
-          dashboard workspace"); that commit removed those peers and the
-          h2 "Breakdowns" context, introducing today's h2-level
-          NeedsAttention/TodaySection siblings, but left this file
-          untouched — orphaning it at the wrong level. Semantic-only:
-          className/copy/layout are unchanged.
+          Dashboard section-hierarchy correction — this section is a
+          direct sibling of NeedsAttention's/TodaySection's own
+          SectionTitle (all three are direct children of the same
+          Dashboard page.tsx wrapper, no intervening parent heading).
+          Previously its own standalone <h2 className="text-sm
+          font-semibold"> (14px) — correct in semantic level but a third,
+          independently-sized h2 treatment, inconsistent with its two
+          true siblings. Now shares the same SectionTitle component (and
+          therefore the same corrected 18px visual treatment) those two
+          already use, so all three top-level Dashboard sections read as
+          one deliberate tier — only the heading changed; card surface,
+          padding, activity data, date rendering, "View all activity",
+          and layout are all unchanged.
         */}
-        <h2 className="text-text-primary text-sm font-semibold">Recent activity</h2>
+        <SectionTitle>Recent activity</SectionTitle>
         <Link href="/activity" className={ACTION_LINK_CLASSES}>
           View all activity
         </Link>

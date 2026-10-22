@@ -36,10 +36,18 @@ describe("Dashboard sub-components — SectionTitle adopted where heading semant
     expect(todaySectionSource).toContain("Today&rsquo;s events");
   });
 
-  it("RecentActivity is a top-level Dashboard sibling of Needs attention/Today and correctly renders <h2> — its own separately-shipped heading-hierarchy fix (not this slice's SectionTitle migration); V4 does not adopt SectionTitle here, preserving the exact original visual class string", () => {
-    expect(recentActivitySource).toMatch(/<h2 className="text-text-primary text-sm font-semibold">Recent activity<\/h2>/);
+  it("RecentActivity is a top-level Dashboard sibling of Needs attention/Today and now shares their own SectionTitle — Production manual smoke found its previous standalone text-sm h2 (correct semantic level, but a third, independently-sized visual treatment) inconsistent with its two true h2 siblings; adopting SectionTitle gives all three the same deliberate tier, never a literal <h3> regression", () => {
+    expect(recentActivitySource).toMatch(/import\s*\{\s*SectionTitle\s*\}\s*from\s*"@\/components\/ui\/page-section"/);
+    expect(recentActivitySource).toMatch(/<SectionTitle>Recent activity<\/SectionTitle>/);
     expect(recentActivitySource).not.toMatch(/<h3[^>]*>Recent activity<\/h3>/);
-    expect(recentActivitySource).not.toMatch(/SectionTitle/);
+    expect(recentActivitySource).not.toMatch(/<h2 className="text-text-primary text-sm font-semibold">Recent activity<\/h2>/);
+  });
+
+  it("RecentActivity's surrounding card surface, 'View all activity' link, and activity-list rendering are all untouched by the heading change", () => {
+    expect(recentActivitySource).toMatch(/className=\{`p-6 \$\{CARD_SURFACE_CLASSES\}`\}/);
+    expect(recentActivitySource).toContain('href="/activity"');
+    expect(recentActivitySource).toContain("View all activity");
+    expect(recentActivitySource).toContain("No activity yet.");
   });
 });
 

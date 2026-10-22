@@ -11,17 +11,20 @@ import { SectionTitle, PAGE_SECTION_STACK_CLASSES, PAGE_SUBSECTION_STACK_CLASSES
  * what actually renders, not just what the source text contains.
  */
 
-describe("SectionTitle — a real <h2>, wiring the dormant --aqenra-fs-section-title/--aqenra-fw-section-title tokens", () => {
+describe("SectionTitle — a real <h2>, using the proven repo-wide h2 treatment (not the dormant compact-label tokens)", () => {
   it("renders a real <h2>, never a styled <div>/<span> standing in for a heading", () => {
     const html = renderToStaticMarkup(<SectionTitle>Needs attention</SectionTitle>);
     expect(html).toMatch(/^<h2[^>]*>Needs attention<\/h2>$/);
   });
 
-  it("uses the semantic text-text-primary token, and the section-title font-size/font-weight tokens via arbitrary-property syntax — never a literal px/rem value or a hardcoded weight", () => {
+  it("uses text-text-primary/text-lg/font-semibold/tracking-tight — the same already-proven real h2 treatment used 50+ times elsewhere in the app (and the exact pre-V4 classes NeedsAttention/TodaySection's own headings used) — never the dormant --aqenra-fs-section-title/--aqenra-fw-section-title tokens, which measured too small (13px, identical to the --aqenra-fs-label form-field-label scale) against real nested h3 content and inverted the intended hierarchy in Production", () => {
     const html = renderToStaticMarkup(<SectionTitle>Today</SectionTitle>);
     expect(html).toContain("text-text-primary");
-    expect(html).toContain("[font-size:var(--aqenra-fs-section-title)]");
-    expect(html).toContain("[font-weight:var(--aqenra-fw-section-title)]");
+    expect(html).toContain("text-lg");
+    expect(html).toContain("font-semibold");
+    expect(html).toContain("tracking-tight");
+    expect(html).not.toContain("[font-size:var(--aqenra-fs-section-title)]");
+    expect(html).not.toContain("[font-weight:var(--aqenra-fw-section-title)]");
   });
 
   it("is never uppercase and carries no decorative border/underline/accent-bar classes — a calm label, not a styled banner", () => {
