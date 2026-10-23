@@ -50,7 +50,13 @@ test.describe("Design System Batch 3 — Projects + Tasks", () => {
     // every other migrated list page already uses).
     await page.goto("/projects?q=Test");
     await expect(page).toHaveURL(/[?&]q=Test/);
-    await expect(page.getByRole("cell", { name: fixtures.project.name })).toBeVisible();
+    // exact: true — the row's own Actions cell contains an Edit link
+    // plus a RowActionMenu whose aria-label is `More actions for
+    // project ${project.name}`, so its accessible name also contains
+    // the project name as a substring; a non-exact match is ambiguous
+    // whenever that happens to be seeded (same pattern already
+    // documented in contracts.spec.ts's own responsive test).
+    await expect(page.getByRole("cell", { name: fixtures.project.name, exact: true })).toBeVisible();
 
     const editLink = page.getByRole("link", { name: /Edit/ }).first();
     await expect(editLink).toHaveAttribute("href", `/projects/${fixtures.project.id}/edit`);

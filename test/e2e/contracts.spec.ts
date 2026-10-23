@@ -52,6 +52,19 @@ function uniqueNumber(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 10_000)}`;
 }
 
+// Mobile Improvement Slice B1 — below `md`, Status/Client/Project/
+// Archived collapse into a closed-by-default `<details>` disclosure
+// (src/components/list/mobile-filter-disclosure.tsx); the fields are
+// legitimately not visible until it's opened. Reuses the exact scoped
+// CSS locator contract-mobile-filter-disclosure.spec.ts's own
+// `filterToggle()` already established — the class scoping guarantees
+// this can never match the sidebar's own unrelated `<details>`/
+// `<summary>` (no `mobile-filter-disclosure` class there) or any other
+// summary on the page.
+function mobileFilterToggle(page: Page) {
+  return page.locator("details.mobile-filter-disclosure > summary");
+}
+
 async function fillNewContractForm(page: Page, { number, title }: { number: string; title: string }): Promise<void> {
   await page.getByLabel("Contract number").fill(number);
   // By value (the Client id), not `exact:true` label text — mirrors
@@ -464,6 +477,10 @@ test.describe("Contracts Staff UI (Phase 2)", () => {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto("/contracts");
       expect(await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)).toBe(false);
+      // Mobile Improvement Slice B1 — with no filter active, Status/
+      // Client/Project/Archived start inside a closed-by-design
+      // disclosure below `md`; open it before asserting their visibility.
+      await mobileFilterToggle(page).click();
       await expect(page.getByLabel("Status").first()).toBeVisible();
       // exact: true — a row's own "More actions for contract ..."
       // aria-label (Tables Improvement Slice B) can coincidentally
