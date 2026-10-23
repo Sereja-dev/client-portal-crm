@@ -146,7 +146,10 @@ test.describe("Phase D — Appearance settings page", () => {
     await selectMode(page, "Dark");
     await expect.poll(() => cookieValue(context, new URL(baseURL!).hostname)).toBe("dark.dark");
 
-    await page.getByRole("button", { name: "Sign out" }).click();
+    // Sidebar Account Menu V1 — desktop Sign out now lives in the
+    // sidebar's own account menu, not a standalone Header button.
+    await page.getByRole("button", { name: "Account menu" }).click();
+    await page.getByRole("menuitem", { name: "Sign out" }).click();
     await page.waitForURL("**/login");
 
     expect(await cookieValue(context, new URL(baseURL!).hostname)).toBe("dark.dark");
@@ -159,7 +162,10 @@ test.describe("Phase D — Appearance settings page", () => {
     await injectTestSession(context, fixtures.owner, baseURL!);
     await page.goto(APPEARANCE_PATH);
     await expect(page.getByRole("radio", { name: /^Dark$/ })).toBeChecked();
-    await page.getByRole("button", { name: "Sign out" }).click();
+    // Sidebar Account Menu V1 — desktop Sign out now lives in the
+    // sidebar's own account menu, not a standalone Header button.
+    await page.getByRole("button", { name: "Account menu" }).click();
+    await page.getByRole("menuitem", { name: "Sign out" }).click();
     await page.waitForURL("**/login");
 
     await injectTestSession(context, fixtures.admin, baseURL!);

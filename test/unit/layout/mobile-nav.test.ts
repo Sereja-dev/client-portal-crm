@@ -1,4 +1,12 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Sidebar Account Menu V1 — see sidebar.test.ts's own identical comment:
+// sidebar.tsx transitively imports the real signOut() Server Action via
+// <SidebarAccountMenu>, which pulls in the "server-only" guard package
+// outside of Next's build-time bundling. This test only exercises pure
+// functions and never renders SidebarAccountMenu, so stubbing is safe.
+vi.mock("@/app/(dashboard)/actions", () => ({ signOut: vi.fn() }));
+
 import { buildSidebarGroups, type SidebarPermissionFlags } from "@/components/layout/sidebar";
 import {
   MOBILE_BOTTOM_NAV_GROUP_KEYS,

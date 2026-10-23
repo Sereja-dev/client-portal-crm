@@ -1,4 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+// Sidebar Account Menu V1 — sidebar.tsx now renders <SidebarAccountMenu>,
+// which imports the real signOut() Server Action from actions.ts. That
+// file transitively imports sample-data.ts, which imports the
+// "server-only" guard package — a module that throws unconditionally
+// whenever it's loaded outside Next's own build-time client/server
+// bundling (which replaces a "use server" import with a thin remote
+// reference instead of the real body). Vitest's plain node environment
+// has no such bundling step, so importing sidebar.tsx for its pure
+// exported functions (buildSidebarGroups/computeActiveGroupKey/isActive,
+// below) would otherwise crash on an unrelated transitive import. This
+// test never renders SidebarAccountMenu or calls signOut, so a stub is
+// safe and changes nothing about what's actually being tested.
+vi.mock("@/app/(dashboard)/actions", () => ({ signOut: vi.fn() }));
+
 import {
   buildSidebarGroups,
   computeActiveGroupKey,

@@ -197,7 +197,14 @@ test("Client create → edit → delete works end to end, and the dashboard metr
 
 test("sign out clears the session, and dashboard then redirects to /login", async ({ page }) => {
   await page.goto("/dashboard");
-  await page.getByRole("button", { name: "Sign out", exact: true }).click();
+  // Sidebar Account Menu V1 — desktop Sign out now lives in the sidebar's
+  // own account menu, not a standalone Header button (see
+  // header-account-cleanup-contract.test.ts / sidebar-account-menu.test.ts
+  // for the source-contract coverage of this split; mobile's own Header
+  // Sign-out button is unchanged, covered separately by
+  // responsive-layout.spec.ts and sidebar-account-menu.spec.ts).
+  await page.getByRole("button", { name: "Account menu" }).click();
+  await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
   await expect(page).toHaveURL(/\/login/);
 
   await page.goto("/dashboard");

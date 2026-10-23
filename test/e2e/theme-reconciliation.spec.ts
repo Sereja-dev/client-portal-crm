@@ -140,7 +140,10 @@ test.describe("Theme Persistence Phase C2 — staff authenticated reconciliation
     await page.goto("/dashboard");
     await expect.poll(() => resolvedAttr(page)).toBe("dark");
 
-    await page.getByRole("button", { name: "Sign out" }).click();
+    // Sidebar Account Menu V1 — desktop Sign out now lives in the
+    // sidebar's own account menu, not a standalone Header button.
+    await page.getByRole("button", { name: "Account menu" }).click();
+    await page.getByRole("menuitem", { name: "Sign out" }).click();
     await page.waitForURL("**/login");
 
     expect(await cookieValue(context, new URL(baseURL!).hostname)).toBe("dark.dark");
@@ -243,7 +246,10 @@ test.describe("Theme Persistence Phase C2 — shared-device sequential identitie
     await expect.poll(() => resolvedAttr(page)).toBe("dark");
     expect(await cookieValue(context, new URL(baseURL!).hostname)).toBe("dark.dark");
 
-    await page.getByRole("button", { name: "Sign out" }).click();
+    // Sidebar Account Menu V1 — desktop Sign out now lives in the
+    // sidebar's own account menu, not a standalone Header button.
+    await page.getByRole("button", { name: "Account menu" }).click();
+    await page.getByRole("menuitem", { name: "Sign out" }).click();
     await page.waitForURL("**/login");
     expect(await cookieValue(context, new URL(baseURL!).hostname)).toBe("dark.dark");
 

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { siteConfig } from "@/config/site";
+import { SidebarAccountMenu } from "@/components/layout/sidebar-account-menu";
 import {
   HomeIcon,
   SalesIcon,
@@ -266,9 +267,14 @@ function activeLinkClasses(active: boolean): string {
 export function Sidebar({
   disablePrefetch = false,
   permissions,
+  name,
+  email,
 }: {
   disablePrefetch?: boolean;
   permissions: SidebarPermissionFlags;
+  /** Sidebar Account Menu V1 — both already resolved in (dashboard)/layout.tsx (getVerifiedAuthUser()/getCurrentMembership()), never a new query. Rendered only at `md` and up, via SidebarAccountMenu's own footer below — mobile's identity/Sign out stays exactly where it already is, in Header. */
+  name: string;
+  email: string;
 }) {
   const pathname = usePathname();
   const groups = buildSidebarGroups(permissions);
@@ -286,11 +292,31 @@ export function Sidebar({
       // component's own desktop (`md:` and up) behavior must stay
       // byte-for-byte unchanged, and removing unused-but-harmless
       // classes is out of this slice's scope.
-      className="border-border-default bg-surface-recessed hidden shrink-0 gap-1 overflow-x-auto border-b p-3 md:flex md:w-56 md:flex-col md:gap-0.5 md:overflow-x-visible md:border-r md:border-b-0 md:p-4"
+      //
+      // Sidebar Account Menu V1 — `md:sticky md:top-0 md:h-screen` gives
+      // this nav an explicit, viewport-pinned height at `md` and up (it
+      // had none before: the whole page simply scrolled together as one
+      // block). This is what lets the group list scroll independently
+      // inside its own wrapper below while SidebarAccountMenu stays
+      // visually pinned at the bottom — self-contained in this one
+      // component, no change to (dashboard)/layout.tsx's own outer
+      // flex/height structure required.
+      className="border-border-default bg-surface-recessed hidden shrink-0 gap-1 overflow-x-auto border-b p-3 md:sticky md:top-0 md:flex md:h-screen md:w-56 md:flex-col md:gap-0.5 md:overflow-x-visible md:border-r md:border-b-0 md:p-4"
     >
       <span className="text-text-primary hidden px-2 pb-4 text-lg font-semibold tracking-tight md:block">
         {siteConfig.name}
       </span>
+      {/*
+        Sidebar Account Menu V1 — `min-h-0` matters exactly the way this
+        app's own `min-w-0` comments already explain for the horizontal
+        case (see header.tsx/layout.tsx): a flex child's default
+        `min-height: auto` refuses to shrink below its own content's
+        intrinsic height, which would silently prevent `overflow-y-auto`
+        below from ever actually engaging. `flex-1` lets this wrapper
+        claim all space the nav's fixed-height header/footer siblings
+        don't need.
+      */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
       {groups.map((group) => {
         const groupActive = group.key === activeGroupKey;
         const Icon = group.icon;
@@ -386,6 +412,8 @@ export function Sidebar({
           </div>
         );
       })}
+      </div>
+      <SidebarAccountMenu name={name} email={email} />
     </nav>
   );
 }

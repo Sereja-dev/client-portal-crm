@@ -170,7 +170,19 @@ export default async function DashboardLayout({
           Organization, and this component only ever reads the prop below.
         */}
         <ThemePreferenceReconciler mode={dbThemeModeToRuntimeMode(currentUser.themeMode)} />
-        <Sidebar disablePrefetch={TEST_MODE} permissions={sidebarPermissions} />
+        {/*
+          Sidebar Account Menu V1 — name/email are both already resolved
+          above (getCurrentMembership()'s own user.name; getVerifiedAuthUser()'s
+          own user.email, the exact same value Header already receives
+          below) — no new query. Sidebar renders them only at `md` and up
+          via its own pinned SidebarAccountMenu footer.
+        */}
+        <Sidebar
+          disablePrefetch={TEST_MODE}
+          permissions={sidebarPermissions}
+          name={currentUser.name}
+          email={user.email ?? ""}
+        />
         {/*
           min-w-0: at the md breakpoint this becomes a flex row item next to
           the now-fixed-width Sidebar. Flex items default to `min-width:

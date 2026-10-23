@@ -51,16 +51,25 @@ export function Header({
           initialNotifications={recentNotifications}
         />
         {/*
+          Sidebar Account Menu V1 — md:hidden on both the email span and
+          the Sign out form below: at `md` and up, identity/Sign out now
+          live in SidebarAccountMenu (the sidebar's own pinned footer),
+          not here. Mobile is deliberately untouched — the Product Owner
+          reference is desktop-sidebar-focused, and this Header remains
+          mobile's only identity/Sign-out surface, exactly as it already
+          was before this change, with the exact same markup/behavior
+          below `md`.
+
           min-w-0 + truncate: an unconstrained-width email (real emails
           run well past 30 characters) was the dominant contributor to
           the header's mobile overflow. Full address is still in the DOM
           (screen readers get it unabridged) and in `title` (hover for
           sighted mouse users) — only the visual line is ever shortened.
         */}
-        <span className="text-text-secondary min-w-0 max-w-[7rem] truncate text-sm sm:max-w-[16rem]" title={email}>
+        <span className="text-text-secondary min-w-0 max-w-[7rem] truncate text-sm sm:max-w-[16rem] md:hidden" title={email}>
           {email}
         </span>
-        <form action={signOut} className="shrink-0">
+        <form action={signOut} className="shrink-0 md:hidden">
           <button
             type="submit"
             className="border-border-strong text-text-secondary focus-visible:ring-focus-ring rounded-md border px-3 py-1.5 text-sm font-medium transition-colors hover:bg-[var(--hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"

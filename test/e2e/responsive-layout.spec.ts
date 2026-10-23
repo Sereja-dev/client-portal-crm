@@ -70,7 +70,12 @@ test.describe("staff dashboard routes", () => {
   test("sign out remains reachable at the tablet breakpoint", async ({ page }) => {
     await page.setViewportSize({ width: 768, height: 900 });
     await page.goto("/dashboard");
-    await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+    // Sidebar Account Menu V1 — at 768px (the `md` breakpoint) Header's
+    // own Sign-out button is hidden; the sidebar's own account menu is
+    // the reachable path instead (see sidebar-account-menu.spec.ts for
+    // full open/close/keyboard coverage of this menu).
+    await page.getByRole("button", { name: "Account menu" }).click();
+    await expect(page.getByRole("menuitem", { name: "Sign out" })).toBeVisible();
   });
 });
 
