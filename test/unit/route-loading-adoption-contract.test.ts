@@ -16,6 +16,22 @@ import { describe, expect, it } from "vitest";
  *     forbids (login/signup/reset flows, Platform Admin, creation forms,
  *     Invoice duplicate, cron/API routes, Portal invoice/project detail),
  *     received nothing.
+ *
+ * Navigation Performance Slice A extends this same contract to all eight
+ * routes the audit identified as having zero loading-boundary coverage
+ * (time, calendar, finance, quotes, requests, clients/[id], projects/[id],
+ * contracts) — a later, separately-approved scope expansion, not a
+ * weakening of F5's own original list. clients/[id], projects/[id], and
+ * contracts were initially excluded pending a dedicated security audit
+ * of a suspected cross-tenant Router Cache staleness risk; that audit
+ * concluded the risk was disproven — the observed HTTP 200 (instead of
+ * 404) for a streamed foreign-org not-found response is documented,
+ * intentional Next.js streaming/notFound() behavior (response headers,
+ * including the status code, commit as soon as a Suspense/loading
+ * fallback begins streaming, before notFound() resolves) — never a
+ * client-cache data leak: foreign-tenant content is never rendered,
+ * server-side authorization and query scoping are unaffected. All eight
+ * routes are therefore included below.
  */
 
 const INTENDED_NEW_LOADING_FILES = [
@@ -29,6 +45,15 @@ const INTENDED_NEW_LOADING_FILES = [
   "src/app/(dashboard)/settings/notifications/loading.tsx",
   "src/app/(dashboard)/settings/payment/loading.tsx",
   "src/app/portal/(app)/profile/loading.tsx",
+  // Navigation Performance Slice A.
+  "src/app/(dashboard)/time/loading.tsx",
+  "src/app/(dashboard)/calendar/loading.tsx",
+  "src/app/(dashboard)/finance/loading.tsx",
+  "src/app/(dashboard)/quotes/loading.tsx",
+  "src/app/(dashboard)/requests/loading.tsx",
+  "src/app/(dashboard)/clients/[id]/loading.tsx",
+  "src/app/(dashboard)/projects/[id]/loading.tsx",
+  "src/app/(dashboard)/contracts/loading.tsx",
 ];
 
 // Every route this task must NOT add a loading.tsx to — either because
@@ -56,8 +81,21 @@ const FORBIDDEN_NEW_LOADING_FILES = [
   "src/app/(dashboard)/invoices/new/loading.tsx",
   "src/app/(dashboard)/invoices/[id]/duplicate/loading.tsx",
   "src/app/(dashboard)/invoices/[id]/loading.tsx",
-  "src/app/(dashboard)/clients/[id]/loading.tsx",
-  "src/app/(dashboard)/projects/[id]/loading.tsx",
+  // src/app/(dashboard)/clients/[id]/loading.tsx, .../projects/[id]/
+  // loading.tsx, and .../contracts/loading.tsx were temporarily forbidden
+  // here during Navigation Performance Slice A's own implementation,
+  // pending a dedicated security audit of a suspected cross-tenant
+  // Router Cache staleness risk (adding contracts/loading.tsx gives the
+  // sibling dynamic contracts/[id] route — and, pre-existing, clients/
+  // [id]/projects/[id] already had via their own list's loading.tsx — an
+  // inherited Suspense boundary, which changes a foreign-org not-found
+  // response's HTTP status from 404 to 200). That audit concluded the
+  // risk was disproven: the status-code change is documented, intentional
+  // Next.js streaming/notFound() behavior (headers commit as soon as
+  // streaming starts, before notFound() resolves) — foreign-tenant
+  // content is never rendered, and server-side authorization/query
+  // scoping is unaffected. All three moved to INTENDED_NEW_LOADING_FILES
+  // above — not forbidden here, not an oversight.
   "src/app/(dashboard)/tasks/[id]/loading.tsx",
   "src/app/portal/(app)/invoices/[id]/loading.tsx",
   "src/app/portal/(app)/projects/[id]/loading.tsx",
@@ -134,10 +172,18 @@ describe("every new loading.tsx is a pure, server-renderable presentation file",
   // permitting it here preserves this contract's actual protective
   // intent (no behavioral/runtime-heavy import in a loading boundary)
   // rather than merely its original literal wording.
+  // @/components/ui/list-page-skeleton — Navigation Performance Slice A:
+  // time/calendar/finance/quotes/contracts/requests reuse the exact same
+  // ListPageSkeleton the pre-existing clients/loading.tsx and invoices/
+  // loading.tsx already render (predating this contract test, so never
+  // previously exercised by it). Same inert shape as the other two
+  // entries: one exported component, zero hooks/effects/fetch/Prisma/
+  // Server Action/timer/random/Date/env of its own.
   const ALLOWED_LOADING_IMPORT_SPECIFIERS = [
     "@/components/ui/page-loading",
     "@/components/ui/skeleton",
     "@/components/ui/surface",
+    "@/components/ui/list-page-skeleton",
   ];
 
   it.each(INTENDED_NEW_LOADING_FILES)(

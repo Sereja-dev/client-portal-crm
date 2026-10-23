@@ -98,7 +98,17 @@ describe("the historical route-loading-adoption-contract.test.ts — narrowly, d
     }
   });
 
-  it("still forbids every creation-form and [id]-detail loading.tsx this historical task's own scope excluded, unchanged", () => {
+  // clients/[id]/loading.tsx, projects/[id]/loading.tsx, and contracts/
+  // loading.tsx were all temporarily on the forbidden list during
+  // Navigation Performance Slice A's own implementation, pending a
+  // dedicated security audit of a suspected cross-tenant Router Cache
+  // staleness risk (see route-loading-adoption-contract.test.ts's own
+  // much longer comment). That audit concluded the risk was disproven —
+  // the observed HTTP 200 for a streamed foreign-org not-found response
+  // is documented, intentional Next.js streaming/notFound() behavior,
+  // never a data leak — so all three were moved into
+  // INTENDED_NEW_LOADING_FILES and are correctly absent from this list.
+  it("still forbids every creation-form and portal [id]-detail loading.tsx this historical task's own scope excluded, unchanged", () => {
     for (const path of [
       "src/app/(dashboard)/clients/new/loading.tsx",
       "src/app/(dashboard)/projects/new/loading.tsx",
@@ -106,8 +116,6 @@ describe("the historical route-loading-adoption-contract.test.ts — narrowly, d
       "src/app/(dashboard)/invoices/new/loading.tsx",
       "src/app/(dashboard)/invoices/[id]/duplicate/loading.tsx",
       "src/app/(dashboard)/invoices/[id]/loading.tsx",
-      "src/app/(dashboard)/clients/[id]/loading.tsx",
-      "src/app/(dashboard)/projects/[id]/loading.tsx",
       "src/app/(dashboard)/tasks/[id]/loading.tsx",
       "src/app/portal/(app)/invoices/[id]/loading.tsx",
       "src/app/portal/(app)/projects/[id]/loading.tsx",
@@ -121,17 +129,24 @@ describe("the historical route-loading-adoption-contract.test.ts — narrowly, d
     expect(contractSource).toContain('"src/app/portal/(app)/loading.tsx"');
   });
 
-  it("the historical INTENDED_NEW_LOADING_FILES list is completely untouched (still exactly 10 entries)", () => {
+  // Navigation Performance Slice A added exactly 8 entries to
+  // INTENDED_NEW_LOADING_FILES (10 -> 18: time, calendar, finance,
+  // quotes, requests, clients/[id], projects/[id], contracts — the full
+  // audit-identified set, once the Router Cache security concern was
+  // disproven) and removed the same 3 entries it had briefly added
+  // (clients/[id], projects/[id], contracts) from
+  // FORBIDDEN_NEW_LOADING_FILES, back down to its original 16.
+  it("INTENDED_NEW_LOADING_FILES reflects exactly the full Navigation Performance Slice A addition (10 -> 18 entries)", () => {
     const match = contractSource.match(/const INTENDED_NEW_LOADING_FILES = \[([\s\S]*?)\];/);
     expect(match).not.toBeNull();
     const entryCount = (match![1].match(/"[^"]+"/g) ?? []).length;
-    expect(entryCount).toBe(10);
+    expect(entryCount).toBe(18);
   });
 
-  it("FORBIDDEN_NEW_LOADING_FILES has exactly one fewer entry than before (19 -> 18) — only the Users removal, nothing else", () => {
+  it("FORBIDDEN_NEW_LOADING_FILES is back to its original 16 entries — Slice A's three temporarily-forbidden routes are gone", () => {
     const match = contractSource.match(/const FORBIDDEN_NEW_LOADING_FILES = \[([\s\S]*?)\];/);
     expect(match).not.toBeNull();
     const entryCount = (match![1].match(/"[^"]+"/g) ?? []).length;
-    expect(entryCount).toBe(18);
+    expect(entryCount).toBe(16);
   });
 });

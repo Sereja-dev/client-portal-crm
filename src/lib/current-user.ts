@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { getVerifiedAuthUser } from "@/lib/supabase/server";
@@ -432,12 +433,40 @@ async function resolveActiveOrganizationId(user: {
  * `currentPath`, when supplied, is threaded straight through to
  * getOrCreateUser() — see that function's and
  * redirectToLoginForSessionLoss()'s own doc comments.
+ *
+ * Navigation Performance Slice B — wrapped in React's cache(), the same
+ * request-scoped-memoization pattern getVerifiedAuthUser() and
+ * getCachedEffectivePermissionSet() already use. (dashboard)/layout.tsx
+ * calls this (via getCurrentMembership() below) once per request, and
+ * every page it wraps independently calls this again for its own needs —
+ * without this, that's the full getOrCreateUser()/resolveActiveOrganizationId()
+ * chain re-executed a second time on every single navigation (confirmed by
+ * the Navigation Performance Audit). cache() only memoizes within one
+ * request/render pass — a new HTTP/RSC request always gets a fresh call,
+ * so this changes nothing about auth freshness, tenant isolation, or
+ * cross-request caching (none of those were ever on the table here).
+ * Safe regardless of the `currentPath` argument: every call site that
+ * passes one (only Server Actions — never a page.tsx render; see the
+ * current-user dedupe test's own comment) is its own separate
+ * request/invocation from whatever page render it followed, so it was
+ * never going to share a cache scope with (dashboard)/layout.tsx's own
+ * no-argument call anyway — wrapping this function exactly as-is, with no
+ * signature change, loses nothing.
+ *
+ * Does NOT wrap getOrCreateUser() itself — see that function's own doc
+ * comment on why it must tolerate being re-invoked across *different*
+ * concurrent requests (e.g. Next.js's own background sidebar prefetching)
+ * without a shared cache suppressing its P2002-retry-on-race behavior.
+ * Caching only this outer boundary still fully deduplicates it within one
+ * request (getOrCreateUser's body simply never runs a second time for the
+ * same request), while leaving its cross-request behavior completely
+ * untouched.
  */
-export async function getCurrentUserOrganization(currentPath?: string) {
+export const getCurrentUserOrganization = cache(async (currentPath?: string) => {
   const user = await getOrCreateUser(currentPath);
   const organizationId = await resolveActiveOrganizationId(user);
   return { user, organizationId };
-}
+});
 
 /**
  * Like getCurrentUserOrganization(), but also resolves the current user's
@@ -448,8 +477,18 @@ export async function getCurrentUserOrganization(currentPath?: string) {
  *
  * `currentPath` is threaded through the same way as
  * getCurrentUserOrganization() above.
+ *
+ * Navigation Performance Slice B — wrapped in React's cache() for the same
+ * reason and with the same safety properties as getCurrentUserOrganization()
+ * immediately above; see that function's own doc comment. The internal
+ * Membership findUnique below is deliberately left as its own fresh query
+ * (not merged with resolveActiveOrganizationId()'s own narrower-select
+ * Membership lookup) — that's a separate, smaller, already-identified
+ * optimization the Navigation Performance Audit intentionally left for a
+ * later slice, to keep this change's review surface to exactly the proven
+ * layout+page duplication.
  */
-export async function getCurrentMembership(currentPath?: string) {
+export const getCurrentMembership = cache(async (currentPath?: string) => {
   const { user, organizationId } = await getCurrentUserOrganization(currentPath);
   const membership = await prisma.membership.findUnique({
     where: { userId_organizationId: { userId: user.id, organizationId } },
@@ -460,7 +499,7 @@ export async function getCurrentMembership(currentPath?: string) {
   }
 
   return { user, organizationId, membership };
-}
+});
 
 /**
  * Switches the current user's active organization, after verifying they

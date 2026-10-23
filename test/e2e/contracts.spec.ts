@@ -379,8 +379,21 @@ test.describe("Contracts Staff UI (Phase 2)", () => {
     const contractId = page.url().split("/").pop();
 
     await actAs(context, baseURL!, fixtures.orgBOwner, fixtures.orgB.id);
-    const response = await page.goto(`/contracts/${contractId}`);
-    expect(response?.status()).toBe(404);
+    await page.goto(`/contracts/${contractId}`);
+    // Navigation Performance Slice A gave contracts/[id] an inherited
+    // Suspense boundary (from contracts/loading.tsx), which — per a
+    // dedicated security audit — makes this a streamed not-found
+    // response: HTTP 200, because the response headers commit as soon as
+    // the loading fallback starts streaming, before notFound() resolves
+    // (documented Next.js behavior, same as client-profile-hub.spec.ts's
+    // and project-hub.spec.ts's own identical foreign-org assertions).
+    // The content-level guarantee — never the raw status code — is what
+    // actually matters for tenant isolation, and is what this now
+    // asserts: the real not-found boundary renders, and none of org A's
+    // contract data (title, number) is ever visible.
+    await expect(page.getByText("Page not found")).toBeVisible();
+    await expect(page.getByText("Org A only")).toHaveCount(0);
+    await expect(page.getByText(number)).toHaveCount(0);
 
     // Same identity, a real Server Action call against the foreign
     // contract must also fail safely, not silently succeed.

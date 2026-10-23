@@ -29,6 +29,35 @@ export function RouteLoadingAnnouncement({ label }: { label: string }) {
   );
 }
 
+/**
+ * Navigation Performance Slice A — the bordered-card profile header
+ * shared byte-for-byte by ClientProfileHeader and ProjectProfileHeader
+ * (`border-border-default bg-surface rounded-lg border p-6`, name+badge
+ * row, then a `dl` metadata row) — deliberately mirrored between the two
+ * Hub pages per each component's own doc comment. Neither detail Hub had
+ * a loading.tsx at all before this slice (the audit's own P1-A finding);
+ * this is a dedicated primitive, not ListPageSkeleton, because the real
+ * shape is a card+metadata header followed by a tabbed Hub, not a table.
+ */
+export function DetailHeaderSkeleton() {
+  return (
+    <div className={`p-6 ${CARD_SURFACE_CLASSES}`}>
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Skeleton className="h-7 w-48" />
+            <Skeleton className="h-5 w-16 rounded-full" />
+          </div>
+          <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1">
+            <Skeleton className="h-4 w-32" />
+            <Skeleton className="h-4 w-24" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** The `mb-6 flex items-center justify-between` title+Cancel/Back header shared by every `[id]/edit` page (Clients/Projects/Tasks/Invoices). */
 export function EditPageHeaderSkeleton() {
   return (
