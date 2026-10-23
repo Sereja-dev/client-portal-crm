@@ -160,10 +160,17 @@ test("Client create → edit → delete works end to end, and the dashboard metr
     const updated = await dbQuery<{ name: string }>("client", "findUniqueOrThrow", { where: { id: created.id } });
     expect(updated.name).toBe(updatedName);
 
-    // Delete (real confirmation dialog).
+    // Delete (real confirmation dialog). Delete lives behind the row's own
+    // RowActionMenu ("..." kebab) since Accessibility Improvement A1 (see
+    // confirm-dialog.spec.ts's own identical comment) — the trigger must
+    // be opened first; its menuitem is then looked up page-scoped (not
+    // row-scoped), matching the already-established pattern in
+    // confirm-dialog.spec.ts / mobile-row-actions-rollout.spec.ts /
+    // row-action-menu-keyboard.spec.ts.
     await page.goto("/clients");
     const updatedRow = page.getByRole("row", { name: new RegExp(updatedName.replace(/[().]/g, "\\$&")) });
-    await updatedRow.getByRole("button", { name: "Delete" }).click();
+    await updatedRow.getByRole("button", { name: `More actions for client ${updatedName}` }).click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
     const dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await Promise.all([
