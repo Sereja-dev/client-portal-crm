@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { getVerifiedAuthUser } from "@/lib/supabase/server";
-import { AuthCard } from "@/components/auth/auth-card";
+import { AuthShell } from "@/components/auth/auth-shell";
 import { ResetPasswordForm } from "@/components/auth/reset-password-form";
+import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { resetPassword, signOutAndGoToLogin } from "./actions";
 
 /**
@@ -18,26 +19,25 @@ export default async function ResetPasswordPage() {
   const user = await getVerifiedAuthUser();
 
   return (
-    <AuthCard>
+    <AuthShell topRightAction={{ label: "Back to sign in", href: "/login" }}>
       {user ? (
         <>
-          <h1 className="mb-6 text-2xl font-semibold tracking-tight text-text-primary">Set a new password</h1>
+          <h1 className="mb-6 text-3xl font-semibold tracking-tight text-text-primary sm:text-4xl">
+            Set a new password
+          </h1>
           <ResetPasswordForm action={resetPassword} signOutAction={signOutAndGoToLogin} />
         </>
       ) : (
         <div className="space-y-4 text-center">
           <h1 className="text-2xl font-semibold tracking-tight text-text-primary">This link is invalid or has expired</h1>
-          <p className="text-sm text-gray-600">Request a new password reset link to continue.</p>
-          <p className="text-sm text-gray-600">
-            <Link
-              href="/forgot-password"
-              className="rounded font-medium text-black hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
-            >
+          <p className="text-text-secondary text-sm">Request a new password reset link to continue.</p>
+          <p className="text-sm">
+            <Link href="/forgot-password" className={ACTION_LINK_CLASSES}>
               Request a new link
             </Link>
           </p>
         </div>
       )}
-    </AuthCard>
+    </AuthShell>
   );
 }

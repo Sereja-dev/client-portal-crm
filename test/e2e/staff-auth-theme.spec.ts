@@ -1,19 +1,19 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 
 /**
- * Accessibility Improvement A4 — real computed-style proof that Staff
- * /login and /signup are now theme-aware. Entirely unauthenticated (both
- * routes are pre-login by definition) — Dark is forced the same way a
- * real returning visitor would already have it: by setting the real
- * `aqenra_theme` cookie directly (same name/value-format
- * appearance-settings.spec.ts's own `cookieValue()`/`COOKIE_NAME`
- * already proves the app reads/writes — e.g. `"dark.dark"` for an
- * explicit Dark selection), never by forcing a DB `themeMode` (there is
- * no session yet to attach one to at this point in the flow — that is
- * exactly the scenario this slice's own audit confirmed the pre-paint
- * script already resolves correctly, purely from `document.cookie`,
- * with zero dependency on auth state).
+ * Pre-Auth Redesign, Slice A — replaces Accessibility Improvement A4's
+ * own theme-AWARENESS proof with the new, opposite contract Product
+ * explicitly chose: Staff pre-auth is now a FIXED dark shell,
+ * independent of the authenticated app's own Light/Dark/System
+ * preference. The three states proven below (no cookie, an explicit
+ * Light cookie, an explicit Dark cookie) all resolve to the identical
+ * fixed-dark values — the point being that the cookie's own value no
+ * longer matters for this shell at all, while `<html data-theme>`
+ * itself still resolves exactly as before (proving the authenticated
+ * app's own theme system is genuinely untouched, not merely "also
+ * happens to look dark right now").
  *
+ * Entirely unauthenticated (both routes are pre-login by definition).
  * Never submits Login or Signup — no account is created, no session is
  * established. Computed-style assertions only, never a screenshot.
  */
@@ -38,147 +38,158 @@ async function setThemeCookie(context: BrowserContext, baseURL: string, value: s
   ]);
 }
 
-test.describe("Staff Auth theme-awareness — /login", () => {
-  test("Light (default, no persisted cookie): shell/card/border/brand-text resolve to the expected Light semantic values", async ({
-    page,
-  }) => {
-    await page.goto("/login");
-    await expect.poll(() => resolvedAttr(page)).toBe("light");
+function shellCard(page: Page) {
+  return page.locator(".auth-shell main > div > div").first();
+}
 
-    const main = page.locator("main");
-    const mainBg = await main.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(mainBg).toContain("245, 245, 247"); // --surface-recessed Light #F5F5F7
+function shellBrandText(page: Page) {
+  return page.locator(".auth-shell header").getByText("Aqenra", { exact: true });
+}
 
-    const card = main.locator("> div").first();
-    const cardBg = await card.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(cardBg).toContain("255, 255, 255"); // --surface (= var(--background)) Light #ffffff — same value bg-white already resolved to
+test.describe("Staff pre-auth — fixed dark, independent of the authenticated-app theme cookie", () => {
+  for (const [label, cookieValue] of [
+    ["no cookie at all (a genuinely fresh visitor)", null],
+    ["an explicit Light cookie", "light.light"],
+    ["an explicit Dark cookie", "dark.dark"],
+  ] as const) {
+    test(`/login — ${label}: shell/card/brand-text/heading all resolve to the fixed dark values`, async ({
+      page,
+      context,
+      baseURL,
+    }) => {
+      if (cookieValue) {
+        await setThemeCookie(context, baseURL!, cookieValue);
+      }
+      await page.goto("/login");
 
-    const cardBorder = await card.evaluate((el) => getComputedStyle(el).borderColor);
-    expect(cardBorder).toContain("229, 231, 235"); // --border-default Light #E5E7EB — same hex border-gray-200 already was
+      // The authenticated app's own theme system is genuinely untouched:
+      // `<html data-theme>` still resolves exactly as the cookie says
+      // (or the generic Light SSR default with no cookie) — it is the
+      // auth shell's OWN rendered colors that stay fixed, not the
+      // document-level attribute this shell deliberately ignores.
+      const expectedHtmlTheme = cookieValue === "dark.dark" ? "dark" : "light";
+      await expect.poll(() => resolvedAttr(page)).toBe(expectedHtmlTheme);
 
-    const brand = main.locator("> span").first();
-    const brandColor = await brand.evaluate((el) => getComputedStyle(el).color);
-    expect(brandColor).toContain("23, 23, 23"); // --text-primary Light #171717
-  });
+      const shellBg = await page.locator(".auth-shell").first().evaluate((el) => getComputedStyle(el).backgroundColor);
+      expect(shellBg).toContain("14, 16, 20"); // --background (fixed) #0E1014
 
-  test("Dark (real persisted theme cookie, fully unauthenticated): shell/card/brand-text resolve to Dark semantic values, no old literal Light color remains", async ({
-    page,
-    context,
-    baseURL,
-  }) => {
-    await setThemeCookie(context, baseURL!, "dark.dark");
-    await page.goto("/login");
-    await expect.poll(() => resolvedAttr(page)).toBe("dark");
+      const cardBg = await shellCard(page).evaluate((el) => getComputedStyle(el).backgroundColor);
+      expect(cardBg).toContain("27, 31, 38"); // --surface (fixed) #1B1F26
+      expect(cardBg).not.toContain("255, 255, 255"); // never the old Light white, regardless of html theme
 
-    const main = page.locator("main");
-    const mainBg = await main.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(mainBg).toContain("20, 23, 28"); // --surface-recessed Dark #14171C
-    expect(mainBg).not.toContain("249, 250, 251"); // the old literal bg-gray-50 (#F9FAFB) must never remain
+      const brandColor = await shellBrandText(page).evaluate((el) => getComputedStyle(el).color);
+      expect(brandColor).toContain("236, 237, 238"); // --text-primary (fixed) #ECEDEE
 
-    const card = main.locator("> div").first();
-    const cardBg = await card.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(cardBg).toContain("27, 31, 38"); // --surface Dark #1B1F26
-    expect(cardBg).not.toContain("255, 255, 255"); // the old literal bg-white must never remain
+      const heading = page.getByRole("heading", { name: "Sign in" });
+      const headingColor = await heading.evaluate((el) => getComputedStyle(el).color);
+      expect(headingColor).toContain("236, 237, 238");
+    });
+  }
 
-    const brand = main.locator("> span").first();
-    const brandColor = await brand.evaluate((el) => getComputedStyle(el).color);
-    expect(brandColor).toContain("236, 237, 238"); // --text-primary Dark #ECEDEE (var(--foreground))
-  });
-});
-
-test.describe("Staff Auth theme-awareness — /signup (Dark representative)", () => {
-  test("shell/card theme-aware; the muted Terms/Privacy disclaimer resolves to the Dark semantic --text-muted token", async ({
+  test("/signup (Dark cookie): shell/card fixed-dark; the muted legal disclaimer resolves to the fixed --text-muted value", async ({
     page,
     context,
     baseURL,
   }) => {
     await setThemeCookie(context, baseURL!, "dark.dark");
     await page.goto("/signup");
-    await expect.poll(() => resolvedAttr(page)).toBe("dark");
 
-    const main = page.locator("main");
-    const mainBg = await main.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(mainBg).toContain("20, 23, 28");
-
-    const card = main.locator("> div").first();
-    const cardBg = await card.evaluate((el) => getComputedStyle(el).backgroundColor);
+    const cardBg = await shellCard(page).evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(cardBg).toContain("27, 31, 38");
 
     const disclaimer = page.getByText("By creating an account, you agree to our");
     const disclaimerColor = await disclaimer.evaluate((el) => getComputedStyle(el).color);
-    expect(disclaimerColor).toContain("134, 140, 151"); // --text-muted Dark #868C97 (Accessibility Improvement A2)
-  });
-});
-
-/**
- * A4 remediation — dark-mode heading defect. The page's own <h1> (e.g.
- * "Sign in") lives in page.tsx, not in AuthCard/LoginForm/SignupForm —
- * none of which the describe blocks above ever read into, since their
- * own locators (`main > span` for AuthCard's own brand text) never
- * descend into `{children}` where the page's own heading actually
- * renders. These are the real, previously-missing computed-style
- * assertions on that exact element.
- */
-test.describe("Staff Auth page headings — real computed-style proof of the A4 dark-mode fix", () => {
-  test("Light /login: the 'Sign in' heading resolves to the Light semantic --text-primary color", async ({ page }) => {
-    await page.goto("/login");
-    await expect.poll(() => resolvedAttr(page)).toBe("light");
-
-    const heading = page.getByRole("heading", { name: "Sign in" });
-    const color = await heading.evaluate((el) => getComputedStyle(el).color);
-    expect(color).toContain("23, 23, 23"); // --text-primary Light #171717
+    expect(disclaimerColor).toContain("134, 140, 151"); // --text-muted (fixed) #868C97
   });
 
-  test("Dark /login: the 'Sign in' heading resolves to the Dark semantic --text-primary color, never the old literal gray-900", async ({
+  test("/signup (Light cookie): still fixed-dark — the one case A4's own original test suite could never have covered, since Light used to mean Light here", async ({
     page,
     context,
     baseURL,
   }) => {
-    await setThemeCookie(context, baseURL!, "dark.dark");
-    await page.goto("/login");
-    await expect.poll(() => resolvedAttr(page)).toBe("dark");
-
-    const heading = page.getByRole("heading", { name: "Sign in" });
-    const color = await heading.evaluate((el) => getComputedStyle(el).color);
-    expect(color).toContain("236, 237, 238"); // --text-primary Dark #ECEDEE
-    expect(color).not.toContain("17, 24, 39"); // the old literal text-gray-900 (#111827) must never remain
-  });
-
-  test("Dark /signup: the 'Create an account' heading resolves to the Dark semantic --text-primary color", async ({
-    page,
-    context,
-    baseURL,
-  }) => {
-    await setThemeCookie(context, baseURL!, "dark.dark");
+    await setThemeCookie(context, baseURL!, "light.light");
     await page.goto("/signup");
-    await expect.poll(() => resolvedAttr(page)).toBe("dark");
+    await expect.poll(() => resolvedAttr(page)).toBe("light"); // html theme itself is still genuinely Light
 
-    const heading = page.getByRole("heading", { name: "Create an account" });
-    const color = await heading.evaluate((el) => getComputedStyle(el).color);
-    expect(color).toContain("236, 237, 238");
-    expect(color).not.toContain("17, 24, 39");
-  });
-
-  test("Dark /forgot-password (representative shared Auth page): the heading resolves to the Dark semantic --text-primary color", async ({
-    page,
-    context,
-    baseURL,
-  }) => {
-    await setThemeCookie(context, baseURL!, "dark.dark");
-    await page.goto("/forgot-password");
-    await expect.poll(() => resolvedAttr(page)).toBe("dark");
-
-    const heading = page.getByRole("heading", { name: "Forgot your password?" });
-    const color = await heading.evaluate((el) => getComputedStyle(el).color);
-    expect(color).toContain("236, 237, 238");
-    expect(color).not.toContain("17, 24, 39");
+    const cardBg = await shellCard(page).evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(cardBg).toContain("27, 31, 38"); // yet the shell/card is still the fixed dark value
   });
 });
 
-test.describe("Staff Auth link focus — semantic focus ring, not literal black", () => {
-  test("Light: Tab-focusing 'Forgot password?' produces a real ring whose color matches --focus-ring (identical to the old literal black value)", async ({
+// Scoped to the shell's own <header> — Login/Signup's own secondary
+// cross-link text ("Don't have an account? Create account" / "Already
+// have an account? Sign in") now deliberately matches the top-right
+// action's own label too (Slice A's own content-model normalization),
+// so an unscoped role query is ambiguous by design, not a bug.
+function shellHeaderAction(page: Page) {
+  return page.locator(".auth-shell header").getByRole("link");
+}
+
+test.describe("Staff pre-auth — brand mark and top-right contextual action", () => {
+  test("/login: the brand mark links home, and 'Create account' is the top-right action", async ({ page }) => {
+    await page.goto("/login");
+    const brandLink = page.locator(".auth-shell header a").first();
+    await expect(brandLink).toHaveAttribute("href", "/");
+    await expect(brandLink.locator("svg")).toHaveAttribute("aria-hidden", "true");
+
+    const topRight = shellHeaderAction(page).filter({ hasText: "Create account" });
+    await expect(topRight).toBeVisible();
+    // Carries the same default redirectTo=/dashboard every existing
+    // secondary cross-link on this page already appends (sanitizeRedirectPath's
+    // own fallback, not new behavior this slice introduced) — a plain
+    // visit with no ?redirectTo= still produces a truthy default.
+    await expect(topRight).toHaveAttribute("href", /^\/signup/);
+  });
+
+  test("/signup: top-right action is 'Sign in' -> /login", async ({ page }) => {
+    await page.goto("/signup");
+    await expect(shellHeaderAction(page).filter({ hasText: "Sign in" })).toHaveAttribute("href", /^\/login/);
+  });
+
+  test("/forgot-password and /reset-password: top-right action is 'Back to sign in' -> /login", async ({ page }) => {
+    await page.goto("/forgot-password");
+    await expect(page.getByRole("link", { name: "Back to sign in" })).toHaveAttribute("href", "/login");
+
+    await page.goto("/reset-password");
+    await expect(page.getByRole("link", { name: "Back to sign in" })).toHaveAttribute("href", "/login");
+  });
+
+  test("/: top-right action is 'Sign in' -> /login, and the primary CTA is 'Create account' -> /signup", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByRole("link", { name: "Sign in" }).first()).toHaveAttribute("href", "/login");
+    await expect(page.getByRole("link", { name: "Create account" })).toHaveAttribute("href", "/signup");
+  });
+
+  test("/organization-unavailable: top-right 'Sign in' is the only interactive element, no form/mutation control exists", async ({
     page,
   }) => {
+    await page.goto("/organization-unavailable");
+    await expect(page.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login");
+    await expect(page.getByRole("heading", { name: "Workspace unavailable" })).toBeVisible();
+    await expect(page.locator("form")).toHaveCount(0);
+  });
+});
+
+test.describe("Staff pre-auth — route-specific content model (headings, normalized copy)", () => {
+  test("forgot-password heading reads 'Reset your password'", async ({ page }) => {
+    await page.goto("/forgot-password");
+    await expect(page.getByRole("heading", { name: "Reset your password" })).toBeVisible();
+  });
+
+  test("login's secondary cross-link reads 'Create account', not 'Sign up'", async ({ page }) => {
+    await page.goto("/login");
+    await expect(page.getByText("Don't have an account?")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Create account" })).toHaveCount(2); // top-right + secondary link
+  });
+
+  test("signup's primary CTA reads 'Create account'", async ({ page }) => {
+    await page.goto("/signup");
+    await expect(page.getByRole("button", { name: "Create account" })).toBeVisible();
+  });
+});
+
+test.describe("Staff Auth link focus — semantic focus ring", () => {
+  test("Tab-focusing 'Forgot password?' produces a real ring matching the fixed --focus-ring value", async ({ page }) => {
     await page.goto("/login");
     const link = page.getByRole("link", { name: "Forgot password?" });
 
@@ -188,31 +199,37 @@ test.describe("Staff Auth link focus — semantic focus ring, not literal black"
 
     expect(after).not.toBe("none");
     expect(after).not.toBe(before);
-    expect(after).toContain("0, 0, 0"); // --focus-ring Light #000000 — the same resolved value focus-visible:ring-black already had
-  });
+    expect(after).toContain("155, 150, 232"); // --focus-ring (fixed) #9B96E8 — visible on a near-black surface
 
-  test("Dark: the same link's focus ring resolves to the semantic --focus-ring color, not an invisible/literal black", async ({
-    page,
-    context,
-    baseURL,
-  }) => {
-    await setThemeCookie(context, baseURL!, "dark.dark");
-    await page.goto("/login");
-    await expect.poll(() => resolvedAttr(page)).toBe("dark");
-
-    const link = page.getByRole("link", { name: "Forgot password?" });
-    const before = await link.evaluate((el) => getComputedStyle(el).boxShadow);
-    await link.focus();
-    const after = await link.evaluate((el) => getComputedStyle(el).boxShadow);
-
-    expect(after).not.toBe("none");
-    expect(after).not.toBe(before);
-    expect(after).toContain("155, 150, 232"); // --focus-ring Dark #9B96E8 — visible on a near-black surface, unlike literal black
-  });
-
-  test("the link still navigates normally", async ({ page }) => {
-    await page.goto("/login");
-    await page.getByRole("link", { name: "Forgot password?" }).click();
+    await link.click();
     await expect(page).toHaveURL(/\/forgot-password/);
+  });
+});
+
+test.describe("Portal regression — entirely untouched by the Staff pre-auth redesign", () => {
+  test("/portal/login still resolves to its own, separate, theme-reactive colors — never the Staff fixed-dark values", async ({
+    page,
+  }) => {
+    await page.goto("/portal/login");
+    await expect.poll(() => resolvedAttr(page)).toBe("light"); // default SSR, unaffected
+
+    const main = page.locator("main").first();
+    const mainBg = await main.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(mainBg).toContain("245, 245, 247"); // --surface-recessed Light — Portal still theme-reactive, not fixed dark
+    expect(mainBg).not.toContain("14, 16, 20"); // never the Staff shell's fixed --background
+
+    // Portal's own shell never gained the Staff-only `.auth-shell` class.
+    await expect(page.locator(".auth-shell")).toHaveCount(0);
+  });
+
+  test("/portal/forgot-password and /portal/reset-password: the shared form components render unchanged — no Staff brand/top-right chrome leaked in", async ({
+    page,
+  }) => {
+    await page.goto("/portal/forgot-password");
+    await expect(page.locator(".auth-shell")).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Create account" })).toHaveCount(0);
+
+    await page.goto("/portal/reset-password");
+    await expect(page.locator(".auth-shell")).toHaveCount(0);
   });
 });

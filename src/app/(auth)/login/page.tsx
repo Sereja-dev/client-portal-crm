@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { parseSearchParam, type RawSearchParams } from "@/lib/list-params";
 import { sanitizeRedirectPath } from "@/lib/safe-redirect";
-import { AuthCard } from "@/components/auth/auth-card";
+import { AuthShell } from "@/components/auth/auth-shell";
 import { LoginForm } from "./login-form";
 
 export default async function LoginPage({
@@ -27,16 +27,21 @@ export default async function LoginPage({
   }
 
   return (
-    <AuthCard>
-      <h1 className="mb-6 text-2xl font-semibold tracking-tight text-text-primary">
+    <AuthShell
+      topRightAction={{
+        label: "Create account",
+        href: redirectTo ? `/signup?redirectTo=${encodeURIComponent(redirectTo)}` : "/signup",
+      }}
+    >
+      <h1 className="mb-6 text-3xl font-semibold tracking-tight text-text-primary sm:text-4xl">
         Sign in
       </h1>
       {sessionExpired && (
-        <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <p className="border-warning bg-warning-subtle text-warning mb-4 rounded-md border px-3 py-2 text-sm">
           Your session expired. Sign in again to continue.
         </p>
       )}
       <LoginForm redirectTo={redirectTo} />
-    </AuthCard>
+    </AuthShell>
   );
 }

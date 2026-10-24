@@ -125,7 +125,7 @@ export function SignupForm({
       </p>
 
       <Button type="submit" loading={pending} className="w-full">
-        {pending ? "Creating account…" : "Sign up"}
+        {pending ? "Creating account…" : "Create account"}
       </Button>
 
       <p className="text-text-secondary text-center text-sm">

@@ -64,7 +64,7 @@ export function LoginForm({ redirectTo }: { redirectTo?: string }) {
           href={redirectTo ? `/signup?redirectTo=${encodeURIComponent(redirectTo)}` : "/signup"}
           className={ACTION_LINK_CLASSES}
         >
-          Sign up
+          Create account
         </Link>
       </p>
     </form>

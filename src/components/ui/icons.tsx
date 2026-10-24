@@ -335,3 +335,22 @@ export function SignOutIcon({ className = "h-4 w-4" }: IconProps) {
     </svg>
   );
 }
+
+/**
+ * Pre-Auth Redesign, Slice A — the first reusable in-UI brand mark; every
+ * existing brand mention (Sidebar, the old AuthCard) was plain text only.
+ * Byte-for-byte the same geometry as the already-approved favicon
+ * (src/app/icon.svg: two overlapping rounded squares, viewBox 0 0 32 32)
+ * — reused, not reinvented. Colors are the existing Light/Dark accent
+ * pair (globals.css), never a new hex. Always decorative: every call
+ * site pairs this with adjacent "Aqenra" text that already carries the
+ * accessible name, so aria-hidden is correct here, not a gap.
+ */
+export function AqenraMarkIcon({ className = "h-7 w-7" }: IconProps) {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 32 32" className={className}>
+      <rect x="4" y="4" width="18" height="18" rx="5" fill="#2E2A6B" />
+      <rect x="10" y="10" width="18" height="18" rx="5" fill="#6C65C9" />
+    </svg>
+  );
+}

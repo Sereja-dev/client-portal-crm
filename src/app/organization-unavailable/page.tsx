@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { AuthShell } from "@/components/auth/auth-shell";
 
 export const metadata: Metadata = {
   title: "Workspace unavailable",
@@ -18,17 +19,23 @@ export const metadata: Metadata = {
  * the acting admin's identity, the organization's own name or id, an
  * invitation token, or any other identifier — the copy below is fixed and
  * generic by design (see the design investigation's own explicit "may
- * suspension/organization existence be disclosed" decision: no). No link,
- * button, or form of any kind — nothing here is interactive, and nothing
- * here is a mutation control.
+ * suspension/organization existence be disclosed" decision: no).
+ *
+ * Pre-Auth Redesign, Slice A — the shared shell's own top-right "Sign in"
+ * is the one addition to this page's interactivity: a generic, always-
+ * true destination that discloses nothing about this specific
+ * organization (not a mutation, not a decision about this org at all) —
+ * the shell's standard header action on every pre-auth route, not a
+ * page-specific exception. Still no form, no mutation control, no
+ * suspension-specific link of any kind.
  */
 export default function OrganizationUnavailablePage() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-gray-50 px-4 text-center">
-      <h1 className="text-2xl font-semibold tracking-tight text-gray-900">Workspace unavailable</h1>
-      <p className="mt-2 max-w-sm text-sm text-gray-600">
-        This workspace is currently unavailable. Contact support.
-      </p>
-    </main>
+    <AuthShell cardClassName="max-w-sm" topRightAction={{ label: "Sign in", href: "/login" }}>
+      <div className="text-center">
+        <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Workspace unavailable</h1>
+        <p className="text-text-secondary mt-2 text-sm">This workspace is currently unavailable. Contact support.</p>
+      </div>
+    </AuthShell>
   );
 }

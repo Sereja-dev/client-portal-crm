@@ -17,7 +17,7 @@ export function AcceptInvitationForm({
   return (
     <form action={formAction}>
       {state.error && (
-        <p role="alert" className="mb-3 text-sm text-red-600">
+        <p role="alert" className="text-danger mb-3 text-sm">
           {state.error}
         </p>
       )}

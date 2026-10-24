@@ -396,6 +396,128 @@
   color-scheme: dark;
 }
 
+/*
+ * Pre-Auth Redesign, Slice A — a FIXED dark surface for every Staff
+ * pre-auth route (/, /login, /signup, /forgot-password, /reset-password,
+ * /invite/[id], /organization-unavailable, the (auth) error fallback),
+ * deliberately independent of `data-theme` (Product decision: pre-auth
+ * does not follow the authenticated app's Light/Dark/System preference —
+ * the authenticated Dashboard's own theme system is completely
+ * unaffected by this block). `.auth-shell` wraps each of those pages'
+ * own content; every descendant using the existing bg-surface/
+ * text-text-primary/border-border-default/etc. Tailwind utilities
+ * (`@theme inline` below maps each to `var(--color-x)` -> `var(--x)`,
+ * resolved at paint time) picks up these values automatically — this is
+ * local CSS custom-property shadowing, not a new token system, so
+ * Input/Button/FormLabel/StatusBadge/ACTION_LINK_CLASSES/etc. all render
+ * correctly here with zero per-component changes.
+ *
+ * Values below are an intentional, byte-for-byte copy of the
+ * `:root[data-theme="dark"]` block above (same already-WCAG-vetted
+ * numbers, same rationale) — not deduplicated against it, matching this
+ * file's own established per-theme-block convention (Light under
+ * `:root`, Dark under `:root[data-theme="dark"]`, each a full, separate
+ * set). A future change to Dark's own palette should be mirrored here
+ * deliberately, not silently inherited — this surface is fixed by
+ * Product decision, not a view of "whatever Dark currently is".
+ */
+.auth-shell {
+  --background: #0E1014;
+  --foreground: #ECEDEE;
+
+  --accent: #6C65C9;
+  --accent-hover: #7069CA;
+  --accent-active: #5F58B5;
+  --accent-subtle: rgba(114, 107, 203, 0.16);
+  --accent-foreground: #ffffff;
+
+  --surface: #1B1F26;
+  --surface-recessed: #14171C;
+  --surface-elevated: #232833;
+  --surface-muted: #171A20;
+
+  --text-primary: var(--foreground);
+  --text-secondary: #A0A6B0;
+  --text-muted: #868C97;
+  --text-inverse: #ffffff;
+
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-default: rgba(255, 255, 255, 0.14);
+  --border-strong: rgba(255, 255, 255, 0.22);
+  --border-form-control: rgba(255, 255, 255, 0.40);
+
+  --focus-ring: #9B96E8;
+
+  --success: #6FCF97;
+  --success-subtle: rgba(111, 207, 151, 0.14);
+  --warning: #E8B854;
+  --warning-subtle: rgba(232, 184, 84, 0.14);
+  --danger: #E8756A;
+  --danger-subtle: rgba(232, 117, 106, 0.14);
+  --info: #6FA8E8;
+  --info-subtle: rgba(111, 168, 232, 0.14);
+
+  --danger-button: #B91C1C;
+  --danger-button-hover: #DC2626;
+
+  --selected: var(--accent-subtle);
+  --hover: rgba(255, 255, 255, 0.06);
+  --disabled: #5C626B;
+
+  --aqenra-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --aqenra-shadow-md:
+    0 4px 14px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --aqenra-shadow-lg:
+    0 16px 40px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+
+  color-scheme: dark;
+}
+
+/*
+ * The gradient itself — a SEPARATE class from `.auth-shell` above on
+ * purpose: `.auth-shell` is the token set alone, applied once to
+ * AuthShell's own outer wrapper; this class carries only the
+ * background-image, so the token set stays reusable on its own without
+ * ever forcing this specific gradient onto anything else. Near-black at
+ * the bottom, a restrained navy/indigo concentration higher up,
+ * radiating from top-center — subtle enough to read as "premium SaaS
+ * surface", never a loud/animated effect (none of this moves, and
+ * opacity stays low). Uses the same accent hue family as --accent above
+ * (a desaturated indigo), not an arbitrary new color.
+ */
+.auth-shell-page {
+  background-color: var(--background);
+  background-image:
+    radial-gradient(ellipse 1200px 600px at 50% -10%, rgba(108, 101, 201, 0.20), transparent 60%),
+    radial-gradient(ellipse 900px 500px at 85% 0%, rgba(42, 92, 153, 0.12), transparent 55%),
+    linear-gradient(180deg, #12131A 0%, var(--background) 55%);
+}
+
+/*
+ * Pre-Auth Redesign, Slice A — hides the GLOBAL root-layout Footer
+ * (src/components/layout/footer.tsx) specifically on the fixed-dark
+ * pre-auth routes, where AuthShell renders its own self-contained dark
+ * Privacy/Terms footer instead (never both — see AuthShell's own doc
+ * comment on "avoid accidental duplicate legal content"). Pure CSS, no
+ * JavaScript pathname detection: a `usePathname()`-based Client
+ * Component Footer was tried first and reverted — it caused a real
+ * React hydration mismatch specifically on dynamically-rendered pre-auth
+ * routes (confirmed by direct reproduction), which in turn reverted the
+ * pre-paint theme script's own already-correct `data-theme`. `:has()` is
+ * supported by every evergreen browser this app already targets (no
+ * older-browser fallback exists elsewhere in this stylesheet either).
+ *
+ * The `:not(.auth-shell-footer)` exclusion is required, not decorative:
+ * without it, this selector also matches AuthShell's OWN local <footer>
+ * (it's a `footer` descendant of a body that has `.auth-shell`
+ * somewhere in it too), hiding the one footer these routes are actually
+ * supposed to show. Caught by test/e2e/pre-auth-redesign.spec.ts's own
+ * "Privacy/Terms links remain visible" assertion.
+ */
+body:has(.auth-shell) footer:not(.auth-shell-footer) {
+  display: none;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

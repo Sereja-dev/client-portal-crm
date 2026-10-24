@@ -1,7 +1,15 @@
 "use client";
 
 import { useErrorBoundaryLogging } from "@/components/ui/segment-error-state";
+import { AuthShell } from "@/components/auth/auth-shell";
+import { Button } from "@/components/ui/button";
 
+/**
+ * Pre-Auth Redesign, Slice A — same fixed dark shell as every other
+ * pre-auth route. Still exposes no internal error detail of any kind
+ * (no error.message, no digest) — unchanged from before this file's own
+ * visual migration.
+ */
 export default function AuthError({
   error,
   reset,
@@ -12,20 +20,14 @@ export default function AuthError({
   useErrorBoundaryLogging(error);
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4">
-      <div className="w-full max-w-sm rounded-lg border border-gray-200 bg-white p-8 text-center shadow-sm">
-        <h1 className="text-lg font-semibold text-gray-900">
-          Something went wrong
-        </h1>
-        <p className="mt-2 text-sm text-gray-600">Please try again.</p>
-        <button
-          type="button"
-          onClick={() => reset()}
-          className="mt-6 rounded-md bg-black px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-gray-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-black focus-visible:ring-offset-2"
-        >
+    <AuthShell cardClassName="max-w-sm" topRightAction={{ label: "Sign in", href: "/login" }}>
+      <div className="text-center">
+        <h1 className="text-text-primary text-lg font-semibold">Something went wrong</h1>
+        <p className="text-text-secondary mt-2 text-sm">Please try again.</p>
+        <Button type="button" onClick={() => reset()} className="mt-6 w-full">
           Try again
-        </button>
+        </Button>
       </div>
-    </main>
+    </AuthShell>
   );
 }
