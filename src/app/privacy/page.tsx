@@ -44,7 +44,8 @@ export default function PrivacyPolicyPage() {
               <strong className="text-text-primary">Account information.</strong> Name, email address, and password
               for staff and Client Portal accounts. Passwords are handled entirely by our authentication
               provider (Supabase Auth) and stored as a salted hash &mdash; we never see or store a plaintext
-              password.
+              password. If a staff member voluntarily adds a phone number as an additional account-recovery
+              option, we store that phone number too.
             </li>
             <li>
               <strong className="text-text-primary">Organization and business data.</strong> Information an

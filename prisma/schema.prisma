@@ -493,6 +493,31 @@ model User {
   avatarUrl String?
   role      Role      @default(MEMBER)
   themeMode ThemeMode @default(SYSTEM)
+
+  // Phone Recovery Foundation, Slice B1 (read-only architecture audit:
+  // PHONE_RECOVERY_AUDIT). Additive, nullable, no default, no backfill —
+  // every existing row remains valid with both columns NULL. Canonical
+  // E.164 only (e.g. "+66812345678") — never a locally-formatted display
+  // string; see src/lib/phone/normalize.ts, the one place a raw user
+  // input is ever converted to this column's value. Globally unique
+  // (never organization-scoped) — a phone number identifies a *person*
+  // across the whole platform, the same reasoning `email` above already
+  // follows. Staff-only by design: PortalUser has no equivalent field,
+  // and must not gain one as part of this slice or any later phone-
+  // recovery slice without its own separate Product decision.
+  //
+  // `phoneVerifiedAt` is null until a future slice (B2) actually proves
+  // ownership via OTP — this slice never sets it. It exists now so the
+  // schema shape, the "verified phone is read-only" UI/server contract,
+  // and this slice's own tests can all be written against the real
+  // column today, rather than a second migration later. A non-null
+  // `phone` with a null `phoneVerifiedAt` means exactly "stored, not yet
+  // verified, not usable for recovery" — phone recovery (a later slice)
+  // must never consult this column without also checking
+  // `phoneVerifiedAt`.
+  phone           String?   @unique
+  phoneVerifiedAt DateTime?
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
 

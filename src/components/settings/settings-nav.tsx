@@ -104,6 +104,11 @@ const SETTINGS_LINKS: readonly SettingsNavLink[] = [
   // Company/Payment/Domain/Billing above), and neither is role-gated.
   { href: "/settings/appearance", label: "Appearance" },
   { href: "/settings/notifications", label: "Notifications" },
+  // Phone Recovery Foundation, Slice B1 — grouped with Appearance/
+  // Notifications immediately above, the same "personal, per-identity
+  // preference, never role-gated" tier (a recovery phone is the acting
+  // Staff user's own, never an organization-level setting).
+  { href: "/settings/account", label: "Account" },
   { href: "/settings/billing", label: "Billing" },
 ];
 
