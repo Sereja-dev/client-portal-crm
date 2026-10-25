@@ -74,6 +74,7 @@ const expectedConsumers = [
   "src/lib/invoices/email/trusted-origin.ts",
   "src/lib/invoices/pdf/logo.ts",
   "src/lib/invoices/pdf/storage.ts",
+  "src/lib/phone/twilio-verify.ts",
   "src/lib/storage/attachments-storage.ts",
   "src/lib/storage/logo-storage.ts",
   "src/lib/storage/test-storage.ts",

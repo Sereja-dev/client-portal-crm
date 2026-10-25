@@ -2,6 +2,7 @@
 
 import { useActionState, useState } from "react";
 import { updateRecoveryPhoneAction, type RecoveryPhoneFormState } from "@/app/(dashboard)/settings/account/actions";
+import { PhoneVerificationControls } from "@/components/settings/phone-verification-controls";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -15,7 +16,7 @@ const initialState: RecoveryPhoneFormState = { error: null };
 const COUNTRY_OPTIONS = getPhoneCountryOptions();
 
 /**
- * Phone Recovery Foundation, Slice B1 (read-only architecture audit:
+ * Phone Recovery Foundation, Slice B1/B2 (read-only architecture audit:
  * PHONE_RECOVERY_AUDIT). Server-rendered props, fully re-synced on every
  * Server Action-triggered re-render of the parent page — this component
  * holds no state of its own for `hasPhone`/`maskedPhone`/`isVerified`,
@@ -36,21 +37,31 @@ const COUNTRY_OPTIONS = getPhoneCountryOptions();
  * never two independent forms that could show stale or conflicting
  * feedback.
  *
- * No "Verify" control exists anywhere in this component — B2 (not
- * shipped) is where that becomes real. Exposing a disabled placeholder
- * was considered and rejected: the audit's own instruction ("Prefer not
- * to expose unfinished/dead-end UI if it can be avoided") is satisfied
- * more honestly by the explanatory copy alone than by a button that
- * does nothing.
+ * Slice B2 — the Send/Verify OTP flow lives in its own
+ * PhoneVerificationControls, rendered WITHOUT a `key` tied to the phone
+ * — deliberately: if a Staff user sends a code for Phone A, then uses
+ * the Replace form directly below to switch to Phone B without
+ * reloading, the code-entry box stays exactly as they left it, and
+ * submitting Phone A's code still runs through the real server
+ * round-trip (see verifyRecoveryPhoneCodeAction's own doc comment) —
+ * which re-reads `User.phone` fresh and correctly rejects it as
+ * "invalid or has expired", the exact same honest outcome a user would
+ * get from mistyping. Resetting this box on Replace was considered and
+ * rejected: it would silently discard a legitimate in-flight attempt
+ * the instant the user also happened to be mid-Replace in another tab,
+ * for no security benefit — the server-side check is unconditional and
+ * doesn't depend on which UI state is showing.
  */
 export function RecoveryPhoneSettings({
   hasPhone,
   maskedPhone,
   isVerified,
+  verificationAvailable,
 }: {
   hasPhone: boolean;
   maskedPhone: string | null;
   isVerified: boolean;
+  verificationAvailable: boolean;
 }) {
   const [state, formAction, pending] = useActionState(updateRecoveryPhoneAction, initialState);
   const [country, setCountry] = useState<CountryCode>(DEFAULT_PHONE_COUNTRY);
@@ -83,10 +94,7 @@ export function RecoveryPhoneSettings({
         </div>
       ) : null}
       {!isVerified && hasPhone && (
-        <p className="text-text-secondary mt-2 text-sm">
-          Not verified — this number cannot be used for account recovery yet. Phone verification will be available
-          soon.
-        </p>
+        <PhoneVerificationControls verificationAvailable={verificationAvailable} />
       )}
 
       {!isVerified && !hasPhone && <p className="text-text-secondary mt-4 text-sm">No recovery phone added.</p>}

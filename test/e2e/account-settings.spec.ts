@@ -67,11 +67,14 @@ test.describe("Phone Recovery Foundation, Slice B1 — Account settings, Recover
 
     await expect(page.getByText("Recovery phone saved.")).toBeVisible();
     await expect(page.getByText("Not verified", { exact: true })).toBeVisible();
-    await expect(
-      page.getByText("this number cannot be used for account recovery yet", { exact: false }),
-    ).toBeVisible();
-    // Never claims SMS recovery currently works.
-    await expect(page.getByText(/send.*code|verify now/i)).toHaveCount(0);
+    // Phone Recovery Slice B2 — TEST_MODE makes the verification
+    // provider "ready" (see twilio-verify.ts's own checkPhoneVerificationProviderReadiness()),
+    // so the real Send control appears here, not B1's old static
+    // "coming soon" copy (see account-phone-verification.spec.ts for
+    // full Send/Verify coverage) — this assertion only confirms the
+    // honest "not yet recovery-eligible" framing survives B2 intact.
+    await expect(page.getByText("Verify this number before it can be used for account recovery.")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Send verification code" })).toBeVisible();
 
     await expect.poll(() => userPhoneRow(fixtures.owner.id)).toMatchObject({
       phone: "+66812345678",
@@ -160,7 +163,11 @@ test.describe("Phone Recovery Foundation, Slice B1 — Account settings, Recover
     expect(body).not.toContain("+66812345678");
   });
 
-  test("no 'Verify' control is ever rendered — B2 is not shipped yet", async ({ page, context, baseURL }) => {
+  test("no 'Verify' control renders before a code has been sent (Slice B2's Verify step is reachable only after Send)", async ({
+    page,
+    context,
+    baseURL,
+  }) => {
     await dbQuery("user", "update", { where: { id: fixtures.owner.id }, data: { phone: "+66812345678" } });
     await injectTestSession(context, fixtures.owner, baseURL!);
     await page.goto(ACCOUNT_PATH);

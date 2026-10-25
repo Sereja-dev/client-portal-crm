@@ -369,3 +369,31 @@ export const START_SAMPLE_DATA_LIMIT: RateLimitConfig = { scope: "start-sample-d
 // reading it out, a meaningfully higher blast radius for the same
 // OWNER/ADMIN-gated action.
 export const IMPORT_EXECUTE_LIMIT: RateLimitConfig = { scope: "import-execute", limit: 10, windowMs: HOUR_MS };
+
+// Phone Recovery, Slice B2 — per authenticated staff user id. Unlike
+// every limiter above, a send here triggers a real, Twilio-billed SMS —
+// this is explicitly NOT the primary cost barrier (Twilio Verify's own
+// per-project/per-number rate limiting and per-verification pricing are;
+// see twilio-verify.ts's own header comment), only defense-in-depth
+// against a single authenticated session scripting repeated sends. 5/hour
+// is generous for genuine retry (a mistyped number corrected via
+// Replace, a first SMS that never arrived) while still bounding a
+// scripted loop well short of Twilio's own project-level ceiling.
+export const RECOVERY_PHONE_SEND_CODE_LIMIT: RateLimitConfig = {
+  scope: "recovery-phone-send-code",
+  limit: 5,
+  windowMs: HOUR_MS,
+};
+
+// Phone Recovery, Slice B2 — per authenticated staff user id, isolated
+// bucket from the send limit above (a different action, a different
+// abuse shape: brute-forcing a code already sent, not spamming new
+// sends). Twilio Verify's own `max_attempts_reached` status is the real,
+// load-bearing guard against code brute-forcing — this is app-side
+// defense-in-depth only. 10/hour is generous for a few genuine typos
+// across more than one legitimately-requested code.
+export const RECOVERY_PHONE_VERIFY_CODE_LIMIT: RateLimitConfig = {
+  scope: "recovery-phone-verify-code",
+  limit: 10,
+  windowMs: HOUR_MS,
+};

@@ -1,6 +1,7 @@
 import { getOrCreateUser } from "@/lib/current-user";
 import { RecoveryPhoneSettings } from "@/components/settings/recovery-phone-settings";
 import { maskPhoneNumber } from "@/lib/phone";
+import { checkPhoneVerificationProviderReadiness } from "@/lib/phone/twilio-verify";
 
 /**
  * Phone Recovery Foundation, Slice B1 (read-only architecture audit:
@@ -24,6 +25,14 @@ import { maskPhoneNumber } from "@/lib/phone";
  * comment), so there is no reason for the unmasked number to travel
  * into the client bundle/RSC payload in the first place — a stricter
  * guarantee than "the UI happens not to render it".
+ *
+ * Phone Recovery, Slice B2 — `verificationAvailable` is server-side
+ * CAPABILITY DETECTION (checkPhoneVerificationProviderReadiness()),
+ * never a public env flag: whether real Twilio credentials happen to be
+ * configured on this deployment, resolved here and handed down as a
+ * plain boolean. When false, the Client Component must not render a
+ * live "Send code" control at all — see that component's own doc
+ * comment for the exact truthful copy shown instead.
  */
 export default async function AccountSettingsPage() {
   const user = await getOrCreateUser();
@@ -38,6 +47,7 @@ export default async function AccountSettingsPage() {
           hasPhone={user.phone !== null}
           maskedPhone={user.phone ? maskPhoneNumber(user.phone) : null}
           isVerified={user.phoneVerifiedAt !== null}
+          verificationAvailable={checkPhoneVerificationProviderReadiness() === "ready"}
         />
       </div>
     </div>
