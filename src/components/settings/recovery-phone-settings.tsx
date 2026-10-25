@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import { updateRecoveryPhoneAction, type RecoveryPhoneFormState } from "@/app/(dashboard)/settings/account/actions";
 import { PhoneVerificationControls } from "@/components/settings/phone-verification-controls";
 import { Button } from "@/components/ui/button";
@@ -51,6 +51,41 @@ const COUNTRY_OPTIONS = getPhoneCountryOptions();
  * the instant the user also happened to be mid-Replace in another tab,
  * for no security benefit — the server-side check is unconditional and
  * doesn't depend on which UI state is showing.
+ *
+ * Country-selector post-action reset (Production defect, fixed here) —
+ * root cause, confirmed empirically (not guessed): the Save/Remove
+ * `<form action={formAction}>` submits through React's real form-action
+ * lifecycle, and once that settles (success OR failure — reproduced for
+ * both), React itself calls the native `form.reset()` as part of that
+ * SAME commit — before any effect runs — to mimic a real browser form
+ * submission for progressive enhancement. `form.reset()` reverts every
+ * form-associated control to its OWN static HTML default, and the
+ * country `<select>`'s SSR'd markup never bakes a `selected` attribute
+ * onto any `<option>` (React manages a controlled select via the
+ * element's `.value` DOM property, not the `selected` attribute), so
+ * its static default is simply "whichever `<option>` is first in DOM
+ * order" — alphabetically "Afghanistan". Because the reset fires as
+ * part of the SAME commit that processes the new `state`, neither a
+ * plain `setState` call nor a `key`-forced remount reliably wins that
+ * race (both were tried and empirically still showed Afghanistan) —
+ * only code that runs strictly AFTER the commit, i.e. a `useEffect`,
+ * is guaranteed to run after React's own reset call and can safely
+ * overwrite whatever it left behind.
+ *
+ * Fix: a ref on the select plus one `useEffect` keyed on `state` — the
+ * same "an effect is for synchronizing with an external system" case
+ * React's own docs describe, the external system here being the DOM
+ * node a native `form.reset()` just mutated outside React's view. After
+ * every settled action, this imperatively re-asserts the select's
+ * `.value` to the CORRECT country: the real default when the action
+ * leaves no phone on file (a successful Remove), or whatever the user
+ * already had selected otherwise (a successful Save/Replace, or any
+ * failure) — matching the exact same intent-detection an earlier
+ * (reverted) remount-based attempt used, just applied at a point in the
+ * lifecycle where it actually takes effect. The phone text input needs
+ * no equivalent ref: its own native reset-to-empty is already the
+ * desired, unreported-as-broken behavior (see below), so nothing about
+ * it needs correcting.
  */
 export function RecoveryPhoneSettings({
   hasPhone,
@@ -66,6 +101,55 @@ export function RecoveryPhoneSettings({
   const [state, formAction, pending] = useActionState(updateRecoveryPhoneAction, initialState);
   const [country, setCountry] = useState<CountryCode>(DEFAULT_PHONE_COUNTRY);
   const [phoneInput, setPhoneInput] = useState("");
+  const countrySelectRef = useRef<HTMLSelectElement>(null);
+  const isFirstRender = useRef(true);
+  // Tracks `hasPhone` as of the last settled action — NOT the same as
+  // "`hasPhone` is currently false", which is also true for a failed Add
+  // that never had a phone to begin with. Only a TRUE -> FALSE
+  // transition is a successful Remove; a failed Add/Replace (hasPhone
+  // false or true both before and after) must never be treated the same
+  // way, or a failed Add would wrongly reset the user's own in-progress
+  // country selection back to the default (reproduced and confirmed
+  // while building this fix).
+  const previousHasPhoneRef = useRef(hasPhone);
+
+  useEffect(() => {
+    // Skip the initial mount — there is nothing to correct yet (the
+    // select already shows the right default, freshly hydrated, and no
+    // native reset has fired). This effect's whole purpose only starts
+    // to apply once a FORM ACTION has actually settled.
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      previousHasPhoneRef.current = hasPhone;
+      return;
+    }
+
+    const phoneWasJustRemoved = previousHasPhoneRef.current && !hasPhone;
+    previousHasPhoneRef.current = hasPhone;
+
+    // A successful Remove returns the selector to the real default;
+    // every other settled action (a successful Save/Replace, or any
+    // failure — including a failed Add that never had a phone at all)
+    // keeps whatever the user already had selected.
+    const correctedCountry = phoneWasJustRemoved ? DEFAULT_PHONE_COUNTRY : country;
+    if (phoneWasJustRemoved) {
+      setCountry(DEFAULT_PHONE_COUNTRY);
+    }
+    // The phone text input's own reset-to-empty (the browser's native
+    // default for an input with no defaultValue) is left exactly as is
+    // — matching the app's existing, unreported, already-correct
+    // behavior of clearing the field after any settled submission — so
+    // only React's own `phoneInput` state is resynced to match, never
+    // the DOM value itself.
+    setPhoneInput("");
+
+    // Imperative, unconditional write — deliberately not gated on
+    // "did the value actually change", because the whole point is to
+    // overwrite whatever form.reset() already put in the DOM, which
+    // React's own props/state bookkeeping has no visibility into.
+    if (countrySelectRef.current) countrySelectRef.current.value = correctedCountry;
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentionally fires only on a new settled `state`, not on every `country`/`hasPhone` render.
+  }, [state]);
 
   return (
     <section className={`p-6 ${CARD_SURFACE_CLASSES}`}>
@@ -107,6 +191,7 @@ export function RecoveryPhoneSettings({
               <Select
                 id="country"
                 name="country"
+                ref={countrySelectRef}
                 value={country}
                 onChange={(event) => setCountry(event.target.value as CountryCode)}
               >

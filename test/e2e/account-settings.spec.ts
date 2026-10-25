@@ -182,6 +182,76 @@ test.describe("Phone Recovery Foundation, Slice B1 — Account settings, Recover
     await expect(page).toHaveURL(/\/settings\/account$/);
     await expect(page.getByRole("heading", { name: "Recovery phone" })).toBeVisible();
   });
+
+  /**
+   * Production defect regression (confirmed via manual report + this
+   * exact empirical reproduction before the fix): the country selector
+   * reset to Afghanistan (+93) immediately after a successful or failed
+   * Save/Remove server action, never actually losing the right value in
+   * the DB (E.164 normalization/persistence were always correct — this
+   * is purely a post-action client remount/form-state defect) but
+   * displaying the wrong country until a full reload. See
+   * recovery-phone-settings.tsx's own doc comment for the full root
+   * cause. This test reproduces the exact Production sequence from the
+   * defect report end to end, with no reload between steps.
+   */
+  test("country selector never shows the browser's native reset artifact (Afghanistan) after Add, Replace, or Remove — only the real selection", async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await injectTestSession(context, fixtures.owner, baseURL!);
+    await page.goto(ACCOUNT_PATH);
+
+    const country = page.getByLabel("Country");
+    await expect(country).toHaveValue("TH");
+
+    // A. Add a valid Thai number — country must stay Thailand immediately,
+    // with no reload.
+    await page.getByLabel("Phone number").fill("081-234-5678");
+    await page.getByRole("button", { name: "Add phone number" }).click();
+    await expect(page.getByText("Recovery phone saved.")).toBeVisible();
+    await expect(country).toHaveValue("TH");
+    await expect(country).not.toHaveValue("AF");
+
+    // B. Replace with a different Thai number — still Thailand, still no
+    // reload, still never the Afghanistan artifact.
+    await page.getByLabel("New phone number").fill("089-999-8888");
+    await page.getByRole("button", { name: "Save new number" }).click();
+    await expect(page.getByText("Recovery phone saved.")).toBeVisible();
+    await expect(country).toHaveValue("TH");
+    await expect(country).not.toHaveValue("AF");
+
+    // C. Remove — returns immediately to the real default (Thailand),
+    // never the browser's own alphabetically-first artifact.
+    await page.getByRole("button", { name: "Remove" }).click();
+    await expect(page.getByText("No recovery phone added.")).toBeVisible();
+    await expect(country).toHaveValue("TH");
+    await expect(country).not.toHaveValue("AF");
+
+    // D. A full reload reproduces the identical (correct) state — the
+    // fix doesn't depend on reload to "fix itself".
+    await page.reload();
+    await expect(country).toHaveValue("TH");
+  });
+
+  test("country selector preserves the user's own explicit choice after a FAILED submission — never resets to Afghanistan or to Thailand", async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    await injectTestSession(context, fixtures.owner, baseURL!);
+    await page.goto(ACCOUNT_PATH);
+
+    const country = page.getByLabel("Country");
+    await country.selectOption("US");
+    await page.getByLabel("Phone number").fill("123");
+    await page.getByRole("button", { name: "Add phone number" }).click();
+
+    await expect(page.getByText("Enter a valid phone number.")).toBeVisible();
+    await expect(country).toHaveValue("US");
+    await expect(country).not.toHaveValue("AF");
+  });
 });
 
 test.describe("Phone Recovery Foundation, Slice B1 — Account settings, mobile viewport", () => {
