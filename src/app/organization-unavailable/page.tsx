@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AuthShell } from "@/components/auth/auth-shell";
+import { getPlatformLegalConfig } from "@/lib/legal/platform-config";
 
 export const metadata: Metadata = {
   title: "Workspace unavailable",
@@ -28,13 +29,42 @@ export const metadata: Metadata = {
  * the shell's standard header action on every pre-auth route, not a
  * page-specific exception. Still no form, no mutation control, no
  * suspension-specific link of any kind.
+ *
+ * Support Email UX Cleanup — "Contact support." used to be plain,
+ * unlinked text. Now a real `mailto:` link, sourced from
+ * `getPlatformLegalConfig().supportEmail` — the exact same canonical
+ * config Privacy's §9 and Terms' §10 already read, never a second,
+ * independent support-address source. Same conditional shape those two
+ * already establish too: an operator who hasn't configured
+ * `PLATFORM_SUPPORT_EMAIL` (and whose `INVITATION_FROM_EMAIL` doesn't
+ * resolve to a usable address either — see that function's own fallback
+ * chain) sees the identical plain-text sentence this page always had,
+ * never a broken `mailto:undefined`/`mailto:null`. Styling matches
+ * Privacy/Terms' own mailto link byte-for-byte, not a new pattern.
  */
 export default function OrganizationUnavailablePage() {
+  const { supportEmail } = getPlatformLegalConfig();
+
   return (
     <AuthShell cardClassName="max-w-sm" topRightAction={{ label: "Sign in", href: "/login" }}>
       <div className="text-center">
         <h1 className="text-text-primary text-2xl font-semibold tracking-tight">Workspace unavailable</h1>
-        <p className="text-text-secondary mt-2 text-sm">This workspace is currently unavailable. Contact support.</p>
+        <p className="text-text-secondary mt-2 text-sm">
+          {supportEmail ? (
+            <>
+              This workspace is currently unavailable. Contact support at{" "}
+              <a
+                href={`mailto:${supportEmail}`}
+                className="rounded font-medium text-text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              >
+                {supportEmail}
+              </a>
+              .
+            </>
+          ) : (
+            "This workspace is currently unavailable. Contact support."
+          )}
+        </p>
       </div>
     </AuthShell>
   );

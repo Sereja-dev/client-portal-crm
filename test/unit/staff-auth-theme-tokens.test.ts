@@ -255,11 +255,24 @@ describe("Pre-Auth Redesign Slice A — fixed-dark shell theme-token migration",
       expect(stripDocComments(ACCEPT_INVITATION_FORM)).not.toMatch(LITERAL_COLOR_CLASS);
     });
 
-    it("organization-unavailable page uses AuthShell, still renders no form and no mutation control, and its fixed generic copy is unchanged", () => {
+    it("organization-unavailable page uses AuthShell, still renders no form and no mutation control, and its fixed generic copy — including the original plain-text fallback sentence — is unchanged", () => {
       expect(ORG_UNAVAILABLE_PAGE).toMatch(/import\s*\{\s*AuthShell\s*\}\s*from\s*"@\/components\/auth\/auth-shell"/);
+      // The exact original sentence must still exist verbatim — it's the
+      // fallback branch's rendered text when no support email resolves
+      // (see organization-unavailable-support-link.test.ts for the
+      // real-runtime proof of that branch).
       expect(ORG_UNAVAILABLE_PAGE).toMatch(/This workspace is currently unavailable\. Contact support\./);
       expect(ORG_UNAVAILABLE_PAGE).not.toMatch(/<form/);
       expect(stripDocComments(ORG_UNAVAILABLE_PAGE)).not.toMatch(LITERAL_COLOR_CLASS);
+    });
+
+    it("organization-unavailable's support contact reuses the canonical getPlatformLegalConfig() — never a hardcoded support@aqenra.com literal, never a second config source", () => {
+      expect(ORG_UNAVAILABLE_PAGE).toMatch(
+        /import\s*\{\s*getPlatformLegalConfig\s*\}\s*from\s*"@\/lib\/legal\/platform-config"/,
+      );
+      expect(ORG_UNAVAILABLE_PAGE).toMatch(/supportEmail/);
+      expect(ORG_UNAVAILABLE_PAGE).toMatch(/mailto:\$\{supportEmail\}/);
+      expect(ORG_UNAVAILABLE_PAGE).not.toMatch(/support@aqenra\.com/);
     });
 
     it("the (auth) error fallback uses AuthShell and still exposes no error detail (no error.message, no digest rendered)", () => {

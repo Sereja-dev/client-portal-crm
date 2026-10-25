@@ -160,13 +160,37 @@ test.describe("Staff pre-auth — brand mark and top-right contextual action", (
     await expect(page.getByRole("link", { name: "Create account" })).toHaveAttribute("href", "/signup");
   });
 
-  test("/organization-unavailable: top-right 'Sign in' is the only interactive element, no form/mutation control exists", async ({
+  test("/organization-unavailable: top-right 'Sign in' is the only guaranteed interactive element, no form/mutation control exists; the support contact (link or plain text) is never malformed", async ({
     page,
   }) => {
     await page.goto("/organization-unavailable");
     await expect(page.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login");
     await expect(page.getByRole("heading", { name: "Workspace unavailable" })).toBeVisible();
     await expect(page.locator("form")).toHaveCount(0);
+
+    // Support Email UX Cleanup — this page (like /privacy and /terms) has
+    // no dynamic Next.js primitive (no cookies()/headers()), so Next
+    // statically prerenders it: `getPlatformLegalConfig().supportEmail`
+    // is resolved exactly once, at `npm run build` time, in whatever env
+    // that separate build step happened to run under — NOT at `next
+    // start` request time, so Playwright's own webServer.env
+    // (INVITATION_FROM_EMAIL etc.) has no effect on it here. Privacy/Terms
+    // have never had E2E coverage of their own mailto resolution for the
+    // same reason; the real runtime proof for both branches lives in
+    // test/unit/organization-unavailable-support-link.test.ts instead
+    // (renderToStaticMarkup, calling the component directly). This
+    // assertion only needs to hold for whichever branch this particular
+    // build baked in — never a broken `mailto:undefined`/`mailto:null`.
+    const mailtoLink = page.locator('a[href^="mailto:"]');
+    const mailtoCount = await mailtoLink.count();
+    if (mailtoCount > 0) {
+      const href = await mailtoLink.first().getAttribute("href");
+      expect(href).not.toBe("mailto:undefined");
+      expect(href).not.toBe("mailto:null");
+      expect(href).toMatch(/^mailto:[^\s@]+@[^\s@]+\.[^\s@]+$/);
+    } else {
+      await expect(page.getByText("This workspace is currently unavailable. Contact support.")).toBeVisible();
+    }
   });
 });
 
