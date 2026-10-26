@@ -339,4 +339,83 @@ describe("getBillingPageData", () => {
       expect(storageRow.limit).toBe(10 * 1024 * 1024 * 1024);
     });
   });
+
+  /**
+   * Free Public Beta, Slice 1 — Member Limit Consistency. Proves the
+   * Billing page's own Usage section (the exact row a beta user actually
+   * sees) displays 5 as the member limit for a LEGACY organization during
+   * the beta — the exact confirmed Production scenario ("3 of 1000 used"
+   * -> "3 of 5 used") — via the real, unmodified getBillingPageData(),
+   * not just the lower-level buildOrganizationEntitlements() already
+   * proven in test/unit/billing-entitlements.test.ts.
+   */
+  describe("Free Public Beta, Slice 1 — Member Limit Consistency (real Billing-page view-model)", () => {
+    const ORIGINAL_FREE_BETA_MODE = process.env.FREE_BETA_MODE;
+
+    afterAll(() => {
+      if (ORIGINAL_FREE_BETA_MODE === undefined) delete process.env.FREE_BETA_MODE;
+      else process.env.FREE_BETA_MODE = ORIGINAL_FREE_BETA_MODE;
+    });
+
+    it("15: beta enabled, LEGACY organization with 1 real member + 2 pending invitations (the exact confirmed Production shape): the Usage section shows 3 of 5 used, never 3 of 1000", async () => {
+      const org = await prisma.organization.create({
+        data: { name: "Free Beta Member Limit LEGACY Org", slug: testSlug("billing-free-beta-members-legacy", fixtures.runId) },
+      });
+      await prisma.subscription.create({
+        data: { organizationId: org.id, planKey: "LEGACY", status: "ACTIVE", trialStartedAt: new Date(), trialEndsAt: new Date() },
+      });
+      const owner = await prisma.user.create({
+        data: { id: randomUUID(), email: testEmail("billing-free-beta-members-owner", TEST_EMAIL_DOMAIN, fixtures.runId), name: "Free Beta Members Owner" },
+      });
+      await prisma.membership.create({ data: { userId: owner.id, organizationId: org.id, role: "OWNER" } });
+      for (let i = 0; i < 2; i++) {
+        await prisma.invitation.create({
+          data: {
+            organizationId: org.id,
+            email: testEmail(`billing-free-beta-members-invite-${i}`, TEST_EMAIL_DOMAIN, fixtures.runId),
+            role: "MEMBER",
+            token: randomUUID(),
+            status: "PENDING",
+            // Deliberately already past expiry — reproducing the exact
+            // confirmed Production shape (calendar-expired but still
+            // status: PENDING in the database). This fix deliberately
+            // does NOT change that accounting; it's exercised here only
+            // to prove the member-limit override is correct regardless.
+            expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+            invitedById: owner.id,
+          },
+        });
+      }
+
+      process.env.FREE_BETA_MODE = "true";
+      const data = await getBillingPageData({ organizationId: org.id, role: "OWNER" });
+
+      const membersRow = data.usageRows.find((r) => r.key === "members")!;
+      expect(membersRow.current).toBe(3); // 1 real membership + 2 pending (calendar-expired-but-PENDING) invitations
+      expect(membersRow.limit).toBe(5); // the fix: never the LEGACY plan's own native 1000
+
+      await prisma.invitation.deleteMany({ where: { organizationId: org.id } });
+      await prisma.membership.deleteMany({ where: { organizationId: org.id } });
+      await prisma.subscription.deleteMany({ where: { organizationId: org.id } });
+      await prisma.organization.delete({ where: { id: org.id } });
+      await prisma.user.delete({ where: { id: owner.id } });
+    });
+
+    it("beta disabled, LEGACY organization: the Usage section's member limit is LEGACY's own real 1000 — unaffected", async () => {
+      delete process.env.FREE_BETA_MODE;
+      const org = await prisma.organization.create({
+        data: { name: "Free Beta Disabled LEGACY Org", slug: testSlug("billing-free-beta-members-legacy-off", fixtures.runId) },
+      });
+      await prisma.subscription.create({
+        data: { organizationId: org.id, planKey: "LEGACY", status: "ACTIVE", trialStartedAt: new Date(), trialEndsAt: new Date() },
+      });
+
+      const data = await getBillingPageData({ organizationId: org.id, role: "OWNER" });
+      const membersRow = data.usageRows.find((r) => r.key === "members")!;
+      expect(membersRow.limit).toBe(1000);
+
+      await prisma.subscription.deleteMany({ where: { organizationId: org.id } });
+      await prisma.organization.delete({ where: { id: org.id } });
+    });
+  });
 });

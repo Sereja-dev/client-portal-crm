@@ -103,6 +103,25 @@ export const LEGACY_PLAN_KEY: PlanKey = "LEGACY";
  */
 export const FREE_BETA_MAX_STORAGE_BYTES = 3 * GB;
 
+/**
+ * Free Public Beta, Slice 1 (Member Limit Consistency). Same exact
+ * pattern as `FREE_BETA_MAX_STORAGE_BYTES` immediately above —
+ * deliberately NOT a PLAN_CATALOG entry: this is the Product Owner-
+ * approved effective member ceiling for EVERY organization while
+ * `FREE_BETA_MODE=true`, applied as an override at the one centralized
+ * entitlement chokepoint (buildOrganizationEntitlements, src/lib/billing/
+ * entitlements.ts), regardless of an organization's real `planKey`
+ * (TRIAL/STARTER/PRO/LEGACY) or `status`. Fixes the confirmed gap where a
+ * LEGACY organization (maxMembers: 1000 natively) displayed and enforced
+ * that native 1000-seat ceiling even during the beta, instead of the
+ * approved 5-seat limit — the storage override already got this right;
+ * `maxMembers` simply never had the equivalent override. PLAN_CATALOG's
+ * own native values (TRIAL/PRO: 5, STARTER: 1, LEGACY: 1000) are
+ * completely untouched by this — each plan's real allowance is exactly
+ * what's restored the moment `freeBetaMode` is false again.
+ */
+export const FREE_BETA_MAX_MEMBERS = 5;
+
 export function getPlan(key: PlanKey): Plan {
   return PLAN_CATALOG[key];
 }

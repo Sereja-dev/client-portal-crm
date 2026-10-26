@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import { buildOrganizationEntitlements, type SubscriptionStateForEntitlements } from "@/lib/billing/entitlements";
-import { PLAN_CATALOG, FREE_BETA_MAX_STORAGE_BYTES } from "@/lib/billing/plans";
+import { PLAN_CATALOG, FREE_BETA_MAX_STORAGE_BYTES, FREE_BETA_MAX_MEMBERS } from "@/lib/billing/plans";
 
 const NOW = new Date("2026-06-15T12:00:00.000Z");
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -514,18 +514,7 @@ describe("buildOrganizationEntitlements — Free Public Beta, Slice 1 (freeBetaM
     expect(legacy.accessMode).toBe("FULL_ACCESS");
   });
 
-  it("N: existing member/client/project limits remain enforced even with the beta flag on — freeBetaMode never widens a plan's own member/client/project numeric ceilings (only accessMode and, as of Slice 1's Storage Limit Adjustment, the storage ceiling — see that dedicated describe block below)", () => {
-    const overMemberLimit = buildOrganizationEntitlements({
-      subscription: activeSubscription({ planKey: "STARTER" }), // maxMembers: 1
-      usage: usage({ members: 1 }),
-      now: NOW,
-      providerConfigured: false,
-      freeBetaMode: true,
-    });
-    expect(overMemberLimit.accessMode).toBe("FULL_ACCESS");
-    expect(overMemberLimit.canInviteMember).toBe(false);
-    expect(overMemberLimit.blockedReasons).toContain("MEMBER_LIMIT_REACHED");
-
+  it("N: existing client/project limits remain enforced even with the beta flag on — freeBetaMode never widens a plan's own client/project numeric ceilings (member limits are covered by their own dedicated Free Public Beta — Member Limit Consistency describe block below, since that ceiling IS now overridden to 5 during the beta)", () => {
     const overClientLimit = buildOrganizationEntitlements({
       subscription: activeSubscription({ planKey: "STARTER" }), // maxClients: 10
       usage: usage({ clients: PLAN_CATALOG.STARTER.limits.maxClients! }),
@@ -536,16 +525,20 @@ describe("buildOrganizationEntitlements — Free Public Beta, Slice 1 (freeBetaM
     expect(overClientLimit.canCreateClient).toBe(false);
     expect(overClientLimit.blockedReasons).toContain("CLIENT_LIMIT_REACHED");
 
-    // TRIAL's own maxMembers (5) is likewise still enforced during the beta.
-    const trialOverMemberLimit = buildOrganizationEntitlements({
+    // FREE_BETA_MAX_MEMBERS (5) is still enforced at exactly 5 occupied
+    // seats during the beta — this happens to equal TRIAL's own native
+    // maxMembers too, but it's the beta override being proven here, not
+    // TRIAL's own catalog value (see the dedicated describe block below
+    // for the case that actually distinguishes the two: a non-TRIAL plan).
+    const atFiveMembers = buildOrganizationEntitlements({
       subscription: trialingSubscription(new Date(NOW.getTime() + DAY_MS)),
-      usage: usage({ members: PLAN_CATALOG.TRIAL.limits.maxMembers }),
+      usage: usage({ members: FREE_BETA_MAX_MEMBERS }),
       now: NOW,
       providerConfigured: false,
       freeBetaMode: true,
     });
-    expect(trialOverMemberLimit.canInviteMember).toBe(false);
-    expect(trialOverMemberLimit.blockedReasons).toContain("MEMBER_LIMIT_REACHED");
+    expect(atFiveMembers.canInviteMember).toBe(false);
+    expect(atFiveMembers.blockedReasons).toContain("MEMBER_LIMIT_REACHED");
   });
 });
 
@@ -716,5 +709,275 @@ describe("buildOrganizationEntitlements — Free Public Beta, Slice 1 (Storage L
     expect(result.accessMode).toBe("FULL_ACCESS");
     expect(result.canCreateClient).toBe(true);
     expect(result.canCreateProject).toBe(true);
+  });
+});
+
+/**
+ * Free Public Beta, Slice 1 — Member Limit Consistency. `FREE_BETA_MAX_MEMBERS`
+ * (5) overrides `maxMembers` unconditionally on `planKey`/`status`
+ * whenever `freeBetaMode` is true — exactly mirroring the storage
+ * override's own "unconditional" shape. Fixes the confirmed Production
+ * gap: a LEGACY organization's native 1000-member ceiling used to leak
+ * straight through uncorrected during the beta. No test here ever
+ * asserts a Subscription or Membership row's own fields change, and none
+ * removes/deactivates an existing member — `buildOrganizationEntitlements`
+ * is pure and never mutates anything. Existing invitation/usage
+ * accounting (including the separate, pre-existing, deliberately
+ * out-of-scope calendar-expired-but-PENDING invitation behavior) is
+ * completely untouched by this fix — only the ceiling being compared
+ * against moves.
+ */
+describe("buildOrganizationEntitlements — Free Public Beta, Slice 1 (Member Limit Consistency)", () => {
+  it("1: FREE_BETA_MAX_MEMBERS equals exactly 5", () => {
+    expect(FREE_BETA_MAX_MEMBERS).toBe(5);
+  });
+
+  it("2: beta ON + TRIAL: maxMembers = 5", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: trialingSubscription(new Date(NOW.getTime() + DAY_MS)),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(result.maxMembers).toBe(5);
+  });
+
+  it("3: beta ON + STARTER: maxMembers = 5, not STARTER's own native 1", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "STARTER", status: "ACTIVE" }),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: true,
+      freeBetaMode: true,
+    });
+    expect(result.maxMembers).toBe(5);
+    expect(result.maxMembers).not.toBe(PLAN_CATALOG.STARTER.limits.maxMembers);
+  });
+
+  it("4: beta ON + PRO: maxMembers = 5 (same value PRO already natively has, but now sourced from the override, not the catalog)", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "PRO", status: "ACTIVE" }),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: true,
+      freeBetaMode: true,
+    });
+    expect(result.maxMembers).toBe(5);
+  });
+
+  it("5: beta ON + LEGACY: maxMembers = 5, not LEGACY's own native 1000 — the exact confirmed Production gap this fix closes", () => {
+    const withRow = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "LEGACY", status: "ACTIVE" }),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(withRow.maxMembers).toBe(5);
+    expect(withRow.maxMembers).not.toBe(1000);
+
+    // No Subscription row at all (the other, equally common way an org
+    // resolves to LEGACY) behaves identically.
+    const noRow = buildOrganizationEntitlements({
+      subscription: null,
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(noRow.planKey).toBe("LEGACY");
+    expect(noRow.maxMembers).toBe(5);
+  });
+
+  it("6: beta ON with every relevant subscription status: maxMembers stays 5 regardless", () => {
+    const statuses = [
+      activeSubscription({ status: "ACTIVE", planKey: "PRO" }),
+      activeSubscription({ status: "PAST_DUE", planKey: "PRO", gracePeriodEndsAt: new Date(NOW.getTime() - DAY_MS) }),
+      activeSubscription({ status: "CANCELED", planKey: "PRO", currentPeriodEnd: new Date(NOW.getTime() - DAY_MS) }),
+      activeSubscription({ status: "UNPAID", planKey: "PRO" }),
+      activeSubscription({ status: "INCOMPLETE", planKey: "PRO" }),
+      trialingSubscription(new Date(NOW.getTime() - DAY_MS)), // expired trial
+    ];
+    for (const subscription of statuses) {
+      const result = buildOrganizationEntitlements({
+        subscription,
+        usage: usage(),
+        now: NOW,
+        providerConfigured: true,
+        freeBetaMode: true,
+      });
+      expect(result.maxMembers).toBe(5);
+    }
+  });
+
+  it("7: beta OFF + TRIAL: maxMembers = 5 (TRIAL's own unchanged native value)", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: trialingSubscription(new Date(NOW.getTime() + DAY_MS)),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: false,
+    });
+    expect(result.maxMembers).toBe(5);
+    expect(result.maxMembers).toBe(PLAN_CATALOG.TRIAL.limits.maxMembers);
+  });
+
+  it("8: beta OFF + STARTER: maxMembers = 1, preserved exactly", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "STARTER", status: "ACTIVE" }),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: true,
+      freeBetaMode: false,
+    });
+    expect(result.maxMembers).toBe(1);
+    expect(result.maxMembers).toBe(PLAN_CATALOG.STARTER.limits.maxMembers);
+  });
+
+  it("9: beta OFF + PRO: maxMembers = 5, preserved exactly", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "PRO", status: "ACTIVE" }),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: true,
+      freeBetaMode: false,
+    });
+    expect(result.maxMembers).toBe(5);
+    expect(result.maxMembers).toBe(PLAN_CATALOG.PRO.limits.maxMembers);
+  });
+
+  it("10: beta OFF + LEGACY: maxMembers = 1000, preserved exactly — this native value is intentional and must never be touched outside the beta", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "LEGACY", status: "ACTIVE" }),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: false,
+    });
+    expect(result.maxMembers).toBe(1000);
+    expect(result.maxMembers).toBe(PLAN_CATALOG.LEGACY.limits.maxMembers);
+  });
+
+  it("11: beta ON, below five occupied seats: canInviteMember = true", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "LEGACY", status: "ACTIVE" }),
+      usage: usage({ members: 3 }),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(result.canInviteMember).toBe(true);
+    expect(result.blockedReasons).not.toContain("MEMBER_LIMIT_REACHED");
+  });
+
+  it("12: beta ON, exactly five occupied seats: canInviteMember = false", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "LEGACY", status: "ACTIVE" }),
+      usage: usage({ members: 5 }),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(result.canInviteMember).toBe(false);
+    expect(result.blockedReasons).toContain("MEMBER_LIMIT_REACHED");
+  });
+
+  it("13: beta ON, more than five existing occupied seats: canInviteMember = false, and existing usage is reported as-is — never clamped, hidden, or deleted", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "LEGACY", status: "ACTIVE" }), // LEGACY's own real allowance (1000) would have allowed this many
+      usage: usage({ members: 12 }), // a real org with 12 legitimate pre-beta members
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(result.canInviteMember).toBe(false);
+    expect(result.blockedReasons).toContain("MEMBER_LIMIT_REACHED");
+    expect(result.currentMembers).toBe(12); // reported exactly, not clamped to 5
+    // Nothing about this blocks access to the rest of the product.
+    expect(result.accessMode).toBe("FULL_ACCESS");
+    expect(result.canCreateClient).toBe(true);
+    expect(result.canCreateProject).toBe(true);
+    expect(result.canUploadBytes(1)).toBe(true);
+  });
+
+  it("14: beta ON, LEGACY org with 1 real member + 2 pending invitations (the exact confirmed Production shape — regardless of whether those invitations are calendar-expired, which this fix deliberately does not change): membersForLimitCheck = 3, maxMembers = 5, still has headroom", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "LEGACY", status: "ACTIVE" }),
+      usage: usage({ members: 1, pendingInvitations: 2 }),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(result.maxMembers).toBe(5);
+    expect(result.currentMembers).toBe(1); // real Membership rows only — pendingInvitations never inflates this field
+    expect(result.canInviteMember).toBe(true); // 1 + 2 = 3 < 5, headroom remains
+    expect(result.blockedReasons).not.toContain("MEMBER_LIMIT_REACHED");
+
+    // Two more pending invitations (reaching the same 1 + 4 = 5 total this
+    // fix's own matrix covers in case 12) would correctly exhaust it.
+    const atCapacity = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "LEGACY", status: "ACTIVE" }),
+      usage: usage({ members: 1, pendingInvitations: 4 }),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(atCapacity.canInviteMember).toBe(false);
+    expect(atCapacity.blockedReasons).toContain("MEMBER_LIMIT_REACHED");
+  });
+
+  it("16: the existing Free Beta 3 GiB storage override remains completely unchanged by this fix", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "LEGACY", status: "ACTIVE" }),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(result.maxStorageBytes).toBe(3221225472);
+  });
+
+  it("17: the existing Free Beta FULL_ACCESS (accessMode) override remains completely unchanged by this fix, even for an expired trial / a provider-configured non-TRIAL status", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: trialingSubscription(new Date(NOW.getTime() - DAY_MS)),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: true,
+      freeBetaMode: true,
+    });
+    expect(result.accessMode).toBe("FULL_ACCESS");
+  });
+
+  it("18: existing unlimited client/project entitlements (TRIAL/PRO/LEGACY: maxClients/maxProjects null) remain completely unchanged by this fix", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "LEGACY", status: "ACTIVE" }),
+      usage: usage({ clients: 500, projects: 500 }),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(result.maxClients).toBeNull();
+    expect(result.maxProjects).toBeNull();
+    expect(result.canCreateClient).toBe(true);
+    expect(result.canCreateProject).toBe(true);
+  });
+
+  it("19: FREE_BETA_MODE=false preserves every native plan's member/client/project/storage behavior exactly, for all four plans", () => {
+    for (const planKey of ["TRIAL", "STARTER", "PRO", "LEGACY"] as const) {
+      const subscription =
+        planKey === "TRIAL" ? trialingSubscription(new Date(NOW.getTime() + DAY_MS)) : activeSubscription({ planKey, status: "ACTIVE" });
+      const result = buildOrganizationEntitlements({
+        subscription,
+        usage: usage(),
+        now: NOW,
+        providerConfigured: true,
+        freeBetaMode: false,
+      });
+      expect(result.maxMembers).toBe(PLAN_CATALOG[planKey].limits.maxMembers);
+      expect(result.maxClients).toBe(PLAN_CATALOG[planKey].limits.maxClients);
+      expect(result.maxProjects).toBe(PLAN_CATALOG[planKey].limits.maxProjects);
+      expect(result.maxStorageBytes).toBe(PLAN_CATALOG[planKey].limits.maxStorageBytes);
+    }
   });
 });

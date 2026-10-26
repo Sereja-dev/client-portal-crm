@@ -94,6 +94,112 @@ describe("assertCanInviteMember", () => {
   });
 });
 
+/**
+ * Free Public Beta, Slice 1 — Member Limit Consistency. Exercises the
+ * REAL, unmodified assertCanInviteMember() — the exact function
+ * inviteMemberAction() calls — against a real test-database LEGACY
+ * organization (native maxMembers: 1000), with process.env.FREE_BETA_MODE
+ * genuinely set, proving the full wiring end to end.
+ */
+describe("assertCanInviteMember — Free Public Beta, Slice 1 (Member Limit Consistency)", () => {
+  const ORIGINAL_FREE_BETA_MODE = process.env.FREE_BETA_MODE;
+
+  afterEach(() => {
+    if (ORIGINAL_FREE_BETA_MODE === undefined) delete process.env.FREE_BETA_MODE;
+    else process.env.FREE_BETA_MODE = ORIGINAL_FREE_BETA_MODE;
+  });
+
+  it("11/12: beta enabled on a LEGACY org — below 5 occupied seats can invite; at exactly 5 cannot, even though LEGACY's own real allowance (1000) would have allowed it", async () => {
+    const { owner, org } = await createOrgWithSubscription("free-beta-members-legacy", { planKey: "LEGACY", status: "ACTIVE" });
+    // owner alone = 1 occupied seat; add 3 more pending invitations to reach 4.
+    for (let i = 0; i < 3; i++) {
+      await prisma.invitation.create({
+        data: {
+          organizationId: org.id,
+          email: testEmail(`billing-free-beta-members-${i}`, "test.local", randomUUID().slice(0, 6)),
+          role: "MEMBER",
+          token: randomUUID(),
+          status: "PENDING",
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          invitedById: owner.id,
+        },
+      });
+    }
+
+    process.env.FREE_BETA_MODE = "true";
+    // 1 + 3 = 4 < 5 — still has headroom, even on a LEGACY org.
+    await expect(assertCanInviteMember(org.id)).resolves.toBeUndefined();
+
+    // One more pending invitation reaches 1 + 4 = 5 — exactly at the beta
+    // ceiling, which LEGACY's own native 1000 would never have blocked.
+    await prisma.invitation.create({
+      data: {
+        organizationId: org.id,
+        email: testEmail("billing-free-beta-members-last", "test.local", randomUUID().slice(0, 6)),
+        role: "MEMBER",
+        token: randomUUID(),
+        status: "PENDING",
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        invitedById: owner.id,
+      },
+    });
+    await expect(assertCanInviteMember(org.id)).rejects.toMatchObject({ reasonCode: "MEMBER_LIMIT_REACHED" });
+
+    await prisma.invitation.deleteMany({ where: { organizationId: org.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("13: beta enabled on a LEGACY org already holding more than 5 real members (a legitimate pre-beta organization): further invites are blocked, but every existing membership is completely untouched", async () => {
+    const { owner, org } = await createOrgWithSubscription("free-beta-members-over", { planKey: "LEGACY", status: "ACTIVE" });
+    const extraMembers = await Promise.all(
+      Array.from({ length: 7 }, async (_, i) => {
+        const member = await prisma.user.create({
+          data: { id: randomUUID(), email: testEmail(`billing-free-beta-members-extra-${i}`, "test.local", randomUUID().slice(0, 6)), name: `Extra Member ${i}` },
+        });
+        await prisma.membership.create({ data: { userId: member.id, organizationId: org.id, role: "MEMBER" } });
+        return member;
+      }),
+    );
+    // owner + 7 extra = 8 real members, well over the beta's 5-seat ceiling
+    // but well under LEGACY's own native 1000.
+
+    process.env.FREE_BETA_MODE = "true";
+    await expect(assertCanInviteMember(org.id)).rejects.toMatchObject({ reasonCode: "MEMBER_LIMIT_REACHED" });
+
+    // Every existing membership is completely unaffected — same count,
+    // same rows, nobody removed or deactivated by the enforcement check.
+    const membershipCount = await prisma.membership.count({ where: { organizationId: org.id } });
+    expect(membershipCount).toBe(8);
+    const entitlements = await getOrganizationEntitlements(org.id);
+    expect(entitlements.currentMembers).toBe(8); // reported exactly, not clamped to 5
+    expect(entitlements.accessMode).toBe("FULL_ACCESS"); // nothing else about the org is blocked
+
+    await prisma.membership.deleteMany({ where: { userId: { in: extraMembers.map((m) => m.id) } } });
+    await prisma.user.deleteMany({ where: { id: { in: extraMembers.map((m) => m.id) } } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("beta disabled on the same already-over-5 LEGACY org: invites are allowed again under LEGACY's own real 1000-seat allowance — confirms the fix is fully reversible with zero data change", async () => {
+    const { owner, org } = await createOrgWithSubscription("free-beta-members-disabled", { planKey: "LEGACY", status: "ACTIVE" });
+    const extraMembers = await Promise.all(
+      Array.from({ length: 7 }, async (_, i) => {
+        const member = await prisma.user.create({
+          data: { id: randomUUID(), email: testEmail(`billing-free-beta-members-disabled-${i}`, "test.local", randomUUID().slice(0, 6)), name: `Disabled Extra ${i}` },
+        });
+        await prisma.membership.create({ data: { userId: member.id, organizationId: org.id, role: "MEMBER" } });
+        return member;
+      }),
+    );
+
+    delete process.env.FREE_BETA_MODE;
+    await expect(assertCanInviteMember(org.id)).resolves.toBeUndefined();
+
+    await prisma.membership.deleteMany({ where: { userId: { in: extraMembers.map((m) => m.id) } } });
+    await prisma.user.deleteMany({ where: { id: { in: extraMembers.map((m) => m.id) } } });
+    await cleanup(org.id, owner.id);
+  });
+});
+
 describe("assertCanCreateClient", () => {
   it("under the limit: resolves", async () => {
     const { owner, org } = await createOrgWithSubscription("client-under");

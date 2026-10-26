@@ -2,7 +2,7 @@ import type { SubscriptionStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { computeAccessMode, LEGACY_ACCESS_MODE, type AccessMode } from "./access-mode";
 import { getOrganizationUsage, type OrganizationUsage, type PrismaClientOrTx } from "./usage";
-import { getPlan, isPlanKey, LEGACY_PLAN_KEY, FREE_BETA_MAX_STORAGE_BYTES, type PlanKey } from "./plans";
+import { getPlan, isPlanKey, LEGACY_PLAN_KEY, FREE_BETA_MAX_STORAGE_BYTES, FREE_BETA_MAX_MEMBERS, type PlanKey } from "./plans";
 import { getBillingProviderAvailability } from "./provider-availability";
 import { isFreeBetaModeEnabled } from "./free-beta-mode";
 
@@ -199,8 +199,29 @@ export function buildOrganizationEntitlements({
    */
   const effectiveMaxStorageBytes = freeBetaMode ? FREE_BETA_MAX_STORAGE_BYTES : plan.limits.maxStorageBytes;
 
+  /**
+   * Free Public Beta, Slice 1 (Member Limit Consistency). The one,
+   * centralized override point for the EFFECTIVE member ceiling — exactly
+   * mirrors `effectiveMaxStorageBytes` immediately above: unconditional
+   * on `plan.key`/`subscription.status`, so a LEGACY organization (native
+   * maxMembers: 1000) gets the same 5-seat limit as a brand-new TRIAL
+   * signup while the beta is running, instead of its own real, much
+   * larger native ceiling leaking through uncorrected (the confirmed
+   * Production gap this fix closes). Used for both the capacity
+   * eligibility check immediately below and the returned `maxMembers`
+   * field — never a second, independent calculation anywhere else.
+   * `plans.ts`'s own PLAN_CATALOG values are completely untouched by
+   * this — each plan's real member allowance is exactly what's restored
+   * the moment `freeBetaMode` is false again. Existing usage accounting
+   * (`usage.members` + `usage.pendingInvitations`, including the
+   * separate, pre-existing, out-of-scope calendar-expired-but-PENDING
+   * invitation behavior) is completely unchanged by this — only the
+   * ceiling being compared against moves.
+   */
+  const effectiveMaxMembers = freeBetaMode ? FREE_BETA_MAX_MEMBERS : plan.limits.maxMembers;
+
   const membersForLimitCheck = usage.members + usage.pendingInvitations;
-  const underMemberLimit = membersForLimitCheck < plan.limits.maxMembers;
+  const underMemberLimit = membersForLimitCheck < effectiveMaxMembers;
   const underClientLimit = plan.limits.maxClients === null || usage.clients < plan.limits.maxClients;
   const underProjectLimit = plan.limits.maxProjects === null || usage.projects < plan.limits.maxProjects;
   const underStorageLimit = usage.storageBytes < effectiveMaxStorageBytes;
@@ -217,7 +238,7 @@ export function buildOrganizationEntitlements({
     subscriptionStatus: subscription && !isLegacyPlan ? subscription.status : "LEGACY",
     accessMode,
 
-    maxMembers: plan.limits.maxMembers,
+    maxMembers: effectiveMaxMembers,
     maxClients: plan.limits.maxClients,
     maxProjects: plan.limits.maxProjects,
     maxStorageBytes: effectiveMaxStorageBytes,

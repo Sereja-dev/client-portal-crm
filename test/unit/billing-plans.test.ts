@@ -6,6 +6,7 @@ import {
   LEGACY_PLAN_KEY,
   TRIAL_DURATION_DAYS,
   FREE_BETA_MAX_STORAGE_BYTES,
+  FREE_BETA_MAX_MEMBERS,
   getPlan,
   isPlanKey,
 } from "@/lib/billing/plans";
@@ -140,6 +141,20 @@ describe("FREE_BETA_MAX_STORAGE_BYTES — Free Public Beta, Slice 1 (Storage Lim
     expect(PLAN_CATALOG.STARTER.limits.maxStorageBytes).toBe(500 * 1024 * 1024);
     expect(PLAN_CATALOG.PRO.limits.maxStorageBytes).toBe(10 * 1024 * 1024 * 1024);
     expect(PLAN_CATALOG.LEGACY.limits.maxStorageBytes).toBe(1024 * 1024 * 1024 * 1024);
+  });
+});
+
+describe("FREE_BETA_MAX_MEMBERS — Free Public Beta, Slice 1 (Member Limit Consistency)", () => {
+  it("is exactly 5", () => {
+    expect(FREE_BETA_MAX_MEMBERS).toBe(5);
+  });
+
+  it("is deliberately NOT a PLAN_CATALOG entry, and every plan's own native maxMembers is completely untouched by its existence — including LEGACY's own real 1000, the exact value this fix must never alter in the catalog itself", () => {
+    expect(ALL_PLAN_KEYS).not.toContain("FREE_BETA" as never);
+    expect(PLAN_CATALOG.TRIAL.limits.maxMembers).toBe(5);
+    expect(PLAN_CATALOG.STARTER.limits.maxMembers).toBe(1);
+    expect(PLAN_CATALOG.PRO.limits.maxMembers).toBe(5);
+    expect(PLAN_CATALOG.LEGACY.limits.maxMembers).toBe(1000);
   });
 });
 
