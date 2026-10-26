@@ -64,6 +64,7 @@ const expectedConsumers = [
   "src/app/billing/mock/checkout/page.tsx",
   "src/app/billing/mock/portal/actions.ts",
   "src/app/billing/mock/portal/page.tsx",
+  "src/app/test-only/free-beta-banner/page.tsx",
   "src/app/test-only/theme/page.tsx",
   "src/lib/ai/providers/provider-factory.ts",
   "src/lib/auth/recovery-token.ts",

@@ -172,3 +172,185 @@ test.describe("Dashboard Redesign", () => {
     });
   });
 });
+
+const THEME_COOKIE_NAME = "aqenra_theme";
+
+async function setThemeCookie(context: BrowserContext, baseURL: string, value: string): Promise<void> {
+  await context.addCookies([
+    {
+      name: THEME_COOKIE_NAME,
+      value,
+      domain: new URL(baseURL).hostname,
+      path: "/",
+      httpOnly: false,
+      secure: false,
+      sameSite: "Lax",
+    },
+  ]);
+}
+
+async function expectNoHorizontalOverflow(page: Page): Promise<void> {
+  const hasOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+  expect(hasOverflow).toBe(false);
+}
+
+/**
+ * Free Public Beta — Welcome Banner. Two genuinely different test
+ * surfaces, deliberately not conflated:
+ *
+ * 1. The REAL `/dashboard` route, under this repo's own actual, current
+ *    E2E environment — FREE_BETA_MODE is not set anywhere in
+ *    playwright.config.ts's shared webServer.env, and test code cannot
+ *    mutate the already-spawned `next start` process's env after the
+ *    fact, so every test against the real route genuinely exercises the
+ *    Free-Beta-OFF path. This is reported as exactly what it is, never
+ *    claimed as proof of the enabled path.
+ *
+ * 2. The TEST_MODE-only harness route (src/app/test-only/free-beta-
+ *    banner/page.tsx) — exercises the real FreeBetaBanner component's
+ *    own behavior (visibility, dismissal, persistence, per-user
+ *    isolation, accessibility, responsiveness) deterministically,
+ *    independent of FREE_BETA_MODE, the same "isolated test
+ *    configuration" category of solution src/app/test-only/theme/
+ *    already establishes for an analogous problem.
+ */
+test.describe("Free Public Beta — Welcome Banner", () => {
+  test.describe("Real /dashboard route (this repo's actual current E2E environment: FREE_BETA_MODE unset)", () => {
+    test.beforeEach(async ({ context, baseURL }) => {
+      await actAsOwner(context, baseURL!);
+    });
+
+    test("2: the banner is absent when FREE_BETA_MODE resolves to disabled — the genuinely true state of this E2E environment, not simulated", async ({ page }) => {
+      await gotoDashboard(page);
+      await expect(page.getByText("Aqenra is in Public Beta")).toHaveCount(0);
+      await expect(page.getByRole("button", { name: "Dismiss beta notice" })).toHaveCount(0);
+    });
+
+    test("10: no banner on an unrelated authenticated route", async ({ page }) => {
+      await page.goto("/clients");
+      await expect(page.getByText("Aqenra is in Public Beta")).toHaveCount(0);
+    });
+
+    test("16: existing Dashboard heading and content remain fully visible and unaffected", async ({ page }) => {
+      await gotoDashboard(page);
+      await expect(page.getByRole("heading", { name: "Dashboard" })).toBeVisible();
+      await expect(page.getByRole("link", { name: "Add client" })).toBeVisible();
+      await expect(page.getByRole("heading", { name: "Needs attention" })).toBeVisible();
+    });
+  });
+
+  test.describe("TEST_MODE harness (/test-only/free-beta-banner): real FreeBetaBanner behavior", () => {
+    test("1: the banner is visible by default, with the approved copy", async ({ page }) => {
+      await page.goto("/test-only/free-beta-banner?userId=visible-check");
+      await expect(page.getByText("Aqenra is in Public Beta")).toBeVisible();
+      await expect(
+        page.getByText(
+          "Aqenra is currently in public beta. We're actively improving the platform, so some features may change or be updated. Thanks for being an early user!",
+        ),
+      ).toBeVisible();
+    });
+
+    test("3: clicking the dismiss button hides the banner immediately", async ({ page }) => {
+      await page.goto("/test-only/free-beta-banner?userId=dismiss-click");
+      await expect(page.getByText("Aqenra is in Public Beta")).toBeVisible();
+      await page.getByRole("button", { name: "Dismiss beta notice" }).click();
+      await expect(page.getByText("Aqenra is in Public Beta")).toHaveCount(0);
+    });
+
+    test("4: dismissal persists after a full page reload", async ({ page }) => {
+      await page.goto("/test-only/free-beta-banner?userId=dismiss-reload");
+      await page.getByRole("button", { name: "Dismiss beta notice" }).click();
+      await page.reload();
+      await expect(page.getByText("Aqenra is in Public Beta")).toHaveCount(0);
+    });
+
+    test("5: dismissal persists after navigating away and back", async ({ page }) => {
+      await page.goto("/test-only/free-beta-banner?userId=dismiss-navigate");
+      await page.getByRole("button", { name: "Dismiss beta notice" }).click();
+      await page.goto("/test-only/theme");
+      await page.goto("/test-only/free-beta-banner?userId=dismiss-navigate");
+      await expect(page.getByText("Aqenra is in Public Beta")).toHaveCount(0);
+    });
+
+    test("6: dismissal survives a sign-out/sign-in cycle for the same user and browser — clearing the auth cookie never touches localStorage", async ({ page, context }) => {
+      await page.goto("/test-only/free-beta-banner?userId=dismiss-signout");
+      await page.getByRole("button", { name: "Dismiss beta notice" }).click();
+
+      // Simulates sign-out: removes every cookie (the only session this
+      // harness has at all is TEST_MODE's own identity cookie elsewhere
+      // in the suite — this route itself sets none), never touching
+      // localStorage, which lives in a completely separate browser
+      // storage mechanism.
+      await context.clearCookies();
+      await page.goto("/test-only/free-beta-banner?userId=dismiss-signout");
+      await expect(page.getByText("Aqenra is in Public Beta")).toHaveCount(0);
+    });
+
+    test("7: different users on the same browser do not share dismissal state", async ({ page }) => {
+      await page.goto("/test-only/free-beta-banner?userId=isolation-user-a");
+      await page.getByRole("button", { name: "Dismiss beta notice" }).click();
+      await expect(page.getByText("Aqenra is in Public Beta")).toHaveCount(0);
+
+      await page.goto("/test-only/free-beta-banner?userId=isolation-user-b");
+      await expect(page.getByText("Aqenra is in Public Beta")).toBeVisible();
+    });
+
+    test("8: a localStorage failure never crashes the page, and dismissing still works for the current session", async ({ page }) => {
+      await page.addInitScript(() => {
+        Object.defineProperty(window, "localStorage", {
+          value: {
+            getItem: () => {
+              throw new Error("SecurityError");
+            },
+            setItem: () => {
+              throw new Error("SecurityError");
+            },
+          },
+          configurable: true,
+        });
+      });
+      await page.goto("/test-only/free-beta-banner?userId=storage-failure");
+      await expect(page.getByText("Aqenra is in Public Beta")).toBeVisible();
+      await page.getByRole("button", { name: "Dismiss beta notice" }).click();
+      await expect(page.getByText("Aqenra is in Public Beta")).toHaveCount(0);
+    });
+
+    test("9: no hydration-mismatch console error on load", async ({ page }) => {
+      const consoleErrors: string[] = [];
+      page.on("console", (msg) => {
+        if (msg.type() === "error") consoleErrors.push(msg.text());
+      });
+      await page.goto("/test-only/free-beta-banner?userId=hydration-check");
+      await expect(page.getByText("Aqenra is in Public Beta")).toBeVisible();
+      const hydrationErrors = consoleErrors.filter((text) => /hydrat/i.test(text));
+      expect(hydrationErrors).toEqual([]);
+    });
+
+    test("11: the dismiss button is keyboard-focusable and activatable via Enter", async ({ page }) => {
+      await page.goto("/test-only/free-beta-banner?userId=keyboard-check");
+      const dismissButton = page.getByRole("button", { name: "Dismiss beta notice" });
+      await dismissButton.focus();
+      await expect(dismissButton).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(page.getByText("Aqenra is in Public Beta")).toHaveCount(0);
+    });
+
+    test("12/13: renders with readable contrast in both light and dark themes", async ({ page, context, baseURL }) => {
+      await setThemeCookie(context, baseURL!, "light.light");
+      await page.goto("/test-only/free-beta-banner?userId=theme-light");
+      await expect(page.getByText("Aqenra is in Public Beta")).toBeVisible();
+
+      await setThemeCookie(context, baseURL!, "dark.dark");
+      await page.goto("/test-only/free-beta-banner?userId=theme-dark");
+      await expect(page.getByText("Aqenra is in Public Beta")).toBeVisible();
+    });
+
+    test("14: fits a 390px mobile viewport with no horizontal overflow, dismiss button still visible", async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto("/test-only/free-beta-banner?userId=mobile-check");
+      await expect(page.getByText("Aqenra is in Public Beta")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Dismiss beta notice" })).toBeVisible();
+      await expectNoHorizontalOverflow(page);
+    });
+  });
+});

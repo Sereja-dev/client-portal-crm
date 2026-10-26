@@ -8,6 +8,8 @@ import { TodaySection } from "@/components/dashboard/today-section";
 import { RecentActivity } from "@/components/dashboard/recent-activity";
 import { OnboardingCard, ONBOARDING_DISMISS_RETURN_FOCUS_ID } from "@/components/onboarding/onboarding-card";
 import { StartWithSampleData } from "@/components/onboarding/start-with-sample-data";
+import { FreeBetaBanner } from "@/components/dashboard/free-beta-banner";
+import { isFreeBetaModeEnabled } from "@/lib/billing/free-beta-mode";
 import { DEFAULT_DASHBOARD_PERIOD } from "@/lib/dashboard/period";
 import { getOrganizationOnboardingSignals } from "@/lib/onboarding/progress";
 import { buildVisibleOnboardingProgress } from "@/lib/onboarding/visible-progress";
@@ -39,8 +41,17 @@ export default async function DashboardPage() {
   // Redesign — membership.role is threaded into the visible-progress
   // model below (never accepted from the client) so a MEMBER/ADMIN never
   // receives a Company Profile/Invite CTA they'd be rejected from.
-  const { organizationId, membership } = await getCurrentMembership();
+  // Free Public Beta, Welcome Banner — `user.id` is the only other field
+  // read off this same already-called, cache()-wrapped result; never a
+  // second auth lookup.
+  const { user, organizationId, membership } = await getCurrentMembership();
   const now = new Date();
+  // Resolved server-side only — FreeBetaBanner itself has no idea this
+  // flag exists, it only ever receives the already-decided boolean, the
+  // same discipline every other Free Beta surface in this codebase
+  // already follows. Never exposes the raw environment variable to the
+  // browser.
+  const freeBetaModeEnabled = isFreeBetaModeEnabled();
 
   const [analytics, onboardingSignals, sampleDataEligible] = await Promise.all([
     getDashboardAnalytics({ organizationId, period: DEFAULT_DASHBOARD_PERIOD, now }),
@@ -63,6 +74,8 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      {freeBetaModeEnabled && <FreeBetaBanner userId={user.id} />}
+
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           {/* Stage 6 audit fix: focus-return target for
