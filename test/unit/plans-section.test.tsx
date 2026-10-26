@@ -54,7 +54,11 @@ const SAMPLE_PLAN: PlanCardViewModel = {
   ctaDisabled: false,
 };
 
-function buildViewModel(overrides: { providerConfigured: boolean; availablePlans: PlanCardViewModel[] }): BillingPageViewModel {
+function buildViewModel(overrides: {
+  providerConfigured: boolean;
+  availablePlans: PlanCardViewModel[];
+  freeBetaMode?: boolean;
+}): BillingPageViewModel {
   return {
     currentPlanKey: "STARTER",
     currentPlanName: "Starter",
@@ -78,6 +82,7 @@ function buildViewModel(overrides: { providerConfigured: boolean; availablePlans
     availablePlans: overrides.availablePlans,
     permissions: { role: "OWNER", canManagePlan: true, canManageSubscription: true },
 
+    freeBetaMode: overrides.freeBetaMode ?? false,
     providerConfigured: false,
     providerAvailability: overrides.providerConfigured ? PROVIDER_CONFIGURED : PROVIDER_UNCONFIGURED,
   };
@@ -110,5 +115,45 @@ describe("PlansSection — provider-configured visibility", () => {
     const html = renderToStaticMarkup(<PlansSection data={buildViewModel({ providerConfigured: true, availablePlans: [] })} />);
     expect(html).toContain("Plans");
     expect(html).not.toContain("Connect a billing provider to publish pricing.");
+  });
+});
+
+/**
+ * Free Public Beta, Slice 1. `freeBetaMode` is checked AHEAD of
+ * `providerAvailability.configured` in the component itself (see
+ * plans-section.tsx) — proven here with a configured provider, confirming
+ * the section still stays hidden (the explicit "must remain true even if
+ * Paddle credentials are configured later for internal testing"
+ * requirement).
+ */
+describe("PlansSection — K: Free Public Beta hides paid plan selection entirely", () => {
+  it("beta enabled, provider unconfigured: renders nothing, same as the existing unconfigured-provider case", () => {
+    const html = renderToStaticMarkup(
+      <PlansSection
+        data={buildViewModel({ providerConfigured: false, availablePlans: [SAMPLE_PLAN], freeBetaMode: true })}
+      />,
+    );
+    expect(html).toBe("");
+  });
+
+  it("beta enabled, provider CONFIGURED: still renders nothing — never shows plan cards/Upgrade CTAs even if Paddle is set up for internal sandbox testing", () => {
+    const html = renderToStaticMarkup(
+      <PlansSection
+        data={buildViewModel({ providerConfigured: true, availablePlans: [SAMPLE_PLAN], freeBetaMode: true })}
+      />,
+    );
+    expect(html).toBe("");
+    expect(html).not.toContain("Upgrade");
+    expect(html).not.toContain("Plans");
+  });
+
+  it("beta disabled, provider configured: unchanged — real plan cards still render exactly as before", () => {
+    const html = renderToStaticMarkup(
+      <PlansSection
+        data={buildViewModel({ providerConfigured: true, availablePlans: [SAMPLE_PLAN], freeBetaMode: false })}
+      />,
+    );
+    expect(html).toContain("Plans");
+    expect(html).toContain("Upgrade");
   });
 });

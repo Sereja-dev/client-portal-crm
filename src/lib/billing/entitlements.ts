@@ -4,6 +4,7 @@ import { computeAccessMode, LEGACY_ACCESS_MODE, type AccessMode } from "./access
 import { getOrganizationUsage, type OrganizationUsage, type PrismaClientOrTx } from "./usage";
 import { getPlan, isPlanKey, LEGACY_PLAN_KEY, type PlanKey } from "./plans";
 import { getBillingProviderAvailability } from "./provider-availability";
+import { isFreeBetaModeEnabled } from "./free-beta-mode";
 
 /**
  * Billing & Subscriptions Stage 2 (docs/billing-architecture.md §7/§8/§13).
@@ -96,6 +97,7 @@ export function buildOrganizationEntitlements({
   usage,
   now,
   providerConfigured,
+  freeBetaMode,
 }: {
   subscription: SubscriptionStateForEntitlements | null;
   usage: OrganizationUsage & { pendingInvitations: number };
@@ -110,6 +112,15 @@ export function buildOrganizationEntitlements({
    * silently forget it.
    */
   providerConfigured: boolean;
+  /**
+   * Free Public Beta, Slice 1. Whether Aqenra is currently running as a
+   * free public beta with billing enforcement suspended
+   * (`isFreeBetaModeEnabled()`) — resolved once by the DB-backed wrapper
+   * below, never read from `process.env` inside this pure function, the
+   * same explicit-parameter discipline `providerConfigured` already
+   * established one line above. Always required, never defaulted.
+   */
+  freeBetaMode: boolean;
 }): OrganizationEntitlements {
   const planKey: PlanKey =
     subscription && isPlanKey(subscription.planKey) ? subscription.planKey : LEGACY_PLAN_KEY;
@@ -131,14 +142,14 @@ export function buildOrganizationEntitlements({
    * calendar/status say" state machine — Platform Admin's own
    * observability queries (platform-dashboard.ts, organizations.ts) call
    * it directly and intentionally keep showing that raw calendar truth
-   * unaffected by this override, so an operator can always see "this
-   * trial has genuinely lapsed" regardless of whether enforcement is
-   * currently acting on it. This is the one, single place that decides
-   * whether that raw result is actually enforceable right now — both
-   * server-side writes (via getOrganizationEntitlements below) and the
-   * Billing page's own status notice (view-model.ts's buildStatusNotice)
-   * read the corrected `accessMode` this produces, so the two can never
-   * disagree about what "billing disabled" means.
+   * unaffected by either override below, so an operator can always see
+   * "this trial has genuinely lapsed" regardless of whether enforcement
+   * is currently acting on it. This is the one, single place that
+   * decides whether that raw result is actually enforceable right now —
+   * both server-side writes (via getOrganizationEntitlements below) and
+   * the Billing page's own status notice (view-model.ts's
+   * buildStatusNotice) read the corrected `accessMode` this produces, so
+   * the two can never disagree about what "billing disabled" means.
    *
    * Deliberately narrow: only the TRIALING-expired -> READ_ONLY
    * transition is overridden. Every other status (ACTIVE, PAST_DUE,
@@ -148,9 +159,23 @@ export function buildOrganizationEntitlements({
    * created them in the first place (the webhook route rejects every
    * event when the provider is unconfigured), so there is no equivalent
    * "no way to ever have avoided this" trap for them to begin with.
+   *
+   * Free Public Beta, Slice 1: `freeBetaMode` is checked first and,
+   * unlike the override above, is deliberately UNCONDITIONAL on status —
+   * it forces FULL_ACCESS regardless of TRIALING/ACTIVE/PAST_DUE/
+   * CANCELED/UNPAID/INCOMPLETE, and regardless of `providerConfigured`.
+   * This is what satisfies the explicit requirement that adding Paddle
+   * credentials later (e.g. for internal sandbox checkout testing) must
+   * never disable beta access on its own — the narrower provider-
+   * unconfigured override above only ever helped the TRIALING-expired
+   * case, which is exactly the gap that would otherwise reopen the
+   * moment a real provider becomes configured while the beta is still
+   * running. No Subscription row is ever written by either override —
+   * both are purely a computed `accessMode`, never a database mutation.
    */
-  const accessMode: AccessMode =
-    !providerConfigured && subscription?.status === "TRIALING" && rawAccessMode === "READ_ONLY"
+  const accessMode: AccessMode = freeBetaMode
+    ? "FULL_ACCESS"
+    : !providerConfigured && subscription?.status === "TRIALING" && rawAccessMode === "READ_ONLY"
       ? "FULL_ACCESS"
       : rawAccessMode;
 
@@ -244,5 +269,6 @@ export async function getOrganizationEntitlements(
     usage: { ...usage, pendingInvitations },
     now,
     providerConfigured: providerAvailability.configured,
+    freeBetaMode: isFreeBetaModeEnabled(),
   });
 }

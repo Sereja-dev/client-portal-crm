@@ -16,9 +16,17 @@ import { PlanCard } from "./plan-card";
  * renders exactly as before this slice: the real plan cards, with their
  * own real, working Upgrade/Downgrade action (see plan-action-button.tsx,
  * unchanged).
+ *
+ * Free Public Beta, Slice 1: `freeBetaMode` is checked the same way,
+ * ahead of `providerAvailability.configured` — deliberately, so this
+ * section stays hidden even if Paddle credentials are configured later
+ * for internal sandbox testing while the beta is still running (the
+ * explicit requirement this slice must satisfy). `requestPlanChangeAction`
+ * independently fails closed for the same case — this is UI hiding, not
+ * the only defense.
  */
 export function PlansSection({ data }: { data: BillingPageViewModel }) {
-  if (!data.providerAvailability.configured) {
+  if (data.freeBetaMode || !data.providerAvailability.configured) {
     return null;
   }
 

@@ -39,10 +39,14 @@ const PROVIDER_UNCONFIGURED = {
 function buildViewModel(overrides: {
   canManageSubscription: boolean;
   providerConfigured: boolean;
+  freeBetaMode?: boolean;
+  trialEndsAt?: Date | null;
+  trialExpired?: boolean;
+  trialDaysRemaining?: number | null;
 }): BillingPageViewModel {
   return {
     currentPlanKey: "PRO",
-    currentPlanName: "Pro",
+    currentPlanName: overrides.freeBetaMode ? "Aqenra Free Beta" : "Pro",
     statusLabel: "ACTIVE",
     statusTone: "success",
     statusNotice: { id: "status", tone: "success", message: "Your subscription is active." },
@@ -50,10 +54,10 @@ function buildViewModel(overrides: {
     accessModeBanner: null,
     isLegacy: false,
 
-    trialEndsAt: null,
-    trialDaysRemaining: null,
+    trialEndsAt: overrides.trialEndsAt ?? null,
+    trialDaysRemaining: overrides.trialDaysRemaining ?? null,
     trialApproachingEnd: false,
-    trialExpired: false,
+    trialExpired: overrides.trialExpired ?? false,
 
     currentPeriodEnd: null,
     cancelAtPeriodEnd: false,
@@ -67,6 +71,7 @@ function buildViewModel(overrides: {
       canManageSubscription: overrides.canManageSubscription,
     },
 
+    freeBetaMode: overrides.freeBetaMode ?? false,
     providerConfigured: false,
     providerAvailability: overrides.providerConfigured ? PROVIDER_CONFIGURED : PROVIDER_UNCONFIGURED,
   };
@@ -117,5 +122,91 @@ describe("CurrentPlanSection — Manage subscription availability", () => {
     );
     expect(html).toContain("Only the organization owner can manage billing.");
     expect(html).not.toContain("Billing provider is not configured.");
+  });
+
+  /**
+   * Free Public Beta, Slice 1. freeBetaMode is checked AHEAD of
+   * providerConfigured in the component itself (see current-plan-section.tsx) —
+   * proven here by configuring a real provider while freeBetaMode is also
+   * true, confirming the beta copy still wins (the explicit "must remain
+   * true even if Paddle credentials are configured later for internal
+   * testing" requirement).
+   */
+  it("K/L: OWNER + beta enabled, even with a configured provider: renders the disabled fallback with free-beta copy, never the real ManageSubscriptionButton or the provider-unconfigured copy", () => {
+    const html = renderToStaticMarkup(
+      <CurrentPlanSection
+        data={buildViewModel({ canManageSubscription: true, providerConfigured: true, freeBetaMode: true })}
+      />,
+    );
+    expect(html).toContain("Paid plans aren&#x27;t available during the free beta.");
+    expect(html).not.toContain("Billing provider is not configured.");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>\s*Manage subscription\s*<\/button>/);
+  });
+
+  it("K/L: OWNER + beta enabled, provider unconfigured: same free-beta fallback, not the provider-unconfigured copy", () => {
+    const html = renderToStaticMarkup(
+      <CurrentPlanSection
+        data={buildViewModel({ canManageSubscription: true, providerConfigured: false, freeBetaMode: true })}
+      />,
+    );
+    expect(html).toContain("Paid plans aren&#x27;t available during the free beta.");
+    expect(html).not.toContain("Billing provider is not configured.");
+  });
+
+  it("non-owner + beta enabled: the owner-only reason still takes precedence over the free-beta copy", () => {
+    const html = renderToStaticMarkup(
+      <CurrentPlanSection
+        data={buildViewModel({ canManageSubscription: false, providerConfigured: true, freeBetaMode: true })}
+      />,
+    );
+    expect(html).toContain("Only the organization owner can manage billing.");
+    expect(html).not.toContain("Paid plans aren&#x27;t available during the free beta.");
+  });
+});
+
+/**
+ * Free Public Beta, Slice 1. The "Trial ends on..." <dl> row is the one
+ * other place (besides statusNotice, covered in billing-view-model.test.ts)
+ * that would otherwise surface a trial countdown directly in this
+ * component.
+ */
+describe("CurrentPlanSection — trial countdown row and Free Beta heading", () => {
+  it("J: beta enabled — the 'Trial ends on...' row never renders, even for a non-expired trial", () => {
+    const html = renderToStaticMarkup(
+      <CurrentPlanSection
+        data={buildViewModel({
+          canManageSubscription: true,
+          providerConfigured: false,
+          freeBetaMode: true,
+          trialEndsAt: new Date("2026-07-01T00:00:00.000Z"),
+          trialExpired: false,
+          trialDaysRemaining: 5,
+        })}
+      />,
+    );
+    expect(html).not.toMatch(/trial ends/i);
+  });
+
+  it("beta disabled — the 'Trial ends on...' row renders exactly as before for a non-expired trial", () => {
+    const html = renderToStaticMarkup(
+      <CurrentPlanSection
+        data={buildViewModel({
+          canManageSubscription: true,
+          providerConfigured: false,
+          freeBetaMode: false,
+          trialEndsAt: new Date("2026-07-01T00:00:00.000Z"),
+          trialExpired: false,
+          trialDaysRemaining: 5,
+        })}
+      />,
+    );
+    expect(html).toMatch(/trial ends/i);
+  });
+
+  it("beta enabled — the page heading reads 'Aqenra Free Beta', not the underlying plan name", () => {
+    const html = renderToStaticMarkup(
+      <CurrentPlanSection data={buildViewModel({ canManageSubscription: true, providerConfigured: false, freeBetaMode: true })} />,
+    );
+    expect(html).toContain("Aqenra Free Beta");
   });
 });

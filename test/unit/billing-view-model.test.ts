@@ -68,6 +68,11 @@ function build(
     role: "OWNER",
     now: NOW,
     providerAvailability: PROVIDER_UNCONFIGURED,
+    // Free Public Beta, Slice 1 — every pre-existing test in this file
+    // predates freeBetaMode and implicitly assumes it's off; this default
+    // preserves that for all of them, while new tests below override it
+    // explicitly via `overrides`.
+    freeBetaMode: false,
     ...overrides,
   });
 }
@@ -427,5 +432,120 @@ describe("providerConfigured", () => {
   it("is always false in Stage 3", () => {
     const vm = build({ entitlements: entitlements({ planKey: "PRO" }) });
     expect(vm.providerConfigured).toBe(false);
+  });
+});
+
+/**
+ * Free Public Beta, Slice 1. `entitlements.accessMode` in these fixtures
+ * is always already "FULL_ACCESS" — exactly what buildOrganizationEntitlements
+ * itself would have produced for freeBetaMode: true (see
+ * billing-entitlements.test.ts's own freeBetaMode describe block for that
+ * proof) — this file only proves the view-model layer's own, separate
+ * responsibility: given that corrected accessMode plus the same
+ * freeBetaMode boolean, does the Billing page's copy/CTA surface actually
+ * reflect it correctly.
+ */
+describe("Free Public Beta, Slice 1 — freeBetaMode view-model behavior", () => {
+  it("H: beta enabled — statusNotice states the correct Free Beta message, regardless of the underlying (already-expired) trial", () => {
+    const vm = build({
+      entitlements: entitlements({
+        planKey: "TRIAL",
+        subscriptionStatus: "TRIALING",
+        accessMode: "FULL_ACCESS",
+        trialEndsAt: new Date(NOW.getTime() - DAY_MS),
+      }),
+      freeBetaMode: true,
+    });
+    expect(vm.statusNotice.message).toBe(
+      "You're using Aqenra for free during our public beta. No payment method is required.",
+    );
+    expect(vm.statusNotice.tone).toBe("info");
+    expect(vm.currentPlanName).toBe("Aqenra Free Beta");
+  });
+
+  it("H: beta enabled — the Free Beta message never promises permanent free access or automatic future billing", () => {
+    const vm = build({
+      entitlements: entitlements({ planKey: "TRIAL", subscriptionStatus: "TRIALING", accessMode: "FULL_ACCESS" }),
+      freeBetaMode: true,
+    });
+    expect(vm.statusNotice.message.toLowerCase()).not.toContain("forever");
+    expect(vm.statusNotice.message.toLowerCase()).not.toContain("permanently");
+    expect(vm.statusNotice.message.toLowerCase()).not.toContain("automatically charge");
+    expect(vm.statusNotice.message.toLowerCase()).not.toContain("will be charged");
+  });
+
+  it("I: beta disabled — existing TRIALING/ACTIVE/etc. messages are unchanged from their pre-Slice-1 text", () => {
+    const trialing = build({
+      entitlements: entitlements({
+        planKey: "TRIAL",
+        subscriptionStatus: "TRIALING",
+        trialEndsAt: new Date(NOW.getTime() + 5 * DAY_MS),
+      }),
+      freeBetaMode: false,
+    });
+    expect(trialing.statusNotice.message).toBe("Trial ends in 5 days.");
+
+    const active = build({
+      entitlements: entitlements({ planKey: "PRO", subscriptionStatus: "ACTIVE" }),
+      freeBetaMode: false,
+    });
+    expect(active.statusNotice.message).toBe("Your subscription is active.");
+    expect(active.currentPlanName).toBe("Pro");
+  });
+
+  it("J: beta enabled — no trial countdown and no expired-trial warning appear anywhere in the status notice, for either a fresh or an expired trial", () => {
+    const fresh = build({
+      entitlements: entitlements({
+        planKey: "TRIAL",
+        subscriptionStatus: "TRIALING",
+        accessMode: "FULL_ACCESS",
+        trialEndsAt: new Date(NOW.getTime() + 5 * DAY_MS),
+      }),
+      freeBetaMode: true,
+    });
+    const expired = build({
+      entitlements: entitlements({
+        planKey: "TRIAL",
+        subscriptionStatus: "TRIALING",
+        accessMode: "FULL_ACCESS",
+        trialEndsAt: new Date(NOW.getTime() - DAY_MS),
+      }),
+      freeBetaMode: true,
+    });
+    for (const vm of [fresh, expired]) {
+      expect(vm.statusNotice.message).not.toMatch(/trial ends/i);
+      expect(vm.statusNotice.message).not.toMatch(/trial has ended/i);
+      expect(vm.statusNotice.message).not.toMatch(/upgrade/i);
+      expect(vm.accessModeBanner).toBeNull();
+    }
+  });
+
+  it("K: beta enabled — availablePlans' CTAs are all disabled (defense-in-depth; PlansSection itself hides the whole section, proven in plans-section.test.tsx)", () => {
+    const vm = build({
+      entitlements: entitlements({ planKey: "STARTER" }),
+      providerAvailability: PROVIDER_CONFIGURED,
+      freeBetaMode: true,
+    });
+    for (const plan of vm.availablePlans) {
+      expect(plan.ctaDisabled).toBe(true);
+    }
+  });
+
+  it("M: beta disabled — existing availablePlans/ctaDisabled behavior for a configured provider is unchanged", () => {
+    const vm = build({
+      entitlements: entitlements({ planKey: "STARTER" }),
+      providerAvailability: PROVIDER_CONFIGURED,
+      freeBetaMode: false,
+    });
+    const pro = vm.availablePlans.find((p) => p.planKey === "PRO")!;
+    expect(pro.ctaDisabled).toBe(false);
+    expect(pro.ctaLabel).toBe("Upgrade");
+  });
+
+  it("freeBetaMode is exposed on the view-model itself, for components to branch on directly", () => {
+    const enabled = build({ entitlements: entitlements({ planKey: "PRO" }), freeBetaMode: true });
+    const disabled = build({ entitlements: entitlements({ planKey: "PRO" }), freeBetaMode: false });
+    expect(enabled.freeBetaMode).toBe(true);
+    expect(disabled.freeBetaMode).toBe(false);
   });
 });

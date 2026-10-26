@@ -25,6 +25,20 @@ export function CurrentPlanSection({ data }: { data: BillingPageViewModel }) {
             </Button>
             <p className="text-text-muted mt-1 text-xs">Only the organization owner can manage billing.</p>
           </div>
+        ) : data.freeBetaMode ? (
+          // Free Public Beta, Slice 1 — checked ahead of
+          // providerAvailability.configured, deliberately: must stay this
+          // way even if Paddle is configured later for internal sandbox
+          // testing while the beta is still running. manageSubscriptionAction
+          // independently fails closed for the same case (see that
+          // action's own freeBetaMode check) — this disabled button is UI
+          // hiding, not the only defense.
+          <div className="text-right">
+            <Button type="button" variant="secondary" disabled aria-disabled="true">
+              Manage subscription
+            </Button>
+            <p className="text-text-muted mt-1 text-xs">Paid plans aren&apos;t available during the free beta.</p>
+          </div>
         ) : !data.providerAvailability.configured ? (
           // Billing provider-unavailable UI remediation: manageSubscriptionAction
           // already fails closed here ("Billing provider is not configured.",
@@ -51,7 +65,13 @@ export function CurrentPlanSection({ data }: { data: BillingPageViewModel }) {
       </div>
 
       <dl className="text-text-secondary mt-4 space-y-1 text-sm">
-        {data.trialEndsAt && !data.trialExpired && (
+        {/*
+          Free Public Beta, Slice 1: this row is the one other place
+          (besides statusNotice above) that would otherwise surface a
+          trial countdown — gated on !data.freeBetaMode for the same
+          reason buildStatusNotice itself branches on it first.
+        */}
+        {!data.freeBetaMode && data.trialEndsAt && !data.trialExpired && (
           <div>
             <dt className="sr-only">Trial ends</dt>
             <dd>

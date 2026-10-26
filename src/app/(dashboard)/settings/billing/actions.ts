@@ -7,6 +7,7 @@ import { getCurrentMembership } from "@/lib/current-user";
 import { isPurchasablePlanKey } from "@/lib/billing/plan-selection";
 import { getBillingProviderAdapter } from "@/lib/billing/provider/provider";
 import { logBillingProviderFailure } from "@/lib/billing/billing-diagnostics";
+import { isFreeBetaModeEnabled } from "@/lib/billing/free-beta-mode";
 import { sanitizeRedirectPath } from "@/lib/safe-redirect";
 import { checkRateLimit, BILLING_CHECKOUT_LIMIT, BILLING_PORTAL_LIMIT, RATE_LIMIT_MESSAGE } from "@/lib/rate-limit";
 
@@ -43,6 +44,16 @@ const NOT_CONFIGURED_MESSAGE = "Billing provider is not configured.";
 const NO_BILLING_ACCOUNT_MESSAGE = "There's no billing account to manage yet — upgrade to a paid plan first.";
 const CHECKOUT_ERROR_MESSAGE = "Something went wrong starting checkout. Please try again.";
 const PORTAL_ERROR_MESSAGE = "Something went wrong opening the billing portal. Please try again.";
+/**
+ * Free Public Beta, Slice 1. Checked first, before the adapter is even
+ * resolved, in both actions below — deliberately independent of whether
+ * a real Paddle config happens to be present, so this fails closed the
+ * exact same way whether Paddle is unconfigured or has been configured
+ * for internal sandbox testing while the beta is still running. The
+ * Billing page's own PlansSection/CurrentPlanSection hide the CTAs that
+ * would call these actions, but that UI hiding is never the only defense.
+ */
+const FREE_BETA_MODE_MESSAGE = "Paid plans aren't available during the free beta.";
 
 const BILLING_PAGE_PATH = "/settings/billing";
 
@@ -56,6 +67,10 @@ export async function requestPlanChangeAction(planKey: string): Promise<BillingA
 
   if (membership.role !== Role.OWNER) {
     return { ok: false, message: NOT_OWNER_MESSAGE };
+  }
+
+  if (isFreeBetaModeEnabled()) {
+    return { ok: false, message: FREE_BETA_MODE_MESSAGE };
   }
 
   if (!isPurchasablePlanKey(planKey)) {
@@ -102,6 +117,10 @@ export async function manageSubscriptionAction(): Promise<BillingActionResult> {
 
   if (membership.role !== Role.OWNER) {
     return { ok: false, message: NOT_OWNER_MESSAGE };
+  }
+
+  if (isFreeBetaModeEnabled()) {
+    return { ok: false, message: FREE_BETA_MODE_MESSAGE };
   }
 
   const adapter = getBillingProviderAdapter();

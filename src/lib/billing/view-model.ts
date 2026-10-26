@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getOrganizationEntitlements, type OrganizationEntitlements } from "./entitlements";
 import { PLAN_CATALOG, ALL_PLAN_KEYS, type PlanKey } from "./plans";
 import { getBillingProviderAvailability, type BillingProviderAvailability } from "./provider-availability";
+import { isFreeBetaModeEnabled } from "./free-beta-mode";
 import {
   computeUsageStatus,
   formatCountLabel,
@@ -82,6 +83,14 @@ export type BillingPageViewModel = {
   accessMode: OrganizationEntitlements["accessMode"];
   accessModeBanner: BillingNotice | null;
   isLegacy: boolean;
+  /**
+   * Free Public Beta, Slice 1. The one explicit boolean every Billing UI
+   * component reads to decide whether to show beta messaging / hide paid
+   * plan selection and checkout — mirrors `providerAvailability.configured`
+   * being threaded through the same way. Components never read
+   * `process.env.FREE_BETA_MODE` themselves.
+   */
+  freeBetaMode: boolean;
 
   trialEndsAt: Date | null;
   trialDaysRemaining: number | null;
@@ -108,11 +117,34 @@ function formatDayCount(days: number): string {
   return `${days} ${days === 1 ? "day" : "days"}`;
 }
 
+/**
+ * Free Public Beta, Slice 1. Checked before the status switch below and
+ * unconditional on `subscriptionStatus` — while the beta is running, this
+ * is the ONLY status notice any org ever sees, replacing every one of
+ * "Trial ends in N days.", "Your trial has ended...", and every other
+ * status-driven message (ACTIVE/PAST_DUE/CANCELED/UNPAID/INCOMPLETE) that
+ * could otherwise still surface for a pre-existing or sandbox-tested
+ * Subscription row. Deliberately does not promise permanent free access
+ * or imply automatic future billing — states only the current fact.
+ */
+function buildFreeBetaStatusNotice(): BillingNotice {
+  return {
+    id: "status",
+    tone: "info",
+    message: "You're using Aqenra for free during our public beta. No payment method is required.",
+  };
+}
+
 function buildStatusNotice(
   entitlements: OrganizationEntitlements,
   now: Date,
   currentPeriodEnd: Date | null,
+  freeBetaMode: boolean,
 ): BillingNotice {
+  if (freeBetaMode) {
+    return buildFreeBetaStatusNotice();
+  }
+
   const { subscriptionStatus, trialEndsAt, gracePeriodEndsAt } = entitlements;
 
   switch (subscriptionStatus) {
@@ -337,11 +369,23 @@ function planDescription(planKey: PlanKey): string {
  * re-resolves provider state itself; the caller already has
  * providerAvailability.configured resolved once, from
  * getBillingProviderAvailability(), and passes it straight through.
+ *
+ * `freeBetaMode` (Free Public Beta, Slice 1): defense-in-depth only — the
+ * Billing page's PlansSection component already hides this entire section
+ * when `freeBetaMode` is true (mirroring how it already hides for
+ * `!providerConfigured`), so this array is normally never even rendered
+ * during the beta. Still disabling every CTA here too means any other
+ * future consumer of this view-model can never accidentally show a live
+ * Upgrade button during the beta, and `requestPlanChangeAction` itself
+ * independently fails closed regardless (see that action's own
+ * freeBetaMode check) — three independent layers, never relying on UI
+ * hiding alone.
  */
 function buildAvailablePlans(
   currentPlanKey: PlanKey,
   canManagePlan: boolean,
   providerConfigured: boolean,
+  freeBetaMode: boolean,
 ): PlanCardViewModel[] {
   const purchasablePlanKeys = ALL_PLAN_KEYS.filter((key) => PLAN_CATALOG[key].billingAvailable);
   const currentIndex = purchasablePlanKeys.indexOf(currentPlanKey);
@@ -368,7 +412,7 @@ function buildAvailablePlans(
       description: planDescription(planKey),
       isCurrentPlan,
       ctaLabel,
-      ctaDisabled: isCurrentPlan || !canManagePlan || !providerConfigured,
+      ctaDisabled: isCurrentPlan || !canManagePlan || !providerConfigured || freeBetaMode,
     };
   });
 }
@@ -390,6 +434,7 @@ export function buildBillingPageViewModel({
   role,
   now,
   providerAvailability,
+  freeBetaMode,
   currentPeriodEnd = null,
   cancelAtPeriodEnd = false,
 }: {
@@ -398,12 +443,24 @@ export function buildBillingPageViewModel({
   role: Role;
   now: Date;
   providerAvailability: BillingProviderAvailability;
+  /**
+   * Free Public Beta, Slice 1. Same already-resolved-by-the-caller
+   * discipline as `providerAvailability` above — this pure function never
+   * reads `process.env` itself. Always required, never defaulted.
+   */
+  freeBetaMode: boolean;
   /** From the raw Subscription row — Stage 2's entitlements contract doesn't expose these (not needed for enforcement), so the page-data loader reads them separately. `null`/`false` for a LEGACY org with no Subscription row at all. */
   currentPeriodEnd?: Date | null;
   cancelAtPeriodEnd?: boolean;
 }): BillingPageViewModel {
   const plan = PLAN_CATALOG[entitlements.planKey] as (typeof PLAN_CATALOG)[PlanKey] | undefined;
-  const currentPlanName = plan?.displayName ?? "Custom plan";
+  // Free Public Beta, Slice 1: the most prominent element on the page
+  // (CurrentPlanSection's own <h2>) names the effective access state
+  // directly as "Aqenra Free Beta" rather than the underlying "Trial"
+  // plan label — the Subscription row's real planKey/status are
+  // completely untouched by this (see entitlements.ts's own freeBetaMode
+  // override doc comment); this is display-only.
+  const currentPlanName = freeBetaMode ? "Aqenra Free Beta" : (plan?.displayName ?? "Custom plan");
 
   const canManagePlan = role === "OWNER";
   const canManageSubscription = role === "OWNER";
@@ -417,11 +474,18 @@ export function buildBillingPageViewModel({
     currentPlanName,
     statusLabel: entitlements.subscriptionStatus,
     statusTone: statusToTone(entitlements.subscriptionStatus),
-    statusNotice: buildStatusNotice(entitlements, now, currentPeriodEnd),
+    statusNotice: buildStatusNotice(entitlements, now, currentPeriodEnd, freeBetaMode),
     accessMode: entitlements.accessMode,
     accessModeBanner: buildAccessModeBanner(entitlements.accessMode),
     isLegacy: entitlements.subscriptionStatus === "LEGACY",
 
+    // Free Public Beta, Slice 1: the trial countdown / expired-trial facts
+    // are still computed (nothing here is deleted or hidden from the
+    // underlying data), but every renderer of trialEndsAt/trialDaysRemaining/
+    // trialApproachingEnd/trialExpired is expected to also check
+    // `freeBetaMode` before showing anything derived from them — see
+    // CurrentPlanSection's own "Trial ends on..." row, the one other place
+    // besides statusNotice that would otherwise surface this.
     trialEndsAt,
     trialDaysRemaining: days,
     trialApproachingEnd: trialEndsAt !== null && !expired && days !== null && days <= TRIAL_APPROACHING_DAYS,
@@ -432,9 +496,10 @@ export function buildBillingPageViewModel({
     gracePeriodEndsAt: entitlements.gracePeriodEndsAt,
 
     usageRows: buildUsageRows(entitlements, pendingInvitations),
-    availablePlans: buildAvailablePlans(entitlements.planKey, canManagePlan, providerAvailability.configured),
+    availablePlans: buildAvailablePlans(entitlements.planKey, canManagePlan, providerAvailability.configured, freeBetaMode),
     permissions: { role, canManagePlan, canManageSubscription },
 
+    freeBetaMode,
     providerConfigured: false,
     providerAvailability,
   };
@@ -479,6 +544,7 @@ export async function getBillingPageData({
     role,
     now,
     providerAvailability,
+    freeBetaMode: isFreeBetaModeEnabled(),
     currentPeriodEnd: subscription?.currentPeriodEnd ?? null,
     cancelAtPeriodEnd: subscription?.cancelAtPeriodEnd ?? false,
   });

@@ -193,4 +193,88 @@ describe("getBillingPageData", () => {
     await prisma.organization.delete({ where: { id: tinyOrg.id } });
     await prisma.user.delete({ where: { id: tinyOwner.id } });
   });
+
+  /**
+   * Free Public Beta, Slice 1. Exercises the real, end-to-end wiring
+   * (process.env.FREE_BETA_MODE -> isFreeBetaModeEnabled() ->
+   * getOrganizationEntitlements() -> getBillingPageData()) against the
+   * real test database — the pure-function-level proof already lives in
+   * test/unit/billing-entitlements.test.ts and billing-view-model.test.ts;
+   * this is the one place confirming the env var is actually read and
+   * threaded through correctly end to end, not just that the functions'
+   * own logic is correct in isolation.
+   */
+  describe("Free Public Beta, Slice 1 — real end-to-end env wiring", () => {
+    const ORIGINAL_FREE_BETA_MODE = process.env.FREE_BETA_MODE;
+
+    afterAll(() => {
+      if (ORIGINAL_FREE_BETA_MODE === undefined) delete process.env.FREE_BETA_MODE;
+      else process.env.FREE_BETA_MODE = ORIGINAL_FREE_BETA_MODE;
+    });
+
+    it("FREE_BETA_MODE=\"true\" resolves a genuinely expired trial to FULL_ACCESS, honest Free Beta messaging, and hidden plan cards", async () => {
+      const org = await prisma.organization.create({
+        data: { name: "Free Beta Expired Trial Org", slug: testSlug("billing-free-beta-expired", fixtures.runId) },
+      });
+      await prisma.subscription.create({
+        data: {
+          organizationId: org.id,
+          planKey: "TRIAL",
+          status: "TRIALING",
+          trialStartedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000),
+          trialEndsAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000), // 6 days expired
+        },
+      });
+
+      process.env.FREE_BETA_MODE = "true";
+      const data = await getBillingPageData({ organizationId: org.id, role: "OWNER" });
+
+      expect(data.freeBetaMode).toBe(true);
+      expect(data.accessMode).toBe("FULL_ACCESS");
+      expect(data.accessModeBanner).toBeNull();
+      expect(data.currentPlanName).toBe("Aqenra Free Beta");
+      expect(data.statusNotice.message).toBe(
+        "You're using Aqenra for free during our public beta. No payment method is required.",
+      );
+      expect(data.availablePlans.every((p) => p.ctaDisabled)).toBe(true);
+
+      await prisma.subscription.deleteMany({ where: { organizationId: org.id } });
+      await prisma.organization.delete({ where: { id: org.id } });
+    });
+
+    it("only the exact literal \"true\" enables it — \"1\" is treated as disabled, preserving real enforcement", async () => {
+      const org = await prisma.organization.create({
+        data: { name: "Free Beta Strict Parsing Org", slug: testSlug("billing-free-beta-strict", fixtures.runId) },
+      });
+      await prisma.subscription.create({
+        data: {
+          organizationId: org.id,
+          planKey: "TRIAL",
+          status: "TRIALING",
+          trialStartedAt: new Date(Date.now() - 20 * 24 * 60 * 60 * 1000),
+          trialEndsAt: new Date(Date.now() - 6 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      process.env.FREE_BETA_MODE = "1";
+      const data = await getBillingPageData({ organizationId: org.id, role: "OWNER" });
+
+      expect(data.freeBetaMode).toBe(false);
+      // No real provider configured in this test env either, so the
+      // pre-existing P1 fallback still applies — this proves "1" didn't
+      // silently enable the new override, not that access is restricted.
+      expect(data.accessMode).toBe("FULL_ACCESS");
+      expect(data.currentPlanName).not.toBe("Aqenra Free Beta");
+
+      await prisma.subscription.deleteMany({ where: { organizationId: org.id } });
+      await prisma.organization.delete({ where: { id: org.id } });
+    });
+
+    it("FREE_BETA_MODE unset (default): existing behavior is completely unaffected", async () => {
+      delete process.env.FREE_BETA_MODE;
+      const data = await getBillingPageData({ organizationId: fixtures.orgA.id, role: "OWNER" });
+      expect(data.freeBetaMode).toBe(false);
+      expect(data.currentPlanKey).toBe("STARTER");
+    });
+  });
 });

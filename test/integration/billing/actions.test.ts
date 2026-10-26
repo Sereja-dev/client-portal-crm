@@ -149,6 +149,71 @@ describe("billing placeholder actions", () => {
     });
   });
 
+  /**
+   * Free Public Beta, Slice 1 — requirement: "server-side actions that
+   * initiate checkout, request a paid plan change, or open a paid
+   * subscription management flow must also fail closed for ordinary beta
+   * users while FREE_BETA_MODE is enabled," with "an explicit, truthful
+   * error message," distinct from "Billing provider is not configured."
+   * since that message would be factually wrong once a provider actually
+   * IS configured for internal sandbox testing — exercised below by
+   * never configuring a real provider in this test env at all, confirming
+   * the freeBetaMode check still wins and produces its own distinct
+   * message, not a coincidental pass-through of the provider-unconfigured
+   * one.
+   */
+  describe("Free Public Beta, Slice 1 — both actions fail closed while FREE_BETA_MODE is enabled", () => {
+    const ORIGINAL_FREE_BETA_MODE = process.env.FREE_BETA_MODE;
+
+    afterEach(() => {
+      if (ORIGINAL_FREE_BETA_MODE === undefined) delete process.env.FREE_BETA_MODE;
+      else process.env.FREE_BETA_MODE = ORIGINAL_FREE_BETA_MODE;
+    });
+
+    it("L: requestPlanChangeAction — OWNER gets the distinct free-beta message, not the provider-unconfigured one, and the Subscription row is untouched", async () => {
+      actAs(fixtures.owner, fixtures.orgA.id);
+      const before = await snapshotBillingState();
+
+      process.env.FREE_BETA_MODE = "true";
+      const result = await requestPlanChangeAction("PRO");
+
+      expect(result).toEqual({ ok: false, message: "Paid plans aren't available during the free beta." });
+      expect(await snapshotBillingState()).toEqual(before);
+    });
+
+    it("L: manageSubscriptionAction — OWNER gets the same distinct free-beta message", async () => {
+      actAs(fixtures.owner, fixtures.orgA.id);
+      const before = await snapshotBillingState();
+
+      process.env.FREE_BETA_MODE = "true";
+      const result = await manageSubscriptionAction();
+
+      expect(result).toEqual({ ok: false, message: "Paid plans aren't available during the free beta." });
+      expect(await snapshotBillingState()).toEqual(before);
+    });
+
+    it("the OWNER-permission check still takes precedence for a non-owner, even while the beta flag is on", async () => {
+      actAs(fixtures.member, fixtures.orgA.id);
+      process.env.FREE_BETA_MODE = "true";
+      const result = await requestPlanChangeAction("PRO");
+      expect(result).toEqual({ ok: false, message: "Only the organization owner can manage billing." });
+    });
+
+    it("M: FREE_BETA_MODE unset — existing 'Billing provider is not configured.' behavior is unchanged", async () => {
+      actAs(fixtures.owner, fixtures.orgA.id);
+      delete process.env.FREE_BETA_MODE;
+      const result = await requestPlanChangeAction("PRO");
+      expect(result).toEqual({ ok: false, message: "Billing provider is not configured." });
+    });
+
+    it("P: strict parsing — \"1\" does not enable the free-beta refusal, falling through to the existing provider-unconfigured message", async () => {
+      actAs(fixtures.owner, fixtures.orgA.id);
+      process.env.FREE_BETA_MODE = "1";
+      const result = await requestPlanChangeAction("PRO");
+      expect(result).toEqual({ ok: false, message: "Billing provider is not configured." });
+    });
+  });
+
   describe("Client Portal identity", () => {
     it("cannot resolve billing actions — the same staff-only boundary every dashboard action already relies on redirects them to /portal", async () => {
       actAs({ id: fixtures.portalUser.id, email: fixtures.portalUser.email }, fixtures.orgA.id);

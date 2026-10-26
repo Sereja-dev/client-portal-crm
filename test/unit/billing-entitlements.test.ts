@@ -33,7 +33,7 @@ describe("buildOrganizationEntitlements — member limit", () => {
       subscription: activeSubscription({ planKey: "STARTER" }), // maxMembers: 1
       usage: usage({ members: 0 }),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(result.canInviteMember).toBe(true);
     expect(result.blockedReasons).not.toContain("MEMBER_LIMIT_REACHED");
@@ -44,7 +44,7 @@ describe("buildOrganizationEntitlements — member limit", () => {
       subscription: activeSubscription({ planKey: "STARTER" }), // maxMembers: 1
       usage: usage({ members: 1 }),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(result.canInviteMember).toBe(false);
     expect(result.blockedReasons).toContain("MEMBER_LIMIT_REACHED");
@@ -55,7 +55,7 @@ describe("buildOrganizationEntitlements — member limit", () => {
       subscription: activeSubscription({ planKey: "STARTER" }),
       usage: usage({ members: 5 }),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(result.canInviteMember).toBe(false);
   });
@@ -65,7 +65,7 @@ describe("buildOrganizationEntitlements — member limit", () => {
       subscription: activeSubscription({ planKey: "PRO" }), // maxMembers: 5
       usage: usage({ members: 4, pendingInvitations: 1 }),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(result.canInviteMember).toBe(false);
     expect(result.blockedReasons).toContain("MEMBER_LIMIT_REACHED");
@@ -76,7 +76,7 @@ describe("buildOrganizationEntitlements — member limit", () => {
       subscription: activeSubscription({ planKey: "PRO" }),
       usage: usage({ members: 2, pendingInvitations: 3 }),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(result.currentMembers).toBe(2);
   });
@@ -85,9 +85,9 @@ describe("buildOrganizationEntitlements — member limit", () => {
 describe("buildOrganizationEntitlements — client limit", () => {
   it("under/at/over", () => {
     const maxClients = PLAN_CATALOG.STARTER.limits.maxClients!;
-    const under = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ clients: maxClients - 1 }), now: NOW, providerConfigured: true });
-    const at = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ clients: maxClients }), now: NOW, providerConfigured: true });
-    const over = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ clients: maxClients + 5 }), now: NOW, providerConfigured: true });
+    const under = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ clients: maxClients - 1 }), now: NOW, providerConfigured: true, freeBetaMode: false, });
+    const at = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ clients: maxClients }), now: NOW, providerConfigured: true, freeBetaMode: false, });
+    const over = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ clients: maxClients + 5 }), now: NOW, providerConfigured: true, freeBetaMode: false, });
     expect(under.canCreateClient).toBe(true);
     expect(at.canCreateClient).toBe(false);
     expect(over.canCreateClient).toBe(false);
@@ -98,7 +98,7 @@ describe("buildOrganizationEntitlements — client limit", () => {
       subscription: activeSubscription({ planKey: "PRO" }),
       usage: usage({ clients: 100_000 }),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(result.canCreateClient).toBe(true);
     expect(result.maxClients).toBeNull();
@@ -108,8 +108,8 @@ describe("buildOrganizationEntitlements — client limit", () => {
 describe("buildOrganizationEntitlements — project limit", () => {
   it("under/at/over", () => {
     const maxProjects = PLAN_CATALOG.STARTER.limits.maxProjects!;
-    const under = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ projects: maxProjects - 1 }), now: NOW, providerConfigured: true });
-    const at = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ projects: maxProjects }), now: NOW, providerConfigured: true });
+    const under = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ projects: maxProjects - 1 }), now: NOW, providerConfigured: true, freeBetaMode: false, });
+    const at = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ projects: maxProjects }), now: NOW, providerConfigured: true, freeBetaMode: false, });
     expect(under.canCreateProject).toBe(true);
     expect(at.canCreateProject).toBe(false);
   });
@@ -118,22 +118,22 @@ describe("buildOrganizationEntitlements — project limit", () => {
 describe("buildOrganizationEntitlements — storage limit", () => {
   it("under/at the byte ceiling", () => {
     const max = PLAN_CATALOG.STARTER.limits.maxStorageBytes;
-    const under = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ storageBytes: max - 1 }), now: NOW, providerConfigured: true });
-    const at = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ storageBytes: max }), now: NOW, providerConfigured: true });
+    const under = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ storageBytes: max - 1 }), now: NOW, providerConfigured: true, freeBetaMode: false, });
+    const at = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ storageBytes: max }), now: NOW, providerConfigured: true, freeBetaMode: false, });
     expect(under.canUploadBytes(0)).toBe(true);
     expect(at.canUploadBytes(1)).toBe(false);
   });
 
   it("canUploadBytes(size) — an upload that would cross the limit is rejected even if current usage is under it", () => {
     const max = PLAN_CATALOG.STARTER.limits.maxStorageBytes;
-    const result = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ storageBytes: max - 100 }), now: NOW, providerConfigured: true });
+    const result = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ storageBytes: max - 100 }), now: NOW, providerConfigured: true, freeBetaMode: false, });
     expect(result.canUploadBytes(50)).toBe(true); // fits
     expect(result.canUploadBytes(150)).toBe(false); // would cross
   });
 
   it("canUploadBytes(size) — an upload landing exactly on the ceiling is allowed (inclusive)", () => {
     const max = PLAN_CATALOG.STARTER.limits.maxStorageBytes;
-    const result = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ storageBytes: max - 100 }), now: NOW, providerConfigured: true });
+    const result = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ storageBytes: max - 100 }), now: NOW, providerConfigured: true, freeBetaMode: false, });
     expect(result.canUploadBytes(100)).toBe(true);
   });
 });
@@ -144,7 +144,7 @@ describe("buildOrganizationEntitlements — read-only mode", () => {
       subscription: activeSubscription({ status: "UNPAID", planKey: "PRO" }), // PRO has generous/unlimited limits
       usage: usage({ members: 0, clients: 0, projects: 0, storageBytes: 0 }),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(result.accessMode).toBe("READ_ONLY");
     expect(result.canInviteMember).toBe(false);
@@ -159,7 +159,7 @@ describe("buildOrganizationEntitlements — read-only mode", () => {
       subscription: activeSubscription({ status: "UNPAID", planKey: "PRO" }),
       usage: usage({ members: 0 }), // well under any real limit
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(result.blockedReasons).toContain("READ_ONLY_ACCESS");
     expect(result.blockedReasons).not.toContain("MEMBER_LIMIT_REACHED");
@@ -172,7 +172,7 @@ describe("buildOrganizationEntitlements — no destructive restriction", () => {
       subscription: activeSubscription({ status: "CANCELED", currentPeriodEnd: new Date(NOW.getTime() - DAY_MS) }),
       usage: usage({ members: 10, clients: 10, projects: 10, storageBytes: 10 }), // way over every limit
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     // Existing usage counts are reported as-is, never clamped/hidden/zeroed.
     expect(result.currentMembers).toBe(10);
@@ -192,7 +192,7 @@ describe("buildOrganizationEntitlements — legacy fallback (no Subscription row
       subscription: null,
       usage: usage({ members: 500 }),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(result.planKey).toBe("LEGACY");
     expect(result.subscriptionStatus).toBe("LEGACY");
@@ -207,7 +207,7 @@ describe("buildOrganizationEntitlements — legacy fallback (no Subscription row
       subscription: activeSubscription({ planKey: "SOME_RETIRED_PLAN" }),
       usage: usage(),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(result.planKey).toBe("LEGACY");
   });
@@ -225,7 +225,7 @@ describe("buildOrganizationEntitlements — legacy fallback (no Subscription row
       subscription: activeSubscription({ planKey: "LEGACY", status: "ACTIVE" }),
       usage: usage(),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(backfilled.planKey).toBe("LEGACY");
     expect(backfilled.subscriptionStatus).toBe("LEGACY");
@@ -237,7 +237,7 @@ describe("buildOrganizationEntitlements — legacy fallback (no Subscription row
       subscription: activeSubscription({ planKey: "SOME_RETIRED_PLAN", status: "ACTIVE" }),
       usage: usage(),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(unrecognized.subscriptionStatus).toBe("LEGACY");
   });
@@ -247,7 +247,7 @@ describe("buildOrganizationEntitlements — legacy fallback (no Subscription row
       subscription: activeSubscription({ planKey: "PRO", status: "PAST_DUE" }),
       usage: usage(),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(result.planKey).toBe("PRO");
     expect(result.subscriptionStatus).toBe("PAST_DUE");
@@ -256,7 +256,7 @@ describe("buildOrganizationEntitlements — legacy fallback (no Subscription row
 
 describe("buildOrganizationEntitlements — reason codes", () => {
   it("blockedReasons is empty when nothing is blocked", () => {
-    const result = buildOrganizationEntitlements({ subscription: activeSubscription({ planKey: "PRO" }), usage: usage(), now: NOW, providerConfigured: true });
+    const result = buildOrganizationEntitlements({ subscription: activeSubscription({ planKey: "PRO" }), usage: usage(), now: NOW, providerConfigured: true, freeBetaMode: false, });
     expect(result.blockedReasons).toEqual([]);
   });
 
@@ -265,7 +265,7 @@ describe("buildOrganizationEntitlements — reason codes", () => {
       subscription: activeSubscription({ planKey: "STARTER" }),
       usage: usage({ members: 1, clients: 10, projects: 20, storageBytes: PLAN_CATALOG.STARTER.limits.maxStorageBytes }),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(result.blockedReasons).toEqual(
       expect.arrayContaining(["MEMBER_LIMIT_REACHED", "CLIENT_LIMIT_REACHED", "PROJECT_LIMIT_REACHED", "STORAGE_LIMIT_REACHED"]),
@@ -273,7 +273,7 @@ describe("buildOrganizationEntitlements — reason codes", () => {
   });
 
   it("never returns a provider id, price id, or any raw internal field", () => {
-    const result = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage(), now: NOW, providerConfigured: true });
+    const result = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage(), now: NOW, providerConfigured: true, freeBetaMode: false, });
     const serialized = JSON.stringify(result, (_key, value) => (typeof value === "function" ? "[fn]" : value));
     expect(serialized).not.toMatch(/provider/i);
     expect(serialized).not.toMatch(/price/i);
@@ -290,7 +290,7 @@ describe("buildOrganizationEntitlements — reason codes", () => {
  * transition is overridden; every other status keeps computeAccessMode's
  * own existing behavior regardless of providerConfigured — proven below
  * by exercising ACTIVE, UNPAID, and LEGACY (no Subscription row) with
- * providerConfigured: false and confirming nothing changes for them.
+ * providerConfigured: false, freeBetaMode: false, and confirming nothing changes for them.
  */
 function trialingSubscription(trialEndsAt: Date, overrides: Partial<SubscriptionStateForEntitlements> = {}): SubscriptionStateForEntitlements {
   return {
@@ -309,7 +309,7 @@ describe("buildOrganizationEntitlements — P1 fix: billing-disabled trial-expir
       subscription: trialingSubscription(new Date(NOW.getTime() - DAY_MS)),
       usage: usage(),
       now: NOW,
-      providerConfigured: false,
+      providerConfigured: false, freeBetaMode: false,
     });
     expect(result.accessMode).toBe("FULL_ACCESS");
     expect(result.canInviteMember).toBe(true);
@@ -324,7 +324,7 @@ describe("buildOrganizationEntitlements — P1 fix: billing-disabled trial-expir
       subscription: trialingSubscription(new Date(NOW.getTime() + DAY_MS)),
       usage: usage(),
       now: NOW,
-      providerConfigured: false,
+      providerConfigured: false, freeBetaMode: false,
     });
     expect(result.accessMode).toBe("FULL_ACCESS");
   });
@@ -334,7 +334,7 @@ describe("buildOrganizationEntitlements — P1 fix: billing-disabled trial-expir
       subscription: trialingSubscription(new Date(NOW.getTime() - DAY_MS)),
       usage: usage(),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(result.accessMode).toBe("READ_ONLY");
     expect(result.canCreateClient).toBe(false);
@@ -346,7 +346,7 @@ describe("buildOrganizationEntitlements — P1 fix: billing-disabled trial-expir
       subscription: trialingSubscription(new Date(NOW.getTime() + DAY_MS)),
       usage: usage(),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     expect(result.accessMode).toBe("FULL_ACCESS");
   });
@@ -356,7 +356,7 @@ describe("buildOrganizationEntitlements — P1 fix: billing-disabled trial-expir
       subscription: activeSubscription({ status: "UNPAID", planKey: "PRO" }),
       usage: usage(),
       now: NOW,
-      providerConfigured: false,
+      providerConfigured: false, freeBetaMode: false,
     });
     expect(result.accessMode).toBe("READ_ONLY");
     expect(result.canInviteMember).toBe(false);
@@ -367,22 +367,184 @@ describe("buildOrganizationEntitlements — P1 fix: billing-disabled trial-expir
       subscription: activeSubscription({ status: "ACTIVE", planKey: "PRO" }),
       usage: usage(),
       now: NOW,
-      providerConfigured: true,
+      providerConfigured: true, freeBetaMode: false,
     });
     const unconfigured = buildOrganizationEntitlements({
       subscription: activeSubscription({ status: "ACTIVE", planKey: "PRO" }),
       usage: usage(),
       now: NOW,
-      providerConfigured: false,
+      providerConfigured: false, freeBetaMode: false,
     });
     expect(configured.accessMode).toBe("FULL_ACCESS");
     expect(unconfigured.accessMode).toBe("FULL_ACCESS");
   });
 
   it("LEGACY (no Subscription row) keeps its existing FULL_ACCESS semantics regardless of providerConfigured", () => {
-    const configured = buildOrganizationEntitlements({ subscription: null, usage: usage(), now: NOW, providerConfigured: true });
-    const unconfigured = buildOrganizationEntitlements({ subscription: null, usage: usage(), now: NOW, providerConfigured: false });
+    const configured = buildOrganizationEntitlements({ subscription: null, usage: usage(), now: NOW, providerConfigured: true, freeBetaMode: false, });
+    const unconfigured = buildOrganizationEntitlements({ subscription: null, usage: usage(), now: NOW, providerConfigured: false, freeBetaMode: false, });
     expect(configured.accessMode).toBe("FULL_ACCESS");
     expect(unconfigured.accessMode).toBe("FULL_ACCESS");
+  });
+});
+
+/**
+ * Free Public Beta, Slice 1. `freeBetaMode: true` is deliberately
+ * unconditional on subscription status and on `providerConfigured` — see
+ * entitlements.ts's own doc comment for why this override is checked
+ * first, ahead of the narrower P1 (provider-unconfigured) override above.
+ * No test here ever asserts a Subscription row's own fields change —
+ * `buildOrganizationEntitlements` never mutates anything, and these
+ * fixtures (`activeSubscription`/`trialingSubscription`) are never
+ * written back anywhere.
+ */
+describe("buildOrganizationEntitlements — Free Public Beta, Slice 1 (freeBetaMode)", () => {
+  it("A: beta enabled, provider absent, fresh (non-expired) trial: FULL_ACCESS", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: trialingSubscription(new Date(NOW.getTime() + DAY_MS)),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(result.accessMode).toBe("FULL_ACCESS");
+    expect(result.canCreateClient).toBe(true);
+  });
+
+  it("B: beta enabled, provider absent, expired trial: FULL_ACCESS", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: trialingSubscription(new Date(NOW.getTime() - DAY_MS)),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(result.accessMode).toBe("FULL_ACCESS");
+    expect(result.canCreateClient).toBe(true);
+    expect(result.blockedReasons).not.toContain("READ_ONLY_ACCESS");
+  });
+
+  it("C: beta enabled, provider configured, expired trial: FULL_ACCESS — the exact regression this slice prevents (adding Paddle credentials must not disable beta access)", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: trialingSubscription(new Date(NOW.getTime() - DAY_MS)),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: true,
+      freeBetaMode: true,
+    });
+    expect(result.accessMode).toBe("FULL_ACCESS");
+    expect(result.canCreateClient).toBe(true);
+    expect(result.canCreateProject).toBe(true);
+    expect(result.canInviteMember).toBe(true);
+    expect(result.canUploadBytes(1)).toBe(true);
+  });
+
+  it("D: beta enabled with ACTIVE, PAST_DUE (grace expired), CANCELED (period over), UNPAID, and INCOMPLETE: FULL_ACCESS for every status, unconditionally", () => {
+    const pastDueExpiredGrace = activeSubscription({
+      status: "PAST_DUE",
+      gracePeriodEndsAt: new Date(NOW.getTime() - DAY_MS),
+    });
+    const canceledPeriodOver = activeSubscription({
+      status: "CANCELED",
+      currentPeriodEnd: new Date(NOW.getTime() - DAY_MS),
+    });
+    const unpaid = activeSubscription({ status: "UNPAID" });
+    const incomplete = activeSubscription({ status: "INCOMPLETE" });
+    const active = activeSubscription({ status: "ACTIVE" });
+
+    for (const subscription of [pastDueExpiredGrace, canceledPeriodOver, unpaid, incomplete, active]) {
+      const result = buildOrganizationEntitlements({
+        subscription,
+        usage: usage(),
+        now: NOW,
+        providerConfigured: true,
+        freeBetaMode: true,
+      });
+      expect(result.accessMode).toBe("FULL_ACCESS");
+      expect(result.canCreateClient).toBe(true);
+    }
+  });
+
+  it("E: beta disabled, provider absent, expired trial: existing FULL_ACCESS fallback preserved exactly (P1 fix, unchanged)", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: trialingSubscription(new Date(NOW.getTime() - DAY_MS)),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: false,
+    });
+    expect(result.accessMode).toBe("FULL_ACCESS");
+  });
+
+  it("F: beta disabled, provider configured, expired trial: existing READ_ONLY behavior preserved exactly", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: trialingSubscription(new Date(NOW.getTime() - DAY_MS)),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: true,
+      freeBetaMode: false,
+    });
+    expect(result.accessMode).toBe("READ_ONLY");
+    expect(result.canCreateClient).toBe(false);
+  });
+
+  it("G: beta disabled, every other subscription status, provider configured or not: preserves existing status-driven behavior (regression guard)", () => {
+    const active = buildOrganizationEntitlements({
+      subscription: activeSubscription({ status: "ACTIVE" }),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: true,
+      freeBetaMode: false,
+    });
+    const unpaid = buildOrganizationEntitlements({
+      subscription: activeSubscription({ status: "UNPAID" }),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: false,
+    });
+    const legacy = buildOrganizationEntitlements({
+      subscription: null,
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: false,
+    });
+    expect(active.accessMode).toBe("FULL_ACCESS");
+    expect(unpaid.accessMode).toBe("READ_ONLY");
+    expect(legacy.accessMode).toBe("FULL_ACCESS");
+  });
+
+  it("N: existing member/storage/client/project limits remain enforced even with the beta flag on — freeBetaMode only ever widens accessMode, never the plan's own numeric ceilings", () => {
+    const overMemberLimit = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "STARTER" }), // maxMembers: 1
+      usage: usage({ members: 1 }),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(overMemberLimit.accessMode).toBe("FULL_ACCESS");
+    expect(overMemberLimit.canInviteMember).toBe(false);
+    expect(overMemberLimit.blockedReasons).toContain("MEMBER_LIMIT_REACHED");
+
+    const overStorageLimit = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "STARTER" }),
+      usage: usage({ storageBytes: PLAN_CATALOG.STARTER.limits.maxStorageBytes }),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(overStorageLimit.canUploadBytes(1)).toBe(false);
+    expect(overStorageLimit.blockedReasons).toContain("STORAGE_LIMIT_REACHED");
+
+    // TRIAL's own maxMembers (5) is likewise still enforced during the beta.
+    const trialOverMemberLimit = buildOrganizationEntitlements({
+      subscription: trialingSubscription(new Date(NOW.getTime() + DAY_MS)),
+      usage: usage({ members: PLAN_CATALOG.TRIAL.limits.maxMembers }),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(trialOverMemberLimit.canInviteMember).toBe(false);
+    expect(trialOverMemberLimit.blockedReasons).toContain("MEMBER_LIMIT_REACHED");
   });
 });
