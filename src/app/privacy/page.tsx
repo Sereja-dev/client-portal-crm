@@ -88,9 +88,13 @@ export default function PrivacyPolicyPage() {
             <li>Comply with legal obligations.</li>
           </ul>
           <p className="mt-3">
-            We do not sell personal information, and we do not use your data for advertising. We do not run any
-            third-party analytics or advertising trackers on the Service, and the Service does not set any
-            cookies beyond those strictly necessary to keep you signed in and remember your active workspace.
+            We do not sell personal information, and we do not use your data for advertising. We do not
+            currently use third-party analytics or advertising trackers on the Service. We use first-party
+            cookies to support sign-in, remember your active workspace, and retain display preferences such as
+            your selected theme. We also use browser-local storage for certain preferences and features,
+            including saved views, table column settings, recently selected search results, and dismissal of the
+            public-beta notice. Unlike cookies, browser-local storage is kept on your device and is not
+            automatically sent with every request to our servers.
           </p>
         </section>
 
