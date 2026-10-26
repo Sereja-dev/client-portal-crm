@@ -57,3 +57,40 @@ export async function getOrganizationUsage(
     storageBytes: storageAgg._sum.sizeBytes ?? 0,
   };
 }
+
+/**
+ * Free Public Beta, Slice 2 (Expired Invitations / Member Capacity). The
+ * one, single, authoritative count of PENDING invitations that currently
+ * reserve a seat — never a second, independently-maintained copy of this
+ * predicate. Before this fix, getOrganizationEntitlements()
+ * (src/lib/billing/entitlements.ts) and getBillingPageData()
+ * (src/lib/billing/view-model.ts) each ran their own `status: "PENDING"`
+ * count with no expiry awareness, so a calendar-expired-but-still-PENDING
+ * invitation (see src/app/(dashboard)/team/page.tsx's own "MODEL A"
+ * comment — nothing in this codebase ever transitions `status` away from
+ * PENDING on expiry, by deliberate, already-audited design) reserved a
+ * seat forever, with no way to free it short of an explicit cancel. Both
+ * call sites now call this one function instead — the enforcement check
+ * (`canInviteMember`) and the Billing page's own display can therefore
+ * never disagree about how many seats are occupied.
+ *
+ * The boundary matches acceptInvitationAction's own rejection exactly
+ * (`invitation.expiresAt.getTime() <= Date.now()` is expired,
+ * src/app/invite/[token]/actions.ts) and team/page.tsx's own
+ * isInvitationExpired() — an invitation reserves a seat only when
+ * `expiresAt > now`, strictly (Prisma's `gt`). `now` is always supplied
+ * by the caller, never read internally — the same "caller supplies now"
+ * discipline src/lib/billing/access-mode.ts already establishes for
+ * computeAccessMode() — so every boundary case (before/at/after `now`)
+ * stays exactly reproducible in tests, with no hidden dependency on the
+ * real wall clock.
+ */
+export async function countReservedPendingInvitations(
+  client: PrismaClientOrTx,
+  organizationId: string,
+  now: Date,
+): Promise<number> {
+  return client.invitation.count({
+    where: { organizationId, status: "PENDING", expiresAt: { gt: now } },
+  });
+}

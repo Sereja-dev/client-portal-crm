@@ -9,6 +9,7 @@ import {
   BillingLimitError,
 } from "@/lib/billing/enforcement";
 import { getOrganizationEntitlements } from "@/lib/billing/entitlements";
+import { countReservedPendingInvitations } from "@/lib/billing/usage";
 import { testEmail, testSlug } from "../../support/run-id";
 
 async function createOrgWithSubscription(
@@ -42,6 +43,158 @@ async function cleanup(orgId: string, ownerId: string) {
   await prisma.organization.delete({ where: { id: orgId } });
   await prisma.user.delete({ where: { id: ownerId } });
 }
+
+async function createInvitationRow(
+  organizationId: string,
+  invitedById: string,
+  overrides: Partial<{ status: "PENDING" | "ACCEPTED" | "REVOKED"; expiresAt: Date; email: string }> = {},
+) {
+  return prisma.invitation.create({
+    data: {
+      organizationId,
+      email: overrides.email ?? testEmail(`billing-enf-invite-row-${randomUUID().slice(0, 8)}`, "test.local"),
+      role: "MEMBER",
+      token: randomUUID(),
+      status: overrides.status ?? "PENDING",
+      expiresAt: overrides.expiresAt ?? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      invitedById,
+    },
+  });
+}
+
+/**
+ * Free Public Beta, Slice 2 (Expired Invitations / Member Capacity).
+ * Direct, real-database coverage of the shared helper itself
+ * (src/lib/billing/usage.ts) — the one authoritative count both
+ * getOrganizationEntitlements() and getBillingPageData() now call, never
+ * a second, independently-maintained predicate.
+ */
+describe("countReservedPendingInvitations", () => {
+  it("1: PENDING with expiresAt > now counts as one reservation", async () => {
+    const { owner, org } = await createOrgWithSubscription("count-future");
+    await createInvitationRow(org.id, owner.id, { expiresAt: new Date(Date.now() + 60_000) });
+    await expect(countReservedPendingInvitations(prisma, org.id, new Date())).resolves.toBe(1);
+    await prisma.invitation.deleteMany({ where: { organizationId: org.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("2: PENDING with expiresAt exactly equal to now counts as zero (strict boundary, matching acceptInvitationAction's own <= rejection)", async () => {
+    const { owner, org } = await createOrgWithSubscription("count-exact-now");
+    const now = new Date("2026-06-15T12:00:00.000Z");
+    await createInvitationRow(org.id, owner.id, { expiresAt: now });
+    await expect(countReservedPendingInvitations(prisma, org.id, now)).resolves.toBe(0);
+    await prisma.invitation.deleteMany({ where: { organizationId: org.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("3: PENDING with expiresAt < now counts as zero", async () => {
+    const { owner, org } = await createOrgWithSubscription("count-past");
+    await createInvitationRow(org.id, owner.id, { expiresAt: new Date(Date.now() - 60_000) });
+    await expect(countReservedPendingInvitations(prisma, org.id, new Date())).resolves.toBe(0);
+    await prisma.invitation.deleteMany({ where: { organizationId: org.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("4: REVOKED counts as zero regardless of expiresAt", async () => {
+    const { owner, org } = await createOrgWithSubscription("count-revoked");
+    await createInvitationRow(org.id, owner.id, { status: "REVOKED", expiresAt: new Date(Date.now() + 60_000) });
+    await expect(countReservedPendingInvitations(prisma, org.id, new Date())).resolves.toBe(0);
+    await prisma.invitation.deleteMany({ where: { organizationId: org.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("5: ACCEPTED counts as zero additional reservations (the resulting Membership is counted separately, by getOrganizationUsage, never here)", async () => {
+    const { owner, org } = await createOrgWithSubscription("count-accepted");
+    await createInvitationRow(org.id, owner.id, { status: "ACCEPTED", expiresAt: new Date(Date.now() + 60_000) });
+    await expect(countReservedPendingInvitations(prisma, org.id, new Date())).resolves.toBe(0);
+    await prisma.invitation.deleteMany({ where: { organizationId: org.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("6: mixed statuses and expirations in one organization — only the genuinely unexpired PENDING rows are counted", async () => {
+    const { owner, org } = await createOrgWithSubscription("count-mixed");
+    const now = new Date();
+    await Promise.all([
+      createInvitationRow(org.id, owner.id, { expiresAt: new Date(now.getTime() + 60_000) }), // valid PENDING
+      createInvitationRow(org.id, owner.id, { expiresAt: new Date(now.getTime() + 120_000) }), // valid PENDING
+      createInvitationRow(org.id, owner.id, { expiresAt: new Date(now.getTime() - 60_000) }), // expired PENDING
+      createInvitationRow(org.id, owner.id, { status: "REVOKED", expiresAt: new Date(now.getTime() + 60_000) }),
+      createInvitationRow(org.id, owner.id, { status: "ACCEPTED", expiresAt: new Date(now.getTime() + 60_000) }),
+    ]);
+    await expect(countReservedPendingInvitations(prisma, org.id, now)).resolves.toBe(2);
+    await prisma.invitation.deleteMany({ where: { organizationId: org.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("7: organization scoping — a foreign org's invitations never bleed into this org's count", async () => {
+    const orgA = await createOrgWithSubscription("count-scope-a");
+    const orgB = await createOrgWithSubscription("count-scope-b");
+    await createInvitationRow(orgA.org.id, orgA.owner.id, { expiresAt: new Date(Date.now() + 60_000) });
+    await createInvitationRow(orgB.org.id, orgB.owner.id, { expiresAt: new Date(Date.now() + 60_000) });
+    await createInvitationRow(orgB.org.id, orgB.owner.id, { expiresAt: new Date(Date.now() + 60_000) });
+
+    await expect(countReservedPendingInvitations(prisma, orgA.org.id, new Date())).resolves.toBe(1);
+    await expect(countReservedPendingInvitations(prisma, orgB.org.id, new Date())).resolves.toBe(2);
+
+    await prisma.invitation.deleteMany({ where: { organizationId: { in: [orgA.org.id, orgB.org.id] } } });
+    await cleanup(orgA.org.id, orgA.owner.id);
+    await cleanup(orgB.org.id, orgB.owner.id);
+  });
+
+  it("8: an explicit `now` argument is what's actually evaluated, never the real wall clock internally — passing a deterministic past `now` makes an otherwise-still-valid invitation read as not-yet-reserved, and passing a deterministic future `now` makes an otherwise-still-valid invitation read as already expired", async () => {
+    const { owner, org } = await createOrgWithSubscription("count-explicit-now");
+    const invitationExpiresAt = new Date("2026-06-15T12:00:00.000Z");
+    await createInvitationRow(org.id, owner.id, { expiresAt: invitationExpiresAt });
+
+    // A `now` strictly before the invitation's own expiresAt: valid, counts.
+    await expect(
+      countReservedPendingInvitations(prisma, org.id, new Date(invitationExpiresAt.getTime() - 1)),
+    ).resolves.toBe(1);
+    // A `now` strictly after: expired, doesn't count — even though the
+    // real wall clock at test-run time is irrelevant either way.
+    await expect(
+      countReservedPendingInvitations(prisma, org.id, new Date(invitationExpiresAt.getTime() + 1)),
+    ).resolves.toBe(0);
+
+    await prisma.invitation.deleteMany({ where: { organizationId: org.id } });
+    await cleanup(org.id, owner.id);
+  });
+});
+
+/**
+ * Free Public Beta, Slice 2. The full stack (getOrganizationEntitlements,
+ * which assertCanInviteMember itself calls) reproducing the exact
+ * confirmed Production shape: 1 real membership + 2 calendar-expired-but-
+ * PENDING invitations.
+ */
+describe("getOrganizationEntitlements — Free Public Beta, Slice 2 (Expired Invitations / Member Capacity)", () => {
+  it("A: one Membership + two expired PENDING invitations: occupied seats = 1, not 3", async () => {
+    const { owner, org } = await createOrgWithSubscription("capacity-expired-shape", { planKey: "LEGACY", status: "ACTIVE" });
+    await createInvitationRow(org.id, owner.id, { expiresAt: new Date(Date.now() - 60_000) });
+    await createInvitationRow(org.id, owner.id, { expiresAt: new Date(Date.now() - 120_000) });
+
+    const entitlements = await getOrganizationEntitlements(org.id);
+    expect(entitlements.currentMembers).toBe(1);
+    expect(entitlements.canInviteMember).toBe(true); // plenty of headroom now that the phantom seats are gone
+
+    await prisma.invitation.deleteMany({ where: { organizationId: org.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("B: one Membership + two unexpired PENDING invitations: occupied seats = 3", async () => {
+    const { owner, org } = await createOrgWithSubscription("capacity-valid-shape", { planKey: "LEGACY", status: "ACTIVE" });
+    await createInvitationRow(org.id, owner.id, { expiresAt: new Date(Date.now() + 60_000) });
+    await createInvitationRow(org.id, owner.id, { expiresAt: new Date(Date.now() + 120_000) });
+
+    const entitlements = await getOrganizationEntitlements(org.id);
+    const usageIncludingPending = await countReservedPendingInvitations(prisma, org.id, new Date());
+    expect(usageIncludingPending).toBe(2);
+    expect(entitlements.currentMembers + usageIncludingPending).toBe(3);
+
+    await prisma.invitation.deleteMany({ where: { organizationId: org.id } });
+    await cleanup(org.id, owner.id);
+  });
+});
 
 describe("assertCanInviteMember", () => {
   it("under the limit: resolves without throwing", async () => {

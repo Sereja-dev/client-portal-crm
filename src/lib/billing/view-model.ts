@@ -1,6 +1,7 @@
 import type { Role, SubscriptionStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { getOrganizationEntitlements, type OrganizationEntitlements } from "./entitlements";
+import { countReservedPendingInvitations } from "./usage";
 import { PLAN_CATALOG, ALL_PLAN_KEYS, type PlanKey } from "./plans";
 import { getBillingProviderAvailability, type BillingProviderAvailability } from "./provider-availability";
 import { isFreeBetaModeEnabled } from "./free-beta-mode";
@@ -517,7 +518,12 @@ export function buildBillingPageViewModel({
  * includes pending invites, see that file's own comment) — Stage 2's
  * contract is left untouched; this is a small, additive, Stage-3-only read
  * so the Members usage row can show the same number that actually
- * constrains canInviteMember.
+ * constrains canInviteMember. Free Public Beta, Slice 2: both this read
+ * and that one now call the exact same shared, expiry-aware
+ * countReservedPendingInvitations() (src/lib/billing/usage.ts) with the
+ * same `now` — a calendar-expired-but-still-PENDING invitation can no
+ * longer make this display disagree with what actually gates
+ * canInviteMember.
  */
 export async function getBillingPageData({
   organizationId,
@@ -530,7 +536,7 @@ export async function getBillingPageData({
 }): Promise<BillingPageViewModel> {
   const [entitlements, pendingInvitations, providerAvailability, subscription] = await Promise.all([
     getOrganizationEntitlements(organizationId, { now }),
-    prisma.invitation.count({ where: { organizationId, status: "PENDING" } }),
+    countReservedPendingInvitations(prisma, organizationId, now),
     getBillingProviderAvailability(),
     prisma.subscription.findUnique({
       where: { organizationId },

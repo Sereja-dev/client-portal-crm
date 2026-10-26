@@ -186,7 +186,7 @@ export async function resendInvitationAction(
   // simply doesn't match, indistinguishable from a nonexistent one.
   const invitation = await prisma.invitation.findFirst({
     where: { id: invitationId, organizationId },
-    select: { id: true, status: true, email: true, role: true },
+    select: { id: true, status: true, email: true, role: true, expiresAt: true },
   });
 
   if (!invitation) {
@@ -202,30 +202,67 @@ export async function resendInvitationAction(
   // token is invalidated by this same update, so only the new one below is
   // ever emailed out. The new token itself is never written into Activity
   // metadata.
+  const now = new Date();
   const token = randomUUID();
-  const expiresAt = new Date(Date.now() + INVITATION_TTL_MS);
+  const expiresAt = new Date(now.getTime() + INVITATION_TTL_MS);
 
-  // Update and its Activity row are one atomic unit.
-  await prisma.$transaction(async (tx) => {
-    await tx.invitation.update({
-      where: { id: invitation.id },
-      data: {
-        token,
-        status: "PENDING",
-        expiresAt,
-        invitedById: user.id,
-      },
-    });
+  // Free Public Beta, Slice 2 (Expired Invitations / Member Capacity).
+  // Whether this exact invitation ALREADY holds an active reservation
+  // right now, using the same strict `expiresAt > now` boundary
+  // countReservedPendingInvitations() itself uses (src/lib/billing/
+  // usage.ts) — true only for a still-valid PENDING invitation. A
+  // currently-REVOKED row, or a PENDING row whose expiresAt has already
+  // passed, holds no reservation today, so resending it (reactivating it
+  // to a fresh PENDING + expiresAt) is exactly the operation that would
+  // newly consume a seat — the one gap the Phase A audit confirmed this
+  // action never checked for.
+  //
+  // Deliberately NOT an unconditional check: refreshing an
+  // already-valid PENDING invitation's token/expiry never changes how
+  // many seats are occupied (it already counted one before this call,
+  // and still counts exactly one after), so it must stay allowed even
+  // when the organization is sitting exactly at capacity — an
+  // unconditional assertCanInviteMember() here would incorrectly block
+  // that legitimate refresh.
+  const reservesSeatAlready = invitation.status === "PENDING" && invitation.expiresAt.getTime() > now.getTime();
 
-    await createActivity(tx, {
-      organizationId,
-      actorId: user.id,
-      entityType: "INVITATION",
-      entityId: invitation.id,
-      action: "INVITATION_RESENT",
-      metadata: buildInvitationMetadata(invitation, user.name),
+  try {
+    // Update and its Activity row are one atomic unit.
+    await prisma.$transaction(async (tx) => {
+      if (!reservesSeatAlready) {
+        // Same atomic-re-check pattern inviteMemberAction's own
+        // transaction already uses — checked immediately before the
+        // write it guards, inside the same transaction, using the
+        // existing centralized enforcement function (never a duplicated
+        // member-limit calculation).
+        await assertCanInviteMember(organizationId, tx);
+      }
+
+      await tx.invitation.update({
+        where: { id: invitation.id },
+        data: {
+          token,
+          status: "PENDING",
+          expiresAt,
+          invitedById: user.id,
+        },
+      });
+
+      await createActivity(tx, {
+        organizationId,
+        actorId: user.id,
+        entityType: "INVITATION",
+        entityId: invitation.id,
+        action: "INVITATION_RESENT",
+        metadata: buildInvitationMetadata(invitation, user.name),
+      });
     });
-  });
+  } catch (err) {
+    if (err instanceof BillingLimitError) {
+      return { error: err.message };
+    }
+    throw err;
+  }
 
   revalidatePath("/team");
 

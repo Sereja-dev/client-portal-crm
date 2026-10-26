@@ -1,7 +1,7 @@
 import type { SubscriptionStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { computeAccessMode, LEGACY_ACCESS_MODE, type AccessMode } from "./access-mode";
-import { getOrganizationUsage, type OrganizationUsage, type PrismaClientOrTx } from "./usage";
+import { getOrganizationUsage, countReservedPendingInvitations, type OrganizationUsage, type PrismaClientOrTx } from "./usage";
 import { getPlan, isPlanKey, LEGACY_PLAN_KEY, FREE_BETA_MAX_STORAGE_BYTES, FREE_BETA_MAX_MEMBERS, type PlanKey } from "./plans";
 import { getBillingProviderAvailability } from "./provider-availability";
 import { isFreeBetaModeEnabled } from "./free-beta-mode";
@@ -284,7 +284,13 @@ export async function getOrganizationEntitlements(
   const [subscription, usage, pendingInvitations, providerAvailability] = await Promise.all([
     client.subscription.findUnique({ where: { organizationId } }),
     getOrganizationUsage(client, organizationId),
-    client.invitation.count({ where: { organizationId, status: "PENDING" } }),
+    // Free Public Beta, Slice 2 — the one shared, expiry-aware count
+    // (src/lib/billing/usage.ts's own doc comment explains why this is
+    // never a second, independently-maintained `status: "PENDING"`
+    // predicate). Reuses the same `now` this function already resolved
+    // above, so the capacity check and every other time-dependent field
+    // this function computes agree on the identical instant.
+    countReservedPendingInvitations(client, organizationId, now),
     // Zero-IO (see provider.ts's own header comment — never a network
     // call), so this adds no meaningful latency to a call every write
     // path already makes. Harmless to resolve a second time independently

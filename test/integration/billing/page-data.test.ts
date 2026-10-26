@@ -8,6 +8,8 @@ vi.mock("server-only", () => ({}));
 
 import { prisma } from "@/lib/prisma";
 import { getBillingPageData } from "@/lib/billing/view-model";
+import { getOrganizationEntitlements } from "@/lib/billing/entitlements";
+import { countReservedPendingInvitations } from "@/lib/billing/usage";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { testEmail, testSlug } from "../../support/run-id";
 import { TEST_EMAIL_DOMAIN } from "../../support/env";
@@ -357,7 +359,7 @@ describe("getBillingPageData", () => {
       else process.env.FREE_BETA_MODE = ORIGINAL_FREE_BETA_MODE;
     });
 
-    it("15: beta enabled, LEGACY organization with 1 real member + 2 pending invitations (the exact confirmed Production shape): the Usage section shows 3 of 5 used, never 3 of 1000", async () => {
+    it("15: beta enabled, LEGACY organization with 1 real member + 2 CALENDAR-EXPIRED pending invitations (the exact confirmed Production shape): the Usage section shows 1 of 5 used — never 3 of 1000, and, as of Slice 2's expiry-aware fix, never 3 of 5 either", async () => {
       const org = await prisma.organization.create({
         data: { name: "Free Beta Member Limit LEGACY Org", slug: testSlug("billing-free-beta-members-legacy", fixtures.runId) },
       });
@@ -378,9 +380,11 @@ describe("getBillingPageData", () => {
             status: "PENDING",
             // Deliberately already past expiry — reproducing the exact
             // confirmed Production shape (calendar-expired but still
-            // status: PENDING in the database). This fix deliberately
-            // does NOT change that accounting; it's exercised here only
-            // to prove the member-limit override is correct regardless.
+            // status: PENDING in the database). Slice 1's own member-
+            // limit fix deliberately did not change this accounting —
+            // Slice 2 (Expired Invitations / Member Capacity) is the one
+            // that does, via the shared countReservedPendingInvitations()
+            // helper (src/lib/billing/usage.ts).
             expiresAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
             invitedById: owner.id,
           },
@@ -391,8 +395,11 @@ describe("getBillingPageData", () => {
       const data = await getBillingPageData({ organizationId: org.id, role: "OWNER" });
 
       const membersRow = data.usageRows.find((r) => r.key === "members")!;
-      expect(membersRow.current).toBe(3); // 1 real membership + 2 pending (calendar-expired-but-PENDING) invitations
-      expect(membersRow.limit).toBe(5); // the fix: never the LEGACY plan's own native 1000
+      // Free Public Beta, Slice 2: 1 real membership + 0 reserved seats
+      // (both invitations are calendar-expired, so neither counts) — the
+      // exact "1 of 5 used" the Product Owner confirmed in Production.
+      expect(membersRow.current).toBe(1);
+      expect(membersRow.limit).toBe(5); // the Slice 1 fix: never the LEGACY plan's own native 1000
 
       await prisma.invitation.deleteMany({ where: { organizationId: org.id } });
       await prisma.membership.deleteMany({ where: { organizationId: org.id } });
@@ -416,6 +423,58 @@ describe("getBillingPageData", () => {
 
       await prisma.subscription.deleteMany({ where: { organizationId: org.id } });
       await prisma.organization.delete({ where: { id: org.id } });
+    });
+  });
+
+  /**
+   * Free Public Beta, Slice 2 (Expired Invitations / Member Capacity).
+   * N: Billing's own display and the server-side enforcement entry point
+   * must never disagree about how many seats are occupied — both now
+   * read the one shared countReservedPendingInvitations() helper
+   * (src/lib/billing/usage.ts) with the same expiry-aware predicate.
+   */
+  describe("Free Public Beta, Slice 2 — Billing display and enforcement agree on occupied seats", () => {
+    it("N: a mix of valid, expired, and revoked invitations produces the identical occupied-seat count from getBillingPageData() and getOrganizationEntitlements()", async () => {
+      const org = await prisma.organization.create({
+        data: { name: "Free Beta Agreement Org", slug: testSlug("billing-free-beta-agreement", fixtures.runId) },
+      });
+      await prisma.subscription.create({
+        data: { organizationId: org.id, planKey: "PRO", status: "ACTIVE", trialStartedAt: new Date(), trialEndsAt: new Date() },
+      });
+      const owner = await prisma.user.create({
+        data: { id: randomUUID(), email: testEmail("billing-free-beta-agreement-owner", TEST_EMAIL_DOMAIN, fixtures.runId), name: "Agreement Owner" },
+      });
+      await prisma.membership.create({ data: { userId: owner.id, organizationId: org.id, role: "OWNER" } });
+
+      const now = Date.now();
+      await prisma.invitation.createMany({
+        data: [
+          { organizationId: org.id, email: testEmail("billing-free-beta-agreement-valid-1", TEST_EMAIL_DOMAIN, fixtures.runId), role: "MEMBER", token: randomUUID(), status: "PENDING", expiresAt: new Date(now + 60_000), invitedById: owner.id },
+          { organizationId: org.id, email: testEmail("billing-free-beta-agreement-valid-2", TEST_EMAIL_DOMAIN, fixtures.runId), role: "MEMBER", token: randomUUID(), status: "PENDING", expiresAt: new Date(now + 60_000), invitedById: owner.id },
+          { organizationId: org.id, email: testEmail("billing-free-beta-agreement-expired", TEST_EMAIL_DOMAIN, fixtures.runId), role: "MEMBER", token: randomUUID(), status: "PENDING", expiresAt: new Date(now - 60_000), invitedById: owner.id },
+          { organizationId: org.id, email: testEmail("billing-free-beta-agreement-revoked", TEST_EMAIL_DOMAIN, fixtures.runId), role: "MEMBER", token: randomUUID(), status: "REVOKED", expiresAt: new Date(now + 60_000), invitedById: owner.id },
+        ],
+      });
+
+      const billingData = await getBillingPageData({ organizationId: org.id, role: "OWNER" });
+      const entitlements = await getOrganizationEntitlements(org.id);
+      const reservedInvitations = await countReservedPendingInvitations(prisma, org.id, new Date());
+
+      const billingMembersUsed = billingData.usageRows.find((r) => r.key === "members")!.current;
+      const enforcementMembersUsed = entitlements.currentMembers + reservedInvitations;
+
+      // 1 real membership + 2 valid invitations = 3 (the expired and
+      // revoked ones contribute zero on both paths) — and, critically,
+      // both independently-computed totals agree.
+      expect(billingMembersUsed).toBe(3);
+      expect(enforcementMembersUsed).toBe(3);
+      expect(billingMembersUsed).toBe(enforcementMembersUsed);
+
+      await prisma.invitation.deleteMany({ where: { organizationId: org.id } });
+      await prisma.membership.deleteMany({ where: { organizationId: org.id } });
+      await prisma.subscription.deleteMany({ where: { organizationId: org.id } });
+      await prisma.organization.delete({ where: { id: org.id } });
+      await prisma.user.delete({ where: { id: owner.id } });
     });
   });
 });
