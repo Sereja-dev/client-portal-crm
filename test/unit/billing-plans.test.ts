@@ -5,6 +5,7 @@ import {
   DEFAULT_TRIAL_PLAN_KEY,
   LEGACY_PLAN_KEY,
   TRIAL_DURATION_DAYS,
+  FREE_BETA_MAX_STORAGE_BYTES,
   getPlan,
   isPlanKey,
 } from "@/lib/billing/plans";
@@ -120,6 +121,25 @@ describe("getPlan / isPlanKey", () => {
     expect(isPlanKey("pro")).toBe(false); // case-sensitive — catalog keys are uppercase
     expect(isPlanKey("")).toBe(false);
     expect(isPlanKey("toString")).toBe(false); // must not resolve via the Object prototype chain
+  });
+});
+
+describe("FREE_BETA_MAX_STORAGE_BYTES — Free Public Beta, Slice 1 (Storage Limit Adjustment)", () => {
+  it("is exactly the required 3 GiB byte value, 3 * 1024 * 1024 * 1024", () => {
+    expect(FREE_BETA_MAX_STORAGE_BYTES).toBe(3221225472);
+    expect(FREE_BETA_MAX_STORAGE_BYTES).toBe(3 * 1024 * 1024 * 1024);
+  });
+
+  it("is deliberately NOT a PLAN_CATALOG entry, and TRIAL's own catalog allowance is completely untouched by its existence", () => {
+    expect(ALL_PLAN_KEYS).not.toContain("FREE_BETA" as never);
+    expect(PLAN_CATALOG.TRIAL.limits.maxStorageBytes).toBe(10 * 1024 * 1024 * 1024);
+    expect(PLAN_CATALOG.TRIAL.limits.maxStorageBytes).not.toBe(FREE_BETA_MAX_STORAGE_BYTES);
+  });
+
+  it("every other plan's own real storage allowance is likewise untouched", () => {
+    expect(PLAN_CATALOG.STARTER.limits.maxStorageBytes).toBe(500 * 1024 * 1024);
+    expect(PLAN_CATALOG.PRO.limits.maxStorageBytes).toBe(10 * 1024 * 1024 * 1024);
+    expect(PLAN_CATALOG.LEGACY.limits.maxStorageBytes).toBe(1024 * 1024 * 1024 * 1024);
   });
 });
 

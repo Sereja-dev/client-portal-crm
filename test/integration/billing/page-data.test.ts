@@ -277,4 +277,66 @@ describe("getBillingPageData", () => {
       expect(data.currentPlanKey).toBe("STARTER");
     });
   });
+
+  /**
+   * Free Public Beta, Slice 1 — Storage Limit Adjustment. Proves the
+   * Billing page's own Usage section (the exact row a beta user actually
+   * sees) displays 3221225472 bytes as the storage limit — via the real,
+   * unmodified getBillingPageData(), not just the lower-level
+   * buildOrganizationEntitlements() already proven in
+   * test/unit/billing-entitlements.test.ts.
+   */
+  describe("Free Public Beta, Slice 1 — Storage Limit Adjustment (real Billing-page view-model)", () => {
+    const ORIGINAL_FREE_BETA_MODE = process.env.FREE_BETA_MODE;
+
+    afterAll(() => {
+      if (ORIGINAL_FREE_BETA_MODE === undefined) delete process.env.FREE_BETA_MODE;
+      else process.env.FREE_BETA_MODE = ORIGINAL_FREE_BETA_MODE;
+    });
+
+    it("A: beta enabled, TRIAL plan: the Usage section's storage row limit is exactly 3221225472 bytes, never TRIAL's own 10 GiB", async () => {
+      const org = await prisma.organization.create({
+        data: { name: "Free Beta Storage TRIAL Org", slug: testSlug("billing-free-beta-storage-trial", fixtures.runId) },
+      });
+      await prisma.subscription.create({
+        data: { organizationId: org.id, planKey: "TRIAL", status: "TRIALING", trialStartedAt: new Date(), trialEndsAt: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000) },
+      });
+
+      process.env.FREE_BETA_MODE = "true";
+      const data = await getBillingPageData({ organizationId: org.id, role: "OWNER" });
+
+      const storageRow = data.usageRows.find((r) => r.key === "storage")!;
+      expect(storageRow.limit).toBe(3221225472);
+      expect(storageRow.limitLabel).toBe("3.0 GB"); // this repo's own existing formatFileSize() convention
+
+      await prisma.subscription.deleteMany({ where: { organizationId: org.id } });
+      await prisma.organization.delete({ where: { id: org.id } });
+    });
+
+    it("B: beta enabled, a non-TRIAL (PRO/ACTIVE) organization: the Usage section's storage row limit is still exactly 3221225472 bytes, not PRO's own 10 GiB", async () => {
+      const org = await prisma.organization.create({
+        data: { name: "Free Beta Storage PRO Org", slug: testSlug("billing-free-beta-storage-pro", fixtures.runId) },
+      });
+      await prisma.subscription.create({
+        data: { organizationId: org.id, planKey: "PRO", status: "ACTIVE", trialStartedAt: new Date(), trialEndsAt: new Date() },
+      });
+
+      process.env.FREE_BETA_MODE = "true";
+      const data = await getBillingPageData({ organizationId: org.id, role: "OWNER" });
+
+      const storageRow = data.usageRows.find((r) => r.key === "storage")!;
+      expect(storageRow.limit).toBe(3221225472);
+      expect(storageRow.limit).not.toBe(10 * 1024 * 1024 * 1024);
+
+      await prisma.subscription.deleteMany({ where: { organizationId: org.id } });
+      await prisma.organization.delete({ where: { id: org.id } });
+    });
+
+    it("F: beta disabled, PRO plan: the Usage section's storage row limit is PRO's own real 10 GiB — unaffected", async () => {
+      delete process.env.FREE_BETA_MODE;
+      const data = await getBillingPageData({ organizationId: fixtures.orgB.id, role: "OWNER" }); // orgB is seeded PRO/ACTIVE at module top
+      const storageRow = data.usageRows.find((r) => r.key === "storage")!;
+      expect(storageRow.limit).toBe(10 * 1024 * 1024 * 1024);
+    });
+  });
 });

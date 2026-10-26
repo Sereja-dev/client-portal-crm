@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { prisma } from "@/lib/prisma";
 import {
   assertCanInviteMember,
@@ -194,6 +194,129 @@ describe("assertCanUploadAttachment", () => {
 
     await expect(assertCanUploadAttachment(org.id, 50)).resolves.toBeUndefined(); // fits
     await expect(assertCanUploadAttachment(org.id, 200)).rejects.toMatchObject({ reasonCode: "STORAGE_LIMIT_REACHED" }); // would cross
+
+    await prisma.attachment.deleteMany({ where: { organizationId: org.id } });
+    await cleanup(org.id, owner.id);
+  });
+});
+
+/**
+ * Architecture note (discovered while writing this slice's own tests, not
+ * a product defect): `Attachment.sizeBytes` is a Postgres `Int` column
+ * (prisma/schema.prisma) — a 32-bit signed integer, max ~2.147 GiB per
+ * ROW. This is never reachable in real usage (every real upload is
+ * already capped at 10 MB per file, src/lib/attachments/attachment-
+ * files.ts), and Postgres's own SUM(integer) aggregate widens to a
+ * 64-bit accumulator internally, so a real organization's aggregated
+ * `getOrganizationUsage().storageBytes` can and does correctly exceed
+ * 2^31 across many real rows — only a single row's own stored value is
+ * bounded. This helper exists purely so these tests simulate realistic
+ * "many real uploads adding up to N bytes" usage instead of one
+ * physically-impossible giant row.
+ */
+async function seedAttachmentUsage(organizationId: string, totalBytes: number): Promise<void> {
+  const CHUNK_BYTES = 500 * 1024 * 1024; // 500 MiB per row — safely under the Int column's ~2.147 GiB ceiling
+  let remaining = totalBytes;
+  while (remaining > 0) {
+    const sizeBytes = Math.min(remaining, CHUNK_BYTES);
+    await prisma.attachment.create({
+      data: {
+        organizationId,
+        entityType: "CLIENT",
+        entityId: randomUUID(),
+        storageBucket: "attachments",
+        storagePath: `test/${randomUUID()}`,
+        originalName: "existing-usage-chunk.pdf",
+        mimeType: "application/pdf",
+        sizeBytes,
+      },
+    });
+    remaining -= sizeBytes;
+  }
+}
+
+/**
+ * Free Public Beta, Slice 1 — Storage Limit Adjustment. Exercises the
+ * REAL, unmodified assertCanUploadAttachment() — the exact function
+ * uploadAttachmentForEntity() calls — against a real test-database
+ * organization, with process.env.FREE_BETA_MODE genuinely set, proving
+ * the full wiring end to end (not just buildOrganizationEntitlements in
+ * isolation, already covered in test/unit/billing-entitlements.test.ts).
+ */
+describe("assertCanUploadAttachment — Free Public Beta, Slice 1 (Storage Limit Adjustment)", () => {
+  const ORIGINAL_FREE_BETA_MODE = process.env.FREE_BETA_MODE;
+
+  afterEach(() => {
+    if (ORIGINAL_FREE_BETA_MODE === undefined) delete process.env.FREE_BETA_MODE;
+    else process.env.FREE_BETA_MODE = ORIGINAL_FREE_BETA_MODE;
+  });
+
+  it("G/H: beta enabled on a PRO org (real 10 GiB allowance) — an upload at ~2.9 GiB usage + ~0.2 GiB is rejected under the 3 GiB beta ceiling, even though PRO's own real allowance would have allowed it", async () => {
+    const { owner, org } = await createOrgWithSubscription("free-beta-storage-cross", { planKey: "PRO", status: "ACTIVE" });
+    await seedAttachmentUsage(org.id, Math.round(2.9 * 1024 * 1024 * 1024));
+
+    process.env.FREE_BETA_MODE = "true";
+    const proposedUpload = Math.round(0.2 * 1024 * 1024 * 1024);
+
+    // Would easily fit under PRO's real 10 GiB allowance — rejected only
+    // because of the 3 GiB beta ceiling.
+    await expect(assertCanUploadAttachment(org.id, proposedUpload)).rejects.toMatchObject({
+      reasonCode: "STORAGE_LIMIT_REACHED",
+    });
+
+    // A small upload that keeps the total at/under 3 GiB still succeeds.
+    await expect(assertCanUploadAttachment(org.id, 10 * 1024 * 1024)).resolves.toBeUndefined();
+
+    await prisma.attachment.deleteMany({ where: { organizationId: org.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("I: an organization already over the 3 GiB beta ceiling is rejected for further uploads, with its existing data completely untouched", async () => {
+    const { owner, org } = await createOrgWithSubscription("free-beta-storage-over", { planKey: "PRO", status: "ACTIVE" });
+    // 5 GiB total, already over the 3 GiB beta ceiling — seeded as
+    // realistic-sized rows (see seedAttachmentUsage's own doc comment).
+    await seedAttachmentUsage(org.id, 5 * 1024 * 1024 * 1024);
+    const attachmentsBefore = await prisma.attachment.findMany({ where: { organizationId: org.id }, orderBy: { storagePath: "asc" } });
+
+    process.env.FREE_BETA_MODE = "true";
+    await expect(assertCanUploadAttachment(org.id, 1)).rejects.toMatchObject({ reasonCode: "STORAGE_LIMIT_REACHED" });
+
+    // Every existing attachment row is completely unmodified by the
+    // rejected upload attempt — same set, same ids, same sizes, same
+    // storage paths. Nothing was deleted, truncated, or altered.
+    const attachmentsAfter = await prisma.attachment.findMany({ where: { organizationId: org.id }, orderBy: { storagePath: "asc" } });
+    expect(attachmentsAfter).toEqual(attachmentsBefore);
+    expect(attachmentsAfter.reduce((sum, a) => sum + a.sizeBytes, 0)).toBe(5 * 1024 * 1024 * 1024);
+
+    await prisma.attachment.deleteMany({ where: { organizationId: org.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("A/B: the 3 GiB ceiling applies identically to a TRIALING org and to a non-TRIAL (PRO/ACTIVE) org", async () => {
+    const trial = await createOrgWithSubscription("free-beta-storage-trial", { planKey: "TRIAL", status: "TRIALING" });
+    const pro = await createOrgWithSubscription("free-beta-storage-pro", { planKey: "PRO", status: "ACTIVE" });
+
+    for (const { org } of [trial, pro]) {
+      await seedAttachmentUsage(org.id, 3221225472);
+    }
+
+    process.env.FREE_BETA_MODE = "true";
+    await expect(assertCanUploadAttachment(trial.org.id, 2)).rejects.toMatchObject({ reasonCode: "STORAGE_LIMIT_REACHED" });
+    await expect(assertCanUploadAttachment(pro.org.id, 2)).rejects.toMatchObject({ reasonCode: "STORAGE_LIMIT_REACHED" });
+
+    await prisma.attachment.deleteMany({ where: { organizationId: { in: [trial.org.id, pro.org.id] } } });
+    await cleanup(trial.org.id, trial.owner.id);
+    await cleanup(pro.org.id, pro.owner.id);
+  });
+
+  it("E/F: beta disabled — existing allowances (TRIAL 10 GiB, PRO 10 GiB, STARTER 500 MB) are completely unaffected", async () => {
+    delete process.env.FREE_BETA_MODE;
+    const { owner, org } = await createOrgWithSubscription("free-beta-storage-disabled", { planKey: "PRO", status: "ACTIVE" });
+    await seedAttachmentUsage(org.id, Math.round(2.9 * 1024 * 1024 * 1024));
+
+    // Same ~2.9 GiB + ~0.2 GiB that was rejected above under the beta
+    // ceiling now succeeds, because PRO's real 10 GiB allowance applies.
+    await expect(assertCanUploadAttachment(org.id, Math.round(0.2 * 1024 * 1024 * 1024))).resolves.toBeUndefined();
 
     await prisma.attachment.deleteMany({ where: { organizationId: org.id } });
     await cleanup(org.id, owner.id);

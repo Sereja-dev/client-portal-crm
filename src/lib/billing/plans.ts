@@ -85,6 +85,24 @@ export const PLAN_CATALOG: Readonly<Record<PlanKey, Plan>> = {
 export const DEFAULT_TRIAL_PLAN_KEY: PlanKey = "TRIAL";
 export const LEGACY_PLAN_KEY: PlanKey = "LEGACY";
 
+/**
+ * Free Public Beta, Slice 1 (Storage Limit Adjustment). The Product
+ * Owner-approved effective storage ceiling for EVERY organization while
+ * `FREE_BETA_MODE=true` — deliberately NOT a PLAN_CATALOG entry and
+ * deliberately NOT a change to TRIAL's own `maxStorageBytes` above: this
+ * value is applied as an override at the one centralized entitlement
+ * chokepoint (buildOrganizationEntitlements, src/lib/billing/
+ * entitlements.ts), regardless of an organization's real `planKey`
+ * (TRIAL/STARTER/PRO/LEGACY) or `status` — never by mutating this catalog,
+ * which must keep reporting each real plan's own true, unaffected
+ * allowance for when the beta ends and real billing enforcement resumes.
+ * Reuses the same `GB` unit constant as every other value in this file,
+ * so `3 * GB` is exactly `3 * 1024 * 1024 * 1024 = 3221225472` bytes —
+ * never a separately-typed-out literal that could silently drift from
+ * this file's own byte-unit convention.
+ */
+export const FREE_BETA_MAX_STORAGE_BYTES = 3 * GB;
+
 export function getPlan(key: PlanKey): Plan {
   return PLAN_CATALOG[key];
 }

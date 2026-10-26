@@ -7,7 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import { buildOrganizationEntitlements, type SubscriptionStateForEntitlements } from "@/lib/billing/entitlements";
-import { PLAN_CATALOG } from "@/lib/billing/plans";
+import { PLAN_CATALOG, FREE_BETA_MAX_STORAGE_BYTES } from "@/lib/billing/plans";
 
 const NOW = new Date("2026-06-15T12:00:00.000Z");
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -514,7 +514,7 @@ describe("buildOrganizationEntitlements — Free Public Beta, Slice 1 (freeBetaM
     expect(legacy.accessMode).toBe("FULL_ACCESS");
   });
 
-  it("N: existing member/storage/client/project limits remain enforced even with the beta flag on — freeBetaMode only ever widens accessMode, never the plan's own numeric ceilings", () => {
+  it("N: existing member/client/project limits remain enforced even with the beta flag on — freeBetaMode never widens a plan's own member/client/project numeric ceilings (only accessMode and, as of Slice 1's Storage Limit Adjustment, the storage ceiling — see that dedicated describe block below)", () => {
     const overMemberLimit = buildOrganizationEntitlements({
       subscription: activeSubscription({ planKey: "STARTER" }), // maxMembers: 1
       usage: usage({ members: 1 }),
@@ -526,15 +526,15 @@ describe("buildOrganizationEntitlements — Free Public Beta, Slice 1 (freeBetaM
     expect(overMemberLimit.canInviteMember).toBe(false);
     expect(overMemberLimit.blockedReasons).toContain("MEMBER_LIMIT_REACHED");
 
-    const overStorageLimit = buildOrganizationEntitlements({
-      subscription: activeSubscription({ planKey: "STARTER" }),
-      usage: usage({ storageBytes: PLAN_CATALOG.STARTER.limits.maxStorageBytes }),
+    const overClientLimit = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "STARTER" }), // maxClients: 10
+      usage: usage({ clients: PLAN_CATALOG.STARTER.limits.maxClients! }),
       now: NOW,
       providerConfigured: false,
       freeBetaMode: true,
     });
-    expect(overStorageLimit.canUploadBytes(1)).toBe(false);
-    expect(overStorageLimit.blockedReasons).toContain("STORAGE_LIMIT_REACHED");
+    expect(overClientLimit.canCreateClient).toBe(false);
+    expect(overClientLimit.blockedReasons).toContain("CLIENT_LIMIT_REACHED");
 
     // TRIAL's own maxMembers (5) is likewise still enforced during the beta.
     const trialOverMemberLimit = buildOrganizationEntitlements({
@@ -546,5 +546,175 @@ describe("buildOrganizationEntitlements — Free Public Beta, Slice 1 (freeBetaM
     });
     expect(trialOverMemberLimit.canInviteMember).toBe(false);
     expect(trialOverMemberLimit.blockedReasons).toContain("MEMBER_LIMIT_REACHED");
+  });
+});
+
+/**
+ * Free Public Beta, Slice 1 — Storage Limit Adjustment. `FREE_BETA_MAX_STORAGE_BYTES`
+ * (3 GiB, 3221225472 bytes) overrides `maxStorageBytes` unconditionally on
+ * `planKey`/`status` whenever `freeBetaMode` is true — exactly mirroring
+ * the `accessMode` override's own "unconditional" shape (see
+ * entitlements.ts's own doc comment). No test here ever asserts a
+ * Subscription row's own fields change, and none deletes/truncates any
+ * data — `buildOrganizationEntitlements` is pure and never mutates
+ * anything.
+ */
+describe("buildOrganizationEntitlements — Free Public Beta, Slice 1 (Storage Limit Adjustment)", () => {
+  it("the exact required byte value: FREE_BETA_MAX_STORAGE_BYTES === 3 * 1024 * 1024 * 1024", () => {
+    expect(FREE_BETA_MAX_STORAGE_BYTES).toBe(3221225472);
+  });
+
+  it("A: beta enabled, TRIAL plan: effective storage limit is exactly 3221225472 bytes, not TRIAL's own 10 GiB", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: trialingSubscription(new Date(NOW.getTime() + DAY_MS)),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(result.maxStorageBytes).toBe(3221225472);
+    expect(result.maxStorageBytes).not.toBe(PLAN_CATALOG.TRIAL.limits.maxStorageBytes);
+  });
+
+  it("B: beta enabled, a non-TRIAL plan (STARTER, PRO, and LEGACY): effective storage limit is still exactly 3221225472 bytes for every one of them, regardless of their own real allowance", () => {
+    for (const planKey of ["STARTER", "PRO", "LEGACY"] as const) {
+      const result = buildOrganizationEntitlements({
+        subscription: activeSubscription({ planKey, status: "ACTIVE" }),
+        usage: usage(),
+        now: NOW,
+        providerConfigured: false,
+        freeBetaMode: true,
+      });
+      expect(result.maxStorageBytes).toBe(3221225472);
+      expect(result.maxStorageBytes).not.toBe(PLAN_CATALOG[planKey].limits.maxStorageBytes);
+    }
+
+    // A LEGACY org (no Subscription row at all) resolves the same way.
+    const legacyNoRow = buildOrganizationEntitlements({
+      subscription: null,
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(legacyNoRow.maxStorageBytes).toBe(3221225472);
+  });
+
+  it("C: beta enabled, expired trial: FULL_ACCESS and the 3 GiB storage allowance together", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: trialingSubscription(new Date(NOW.getTime() - DAY_MS)),
+      usage: usage({ storageBytes: 1 * 1024 * 1024 * 1024 }), // 1 GiB used
+      now: NOW,
+      providerConfigured: true, // even with a provider configured
+      freeBetaMode: true,
+    });
+    expect(result.accessMode).toBe("FULL_ACCESS");
+    expect(result.maxStorageBytes).toBe(3221225472);
+    expect(result.canUploadBytes(1 * 1024 * 1024 * 1024)).toBe(true); // 1 + 1 = 2 GiB, fits
+  });
+
+  it("D: beta enabled with ACTIVE/PAST_DUE/CANCELED/UNPAID/INCOMPLETE: FULL_ACCESS and the 3 GiB storage allowance for every one of them", () => {
+    const statuses = [
+      activeSubscription({ status: "ACTIVE", planKey: "PRO" }),
+      activeSubscription({ status: "PAST_DUE", planKey: "PRO", gracePeriodEndsAt: new Date(NOW.getTime() - DAY_MS) }),
+      activeSubscription({ status: "CANCELED", planKey: "PRO", currentPeriodEnd: new Date(NOW.getTime() - DAY_MS) }),
+      activeSubscription({ status: "UNPAID", planKey: "PRO" }),
+      activeSubscription({ status: "INCOMPLETE", planKey: "PRO" }),
+    ];
+    for (const subscription of statuses) {
+      const result = buildOrganizationEntitlements({
+        subscription,
+        usage: usage(),
+        now: NOW,
+        providerConfigured: true,
+        freeBetaMode: true,
+      });
+      expect(result.accessMode).toBe("FULL_ACCESS");
+      expect(result.maxStorageBytes).toBe(3221225472);
+    }
+  });
+
+  it("E: beta disabled, TRIAL plan: existing 10 GiB allowance preserved exactly", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: trialingSubscription(new Date(NOW.getTime() + DAY_MS)),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: false,
+    });
+    expect(result.maxStorageBytes).toBe(PLAN_CATALOG.TRIAL.limits.maxStorageBytes);
+    expect(result.maxStorageBytes).toBe(10 * 1024 * 1024 * 1024);
+  });
+
+  it("F: beta disabled, paid plans (STARTER/PRO): existing allowances preserved exactly", () => {
+    const starter = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "STARTER", status: "ACTIVE" }),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: true,
+      freeBetaMode: false,
+    });
+    const pro = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "PRO", status: "ACTIVE" }),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: true,
+      freeBetaMode: false,
+    });
+    expect(starter.maxStorageBytes).toBe(PLAN_CATALOG.STARTER.limits.maxStorageBytes);
+    expect(pro.maxStorageBytes).toBe(PLAN_CATALOG.PRO.limits.maxStorageBytes);
+  });
+
+  it("G: an upload that remains below the 3 GiB limit is allowed during the beta", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: trialingSubscription(new Date(NOW.getTime() + DAY_MS)),
+      usage: usage({ storageBytes: 1 * 1024 * 1024 * 1024 }), // 1 GiB used
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(result.canUploadBytes(500 * 1024 * 1024)).toBe(true); // +500 MiB, well under 3 GiB
+  });
+
+  it("H: an upload that would cross the 3 GiB boundary is rejected during the beta — the exact 2.9 GiB + 0.2 GiB example", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: trialingSubscription(new Date(NOW.getTime() + DAY_MS)),
+      usage: usage({ storageBytes: Math.round(2.9 * 1024 * 1024 * 1024) }),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(result.canUploadBytes(Math.round(0.2 * 1024 * 1024 * 1024))).toBe(false);
+  });
+
+  it("H (boundary): an upload landing exactly on the 3 GiB ceiling is allowed (inclusive, same semantics as every other plan)", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: trialingSubscription(new Date(NOW.getTime() + DAY_MS)),
+      usage: usage({ storageBytes: 3221225472 - 100 }),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(result.canUploadBytes(100)).toBe(true);
+    expect(result.canUploadBytes(101)).toBe(false);
+  });
+
+  it("I: an organization already over the 3 GiB beta ceiling (e.g. a real STARTER/PRO org with real existing usage) is rejected for any further upload, but its existing usage is reported as-is — never clamped, hidden, or deleted", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "PRO", status: "ACTIVE" }), // PRO's own real allowance is 10 GiB — well over the 3 GiB beta ceiling
+      usage: usage({ storageBytes: 5 * 1024 * 1024 * 1024 }), // 5 GiB already stored, legitimately, before the beta started
+      now: NOW,
+      providerConfigured: true,
+      freeBetaMode: true,
+    });
+    expect(result.currentStorageBytes).toBe(5 * 1024 * 1024 * 1024); // reported exactly, not clamped to the 3 GiB ceiling
+    expect(result.canUploadBytes(1)).toBe(false);
+    expect(result.blockedReasons).toContain("STORAGE_LIMIT_REACHED");
+    // Access to the rest of the product is NOT blocked by this — accessMode
+    // is FULL_ACCESS regardless (the freeBetaMode accessMode override is
+    // unconditional, entirely independent of the storage check above).
+    expect(result.accessMode).toBe("FULL_ACCESS");
+    expect(result.canCreateClient).toBe(true);
+    expect(result.canCreateProject).toBe(true);
   });
 });

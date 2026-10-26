@@ -2,7 +2,7 @@ import type { SubscriptionStatus } from "@/generated/prisma/enums";
 import { prisma } from "@/lib/prisma";
 import { computeAccessMode, LEGACY_ACCESS_MODE, type AccessMode } from "./access-mode";
 import { getOrganizationUsage, type OrganizationUsage, type PrismaClientOrTx } from "./usage";
-import { getPlan, isPlanKey, LEGACY_PLAN_KEY, type PlanKey } from "./plans";
+import { getPlan, isPlanKey, LEGACY_PLAN_KEY, FREE_BETA_MAX_STORAGE_BYTES, type PlanKey } from "./plans";
 import { getBillingProviderAvailability } from "./provider-availability";
 import { isFreeBetaModeEnabled } from "./free-beta-mode";
 
@@ -181,11 +181,29 @@ export function buildOrganizationEntitlements({
 
   const canCreateNewResources = accessMode === "FULL_ACCESS";
 
+  /**
+   * Free Public Beta, Slice 1 (Storage Limit Adjustment). The one,
+   * centralized override point for the EFFECTIVE storage ceiling —
+   * mirrors the `accessMode` override above exactly: unconditional on
+   * `plan.key`/`subscription.status`, so an organization that happens to
+   * carry a non-TRIAL `planKey` (a backfilled LEGACY row, a real
+   * STARTER/PRO row from before the beta started, etc.) gets the same
+   * 3 GiB ceiling as a brand-new TRIAL signup while the beta is running —
+   * never a second, independent storage calculation anywhere else (every
+   * consumer — enforcement.ts's assertCanUploadAttachment, the Billing
+   * page's Usage section, Platform Admin's org-detail page — reads this
+   * one field/closure, never `plan.limits.maxStorageBytes` directly).
+   * `plans.ts`'s own PLAN_CATALOG values are completely untouched by
+   * this — each plan's real allowance is exactly what's restored the
+   * moment `freeBetaMode` is false again.
+   */
+  const effectiveMaxStorageBytes = freeBetaMode ? FREE_BETA_MAX_STORAGE_BYTES : plan.limits.maxStorageBytes;
+
   const membersForLimitCheck = usage.members + usage.pendingInvitations;
   const underMemberLimit = membersForLimitCheck < plan.limits.maxMembers;
   const underClientLimit = plan.limits.maxClients === null || usage.clients < plan.limits.maxClients;
   const underProjectLimit = plan.limits.maxProjects === null || usage.projects < plan.limits.maxProjects;
-  const underStorageLimit = usage.storageBytes < plan.limits.maxStorageBytes;
+  const underStorageLimit = usage.storageBytes < effectiveMaxStorageBytes;
 
   const blockedReasons: EntitlementReasonCode[] = [];
   if (!canCreateNewResources) blockedReasons.push("READ_ONLY_ACCESS");
@@ -202,7 +220,7 @@ export function buildOrganizationEntitlements({
     maxMembers: plan.limits.maxMembers,
     maxClients: plan.limits.maxClients,
     maxProjects: plan.limits.maxProjects,
-    maxStorageBytes: plan.limits.maxStorageBytes,
+    maxStorageBytes: effectiveMaxStorageBytes,
 
     currentMembers: usage.members,
     currentClients: usage.clients,
@@ -213,7 +231,7 @@ export function buildOrganizationEntitlements({
     canCreateClient: canCreateNewResources && underClientLimit,
     canCreateProject: canCreateNewResources && underProjectLimit,
     canUploadBytes: (size: number) =>
-      canCreateNewResources && usage.storageBytes + Math.max(size, 0) <= plan.limits.maxStorageBytes,
+      canCreateNewResources && usage.storageBytes + Math.max(size, 0) <= effectiveMaxStorageBytes,
 
     trialEndsAt: subscription ? subscription.trialEndsAt : null,
     gracePeriodEndsAt: subscription?.gracePeriodEndsAt ?? null,
