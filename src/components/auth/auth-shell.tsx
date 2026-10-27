@@ -4,6 +4,7 @@ import { siteConfig } from "@/config/site";
 import { getPlatformLegalConfig } from "@/lib/legal/platform-config";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { AqenraMarkIcon } from "@/components/ui/icons";
+import { SupportWidget } from "@/components/support-widget/support-widget";
 
 const FOOTER_LINK_CLASSES =
   "focus-visible:ring-focus-ring hover:text-text-primary rounded hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
@@ -39,12 +40,24 @@ const FOOTER_LINK_CLASSES =
 export function AuthShell({
   topRightAction,
   cardClassName = "max-w-[480px]",
+  showSupportWidget = false,
   children,
 }: {
   /** The one page-header action every route needs its own honest answer for — omitted entirely when no truthful destination exists for the current state (e.g. an already-authenticated invite viewer). */
   topRightAction?: { label: string; href: string };
   /** Card width varies deliberately by route content (a short "invalid link" message vs. a four-field signup form) — see the Visual Spec's own "560-680px depending on route" note. Defaults to the common single-column form width. */
   cardClassName?: string;
+  /**
+   * Pre-Auth Support Widget V1, Slice C. Explicit per-route opt-in,
+   * default `false` — every existing AuthShell consumer (forgot-password,
+   * reset-password, invite, organization-unavailable, the auth error
+   * fallback, and the public home page) is byte-for-byte unchanged
+   * unless it passes `true`. Only `/login` and `/signup` do. Mounted as
+   * a sibling of the card `<main>` below, never inside `{children}` —
+   * the widget's own form is never nested inside the page's own
+   * login/signup form.
+   */
+  showSupportWidget?: boolean;
   children: ReactNode;
 }) {
   const legalConfig = getPlatformLegalConfig();
@@ -105,6 +118,8 @@ export function AuthShell({
           </nav>
         </div>
       </footer>
+
+      {showSupportWidget && <SupportWidget />}
     </div>
   );
 }

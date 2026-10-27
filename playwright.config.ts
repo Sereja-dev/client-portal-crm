@@ -134,6 +134,16 @@ export default defineConfig({
       // (hooks.slack.com only) is never touched or weakened.
       INTEGRATIONS_ENCRYPTION_KEY_V1: "KioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKio=",
       TEST_SLACK_FIXTURE_BASE_URL: `http://127.0.0.1:${E2E_SLACK_FIXTURE_PORT}`,
+      // Pre-Auth Support Widget V1, Slice C. Set so the widget's own E2E
+      // coverage can exercise the real "ready" path end to end — see
+      // src/lib/support-widget/config.ts's own doc comment:
+      // checkSupportSubmissionReadiness() deliberately requires this even
+      // under TEST_MODE, so this fail-closed behavior stays genuinely
+      // testable rather than silently short-circuited. Never a real
+      // mailbox; the actual send is intercepted by sendEmailViaResend's
+      // own TEST_MODE branch before this value is used for anything but
+      // the one `to:` field in that intercepted (never dispatched) call.
+      PLATFORM_SUPPORT_EMAIL: "support-e2e@example.com",
     },
   },
 });

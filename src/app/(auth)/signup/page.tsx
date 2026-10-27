@@ -39,6 +39,7 @@ export default async function SignupPage({
         label: "Sign in",
         href: redirectTo ? `/login?redirectTo=${encodeURIComponent(redirectTo)}` : "/login",
       }}
+      showSupportWidget
     >
       <h1 className="mb-6 text-3xl font-semibold tracking-tight text-text-primary sm:text-4xl">
         Create an account
