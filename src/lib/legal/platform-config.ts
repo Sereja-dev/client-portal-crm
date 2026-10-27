@@ -43,6 +43,15 @@ export type PlatformLegalConfig = {
   privacyEffectiveDate: string;
   /** Human-readable effective date shown on the Terms of Service page. */
   tosEffectiveDate: string;
+  /**
+   * Human-readable effective date shown on the Cookie Policy page.
+   * Deliberately its own field, not a reuse of privacyEffectiveDate —
+   * the Cookie Policy is published later than the original Privacy
+   * Policy/Terms and has its own, later effective date. The fallback
+   * below is the date this page was actually first published, not an
+   * invented historical date.
+   */
+  cookiePolicyEffectiveDate: string;
 };
 
 // The one email-shape check this module uses — shared by extractEmailAddress
@@ -116,6 +125,7 @@ export function getPlatformLegalConfig(): PlatformLegalConfig {
     jurisdiction: trimmedEnv("PLATFORM_JURISDICTION") ?? "the jurisdiction in which the Service operator is located",
     privacyEffectiveDate: trimmedEnv("PRIVACY_POLICY_EFFECTIVE_DATE") ?? "August 9, 2026",
     tosEffectiveDate: trimmedEnv("TOS_EFFECTIVE_DATE") ?? "August 9, 2026",
+    cookiePolicyEffectiveDate: trimmedEnv("COOKIE_POLICY_EFFECTIVE_DATE") ?? "October 27, 2026",
   };
 }
 

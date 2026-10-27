@@ -28,7 +28,33 @@ test.describe("Privacy Policy and Terms of Service pages", () => {
   });
 });
 
+// Privacy & Cookie Policy Improvement, Slice 2.
+test.describe("Cookie Policy page", () => {
+  test("/cookies renders with a heading and its own effective date", async ({ page }) => {
+    await page.goto("/cookies");
+    await expect(page.getByRole("heading", { name: "Cookie Policy", level: 1 })).toBeVisible();
+    await expect(page.getByText(/Effective/)).toBeVisible();
+  });
+
+  test("/privacy's own cookie disclosure paragraph links to /cookies", async ({ page }) => {
+    await page.goto("/privacy");
+    // Scoped to <main>, not the global footer — /privacy now has two
+    // "Cookie Policy" links (its own body paragraph, and the footer,
+    // covered separately below) and must disambiguate between them.
+    await page.getByRole("main").getByRole("link", { name: "Cookie Policy" }).click();
+    await page.waitForURL(/\/cookies$/);
+    await expect(page.getByRole("heading", { name: "Cookie Policy", level: 1 })).toBeVisible();
+  });
+});
+
 test.describe("Global footer", () => {
+  // These pre-auth routes render AuthShell's own separate, fixed-dark
+  // local footer (class `auth-shell-footer`) in place of the global one —
+  // see Footer's and AuthShell's own doc comments, and globals.css's
+  // `body:has(.auth-shell) footer:not(.auth-shell-footer)` rule. That
+  // local footer is unchanged by this slice (Cookie Policy was only added
+  // to src/components/layout/footer.tsx, the global footer, per scope) —
+  // so it still correctly shows only Privacy Policy and Terms of Service.
   const PAGES_WITH_FOOTER = ["/login", "/signup", "/forgot-password", "/portal/login", "/portal/signup", "/portal/forgot-password"];
 
   for (const path of PAGES_WITH_FOOTER) {
@@ -52,6 +78,17 @@ test.describe("Global footer", () => {
     await page.locator("footer").getByRole("link", { name: "Terms of Service" }).click();
     await page.waitForURL(/\/terms$/);
     await expect(page.getByRole("heading", { name: "Terms of Service", level: 1 })).toBeVisible();
+  });
+
+  // /privacy itself is not an AuthShell route, so it renders the real
+  // global footer visibly — the right place to exercise its new link.
+  test("global footer on /privacy shows a Cookie Policy link that navigates to /cookies", async ({ page }) => {
+    await page.goto("/privacy");
+    const footer = page.locator("footer");
+    await expect(footer.getByRole("link", { name: "Cookie Policy" })).toBeVisible();
+    await footer.getByRole("link", { name: "Cookie Policy" }).click();
+    await page.waitForURL(/\/cookies$/);
+    await expect(page.getByRole("heading", { name: "Cookie Policy", level: 1 })).toBeVisible();
   });
 });
 

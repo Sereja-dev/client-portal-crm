@@ -47,6 +47,9 @@ export function Footer() {
           <Link href="/terms" className={LINK_CLASSES}>
             Terms of Service
           </Link>
+          <Link href="/cookies" className={LINK_CLASSES}>
+            Cookie Policy
+          </Link>
         </nav>
       </div>
     </footer>

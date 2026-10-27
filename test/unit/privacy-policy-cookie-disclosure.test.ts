@@ -13,6 +13,10 @@ import { describe, expect, it } from "vitest";
  * No DOM/component-rendering harness exists in this repo (see
  * legal-back-button-contract.test.ts's own header comment) — this is
  * therefore a source-contract proxy over the real file, same convention.
+ *
+ * Slice 2 (Cookie Policy) updates the one assertion that depended on
+ * /cookies not existing yet — it now asserts the opposite: the paragraph
+ * links to the real Cookie Policy page.
  */
 
 const privacySource = readFileSync("src/app/privacy/page.tsx", "utf8");
@@ -47,8 +51,8 @@ describe("Privacy Policy cookie disclosure (Section 3)", () => {
     expect(privacySource).toMatch(/do not\s*\n?\s*currently use third-party analytics or advertising trackers/);
   });
 
-  it("does not introduce a /cookies link — that route does not exist yet (Slice 2)", () => {
-    expect(privacySource).not.toMatch(/\/cookies/);
+  it("links to the dedicated Cookie Policy (Slice 2 — /cookies now exists)", () => {
+    expect(privacySource).toMatch(/href="\/cookies"/);
   });
 
   it("does not mention Paddle or billing as though it currently sets cookies — billing remains out of scope here", () => {

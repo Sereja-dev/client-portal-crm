@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
 const buttonSource = readFileSync("src/components/legal/legal-back-button.tsx", "utf8");
 const privacySource = readFileSync("src/app/privacy/page.tsx", "utf8");
 const termsSource = readFileSync("src/app/terms/page.tsx", "utf8");
+const cookiesSource = readFileSync("src/app/cookies/page.tsx", "utf8");
 
 // Strips /* ... */ block comments so the "no open-redirect surface" checks
 // below assert against the component's actual code, not its own prose
@@ -77,10 +78,11 @@ describe("LegalBackButton (contract)", () => {
   });
 });
 
-describe("Privacy/Terms pages no longer hardcode a fixed Back destination (contract)", () => {
+describe("Privacy/Terms/Cookies pages no longer hardcode a fixed Back destination (contract)", () => {
   for (const [label, source] of [
     ["privacy", privacySource],
     ["terms", termsSource],
+    ["cookies", cookiesSource],
   ] as const) {
     it(`${label} page renders LegalBackButton, not a hardcoded href="/" Back link`, () => {
       expect(source).toMatch(/<LegalBackButton\s*\/>/);

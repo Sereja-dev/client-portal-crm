@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { siteConfig } from "@/config/site";
 import { getPlatformLegalConfig } from "@/lib/legal/platform-config";
 import { LegalBackButton } from "@/components/legal/legal-back-button";
@@ -94,7 +95,14 @@ export default function PrivacyPolicyPage() {
             your selected theme. We also use browser-local storage for certain preferences and features,
             including saved views, table column settings, recently selected search results, and dismissal of the
             public-beta notice. Unlike cookies, browser-local storage is kept on your device and is not
-            automatically sent with every request to our servers.
+            automatically sent with every request to our servers. See our{" "}
+            <Link
+              href="/cookies"
+              className="rounded font-medium text-text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            >
+              Cookie Policy
+            </Link>{" "}
+            for the full list, including retention periods and how to manage them.
           </p>
         </section>
 

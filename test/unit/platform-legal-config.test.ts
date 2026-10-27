@@ -8,6 +8,7 @@ const LEGAL_ENV_KEYS = [
   "PLATFORM_JURISDICTION",
   "PRIVACY_POLICY_EFFECTIVE_DATE",
   "TOS_EFFECTIVE_DATE",
+  "COOKIE_POLICY_EFFECTIVE_DATE",
   "INVITATION_FROM_EMAIL",
   "PLATFORM_NAME",
 ] as const;
@@ -41,6 +42,7 @@ describe("getPlatformLegalConfig", () => {
     expect(config.jurisdiction).toBe("the jurisdiction in which the Service operator is located");
     expect(config.privacyEffectiveDate).toBe("August 9, 2026");
     expect(config.tosEffectiveDate).toBe("August 9, 2026");
+    expect(config.cookiePolicyEffectiveDate).toBe("October 27, 2026");
   });
 
   it("prefers every explicitly configured env var over its fallback", () => {
@@ -50,6 +52,7 @@ describe("getPlatformLegalConfig", () => {
     process.env.PLATFORM_JURISDICTION = "the State of Delaware, USA";
     process.env.PRIVACY_POLICY_EFFECTIVE_DATE = "January 1, 2027";
     process.env.TOS_EFFECTIVE_DATE = "January 2, 2027";
+    process.env.COOKIE_POLICY_EFFECTIVE_DATE = "January 3, 2027";
 
     const config = getPlatformLegalConfig();
 
@@ -60,6 +63,7 @@ describe("getPlatformLegalConfig", () => {
       jurisdiction: "the State of Delaware, USA",
       privacyEffectiveDate: "January 1, 2027",
       tosEffectiveDate: "January 2, 2027",
+      cookiePolicyEffectiveDate: "January 3, 2027",
     });
   });
 
