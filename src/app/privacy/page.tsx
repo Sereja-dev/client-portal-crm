@@ -68,6 +68,12 @@ export default function PrivacyPolicyPage() {
               notifications you have chosen to receive.
             </li>
             <li>
+              <strong className="text-text-primary">Support messages.</strong> If you contact us for help before
+              creating an account &mdash; for example, through a support form on our sign-in or sign-up pages
+              &mdash; we collect the email address, issue category, and message you provide, and use it only to
+              respond to your request. These messages are sent using the same email provider named in Section 4.
+            </li>
+            <li>
               <strong className="text-text-primary">Technical data.</strong> Requests to the Service are processed
               transiently (e.g. to enforce rate limits that protect against abuse) and are not written to a
               persistent log we control. Our hosting provider (Vercel) may separately retain standard
@@ -85,6 +91,7 @@ export default function PrivacyPolicyPage() {
               controls between Organizations;</li>
             <li>Send transactional email you&rsquo;ve triggered or that is necessary to your account, such as
               invitations, password reset links, and notifications you&rsquo;ve opted into;</li>
+            <li>Respond to support requests you send us, including before you have an account;</li>
             <li>Detect, prevent, and respond to abuse, fraud, and security incidents; and</li>
             <li>Comply with legal obligations.</li>
           </ul>

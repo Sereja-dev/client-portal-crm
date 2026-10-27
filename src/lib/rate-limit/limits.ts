@@ -397,3 +397,32 @@ export const RECOVERY_PHONE_VERIFY_CODE_LIMIT: RateLimitConfig = {
   limit: 10,
   windowMs: HOUR_MS,
 };
+
+// Pre-Auth Support Widget V1, Slice B — per IP, the same "genuinely
+// unauthenticated entry point, no CAPTCHA yet, honeypot + rate limiting
+// only" reasoning as LEAD_CAPTURE_SUBMIT_LIMIT's own identical comment
+// (that sibling public form is the closest precedent this app has: an
+// unauthenticated write with no account-existence signal to protect,
+// only a cost — there a Lead row, here an outbound email send — to
+// bound). 10/hour is that exact same ceiling, not a new value invented
+// for this feature.
+//
+// Residual risk, documented rather than silently accepted: this reuses
+// the repo's existing in-memory, per-serverless-instance limiter (see
+// src/lib/rate-limit/store.ts's own documented tradeoff) — it does NOT
+// provide an authoritative global ceiling across concurrent Vercel
+// instances or across cold starts. A sufficiently distributed or
+// persistent abuser can exceed the nominal 10/hour by landing on
+// different instances. This is the exact same residual risk every other
+// public-facing limiter in this app already carries (login, signup,
+// password-reset-request, lead-capture) — not a new or hidden one — and
+// is accepted at the same bar for V1, per this feature's own completed
+// audit. No CAPTCHA, honeypot-alternative, or distributed rate-limit
+// vendor is introduced here; doing so would need separate Product Owner
+// approval (a new external vendor), not a decision this limiter's own
+// definition should make unilaterally.
+export const SUPPORT_MESSAGE_SUBMIT_LIMIT: RateLimitConfig = {
+  scope: "support-message-submit",
+  limit: 10,
+  windowMs: HOUR_MS,
+};
