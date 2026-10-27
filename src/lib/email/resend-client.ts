@@ -45,8 +45,43 @@ export type SendEmailInput = {
    * customer's own business, not from Aqenra itself; routing a client's
    * reply to Aqenra's own platform support would be misleading. Omit (or
    * `false`) for every other caller.
+   *
+   * Mutually exclusive with `replyTo` below — specifying both on the same
+   * call is a caller contract violation, not a precedence question to
+   * silently resolve one way, so it fails the send entirely (see that
+   * field's own doc comment and the validation in `sendEmailViaResend`).
    */
   disablePlatformReplyTo?: boolean;
+  /**
+   * Pre-Auth Support Widget V1, Slice A. A per-message Reply-To,
+   * explicitly supplied by the caller — distinct from, and always wins
+   * over, the platform-wide `PLATFORM_REPLY_TO_EMAIL` default above. The
+   * first caller is the future support-widget submission flow (Slice B),
+   * which needs every send's Reply-To to be the actual visitor's own
+   * address, not the platform operator's fixed default — but this field
+   * is itself generic, not support-widget-specific.
+   *
+   * Validated the same hardened way every other address-shaped value in
+   * this module already is (see `isValidReplyToAddress` below): a single
+   * bare mailbox address only — no address list, no comma, no
+   * "Display Name <addr>" wrapper, no header-injection character, bounded
+   * length. An invalid value here is NEVER silently dropped in favor of
+   * the platform default (unlike a malformed `PLATFORM_REPLY_TO_EMAIL`,
+   * which — being an operator-configured value, not caller/request
+   * input — degrades to "omit reply_to" so a typo in that one env var can
+   * never fail every send in the app). An invalid explicit `replyTo`
+   * instead rejects the whole send, `{ ok: false, reason: "provider_error" }`,
+   * the same treatment a malformed `idempotencyKey`/`timeoutMs` already
+   * gets, and for the same reason: this value traces back to request
+   * input a future caller may not fully control, so a malformed value
+   * must never silently become "no Reply-To" or "the platform's own
+   * default" — either would be a wrong, surprising substitution for
+   * whatever the caller actually intended.
+   *
+   * Also mutually exclusive with `disablePlatformReplyTo: true` — see
+   * that field's own doc comment.
+   */
+  replyTo?: string;
 };
 
 export type SendEmailResult =
@@ -93,6 +128,32 @@ function isValidIdempotencyKey(key: string): boolean {
   return key.length >= 1 && key.length <= MAX_IDEMPOTENCY_KEY_LENGTH && !hasHeaderInjectionCharacter(key);
 }
 
+// RFC 5321 §4.5.3.1.3's own practical total-address-length ceiling — same
+// "a conservative, explicit bound, independent of any provider-side
+// limit" reasoning as MAX_IDEMPOTENCY_KEY_LENGTH above.
+const MAX_REPLY_TO_LENGTH = 254;
+
+// Deliberately its own copy, not an import from platform-config.ts's
+// EMAIL_SHAPE_PATTERN — matches this codebase's established convention
+// (see password-reset.ts's getAppBaseUrl comment) that each email module
+// keeps its own narrow copy of logic this close to the wire, so one
+// module's own validation rule can never silently drift because of an
+// edit made for a completely different module's own reasons. Also
+// deliberately stricter than that pattern: no comma (rules out an
+// address list — this field is documented as exactly one address, never
+// more) and no angle brackets (rules out a "Display Name <addr>"
+// wrapper — a per-message Reply-To has no legitimate reason to carry a
+// display name, and accepting one is unnecessary surface for injection
+// that INVITATION_FROM_EMAIL's own, deliberately more permissive format
+// elsewhere in this app doesn't need to worry about).
+const REPLY_TO_SHAPE_PATTERN = /^[^\s@,<>]+@[^\s@,<>]+\.[^\s@,<>]+$/;
+
+function isValidReplyToAddress(value: string): boolean {
+  if (value.length === 0 || value.length > MAX_REPLY_TO_LENGTH) return false;
+  if (hasHeaderInjectionCharacter(value)) return false;
+  return REPLY_TO_SHAPE_PATTERN.test(value);
+}
+
 function isValidTimeoutMs(value: number): boolean {
   return Number.isInteger(value) && value > 0 && value <= MAX_SEND_EMAIL_TIMEOUT_MS;
 }
@@ -121,11 +182,20 @@ function acceptedResult(messageId: string | undefined): SendEmailResult {
  * the caller.
  *
  * Purely additive over the original four-field shape: `attachments`,
- * `timeoutMs`, and `idempotencyKey` are all optional, so every existing
- * caller (invitations.ts, client-portal-invitations.ts, password-reset.ts,
- * deliver-notification-email.ts) compiles and behaves identically without
- * modification, and the request body it serializes is byte-identical to
- * before when none of the new fields are supplied.
+ * `timeoutMs`, `idempotencyKey`, and (Slice A) `replyTo` are all optional,
+ * so every existing caller (invitations.ts, client-portal-invitations.ts,
+ * password-reset.ts, deliver-notification-email.ts) compiles and behaves
+ * identically without modification, and the request body it serializes
+ * is byte-identical to before when none of the new fields are supplied.
+ *
+ * Pre-Auth Support Widget V1, Slice A — `replyTo`, when supplied, always
+ * wins over the platform-wide default below and is validated far more
+ * strictly (see `isValidReplyToAddress`'s own comment): unlike a
+ * malformed `PLATFORM_REPLY_TO_EMAIL`, an invalid explicit `replyTo`
+ * rejects the send entirely rather than silently omitting the field —
+ * see `replyTo`'s own doc comment on `SendEmailInput` for the full
+ * reasoning. No existing caller passes this field, so this is purely
+ * additive for all of them too.
  *
  * E2 (Reply-To wiring) — centralizes the platform Reply-To default here,
  * not in any of this function's eight callers: `getTransactionalReplyToEmail()`
@@ -149,6 +219,20 @@ export async function sendEmailViaResend(input: SendEmailInput): Promise<SendEma
     return { ok: false, reason: "provider_error" };
   }
   if (input.timeoutMs !== undefined && !isValidTimeoutMs(input.timeoutMs)) {
+    return { ok: false, reason: "provider_error" };
+  }
+  // Pre-Auth Support Widget V1, Slice A. Mutually exclusive by contract —
+  // see replyTo's own doc comment on SendEmailInput. Checked before the
+  // validity check below so the contract violation itself is what's
+  // reported, not a coincidentally-invalid address.
+  if (input.replyTo !== undefined && input.disablePlatformReplyTo === true) {
+    return { ok: false, reason: "provider_error" };
+  }
+  // Never silently falls back to the platform-wide default (or to no
+  // Reply-To at all) when an explicit value was supplied but is
+  // invalid — see replyTo's own doc comment for why this differs from
+  // how a malformed PLATFORM_REPLY_TO_EMAIL is treated below.
+  if (input.replyTo !== undefined && !isValidReplyToAddress(input.replyTo)) {
     return { ok: false, reason: "provider_error" };
   }
 
@@ -183,7 +267,13 @@ export async function sendEmailViaResend(input: SendEmailInput): Promise<SendEma
     html: input.html,
     text: input.text,
   };
-  if (input.disablePlatformReplyTo !== true) {
+  if (input.replyTo !== undefined) {
+    // Already validated above (shape, length, no header-injection
+    // character) and already confirmed mutually exclusive with
+    // disablePlatformReplyTo — always wins over the platform-wide
+    // default when present, never merged/appended/second-guessed here.
+    body.reply_to = input.replyTo;
+  } else if (input.disablePlatformReplyTo !== true) {
     const platformReplyTo = getTransactionalReplyToEmail();
     if (platformReplyTo !== null) {
       body.reply_to = platformReplyTo;

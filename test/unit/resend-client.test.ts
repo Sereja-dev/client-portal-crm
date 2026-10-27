@@ -95,6 +95,40 @@ describe("sendEmailViaResend / checkEmailProviderReadiness — TEST_MODE branch"
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("a valid explicit replyTo does not break TEST_MODE", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+    const result = await sendEmailViaResend({ ...BASE_INPUT, replyTo: "visitor@example.com" });
+    expect(result).toEqual({ ok: true });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("a malformed explicit replyTo (CRLF) fails before the TEST_MODE short-circuit, with zero fetch calls", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+    const result = await sendEmailViaResend({ ...BASE_INPUT, replyTo: "evil\r\nX-Injected: x@example.com" });
+    expect(result).toEqual({ ok: false, reason: "provider_error" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("explicit replyTo combined with disablePlatformReplyTo:true fails before the TEST_MODE short-circuit (mutually exclusive contract)", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+    const result = await sendEmailViaResend({
+      ...BASE_INPUT,
+      replyTo: "visitor@example.com",
+      disablePlatformReplyTo: true,
+    });
+    expect(result).toEqual({ ok: false, reason: "provider_error" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("checkEmailProviderReadiness() returns 'ready' without RESEND_API_KEY/INVITATION_FROM_EMAIL configured", async () => {
     const { checkEmailProviderReadiness } = await import("@/lib/email/resend-client");
     expect(checkEmailProviderReadiness()).toBe("ready");
@@ -643,5 +677,296 @@ describe("sendEmailViaResend — production adapter: platform Reply-To (E2)", ()
     const result = await sendEmailViaResend(BASE_INPUT);
     expect(result).toEqual({ ok: true });
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Pre-Auth Support Widget V1, Slice A. Per-message `replyTo` — distinct
+ * from, and always overriding, the platform-wide default the describe
+ * block above already covers exhaustively. This block's own job is
+ * narrower: prove the override precedence, the stricter validation
+ * (Requirements C/D of this slice's own brief), and the "never silently
+ * fall back" contract — all against the same real-fetch-interception
+ * technique used throughout this file, never a real network call.
+ */
+describe("sendEmailViaResend — production adapter: per-message Reply-To (Slice A)", () => {
+  beforeEach(() => {
+    delete process.env.TEST_MODE;
+    process.env.RESEND_API_KEY = "test-api-key";
+    delete process.env.PLATFORM_REPLY_TO_EMAIL;
+    vi.resetModules();
+  });
+
+  describe("A. existing default behavior preserved", () => {
+    it("no replyTo, no platform default configured: omits reply_to exactly as before", async () => {
+      const fetchSpy = vi.fn().mockResolvedValue(mockResponse(200));
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      await sendEmailViaResend(BASE_INPUT);
+
+      const parsedBody = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+      expect("reply_to" in parsedBody).toBe(false);
+    });
+
+    it("no replyTo, platform default configured: still uses the platform default exactly as before", async () => {
+      process.env.PLATFORM_REPLY_TO_EMAIL = "support@acme.example";
+      const fetchSpy = vi.fn().mockResolvedValue(mockResponse(200));
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      await sendEmailViaResend(BASE_INPUT);
+
+      const parsedBody = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+      expect(parsedBody.reply_to).toBe("support@acme.example");
+    });
+
+    it("no replyTo, disablePlatformReplyTo:true, platform default configured: still suppresses reply_to exactly as before", async () => {
+      process.env.PLATFORM_REPLY_TO_EMAIL = "support@acme.example";
+      const fetchSpy = vi.fn().mockResolvedValue(mockResponse(200));
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      await sendEmailViaResend({ ...BASE_INPUT, disablePlatformReplyTo: true });
+
+      const parsedBody = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+      expect("reply_to" in parsedBody).toBe(false);
+    });
+  });
+
+  describe("B. explicit override", () => {
+    it("a valid visitor-style email becomes the exact reply_to value", async () => {
+      const fetchSpy = vi.fn().mockResolvedValue(mockResponse(200));
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      await sendEmailViaResend({ ...BASE_INPUT, replyTo: "visitor+tag@example.com" });
+
+      const parsedBody = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+      expect(parsedBody.reply_to).toBe("visitor+tag@example.com");
+    });
+
+    it("overrides the platform default only for this message — no other field is affected", async () => {
+      process.env.PLATFORM_REPLY_TO_EMAIL = "support@acme.example";
+      const fetchSpy = vi.fn().mockResolvedValue(mockResponse(200));
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      await sendEmailViaResend({ ...BASE_INPUT, replyTo: "visitor@example.com" });
+
+      const parsedBody = JSON.parse(fetchSpy.mock.calls[0][1].body as string);
+      expect(parsedBody.reply_to).toBe("visitor@example.com");
+      expect(parsedBody.from).toBe(BASE_INPUT.from);
+      expect(parsedBody.to).toBe(BASE_INPUT.to);
+      expect(parsedBody.subject).toBe(BASE_INPUT.subject);
+      expect(parsedBody.html).toBe(BASE_INPUT.html);
+      expect(parsedBody.text).toBe(BASE_INPUT.text);
+      expect("attachments" in parsedBody).toBe(false);
+    });
+
+    it("coexists correctly with attachments and an Idempotency-Key", async () => {
+      const fetchSpy = vi.fn().mockResolvedValue(mockResponse(200));
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      await sendEmailViaResend({
+        ...BASE_INPUT,
+        replyTo: "visitor@example.com",
+        attachments: [{ filename: "file.pdf", content: "YQ==" }],
+        idempotencyKey: "11111111-1111-4111-8111-111111111111",
+      });
+
+      const [, init] = fetchSpy.mock.calls[0];
+      const parsedBody = JSON.parse(init.body as string);
+      expect(parsedBody.reply_to).toBe("visitor@example.com");
+      expect(parsedBody.attachments).toEqual([{ filename: "file.pdf", content: "YQ==" }]);
+      expect(init.headers["Idempotency-Key"]).toBe("11111111-1111-4111-8111-111111111111");
+    });
+  });
+
+  describe("C/D. invalid input is rejected, never silently falls back, before any fetch", () => {
+    it("rejects an empty-string replyTo", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({ ...BASE_INPUT, replyTo: "" });
+      expect(result).toEqual({ ok: false, reason: "provider_error" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a whitespace-only replyTo", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({ ...BASE_INPUT, replyTo: "   " });
+      expect(result).toEqual({ ok: false, reason: "provider_error" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a replyTo containing CR", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({ ...BASE_INPUT, replyTo: "visitor@example.com\rinjected" });
+      expect(result).toEqual({ ok: false, reason: "provider_error" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a replyTo containing LF", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({ ...BASE_INPUT, replyTo: "visitor@example.com\ninjected" });
+      expect(result).toEqual({ ok: false, reason: "provider_error" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a replyTo containing a full CRLF header-injection payload", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({
+        ...BASE_INPUT,
+        replyTo: "visitor@example.com\r\nBcc: attacker@evil.example",
+      });
+      expect(result).toEqual({ ok: false, reason: "provider_error" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a comma-separated address list", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({
+        ...BASE_INPUT,
+        replyTo: "visitor@example.com,second@example.com",
+      });
+      expect(result).toEqual({ ok: false, reason: "provider_error" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a 'Display Name <addr>' wrapper", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({
+        ...BASE_INPUT,
+        replyTo: "Visitor Name <visitor@example.com>",
+      });
+      expect(result).toEqual({ ok: false, reason: "provider_error" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a structurally malformed address (no @)", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({ ...BASE_INPUT, replyTo: "not-an-email" });
+      expect(result).toEqual({ ok: false, reason: "provider_error" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("rejects a structurally malformed address (no domain dot)", async () => {
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({ ...BASE_INPUT, replyTo: "visitor@example" });
+      expect(result).toEqual({ ok: false, reason: "provider_error" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("accepts a replyTo at exactly the 254-character bound", async () => {
+      const localPart = "a".repeat(254 - "@example.com".length);
+      const address = `${localPart}@example.com`;
+      expect(address.length).toBe(254);
+      const fetchSpy = vi.fn().mockResolvedValue(mockResponse(200));
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({ ...BASE_INPUT, replyTo: address });
+      expect(result).toEqual({ ok: true });
+    });
+
+    it("rejects a replyTo one character past the 254-character bound", async () => {
+      const localPart = "a".repeat(255 - "@example.com".length);
+      const address = `${localPart}@example.com`;
+      expect(address.length).toBe(255);
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({ ...BASE_INPUT, replyTo: address });
+      expect(result).toEqual({ ok: false, reason: "provider_error" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("an invalid explicit replyTo never silently falls back to a configured platform default", async () => {
+      process.env.PLATFORM_REPLY_TO_EMAIL = "support@acme.example";
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({ ...BASE_INPUT, replyTo: "not-an-email" });
+      // The send is rejected outright — it never reaches fetch with the
+      // platform default silently substituted in, and never reaches
+      // fetch with reply_to simply omitted either.
+      expect(result).toEqual({ ok: false, reason: "provider_error" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it("explicit replyTo + disablePlatformReplyTo:true fails the whole send, even with a valid address and a configured platform default", async () => {
+      process.env.PLATFORM_REPLY_TO_EMAIL = "support@acme.example";
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({
+        ...BASE_INPUT,
+        replyTo: "visitor@example.com",
+        disablePlatformReplyTo: true,
+      });
+      expect(result).toEqual({ ok: false, reason: "provider_error" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("E. unrelated existing behavior stays intact alongside this feature", () => {
+    it("a provider error (5xx) is still mapped to provider_error when a valid replyTo is present", async () => {
+      const fetchSpy = vi.fn().mockResolvedValue(mockResponse(500));
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({ ...BASE_INPUT, replyTo: "visitor@example.com" });
+      expect(result).toEqual({ ok: false, reason: "provider_error" });
+    });
+
+    it("a network failure is still mapped to network_error when a valid replyTo is present", async () => {
+      const fetchSpy = vi.fn().mockRejectedValue(new Error("simulated DNS failure"));
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({ ...BASE_INPUT, replyTo: "visitor@example.com" });
+      expect(result).toEqual({ ok: false, reason: "network_error" });
+    });
+
+    it("not_configured (missing RESEND_API_KEY) is still reported even with a valid replyTo present, before any fetch", async () => {
+      delete process.env.RESEND_API_KEY;
+      const fetchSpy = vi.fn();
+      vi.stubGlobal("fetch", fetchSpy);
+      const { sendEmailViaResend } = await import("@/lib/email/resend-client");
+
+      const result = await sendEmailViaResend({ ...BASE_INPUT, replyTo: "visitor@example.com" });
+      expect(result).toEqual({ ok: false, reason: "not_configured" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
   });
 });
