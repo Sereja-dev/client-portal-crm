@@ -144,6 +144,23 @@ describe("Pre-Auth Redesign Slice A — fixed-dark shell theme-token migration",
       expect(AUTH_SHELL).toMatch(/href="\/privacy"/);
       expect(AUTH_SHELL).toMatch(/href="\/terms"/);
     });
+
+    // Privacy & Cookie Policy Improvement, Slice 2 AuthShell follow-up.
+    it("also renders a Cookie Policy link to /cookies, alongside the existing two — not a replacement for either", () => {
+      expect(AUTH_SHELL).toMatch(/href="\/cookies"/);
+      expect(AUTH_SHELL).toMatch(/Cookie Policy/);
+    });
+
+    it("the Cookie Policy link reuses the same FOOTER_LINK_CLASSES as Privacy Policy / Terms — no bespoke styling", () => {
+      const nav = AUTH_SHELL.match(/<nav className="flex gap-4">[\s\S]*?<\/nav>/)?.[0] ?? "";
+      const cookiesLink = nav.match(/<Link href="\/cookies"[\s\S]*?<\/Link>/)?.[0] ?? "";
+      expect(cookiesLink).toContain("className={FOOTER_LINK_CLASSES}");
+    });
+
+    it("exactly one <footer> element exists in this file — no duplicated/second footer was introduced", () => {
+      const footerOpenTags = AUTH_SHELL.match(/<footer\b/g) ?? [];
+      expect(footerOpenTags).toHaveLength(1);
+    });
   });
 
   describe("LoginForm", () => {

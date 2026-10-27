@@ -99,6 +99,9 @@ export function AuthShell({
             <Link href="/terms" className={FOOTER_LINK_CLASSES}>
               Terms of Service
             </Link>
+            <Link href="/cookies" className={FOOTER_LINK_CLASSES}>
+              Cookie Policy
+            </Link>
           </nav>
         </div>
       </footer>
