@@ -91,7 +91,27 @@ export default function CookiePolicyPage() {
   const config = getPlatformLegalConfig();
 
   return (
-    <main className="mx-auto max-w-3xl px-4 py-12 sm:px-6">
+    // `w-full` — this <main> is a direct flex-item child of the root
+    // layout's <body className="flex flex-col"> (src/app/layout.tsx),
+    // with `align-items` at its default ("normal", which computes as
+    // `stretch` here). With `width: auto` (no `w-full`), that stretch
+    // only ever acted as a lower bound: once the table below
+    // (min-w-[640px], inside its own overflow-x-auto wrapper) needed
+    // more room than the mobile viewport, <main>'s own auto-width
+    // still grew to fit it — confirmed by direct measurement, and
+    // confirmed NOT fixable by `min-width: 0` alone (tested; had zero
+    // effect) — so the whole page scrolled horizontally instead of the
+    // table scrolling locally within its wrapper. `w-full` gives
+    // <main> a definite width instead of `auto`, which removes that
+    // ambiguity: it is now exactly the stretched/container width
+    // (max-w-3xl still caps it on desktop, unchanged), and the
+    // overflow-x-auto wrapper inside it becomes the real horizontal
+    // scroll boundary (confirmed Production defect, measured and
+    // fixed — see this feature's own mobile-overflow diagnostic).
+    // /privacy and /terms share this same <main> shape but have no
+    // content wide enough to trigger the same latent condition, so
+    // they're left unchanged.
+    <main className="mx-auto w-full max-w-3xl px-4 py-12 sm:px-6">
       <LegalBackButton />
 
       <h1 className="mt-4 text-3xl font-semibold tracking-tight text-text-primary">Cookie Policy</h1>

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 
 /**
  * Sale-Ready Phase B, PR2.1 (Legal Foundation). Every page/link covered
@@ -145,5 +145,124 @@ test.describe("Signup consent copy", () => {
     await page.getByText(/By creating an account, you agree to our/).getByRole("link", { name: "Terms of Service" }).click();
     await page.waitForURL(/\/terms$/);
     await expect(page.getByRole("heading", { name: "Terms of Service", level: 1 })).toBeVisible();
+  });
+});
+
+/**
+ * Cookie Policy Slice 2 — Mobile Horizontal Overflow Remediation.
+ * Production defect: /cookies scrolled the whole page horizontally on
+ * mobile, because <main> (a flex-item child of the root layout's
+ * <body className="flex flex-col">) still grew to fit its widest
+ * descendant — the Cookie Policy's min-w-[640px] table — instead of
+ * being clamped to the viewport and letting the table's own
+ * overflow-x-auto wrapper scroll locally. Fixed with `w-full` on
+ * <main> (see that file's own doc comment for the full mechanism and
+ * why `min-width: 0` alone, tried first, had zero measured effect).
+ */
+async function assertNoHorizontalOverflow(page: Page): Promise<void> {
+  const overflow = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(overflow.scrollWidth).toBeLessThanOrEqual(overflow.clientWidth + 1);
+}
+
+test.describe("Legal pages — no page-level horizontal overflow", () => {
+  const ROUTES = ["/cookies", "/privacy", "/terms"];
+  const MOBILE_VIEWPORTS = [
+    { width: 390, height: 900 },
+    { width: 375, height: 812 },
+    { width: 320, height: 700 },
+  ];
+
+  for (const route of ROUTES) {
+    for (const vp of MOBILE_VIEWPORTS) {
+      test(`${route} has no page-level horizontal overflow at ${vp.width}x${vp.height}`, async ({ page }) => {
+        await page.setViewportSize(vp);
+        await page.goto(route);
+        await assertNoHorizontalOverflow(page);
+      });
+    }
+  }
+
+  // A representative desktop viewport — confirms the fix for the mobile
+  // case introduces no regression at a width where the table already
+  // fit without scrolling.
+  test("all three legal pages have no horizontal overflow at a desktop viewport (1280x900)", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    for (const route of ROUTES) {
+      await page.goto(route);
+      await assertNoHorizontalOverflow(page);
+    }
+  });
+});
+
+test.describe("Cookie Policy table — local horizontal scroll, not page-level scroll", () => {
+  test("at 390px, the table wrapper (not the document) is the horizontal scroll container", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.goto("/cookies");
+
+    const measurements = await page.evaluate(() => {
+      const wrapper = document.querySelector(".overflow-x-auto") as HTMLElement;
+      const table = document.querySelector("table") as HTMLTableElement;
+      return {
+        docScrollWidth: document.documentElement.scrollWidth,
+        docClientWidth: document.documentElement.clientWidth,
+        wrapperClientWidth: wrapper.clientWidth,
+        wrapperScrollWidth: wrapper.scrollWidth,
+        tableWidth: table.getBoundingClientRect().width,
+        columnCount: table.querySelectorAll("thead th").length,
+      };
+    });
+
+    // The document itself does not horizontally overflow...
+    expect(measurements.docScrollWidth).toBeLessThanOrEqual(measurements.docClientWidth + 1);
+    // ...while the table wrapper genuinely has more content than it can
+    // show at once — i.e. it, not the page, is the thing that scrolls.
+    expect(measurements.wrapperScrollWidth).toBeGreaterThan(measurements.wrapperClientWidth);
+    // All six columns are still present — nothing was removed to make
+    // this fit.
+    expect(measurements.columnCount).toBe(6);
+  });
+
+  test("the table wrapper actually scrolls horizontally, independent of the page's own scroll position", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 390, height: 900 });
+    await page.goto("/cookies");
+
+    const wrapper = page.locator(".overflow-x-auto");
+    await expect(wrapper).toHaveJSProperty("scrollLeft", 0);
+
+    await wrapper.evaluate((el) => {
+      el.scrollLeft = 200;
+    });
+
+    await expect(wrapper).toHaveJSProperty("scrollLeft", 200);
+    // The page's own scroll position is untouched by scrolling the
+    // wrapper — confirming this is local, contained scrolling, not a
+    // side effect of (or substitute for) whole-page overflow.
+    const pageScrollX = await page.evaluate(() => window.scrollX);
+    expect(pageScrollX).toBe(0);
+  });
+
+  test("at desktop (1280px), the table fits without needing to scroll, and the column count is unchanged", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("/cookies");
+
+    const measurements = await page.evaluate(() => {
+      const wrapper = document.querySelector(".overflow-x-auto") as HTMLElement;
+      const table = document.querySelector("table") as HTMLTableElement;
+      return {
+        wrapperClientWidth: wrapper.clientWidth,
+        wrapperScrollWidth: wrapper.scrollWidth,
+        columnCount: table.querySelectorAll("thead th").length,
+      };
+    });
+
+    expect(measurements.wrapperScrollWidth).toBeLessThanOrEqual(measurements.wrapperClientWidth + 1);
+    expect(measurements.columnCount).toBe(6);
   });
 });

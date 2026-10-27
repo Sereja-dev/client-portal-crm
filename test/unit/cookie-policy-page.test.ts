@@ -27,8 +27,16 @@ describe("Cookie Policy page", () => {
     expect(cookiesSource).toMatch(/from "@\/components\/legal\/legal-back-button"/);
     expect(cookiesSource).toMatch(/getPlatformLegalConfig/);
     expect(cookiesSource).toMatch(/title: `Cookie Policy — \$\{siteConfig\.name\}`/);
-    // Same outer layout classes as the Privacy Policy page, for visual consistency.
-    expect(cookiesSource).toContain('className="mx-auto max-w-3xl px-4 py-12 sm:px-6"');
+    // Same outer layout classes as the Privacy Policy page, for visual
+    // consistency — plus `w-full`, added by the mobile horizontal-overflow
+    // fix (see page.tsx's own doc comment): without a definite width,
+    // this flex-item <main> grew to fit the table below instead of being
+    // clamped to the viewport, which is what caused the Production defect.
+    expect(cookiesSource).toContain('className="mx-auto w-full max-w-3xl px-4 py-12 sm:px-6"');
+  });
+
+  it("is a definite-width flex item (w-full), not auto-width — the fix for the mobile horizontal-overflow defect", () => {
+    expect(cookiesSource).toMatch(/\bw-full\b/);
   });
 
   it("has its own dedicated effective date, not a reuse of the Privacy Policy's", () => {
