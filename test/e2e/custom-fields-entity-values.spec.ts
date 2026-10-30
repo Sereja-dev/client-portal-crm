@@ -172,7 +172,9 @@ test.describe("Custom Fields — Entity Values UI (Phase 2B)", () => {
     await page.getByRole("textbox", { name: "Name", exact: true }).fill("Custom Field E2E Lead");
     await page.getByLabel("Referral Source").fill("Conference");
     await page.getByRole("button", { name: "Create lead" }).click();
-    await expect(page).toHaveURL(/\/leads/);
+    // Wait for the create to actually finish: /\/leads/ alone also matches /leads/new, so the DB lookup
+    // below could run before the Lead exists (seen once as a flaky findFirstOrThrow).
+    await expect(page).toHaveURL(/^https?:\/\/[^/]+\/leads(\?.*)?$/);
 
     // Leads Pipeline V1 made bare /leads default to the Pipeline/Kanban
     // board, not a row-based list — goToEdit()'s <tr role="row"> lookup
@@ -207,9 +209,12 @@ test.describe("Custom Fields — Entity Values UI (Phase 2B)", () => {
     await page.getByRole("combobox", { name: "Client", exact: true }).selectOption(fixtures.clientA.id);
     await page.getByLabel("Kickoff Target").fill("2026-09-01");
     await page.getByRole("button", { name: "Create project" }).click();
-    await expect(page).toHaveURL(/\/projects/);
-
-    await goToEdit(page, "Custom Field E2E Project");
+    // Creating a Project lands on its Project Hub (/projects/<id>), not the list — so there is no table row
+    // to click; the hub's own "Edit project" link opens the edit form. (/\/projects/ alone also matches
+    // /projects/new, so a failed create would have gone unnoticed until the next step timed out.)
+    await expect(page).not.toHaveURL(/\/projects\/new/);
+    await expect(page).toHaveURL(/\/projects\/[^/]+$/);
+    await page.getByRole("link", { name: "Edit project" }).click();
     await expect(page.getByLabel("Kickoff Target")).toHaveValue("2026-09-01");
   });
 
@@ -245,6 +250,8 @@ test.describe("Custom Fields — Entity Values UI (Phase 2B)", () => {
     await page.getByRole("textbox", { name: "Name", exact: true }).fill("Select E2E Client");
     await page.getByLabel("Tier").selectOption({ label: "Legacy Bronze" });
     await page.getByRole("button", { name: "Create client" }).click();
+    // Not just /\/clients/ — that also matches /clients/new, hiding a rejected create (e.g. "Select a valid option.").
+    await expect(page).not.toHaveURL(/\/clients\/new/);
     await expect(page).toHaveURL(/\/clients/);
 
     // Now archive that option out from under the existing selection.

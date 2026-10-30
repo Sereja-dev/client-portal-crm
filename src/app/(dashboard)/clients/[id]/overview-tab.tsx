@@ -34,7 +34,7 @@ export function ClientOverviewTab({
 }) {
   return (
     <div>
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="grid grid-cols-1 gap-4 min-[360px]:grid-cols-2 sm:grid-cols-4">
         <HealthCard label="Unpaid invoices" value={String(health.unpaidInvoiceCount)} />
         <HealthCard label="Open tasks" value={String(health.openTaskCount)} />
         <HealthCard label="Active projects" value={String(health.activeProjectCount)} />

@@ -222,7 +222,8 @@ test.describe("Tags V2 — Staff UI", () => {
       await page.goto("/clients");
       await expect(page.getByRole("row", { name: fixtures.clientA.name })).toContainText("Filterable");
 
-      await page.getByLabel("Tag").selectOption({ label: "Filterable" });
+      // exact: row-action buttons are labelled "More actions for client <name>" and a test client is named "No Tag Client …".
+      await page.getByLabel("Tag", { exact: true }).selectOption({ label: "Filterable" });
       await expect(page).toHaveURL(/tag=/);
       await expect(page.getByRole("row", { name: fixtures.clientA.name })).toBeVisible();
       await expect(page.getByRole("row", { name: other.name })).toHaveCount(0);
@@ -310,7 +311,9 @@ test.describe("Tags V2 — Staff UI", () => {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.goto("/clients");
 
-      await expect(page.getByLabel("Tag")).toBeVisible();
+      // Below md the list filters sit in a collapsed <details> disclosure (Mobile Filter Disclosure rollout).
+      await page.locator("details.mobile-filter-disclosure > summary").click();
+      await expect(page.getByLabel("Tag", { exact: true })).toBeVisible();
       // Every existing list page's own mobile layout is card-based, not a
       // scrollable table (RecordCardList) — this app's own established
       // pattern (see clients/page.tsx's own `hidden xl:block` desktop

@@ -109,7 +109,8 @@ test.describe("Import CSV wizard", () => {
 
     // Mapping step — the Name/Email/Company columns should already be
     // auto-suggested; just continue.
-    await expect(page.getByText("Map columns")).toBeVisible();
+    // heading role: the step indicator ("2. Map columns") also contains this text.
+    await expect(page.getByRole("heading", { name: "Map columns" })).toBeVisible();
     await page.getByRole("button", { name: "Continue" }).click();
 
     // Preview step.

@@ -8,7 +8,7 @@
 // make without importing Prisma themselves. See the Stage 5 report.
 import { createServer } from "node:http";
 import { prisma } from "@/lib/prisma";
-import { seedTestData, cleanupTestData } from "../fixtures/seed";
+import { seedTestData, cleanupSeededFixtures, newSeedRunId } from "../fixtures/seed";
 import { E2E_DB_SERVER_PORT } from "../support/e2e-ports";
 
 const PORT = E2E_DB_SERVER_PORT;
@@ -27,13 +27,15 @@ const server = createServer(async (req, res) => {
     const body = req.method === "POST" ? JSON.parse((await readBody(req)) || "{}") : {};
 
     if (req.url === "/seed" && req.method === "POST") {
-      const fixtures = await seedTestData();
+      // One identity per seeded graph — see newSeedRunId() for why the shared CI run id is not enough.
+      const fixtures = await seedTestData(newSeedRunId());
       res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify(fixtures));
       return;
     }
 
     if (req.url === "/cleanup" && req.method === "POST") {
-      await cleanupTestData(body.fixtures);
+      // A spec whose beforeAll seed failed has no fixtures to clean; its own error is the real failure.
+      if (body.fixtures) await cleanupSeededFixtures(body.fixtures);
       res.writeHead(200, { "Content-Type": "application/json" }).end(JSON.stringify({ ok: true }));
       return;
     }

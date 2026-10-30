@@ -115,7 +115,16 @@ export function ColumnVisibilityControl({ columns }: { columns: ColumnMeta[] }) 
             id={panelId}
             role="group"
             aria-label="Column visibility"
-            style={{ position: "fixed", top: position.top, left: position.left, width: PANEL_WIDTH }}
+            style={{
+              position: "fixed",
+              top: position.top,
+              left: position.left,
+              width: PANEL_WIDTH,
+              // Never taller than the space below the trigger: on a short window the last columns
+              // would otherwise sit below the viewport with no way to scroll to them.
+              maxHeight: `calc(100vh - ${position.top}px - ${VIEWPORT_MARGIN}px)`,
+              overflowY: "auto",
+            }}
             className="border-border-default bg-surface z-50 rounded-md border py-2 shadow-lg"
           >
             <div className="flex flex-col gap-0.5 px-1">

@@ -960,7 +960,8 @@ test.describe("Recent searches", () => {
     await expect(searchInput(page)).toHaveAttribute("aria-expanded", "true");
 
     // No "N results" claim for a list of previously-opened records.
-    const status = page.getByRole("status");
+    // Scoped to the search dialog: the page behind it can carry its own role="status" (a loading skeleton's "Loading client").
+    const status = page.getByRole("dialog", { name: "Search" }).getByRole("status");
     await expect(status).not.toHaveText(/result/i);
   });
 });

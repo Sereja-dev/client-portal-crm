@@ -174,10 +174,11 @@ test.describe("Design System Batch 7 — Shared uploads + simple Settings", () =
 
     await page.goto("/settings/domain");
     await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("dark");
-    const domainForm = page.locator("form").filter({ hasText: "Custom domain" });
-    await expect(domainForm).toBeVisible();
+    // Domain settings is a read-only "Generated subdomain" card (the custom-domain form no longer exists).
+    const domainCard = page.getByText("Generated subdomain").locator("xpath=..");
+    await expect(domainCard).toBeVisible();
     await expect
-      .poll(() => domainForm.evaluate((el) => getComputedStyle(el).backgroundColor))
+      .poll(() => domainCard.evaluate((el) => getComputedStyle(el).backgroundColor))
       .toBe("rgb(27, 31, 38)");
 
     await page.goto("/settings/payment");

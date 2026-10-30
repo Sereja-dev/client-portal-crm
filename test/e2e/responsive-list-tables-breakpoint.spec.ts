@@ -110,7 +110,9 @@ for (const path of SURFACES) {
         const tables = page.locator("table");
         const tableCount = await tables.count();
         expect(tableCount, `${path}: expected at least one <table> in the DOM`).toBeGreaterThan(0);
-        const cardLists = page.locator("ul");
+        // The mobile card list is RecordList's <ul class="… xl:hidden"> (src/components/ui/record-list.tsx).
+        // A bare `ul` also matches the sidebar's collapsed group menus, which are hidden at every width.
+        const cardLists = page.locator('ul[class~="xl:hidden"]');
 
         if (expectTableVisible) {
           for (let i = 0; i < tableCount; i++) {

@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { Role } from "@/generated/prisma/enums";
 import { getRunId, testEmail, testSlug } from "../support/run-id";
@@ -243,4 +243,81 @@ export async function cleanupTestData(fixtures: TestFixtures): Promise<void> {
   await prisma.user.deleteMany({
     where: { id: { in: [fixtures.owner.id, fixtures.admin.id, fixtures.member.id, fixtures.orgBOwner.id] } },
   });
+}
+
+/**
+ * Identity for ONE seeded graph in a shared-database run (the E2E suite).
+ *
+ * `seedTestData()` derives every email, slug and invoice number from its
+ * `runId`, and in CI that is the same GITHUB_RUN_ID for every spec file. So
+ * any row that outlives one file's cleanup — e.g. a User re-created by the
+ * app's own `getOrCreateUser()` upsert when a late request still carrying the
+ * test session reaches the server after `afterAll` deleted the users —
+ * collided with the NEXT file's seed (`Unique constraint failed on the
+ * fields: (email)`), and every later spec failed in `beforeAll`.
+ *
+ * A seed-unique prefix keeps the existing `-{runId}@{domain}` / `-{runId}`
+ * suffixes (so `cleanupTestRun(runId)` still matches everything) while making
+ * each graph's identities its own.
+ */
+export function newSeedRunId(baseRunId: string = getRunId()): string {
+  return `${randomBytes(4).toString("hex")}-${baseRunId}`;
+}
+
+export type SeededCleanupOptions = {
+  /** How long to let in-flight app requests land before verifying (default 300 ms; a late request was observed ~180 ms after deletion). */
+  settleMs?: number;
+  /** Delete/settle/verify rounds before giving up (default 5). */
+  maxSweeps?: number;
+  /** Test hook, called after each settle and before verification. */
+  onSettle?: (sweep: number) => Promise<void> | void;
+};
+
+function fixtureUserIds(fixtures: TestFixtures): string[] {
+  return [fixtures.owner.id, fixtures.admin.id, fixtures.member.id, fixtures.orgBOwner.id];
+}
+
+async function remainingFixtureRows(fixtures: TestFixtures): Promise<string[]> {
+  const [users, orgs, clients] = await Promise.all([
+    prisma.user.findMany({ where: { id: { in: fixtureUserIds(fixtures) } }, select: { email: true } }),
+    prisma.organization.findMany({ where: { id: { in: [fixtures.orgA.id, fixtures.orgB.id] } }, select: { slug: true } }),
+    prisma.client.findMany({ where: { id: { in: [fixtures.clientA.id, fixtures.clientB.id] } }, select: { name: true } }),
+  ]);
+  return [
+    ...users.map((u) => `user ${u.email}`),
+    ...orgs.map((o) => `organization ${o.slug}`),
+    ...clients.map((c) => `client ${c.name}`),
+  ];
+}
+
+/**
+ * Cleanup for a graph created with a seed-unique `runId` (see newSeedRunId).
+ * Convergent: deletes, lets in-flight requests land, verifies, and repeats —
+ * so a User re-created by a late request after the first delete is removed
+ * too. If the fixture graph itself is still present after the last round it
+ * throws, naming the rows, so a leak fails the spec that caused it instead of
+ * silently breaking whichever file runs next.
+ *
+ * Only identities carrying THIS graph's own seed-unique suffix are swept
+ * beyond the fixture ids (spec-created extras: best effort, errors ignored),
+ * so data belonging to other specs or runs is never touched.
+ */
+export async function cleanupSeededFixtures(fixtures: TestFixtures, options: SeededCleanupOptions = {}): Promise<void> {
+  const { settleMs = 300, maxSweeps = 5, onSettle } = options;
+  const seedScoped = fixtures.runId !== getRunId();
+  let remaining: string[] = [];
+  for (let sweep = 1; sweep <= maxSweeps; sweep += 1) {
+    await cleanupTestData(fixtures);
+    if (seedScoped) {
+      await prisma.organization.deleteMany({ where: { slug: { endsWith: `-${fixtures.runId}` } } }).catch(() => undefined);
+      await prisma.user.deleteMany({ where: { email: { endsWith: `-${fixtures.runId}@${TEST_EMAIL_DOMAIN}` } } }).catch(() => undefined);
+    }
+    await new Promise((resolve) => setTimeout(resolve, settleMs));
+    await onSettle?.(sweep);
+    remaining = await remainingFixtureRows(fixtures);
+    if (remaining.length === 0) return;
+  }
+  throw new Error(
+    `cleanupSeededFixtures: fixture rows for seed ${fixtures.runId} still present after ${maxSweeps} sweeps: ${remaining.join(", ")}`,
+  );
 }

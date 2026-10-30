@@ -608,15 +608,16 @@ test.describe("Leads Pipeline — MobileStageSwitcher empty-column guard (isolat
       await expect(page.getByText("Something went wrong")).toHaveCount(0);
       await expect(page.getByText("We couldn't load this page. Please try again.")).toHaveCount(0);
 
-      // The guarded fallback itself, scoped to the mobile switcher's own
-      // subtree (the desktop board, always in the DOM too, renders
-      // nothing at all for an empty columns array — no competing match).
-      await expect(mobileSwitcher(page).getByText("No leads", { exact: true })).toBeVisible();
+      // Since "Fix filtered empty Leads pipeline" (7d442bf), grandTotal === 0 with an
+      // active filter renders the page-level filtered empty state before
+      // LeadPipelineBoard (and so MobileStageSwitcher's own "No leads" guard)
+      // ever mounts. What this test still protects: a brand-new org with no LEAD
+      // status definitions and a filter renders a real, truthful empty state.
+      await expect(page.getByText("No leads match your filters")).toBeVisible();
 
-      // No fabricated stage: the guard's early return happens before the
-      // stage-switcher <nav aria-label="Pipeline stage"> is ever reached,
-      // so no nav — real or invented — renders at all.
-      await expect(mobileSwitcher(page).getByRole("navigation", { name: "Pipeline stage" })).toHaveCount(0);
+      // No fabricated stage: no stage-switcher <nav aria-label="Pipeline stage">
+      // — real or invented — renders anywhere.
+      await expect(page.getByRole("navigation", { name: "Pipeline stage" })).toHaveCount(0);
 
       expect(pageErrors, `unexpected uncaught page error(s): ${pageErrors.map((e) => e.message).join("; ")}`).toHaveLength(0);
     } finally {

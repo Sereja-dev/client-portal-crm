@@ -122,7 +122,14 @@ test("the AI Assistant section shows live status (TEST_MODE available, unconfigu
   // Never implies rate-limit telemetry or tenant/org-level monitoring
   // actually exist (a real count/value next to either term).
   expect(sectionText).not.toMatch(/rate.?limit(ed)? (saturation|events?|count)\s*[:=]?\s*\d/i);
-  expect(sectionText).not.toMatch(/per[- ]tenant|per[- ]organization|organizationId|userId/i);
+  // The page's own disclaimer legitimately says per-tenant monitoring is NOT implemented; exempt exactly that
+  // sentence, so any other mention (or a real tenant/org identifier) still fails.
+  const withoutDisclaimer = sectionText.replace(
+    /Tool-level failure breakdown and per-tenant monitoring are not implemented in this\s+V1\./i,
+    "",
+  );
+  expect(sectionText).toContain("per-tenant monitoring are not implemented");
+  expect(withoutDisclaimer).not.toMatch(/per[- ]tenant|per[- ]organization|organizationId|userId/i);
 
   // The section's own disclaimer legitimately explains that the AI
   // quality benchmark (scripts/ai-provider-eval/) is a separate,
