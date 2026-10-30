@@ -32,6 +32,7 @@
   ],
   "exclude": [
     "node_modules",
-    "scripts/ai-provider-eval"
+    "scripts/ai-provider-eval",
+    "client-portal-crm-*"
   ]
 }

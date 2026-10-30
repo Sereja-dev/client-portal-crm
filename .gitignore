@@ -49,4 +49,8 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+
+# Git worktrees created inside this checkout (see `git worktree list`) — each is
+# a full copy of the app; keep them out of Tailwind's source scan and `git status`.
+/client-portal-crm-*/
 .claude/

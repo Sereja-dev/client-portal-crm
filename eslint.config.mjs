@@ -15,6 +15,10 @@ const eslintConfig = defineConfig([
     "coverage/**",
     "playwright-report/**",
     "test-results/**",
+    // Sibling Git worktrees created inside this checkout (one full copy of
+    // the app each, including its own generated Prisma client) — not part
+    // of this checkout's source.
+    "client-portal-crm-*/**",
   ]),
 ]);
 
