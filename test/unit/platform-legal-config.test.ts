@@ -1,10 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-  EFFECTIVE_DATE_PENDING,
-  formatEffectiveLine,
-  getPlatformCopyrightLine,
-  getPlatformLegalConfig,
-} from "@/lib/legal/platform-config";
+import { getPlatformCopyrightLine, getPlatformLegalConfig } from "@/lib/legal/platform-config";
 
 const LEGAL_ENV_KEYS = [
   "PLATFORM_LEGAL_NAME",
@@ -47,20 +42,20 @@ describe("getPlatformLegalConfig", () => {
     expect(config.legalAddress).toBeNull();
     expect(config.supportEmail).toBeNull();
     expect(config.jurisdiction).toBe("the jurisdiction in which the Service operator is located");
-    // The revised Privacy/Terms are not yet published: no guessed date, and never the original August 9, 2026.
-    expect(config.privacyEffectiveDate).toBe(EFFECTIVE_DATE_PENDING);
-    expect(config.tosEffectiveDate).toBe(EFFECTIVE_DATE_PENDING);
+    // Product Owner approved dates: the revised Privacy/Terms are effective October 31, 2026 (never the original
+    // August 9, 2026); the Cookie Policy keeps the date it was first published.
+    expect(config.privacyEffectiveDate).toBe("October 31, 2026");
+    expect(config.tosEffectiveDate).toBe("October 31, 2026");
     expect(config.cookiePolicyEffectiveDate).toBe("October 27, 2026");
   });
 
-  it("an explicit publication date set for Privacy and Terms is used as-is", () => {
+  it("an environment override still takes precedence over the Privacy and Terms defaults, each independently", () => {
     process.env.PRIVACY_POLICY_EFFECTIVE_DATE = "November 4, 2026";
-    process.env.TOS_EFFECTIVE_DATE = "November 4, 2026";
 
     const config = getPlatformLegalConfig();
 
     expect(config.privacyEffectiveDate).toBe("November 4, 2026");
-    expect(config.tosEffectiveDate).toBe("November 4, 2026");
+    expect(config.tosEffectiveDate).toBe("October 31, 2026");
     expect(config.cookiePolicyEffectiveDate).toBe("October 27, 2026");
   });
 
@@ -149,16 +144,6 @@ describe("getPlatformLegalConfig", () => {
 
     expect(config.operatorDescription).toBe("Acme Legal Entity LLC");
     expect(config.brandDisclaimer).toBeNull();
-  });
-});
-
-describe("formatEffectiveLine", () => {
-  it("renders a real date as 'Effective <date>'", () => {
-    expect(formatEffectiveLine("October 27, 2026")).toBe("Effective October 27, 2026");
-  });
-
-  it("renders the pending marker as an explicit notice, never as a date and never as 'Effective <marker>'", () => {
-    expect(formatEffectiveLine(EFFECTIVE_DATE_PENDING)).toBe("Effective date: to be confirmed on publication");
   });
 });
 

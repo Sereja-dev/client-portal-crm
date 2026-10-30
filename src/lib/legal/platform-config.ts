@@ -89,35 +89,25 @@ const DEFAULT_OPERATOR_NAME = "Umerenko Sergei";
 // constant. Keep the two in step; a PLATFORM_LEGAL_NAME that names a DIFFERENT operator would contradict that site.
 
 /**
- * Effective dates, explicit and auditable. A revised policy is never backdated
- * and an unshipped revision is never presented as already effective.
+ * Effective dates, explicit and auditable. A revised policy is never backdated.
  *
  *   Privacy Policy   2026-08-09 initial · 2026-10-26 cookie disclosure ·
- *                    revision with the individual-operator identity: NOT YET
- *                    PUBLISHED, so its date is PENDING (see below)
- *   Terms of Service 2026-08-09 initial · revision with the individual-operator
- *                    identity and free-beta wording: NOT YET PUBLISHED, so its
- *                    date is PENDING (see below)
+ *                    2026-10-31 revision with the individual-operator identity
+ *                    (Product Owner approved this publication date)
+ *   Terms of Service 2026-08-09 initial · 2026-10-31 revision with the
+ *                    individual-operator identity and free-beta wording
+ *                    (Product Owner approved this publication date)
  *   Cookie Policy    2026-10-27 first published (operator wording aligned
  *                    later; substance unchanged, so the date is kept)
  *
- * The Privacy and Terms defaults are deliberately the pending marker, not a
- * guessed date: until a real publication date is set the pages say
- * "Effective date: to be confirmed on publication". At publication, set the
- * real date — either as the two constants below in the same reviewed change
- * that ships the wording (auditable in git), or via PRIVACY_POLICY_EFFECTIVE_DATE
- * / TOS_EFFECTIVE_DATE (each overrides its constant). Never use the date of an
- * earlier revision.
+ * Each can be overridden per deployment (PRIVACY_POLICY_EFFECTIVE_DATE,
+ * TOS_EFFECTIVE_DATE, COOKIE_POLICY_EFFECTIVE_DATE); an override takes
+ * precedence over the constant. A future revision gets its own new date here,
+ * in the same reviewed change that ships its wording — never an earlier date.
  */
-export const EFFECTIVE_DATE_PENDING = "to be confirmed on publication";
-const PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE = EFFECTIVE_DATE_PENDING;
-const TOS_DEFAULT_EFFECTIVE_DATE = EFFECTIVE_DATE_PENDING;
+const PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE = "October 31, 2026";
+const TOS_DEFAULT_EFFECTIVE_DATE = "October 31, 2026";
 const COOKIE_POLICY_DEFAULT_EFFECTIVE_DATE = "October 27, 2026";
-
-/** The line under a legal page's title: "Effective <date>", or an explicit pending notice — never a guessed date. */
-export function formatEffectiveLine(effectiveDate: string): string {
-  return effectiveDate === EFFECTIVE_DATE_PENDING ? `Effective date: ${EFFECTIVE_DATE_PENDING}` : `Effective ${effectiveDate}`;
-}
 
 // The one email-shape check this module uses — shared by extractEmailAddress
 // below and getTransactionalReplyToEmail, so a malformed PLATFORM_REPLY_TO_EMAIL

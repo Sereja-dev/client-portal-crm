@@ -72,28 +72,34 @@ describe("Terms and Privacy stay truthful about payments during the free beta", 
   });
 });
 
-describe("effective dates are explicit, never backdated, and never claim an unshipped revision", () => {
-  it("Privacy and Terms default to the pending marker; only the already-published Cookie Policy keeps a real date", () => {
-    expect(CONFIG).toMatch(/PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE = EFFECTIVE_DATE_PENDING/);
-    expect(CONFIG).toMatch(/TOS_DEFAULT_EFFECTIVE_DATE = EFFECTIVE_DATE_PENDING/);
+describe("effective dates are the Product Owner's approved dates, explicit and never backdated", () => {
+  it("Privacy and Terms default to October 31, 2026; the Cookie Policy keeps October 27, 2026", () => {
+    expect(CONFIG).toMatch(/PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE = "October 31, 2026"/);
+    expect(CONFIG).toMatch(/TOS_DEFAULT_EFFECTIVE_DATE = "October 31, 2026"/);
     expect(CONFIG).toMatch(/COOKIE_POLICY_DEFAULT_EFFECTIVE_DATE = "October 27, 2026"/);
   });
 
-  it("no guessed publication date for the revised Privacy/Terms is hardcoded, and the original date is not reused", () => {
-    expect(CONFIG).not.toMatch(/(PRIVACY_POLICY|TOS)_DEFAULT_EFFECTIVE_DATE = "/);
-    expect(CONFIG).not.toMatch(/October 30, 2026/);
+  it("no pending-publication marker or placeholder remains anywhere in the shipped legal code", () => {
+    const shipped = Object.values(PAGES).join("\n") + CONFIG;
+    expect(shipped).not.toMatch(/to be confirmed on publication/i);
+    expect(shipped).not.toMatch(/EFFECTIVE_DATE_PENDING|formatEffectiveLine/);
   });
 
-  it("documents the revision history and the publication procedure next to the constants", () => {
+  it("the original August 9, 2026 date is only history, never a default", () => {
+    expect(CONFIG).not.toMatch(/(PRIVACY_POLICY|TOS)_DEFAULT_EFFECTIVE_DATE = "August/);
     expect(CONFIG).toMatch(/2026-08-09 initial/);
     expect(CONFIG).toMatch(/never backdated/);
-    expect(CONFIG).toMatch(/PRIVACY_POLICY_EFFECTIVE_DATE\s*\*?\s*\/ TOS_EFFECTIVE_DATE/);
   });
 
-  for (const [name, source] of Object.entries(PAGES)) {
-    it(`/${name} renders its date through formatEffectiveLine, never a bare "Effective {raw}"`, () => {
-      expect(source).toMatch(/formatEffectiveLine\(config\.\w+EffectiveDate\)/);
-      expect(source).not.toMatch(/Effective \{config\./);
+  it("environment overrides keep their precedence over the defaults", () => {
+    expect(CONFIG).toMatch(/privacyEffectiveDate: trimmedEnv\("PRIVACY_POLICY_EFFECTIVE_DATE"\) \?\? PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE/);
+    expect(CONFIG).toMatch(/tosEffectiveDate: trimmedEnv\("TOS_EFFECTIVE_DATE"\) \?\? TOS_DEFAULT_EFFECTIVE_DATE/);
+    expect(CONFIG).toMatch(/cookiePolicyEffectiveDate: trimmedEnv\("COOKIE_POLICY_EFFECTIVE_DATE"\) \?\? COOKIE_POLICY_DEFAULT_EFFECTIVE_DATE/);
+  });
+
+  for (const [name, field] of [["privacy", "privacyEffectiveDate"], ["terms", "tosEffectiveDate"], ["cookies", "cookiePolicyEffectiveDate"]] as const) {
+    it(`/${name} renders "Effective {config.${field}}" straight from the shared config`, () => {
+      expect(PAGES[name]).toContain(`Effective {config.${field}}`);
     });
   }
 });
