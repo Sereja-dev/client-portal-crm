@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { siteConfig } from "@/config/site";
-import { getPlatformLegalConfig } from "@/lib/legal/platform-config";
+import { getPlatformCopyrightLine } from "@/lib/legal/platform-config";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { AqenraMarkIcon } from "@/components/ui/icons";
 import { SupportWidget } from "@/components/support-widget/support-widget";
@@ -60,7 +60,6 @@ export function AuthShell({
   showSupportWidget?: boolean;
   children: ReactNode;
 }) {
-  const legalConfig = getPlatformLegalConfig();
   const year = new Date().getFullYear();
 
   return (
@@ -102,9 +101,7 @@ export function AuthShell({
       */}
       <footer className="auth-shell-footer border-border-subtle relative z-10 border-t px-4 py-4 sm:px-8">
         <div className="text-text-muted mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 text-xs">
-          <p>
-            © {year} {legalConfig.legalName}
-          </p>
+          <p>{getPlatformCopyrightLine(year)}</p>
           <nav className="flex gap-4">
             <Link href="/privacy" className={FOOTER_LINK_CLASSES}>
               Privacy Policy

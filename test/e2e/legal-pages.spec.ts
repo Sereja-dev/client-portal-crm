@@ -29,6 +29,65 @@ test.describe("Privacy Policy and Terms of Service pages", () => {
 });
 
 // Privacy & Cookie Policy Improvement, Slice 2.
+test.describe("Operator identity (Public Beta legal alignment)", () => {
+  // The brand name inside these sentences is the deployment's configured brand (the E2E server sets PLATFORM_NAME);
+  // the operator and the "not a registered company" clause are fixed.
+  const OPERATOR = /Umerenko Sergei, an individual, under the .+ brand/;
+  const NOT_A_COMPANY = /is a product name, not a registered company\./;
+
+  for (const route of ["/privacy", "/terms"]) {
+    test(`${route} names the individual operator and states that Aqenra is not a registered company`, async ({ page }) => {
+      await page.goto(route);
+      const main = page.getByRole("main");
+      await expect(main).toContainText(OPERATOR);
+      await expect(main).toContainText(NOT_A_COMPANY);
+    });
+  }
+
+  test("/cookies names the same operator", async ({ page }) => {
+    await page.goto("/cookies");
+    await expect(page.getByRole("main")).toContainText(OPERATOR);
+  });
+
+  test("no legal page presents Aqenra as a company, or states an address, tax id or governing-law jurisdiction", async ({ page }) => {
+    for (const route of ["/privacy", "/terms", "/cookies"]) {
+      await page.goto(route);
+      const text = await page.getByRole("main").innerText();
+      expect(text, `${route}: company-form wording`).not.toMatch(/\b(Inc\.?|LLC|Ltd\.?|GmbH|Corporation|incorporated)\b/i);
+      expect(text, `${route}: registered address`).not.toMatch(/registered (office|address)/i);
+      expect(text, `${route}: tax / registration id`).not.toMatch(/\b(VAT|EIN)\b/);
+    }
+    await page.goto("/terms");
+    await expect(page.getByRole("main")).toContainText("the jurisdiction in which the Service operator is located");
+  });
+
+  test("Terms describe the free public beta, with no live billing", async ({ page }) => {
+    await page.goto("/terms");
+    await expect(page.getByRole("main")).toContainText("currently offered free of charge as a public beta");
+  });
+
+  test("the global footer and the pre-auth footer identify the operator", async ({ page }) => {
+    await page.goto("/privacy");
+    await expect(page.locator("footer").filter({ hasText: "Operated by Umerenko Sergei" }).first()).toBeVisible();
+    await page.goto("/login");
+    // The brand text before "Operated by" is deployment-configurable (the E2E server sets PLATFORM_NAME); the operator is not.
+    await expect(page.locator("footer.auth-shell-footer")).toContainText(`© ${new Date().getFullYear()}`);
+    await expect(page.locator("footer.auth-shell-footer")).toContainText("Operated by Umerenko Sergei");
+  });
+
+  test("legal pages are public: no redirect to login, and the footer identity is readable at 320px", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 640 });
+    for (const route of ["/privacy", "/terms", "/cookies"]) {
+      const response = await page.goto(route);
+      expect(response?.status()).toBe(200);
+      await expect(page).toHaveURL(new RegExp(`${route}$`));
+    }
+    await expect(page.locator("footer").filter({ hasText: "Operated by Umerenko Sergei" }).first()).toBeVisible();
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(overflow).toBeLessThanOrEqual(0);
+  });
+});
+
 test.describe("Cookie Policy page", () => {
   test("/cookies renders with a heading and its own effective date", async ({ page }) => {
     await page.goto("/cookies");

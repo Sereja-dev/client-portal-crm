@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getPlatformLegalConfig } from "@/lib/legal/platform-config";
+import { getPlatformCopyrightLine } from "@/lib/legal/platform-config";
 
 const LINK_CLASSES =
   "focus-visible:ring-focus-ring hover:text-text-primary rounded hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
@@ -31,15 +31,12 @@ const LINK_CLASSES =
  * own self-contained dark Privacy/Terms footer in its place.
  */
 export function Footer() {
-  const config = getPlatformLegalConfig();
   const year = new Date().getFullYear();
 
   return (
     <footer className="border-border-default bg-surface border-t">
       <div className="text-text-muted mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-4 text-xs sm:px-6">
-        <p>
-          © {year} {config.legalName}
-        </p>
+        <p>{getPlatformCopyrightLine(year)}</p>
         <nav className="flex gap-4">
           <Link href="/privacy" className={LINK_CLASSES}>
             Privacy Policy

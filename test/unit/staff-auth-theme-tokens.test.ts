@@ -133,11 +133,11 @@ describe("Pre-Auth Redesign Slice A — fixed-dark shell theme-token migration",
       expect(AUTH_SHELL).toMatch(/<footer className="auth-shell-footer/);
     });
 
-    it("reuses getPlatformLegalConfig() (the same source the global Footer already used) rather than inventing new legal copy", () => {
+    it("reuses getPlatformCopyrightLine() (the same source the global Footer uses) rather than inventing new legal copy", () => {
       expect(AUTH_SHELL).toMatch(
-        /import\s*\{\s*getPlatformLegalConfig\s*\}\s*from\s*"@\/lib\/legal\/platform-config"/,
+        /import\s*\{\s*getPlatformCopyrightLine\s*\}\s*from\s*"@\/lib\/legal\/platform-config"/,
       );
-      expect(AUTH_SHELL).toMatch(/legalConfig\.legalName/);
+      expect(AUTH_SHELL).toMatch(/getPlatformCopyrightLine\(year\)/);
     });
 
     it("renders Privacy Policy / Terms of Service links", () => {

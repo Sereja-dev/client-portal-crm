@@ -121,8 +121,8 @@ export default function CookiePolicyPage() {
         <section>
           <h2 className="text-lg font-semibold text-text-primary">1. What this policy covers</h2>
           <p className="mt-3">
-            This Cookie Policy explains the cookies and browser-local storage {config.legalName} uses on{" "}
-            {siteConfig.name} (the &ldquo;Service&rdquo;). It supplements, and should be read alongside, our{" "}
+            This Cookie Policy explains the cookies and browser-local storage used on {siteConfig.name} (the
+            &ldquo;Service&rdquo;), which is operated by {config.operatorDescription}. It supplements, and should be read alongside, our{" "}
             <a
               href="/privacy"
               className="rounded font-medium text-text-primary hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
