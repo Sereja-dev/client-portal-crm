@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext } from "@playwright/test";
+import { test, expect, type BrowserContext, type Page } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 
@@ -18,6 +18,24 @@ import { injectTestSession } from "../support/e2e-session";
  * backend correctly and renders it truthfully. Mirrors contracts.spec.ts's
  * own exact fixture/session conventions.
  */
+
+/**
+ * Contracts routes sit under contracts/loading.tsx (Suspense boundary), so the response is already streaming
+ * with HTTP 200 by the time notFound() runs: the rendered not-found page (plus its robots noindex meta) is the
+ * real "does not exist" signal on these routes, not the status code (routes without a loading boundary, e.g.
+ * /leads/[id], do return a true 404). What must hold is that it is a not-found page, never a server error, and
+ * that nothing about a foreign record is anywhere in the response. Returns the visible page text.
+ */
+async function expectStaffNotFound(page: Page, path: string, forbidden: string[] = []): Promise<string> {
+  const response = await page.goto(path);
+  expect([200, 404]).toContain(response?.status());
+  await expect(page.getByText("Page not found")).toBeVisible();
+  const html = (await response?.text()) ?? "";
+  // Checked on the raw HTML: Next streams its metadata and may relocate the tag in the live DOM.
+  expect(html).toMatch(/<meta[^>]+name="robots"[^>]+noindex/i);
+  for (const text of forbidden) expect(html).not.toContain(text);
+  return page.locator("body").innerText();
+}
 
 let fixtures: TestFixtures;
 
@@ -239,7 +257,7 @@ test.describe("Contract Preview (Documents Slice C)", () => {
   });
 
   test.describe("tenant isolation", () => {
-    test("a foreign-org Contract's preview URL 404s, indistinguishable from a nonexistent one", async ({ page }) => {
+    test("a foreign-org Contract's preview URL renders not-found, indistinguishable from a nonexistent one, with no foreign data", async ({ page }) => {
       const foreign = await dbQuery<{ id: string }>("contract", "create", {
         data: {
           contractNumber: uniqueNumber("C-ORGB"),
@@ -253,19 +271,25 @@ test.describe("Contract Preview (Documents Slice C)", () => {
         },
       });
 
-      const response = await page.goto(`/contracts/${foreign.id}/preview`);
-      expect(response?.status()).toBe(404);
+      const foreignText = await expectStaffNotFound(page, `/contracts/${foreign.id}/preview`, [
+        "Org B Secret Contract",
+        "Body.",
+        fixtures.clientB.name,
+      ]);
       await expect(page.getByText("Org B Secret Contract")).toHaveCount(0);
+
+      // Indistinguishable from a well-formed id that never existed.
+      const missingId = "00000000-0000-0000-0000-000000000000";
+      const missingText = await expectStaffNotFound(page, `/contracts/${missingId}/preview`);
+      expect(foreignText).toBe(missingText);
     });
 
-    test("a nonexistent (well-formed) id 404s", async ({ page }) => {
-      const response = await page.goto(`/contracts/00000000-0000-0000-0000-000000000000/preview`);
-      expect(response?.status()).toBe(404);
+    test("a nonexistent (well-formed) id renders not-found", async ({ page }) => {
+      await expectStaffNotFound(page, `/contracts/00000000-0000-0000-0000-000000000000/preview`);
     });
 
-    test("a malformed (non-UUID) id 404s, never a server error boundary", async ({ page }) => {
-      const response = await page.goto(`/contracts/not-a-real-uuid/preview`);
-      expect(response?.status()).toBe(404);
+    test("a malformed (non-UUID) id renders not-found, never a server error boundary", async ({ page }) => {
+      await expectStaffNotFound(page, `/contracts/not-a-real-uuid/preview`);
     });
 
     test("a Portal identity is redirected to /portal before ever reaching the Staff preview route", async ({ context, baseURL, page }) => {

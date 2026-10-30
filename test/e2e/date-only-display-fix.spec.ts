@@ -103,7 +103,8 @@ test.describe("Task.dueDate — no calendar-day drift", () => {
   test("Task list (table) shows the correct calendar day", async ({ page }) => {
     await page.goto("/tasks");
     const row = page.getByRole("row", { name: /Date Drift Fixture Task/ });
-    await expect(row.getByText(expectedText(PAST_DATE_ONLY), { exact: true })).toBeVisible();
+    // The due cell reads "<date> · Overdue" for a past due date, so match the date within it (not the whole cell text).
+    await expect(row).toContainText(expectedText(PAST_DATE_ONLY));
   });
 
   test("a null dueDate still renders the existing empty-state dash on the Task list", async ({ page }) => {

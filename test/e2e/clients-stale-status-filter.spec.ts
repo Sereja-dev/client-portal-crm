@@ -105,7 +105,9 @@ test.describe("Clients stale custom-status filter hardening", () => {
     await page.goto(`/clients?status=${STALE_KEY}`);
 
     await expect(page).toHaveURL(new RegExp(`status=${STALE_KEY}`));
-    const statusSelect = page.getByLabel("Status");
+    // exact: row-action buttons are labelled "More actions for client <name>" and this spec's client names contain "Status",
+    // so a substring label match also resolves to those buttons (strict-mode violation).
+    const statusSelect = page.getByLabel("Status", { exact: true });
     await expect(statusSelect).toHaveValue(STALE_KEY);
     await expect(statusSelect.locator("option", { hasText: "Unavailable status" })).toHaveCount(1);
     await expect(page.getByText("No matching clients")).toBeVisible();
@@ -124,12 +126,12 @@ test.describe("Clients stale custom-status filter hardening", () => {
     await page.goto(`/clients?status=${STALE_KEY}`);
     await page.locator("form").getByRole("button", { name: "Search" }).click();
     await expect(page).toHaveURL(new RegExp(`status=${STALE_KEY}`));
-    await expect(page.getByLabel("Status")).toHaveValue(STALE_KEY);
+    await expect(page.getByLabel("Status", { exact: true })).toHaveValue(STALE_KEY);
     await expect(page.getByText("No matching clients")).toBeVisible();
 
-    await page.getByLabel("Status").selectOption("");
+    await page.getByLabel("Status", { exact: true }).selectOption("");
     await page.locator("form").getByRole("button", { name: "Search" }).click();
-    await expect(page.getByLabel("Status")).toHaveValue("");
+    await expect(page.getByLabel("Status", { exact: true })).toHaveValue("");
     await expect(page.getByRole("link", { name: ordinary.name })).toBeVisible();
   });
 
@@ -139,8 +141,8 @@ test.describe("Clients stale custom-status filter hardening", () => {
     await page.getByLabel("Sort by").selectOption("name:asc");
     await expect(page).toHaveURL(new RegExp(`status=${STALE_KEY}`));
     await expect(page).toHaveURL(/sort=name/);
-    await expect(page.getByLabel("Status")).toHaveValue(STALE_KEY);
-    await expect(page.getByLabel("Status").locator("option", { hasText: "Unavailable status" })).toHaveCount(1);
+    await expect(page.getByLabel("Status", { exact: true })).toHaveValue(STALE_KEY);
+    await expect(page.getByLabel("Status", { exact: true }).locator("option", { hasText: "Unavailable status" })).toHaveCount(1);
   });
 
   test("Clear removes the stale status filter entirely and normal results return", async ({ page }) => {
@@ -149,8 +151,8 @@ test.describe("Clients stale custom-status filter hardening", () => {
     await page.goto(`/clients?status=${STALE_KEY}`);
     await page.getByRole("link", { name: "Clear filters" }).click();
     await expect(page).not.toHaveURL(/status=/);
-    await expect(page.getByLabel("Status")).toHaveValue("");
-    await expect(page.getByLabel("Status").locator("option", { hasText: "Unavailable status" })).toHaveCount(0);
+    await expect(page.getByLabel("Status", { exact: true })).toHaveValue("");
+    await expect(page.getByLabel("Status", { exact: true }).locator("option", { hasText: "Unavailable status" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: ordinary.name })).toBeVisible();
   });
 
@@ -165,7 +167,7 @@ test.describe("Clients stale custom-status filter hardening", () => {
     const activeClient = await seedClient({ statusDefinitionId: definition.id });
 
     await page.goto(`/clients?status=active`);
-    const statusSelect = page.getByLabel("Status");
+    const statusSelect = page.getByLabel("Status", { exact: true });
     await expect(statusSelect).toHaveValue("active");
     await expect(statusSelect.locator("option", { hasText: "Unavailable status" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: activeClient.name })).toBeVisible();
@@ -180,7 +182,7 @@ test.describe("Clients stale custom-status filter hardening", () => {
     const taggedClient = await seedClient({ statusDefinitionId: definition.id });
 
     await page.goto(`/clients?status=${definition.key}`);
-    const statusSelect = page.getByLabel("Status");
+    const statusSelect = page.getByLabel("Status", { exact: true });
     await expect(statusSelect).toHaveValue(definition.key);
     await expect(statusSelect.locator("option", { hasText: "Unavailable status" })).toHaveCount(0);
     await expect(statusSelect.locator("option", { hasText: "Archived E2E Status (archived)" })).toHaveCount(1);
@@ -191,8 +193,8 @@ test.describe("Clients stale custom-status filter hardening", () => {
     await page.setViewportSize({ width: 390, height: 900 });
     await page.goto(`/clients?status=${STALE_KEY}`);
 
-    await expect(page.getByLabel("Status")).toHaveValue(STALE_KEY);
-    await expect(page.getByLabel("Status").locator("option", { hasText: "Unavailable status" })).toHaveCount(1);
+    await expect(page.getByLabel("Status", { exact: true })).toHaveValue(STALE_KEY);
+    await expect(page.getByLabel("Status", { exact: true }).locator("option", { hasText: "Unavailable status" })).toHaveCount(1);
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
     expect(overflow).toBe(false);
   });

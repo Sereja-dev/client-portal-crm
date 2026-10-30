@@ -246,7 +246,8 @@ test.describe("OWNER can create first entities from the empty-state CTA", () => 
       ]);
       await expect(page).toHaveURL(/\/clients(\?|$)/);
       await expect(page.getByText("No clients yet")).toHaveCount(0);
-      await expect(page.getByRole("cell", { name: "First Value Client" })).toBeVisible();
+      // exact: the row-action cell is named "Edit More actions for client First Value Client", which also contains this text.
+      await expect(page.getByRole("cell", { name: "First Value Client", exact: true })).toBeVisible();
 
       // Project.
       await gotoAndSettle(page, `${baseURL}/projects`);
@@ -258,9 +259,12 @@ test.describe("OWNER can create first entities from the empty-state CTA", () => 
         page.waitForResponse((r) => r.url().includes("/projects/new") && r.request().method() === "POST"),
         page.getByRole("button", { name: "Create project" }).click(),
       ]);
-      await expect(page).toHaveURL(/\/projects(\?|$)/);
+      // Creating a Project lands on its Project Hub (/projects/<id>); the list is a separate page.
+      await expect(page).toHaveURL(/\/projects\/[^/?]+(\?|$)/);
+      await expect(page).not.toHaveURL(/\/projects\/new/);
+      await gotoAndSettle(page, `${baseURL}/projects`);
       await expect(page.getByText("No projects yet")).toHaveCount(0);
-      await expect(page.getByRole("cell", { name: "First Value Project" })).toBeVisible();
+      await expect(page.getByRole("cell", { name: "First Value Project", exact: true })).toBeVisible();
 
       // Task.
       await gotoAndSettle(page, `${baseURL}/tasks`);
@@ -274,7 +278,7 @@ test.describe("OWNER can create first entities from the empty-state CTA", () => 
       ]);
       await expect(page).toHaveURL(/\/tasks(\?|$)/);
       await expect(page.getByText("No tasks yet")).toHaveCount(0);
-      await expect(page.getByRole("cell", { name: "First Value Task" })).toBeVisible();
+      await expect(page.getByRole("cell", { name: "First Value Task", exact: true })).toBeVisible();
     } finally {
       await dbQuery("task", "deleteMany", { where: { organizationId: fresh.org.id } });
       await dbQuery("project", "deleteMany", { where: { organizationId: fresh.org.id } });
@@ -314,7 +318,7 @@ test.describe("Permissions unchanged", () => {
         page.getByRole("button", { name: "Create client" }).click(),
       ]);
       await expect(page).toHaveURL(/\/clients(\?|$)/);
-      await expect(page.getByRole("cell", { name: "Member Created Client" })).toBeVisible();
+      await expect(page.getByRole("cell", { name: "Member Created Client", exact: true })).toBeVisible();
     } finally {
       await dbQuery("client", "deleteMany", { where: { organizationId: fresh.org.id } });
       await dbQuery("user", "delete", { where: { id: member.id } });

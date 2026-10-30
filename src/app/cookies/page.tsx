@@ -152,25 +152,27 @@ export default function CookiePolicyPage() {
             any cookie or browser-storage technology beyond what is listed here.
           </p>
           <div className="mt-4 overflow-x-auto rounded-lg border border-border-default">
+            {/* px-2.5 (not px-3): at 1280px this table's natural width was within a pixel of its wrapper, so slightly wider
+                text rendering (e.g. Linux Chromium, ~2%) pushed it into local horizontal scroll. */}
             <table className="w-full min-w-[640px] border-collapse text-left text-xs sm:text-sm">
               <thead>
                 <tr className="border-b border-border-default bg-surface">
-                  <th scope="col" className="px-3 py-2 font-semibold text-text-primary">
+                  <th scope="col" className="px-2.5 py-2 font-semibold text-text-primary">
                     Name
                   </th>
-                  <th scope="col" className="px-3 py-2 font-semibold text-text-primary">
+                  <th scope="col" className="px-2.5 py-2 font-semibold text-text-primary">
                     Type
                   </th>
-                  <th scope="col" className="px-3 py-2 font-semibold text-text-primary">
+                  <th scope="col" className="px-2.5 py-2 font-semibold text-text-primary">
                     Purpose
                   </th>
-                  <th scope="col" className="px-3 py-2 font-semibold text-text-primary">
+                  <th scope="col" className="px-2.5 py-2 font-semibold text-text-primary">
                     Set by
                   </th>
-                  <th scope="col" className="px-3 py-2 font-semibold text-text-primary">
+                  <th scope="col" className="px-2.5 py-2 font-semibold text-text-primary">
                     Retention
                   </th>
-                  <th scope="col" className="px-3 py-2 font-semibold text-text-primary">
+                  <th scope="col" className="px-2.5 py-2 font-semibold text-text-primary">
                     Your controls
                   </th>
                 </tr>
@@ -178,12 +180,12 @@ export default function CookiePolicyPage() {
               <tbody>
                 {STORAGE_ROWS.map((row) => (
                   <tr key={row.name} className="border-b border-border-default last:border-b-0">
-                    <td className="px-3 py-2 font-medium text-text-primary">{row.name}</td>
-                    <td className="px-3 py-2">{row.type}</td>
-                    <td className="px-3 py-2">{row.purpose}</td>
-                    <td className="px-3 py-2">{row.setBy}</td>
-                    <td className="px-3 py-2">{row.retention}</td>
-                    <td className="px-3 py-2">{row.control}</td>
+                    <td className="px-2.5 py-2 font-medium text-text-primary">{row.name}</td>
+                    <td className="px-2.5 py-2">{row.type}</td>
+                    <td className="px-2.5 py-2">{row.purpose}</td>
+                    <td className="px-2.5 py-2">{row.setBy}</td>
+                    <td className="px-2.5 py-2">{row.retention}</td>
+                    <td className="px-2.5 py-2">{row.control}</td>
                   </tr>
                 ))}
               </tbody>

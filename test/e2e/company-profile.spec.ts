@@ -295,6 +295,16 @@ test.describe("Company Profile — timezone persistence diagnostic", () => {
       // A real, existing validation rule, not invented for this test.
       await page.getByLabel("Brand color").fill("not-a-color");
 
+      // A validation failure returns almost immediately, so on a fast server the pending
+      // window is only a few milliseconds. Hold the POST briefly so "disabled while pending"
+      // is observed deterministically instead of racing the response.
+      const holdPost = async (route: import("@playwright/test").Route) => {
+        if (route.request().method() !== "POST") return route.fallback();
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        return route.continue();
+      };
+      await page.route((url) => url.pathname === COMPANY_PROFILE_PATH, holdPost);
+
       const responsePromise = page.waitForResponse(
         (r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST",
       );
@@ -302,6 +312,7 @@ test.describe("Company Profile — timezone persistence diagnostic", () => {
       await expect(field).toBeDisabled();
 
       await responsePromise;
+      await page.unroute((url) => url.pathname === COMPANY_PROFILE_PATH, holdPost);
       await expect(page.getByText("Enter a color as #RRGGBB.")).toBeVisible();
 
       // The submitted (valid) value survives the unrelated field's own

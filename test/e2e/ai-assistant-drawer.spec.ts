@@ -1,5 +1,5 @@
 import { test, expect, type BrowserContext, type Page } from "@playwright/test";
-import { seedE2EFixtures, cleanupTestData, type TestFixtures } from "./fixtures";
+import { seedE2EFixtures, cleanupTestData, expectNoHorizontalPageOverflow, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 
 /**
@@ -276,8 +276,7 @@ test.describe("320px viewport", () => {
     await page.goto("/dashboard");
     await openPanel(page);
 
-    const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
-    expect(hasHorizontalOverflow).toBe(false);
+    await expectNoHorizontalPageOverflow(page);
 
     await expect(panel(page).getByRole("button", { name: "Close AI Assistant" })).toBeVisible();
     await expect(composer(page)).toBeVisible();
@@ -297,8 +296,7 @@ test.describe("320px viewport", () => {
     await composer(page).press("Enter");
     await expect(panel(page).getByText(longAnswer.trim().slice(0, 40), { exact: false })).toBeVisible();
 
-    const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
-    expect(hasHorizontalOverflow).toBe(false);
+    await expectNoHorizontalPageOverflow(page);
     await page.unroute("**/api/ai/assistant");
   });
 });

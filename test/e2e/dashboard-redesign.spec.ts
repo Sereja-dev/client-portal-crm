@@ -157,6 +157,39 @@ test.describe("Dashboard Redesign", () => {
       await expectNoOverflow(page);
     });
 
+    // Page-level scrollWidth checks pass or fail on a few pixels of font-metric slack (CI's Linux text is wider than
+    // macOS's, which is what let the 320px overflow slip through locally). This checks the structural invariant
+    // instead: nothing inside a KPI card may extend past that card's own edge.
+    for (const width of [320, 390, 1280]) {
+      test(`${width}px: every KPI card's content stays inside its own card`, async ({ page }) => {
+        await page.setViewportSize({ width, height: 900 });
+        await gotoDashboard(page);
+        const labels = ["Clients", "Active projects", "Open tasks", "Outstanding invoices", "Revenue"];
+        const outside = await page.evaluate((names) => {
+          const problems: string[] = [];
+          for (const name of names) {
+            const label = [...document.querySelectorAll("main p")].find((p) => p.textContent?.trim() === name);
+            const card = label?.closest("a");
+            if (!label || !card) {
+              problems.push(`${name}: card not found`);
+              continue;
+            }
+            const cardRight = card.getBoundingClientRect().right;
+            for (const el of card.querySelectorAll("*")) {
+              const right = el.getBoundingClientRect().right;
+              if (right > cardRight + 0.5) problems.push(`${name}: <${el.tagName.toLowerCase()}> extends ${Math.round(right - cardRight)}px past its card`);
+            }
+            const range = document.createRange();
+            range.selectNodeContents(label);
+            const textRight = Math.max(...[...range.getClientRects()].map((r) => r.right));
+            if (textRight > cardRight + 0.5) problems.push(`${name}: label text extends ${Math.round(textRight - cardRight)}px past its card`);
+          }
+          return problems;
+        }, labels);
+        expect(outside).toEqual([]);
+      });
+    }
+
     test("834px: KPI grid and Needs Attention/Today stack usably, no overflow", async ({ page }) => {
       await page.setViewportSize({ width: 834, height: 1100 });
       await gotoDashboard(page);

@@ -44,7 +44,9 @@ test("a suspended organization's staff (OWNER) is redirected to /organization-un
   await page.goto("/dashboard");
   await expect(page).toHaveURL(/\/organization-unavailable$/);
   await expect(page.getByRole("heading", { name: "Workspace unavailable" })).toBeVisible();
-  await expect(page.getByText("This workspace is currently unavailable. Contact support.")).toBeVisible();
+  // "Contact support." is plain text, or "Contact support at <mailto link>." when a platform support address is
+  // configured (Support Email UX Cleanup) — the same fixed, organization-agnostic sentence either way.
+  await expect(page.getByText(/This workspace is currently unavailable\. Contact support/)).toBeVisible();
 });
 
 test("a suspended organization's staff (MEMBER) is redirected too — not role-specific", async ({ context, baseURL }) => {
@@ -78,7 +80,11 @@ test("the unavailable page discloses no reason, timestamp, actor email, organiza
   // and is out of scope for this assertion.
   const main = page.getByRole("main");
   await expect(main.getByRole("button")).toHaveCount(0);
-  await expect(main.getByRole("link")).toHaveCount(0);
+  // The only link allowed is the generic, organization-agnostic support mailto: (Support Email UX Cleanup);
+  // never a navigation link to anything about this workspace.
+  const hrefs = await main.getByRole("link").evaluateAll((links) => links.map((link) => link.getAttribute("href") ?? ""));
+  expect(hrefs.length).toBeLessThanOrEqual(1);
+  for (const href of hrefs) expect(href).toMatch(/^mailto:/);
   await expect(main.locator("form")).toHaveCount(0);
 });
 
