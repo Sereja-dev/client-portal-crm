@@ -99,7 +99,7 @@ export default async function DashboardPage() {
       <OnboardingCard progress={onboardingProgress} isDismissed={isOnboardingDismissed} />
       <StartWithSampleData eligible={sampleDataEligible} />
 
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-4 min-[360px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
         <MetricCard label="Clients" value={analytics.kpis.totalClients} href="/clients" icon={ClientsIcon} />
         <MetricCard label="Active projects" value={analytics.kpis.activeProjects} href="/projects" icon={WorkIcon} />
         <MetricCard label="Open tasks" value={analytics.kpis.openTasks} href="/tasks" icon={CheckIcon} />
