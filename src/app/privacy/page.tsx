@@ -74,6 +74,15 @@ export default function PrivacyPolicyPage() {
               respond to your request. These messages are sent using the same email provider named in Section 4.
             </li>
             <li>
+              <strong className="text-text-primary">Feedback from inside the app.</strong> If you contact support or
+              report a bug from the feedback button while signed in, we collect what you write, your account name and
+              email address, your role, and your workspace name. For a bug report we also collect the path of the page
+              you were on (never its search terms or contents), the time, and your browser and device details. We use
+              this only to respond to you and to fix the problem, and we never attach your passwords, cookies, session
+              tokens, or what you have typed into other forms. These messages are sent using the same email provider
+              named in Section 4.
+            </li>
+            <li>
               <strong className="text-text-primary">Technical data.</strong> Requests to the Service are processed
               transiently (e.g. to enforce rate limits that protect against abuse) and are not written to a
               persistent log we control. Our hosting provider (Vercel) may separately retain standard

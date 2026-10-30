@@ -6,7 +6,7 @@ import { SUPPORT_ISSUE_TYPE_LABELS, type SupportIssueType } from "./validation";
  * escapeHtml, kept local to each email-template module rather than
  * shared, per this codebase's established convention.
  */
-function escapeHtml(value: string): string {
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
@@ -16,7 +16,7 @@ function escapeHtml(value: string): string {
 }
 
 /** Escapes first, then converts a literal newline to a <br /> — never the other order, which would re-expose raw "<br />" markup to injection via a crafted "\\<br />" style input. */
-function escapeHtmlPreservingLineBreaks(value: string): string {
+export function escapeHtmlPreservingLineBreaks(value: string): string {
   return escapeHtml(value).replace(/\n/g, "<br />");
 }
 

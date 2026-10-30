@@ -15,6 +15,8 @@ import { DemoBanner } from "@/components/layout/demo-banner";
 import { TEST_MODE } from "@/lib/test-mode";
 import { isAiAssistantAvailable } from "@/lib/ai/providers/provider-factory";
 import { ThemePreferenceReconciler } from "@/components/theme/theme-preference-reconciler";
+import { FeedbackWidget } from "@/components/feedback-widget/feedback-widget";
+import { checkBugReportReadiness, checkStaffSupportReadiness } from "@/lib/feedback-widget/config";
 import { dbThemeModeToRuntimeMode } from "@/lib/theme/db-mode";
 
 const RECENT_NOTIFICATIONS_LIMIT = 10;
@@ -125,6 +127,11 @@ export default async function DashboardLayout({
   // AiAssistantTrigger) — never TEST_MODE, provider identity, or any
   // other config/env detail.
   const aiAssistantAvailable = isAiAssistantAvailable();
+  // Authenticated feedback widget: display-only context (the server re-resolves identity on submit) and
+  // which tabs have a configured destination — never the destinations themselves.
+  const activeWorkspaceName = organizations.find((item) => item.isActive)?.name ?? "";
+  const supportAvailable = checkStaffSupportReadiness() === "ready";
+  const bugReportAvailable = checkBugReportReadiness() === "ready";
 
   // Mobile Navigation Foundation (Mobile Improvement Slice A) — built
   // once, reused by both Sidebar and MobileNavigation (each calls the
@@ -219,6 +226,12 @@ export default async function DashboardLayout({
             <div className="mx-auto max-w-7xl">{children}</div>
             <MobileNavigation permissions={sidebarPermissions} disablePrefetch={TEST_MODE} />
           </main>
+          <FeedbackWidget
+            accountEmail={user.email ?? ""}
+            workspaceName={activeWorkspaceName}
+            supportAvailable={supportAvailable}
+            bugReportAvailable={bugReportAvailable}
+          />
         </div>
       </div>
     </div>

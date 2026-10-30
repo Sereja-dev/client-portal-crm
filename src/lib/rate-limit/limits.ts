@@ -426,3 +426,29 @@ export const SUPPORT_MESSAGE_SUBMIT_LIMIT: RateLimitConfig = {
   limit: 10,
   windowMs: HOUR_MS,
 };
+
+// Authenticated Staff Feedback Widget (support + bug reports). Both endpoints
+// send a real email on behalf of a signed-in Staff member, so the cost to
+// bound is an outbound email, not an account-existence signal. Keyed by the
+// server-resolved user id (never a client-supplied value); a second, larger
+// per-organization ceiling stops one workspace from fanning a burst out across
+// many users. Same documented residual as every in-memory limiter here (see
+// SUPPORT_MESSAGE_SUBMIT_LIMIT): per serverless instance, not globally
+// authoritative.
+export const STAFF_SUPPORT_SUBMIT_LIMIT: RateLimitConfig = {
+  scope: "staff-support-submit",
+  limit: 5,
+  windowMs: HOUR_MS,
+};
+
+export const STAFF_BUG_REPORT_SUBMIT_LIMIT: RateLimitConfig = {
+  scope: "staff-bug-report-submit",
+  limit: 10,
+  windowMs: HOUR_MS,
+};
+
+export const STAFF_FEEDBACK_ORGANIZATION_LIMIT: RateLimitConfig = {
+  scope: "staff-feedback-organization",
+  limit: 30,
+  windowMs: HOUR_MS,
+};
