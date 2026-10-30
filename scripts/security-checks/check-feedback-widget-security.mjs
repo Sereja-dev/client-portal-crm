@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { report, grep } from "./lib.mjs";
 
 // Authenticated Staff Feedback Widget (support + bug reports). Both Server
@@ -56,12 +56,12 @@ const supportFn = submit.slice(submit.indexOf("export async function submitStaff
 const bugFn = submit.slice(submit.indexOf("export async function submitBugReport("));
 ok = report(
   "the support path sends only to resolveSupportRecipient() and never references the bug-report recipient",
-  /to:\s*recipient\b/.test(supportFn) && supportFn.includes("resolveSupportRecipient()") && !supportFn.includes("resolveBugReportRecipient"),
+  /to:\s*recipient\b/.test(supportFn) && supportFn.includes("resolveSupportRecipient()") && !supportFn.includes("resolveFeedbackRecipient"),
   "",
 ) && ok;
 ok = report(
-  "the bug path sends only to resolveBugReportRecipient() and never references the support recipient (no fallback)",
-  /to:\s*recipient\b/.test(bugFn) && bugFn.includes("resolveBugReportRecipient()") && !bugFn.includes("resolveSupportRecipient"),
+  "the bug path sends only to resolveFeedbackRecipient() and never references the support recipient (no fallback)",
+  /to:\s*recipient\b/.test(bugFn) && bugFn.includes("resolveFeedbackRecipient()") && !bugFn.includes("resolveSupportRecipient"),
   "",
 ) && ok;
 ok = report(
@@ -72,8 +72,8 @@ ok = report(
 
 // 5. The bug-report recipient resolver has no fallback to any other address.
 ok = report(
-  "config.ts's bug-report resolver reads only PLATFORM_BUG_REPORT_EMAIL (no INVITATION_FROM_EMAIL / PLATFORM_SUPPORT_EMAIL / REPLY_TO fallback)",
-  config.includes("PLATFORM_BUG_REPORT_EMAIL") && !/INVITATION_FROM_EMAIL|PLATFORM_SUPPORT_EMAIL|PLATFORM_REPLY_TO_EMAIL/.test(config),
+  "config.ts's bug-report resolver reads only PLATFORM_FEEDBACK_EMAIL (no INVITATION_FROM_EMAIL / PLATFORM_SUPPORT_EMAIL / REPLY_TO fallback)",
+  config.includes("PLATFORM_FEEDBACK_EMAIL") && !/INVITATION_FROM_EMAIL|PLATFORM_SUPPORT_EMAIL|PLATFORM_REPLY_TO_EMAIL/.test(config),
   "",
 ) && ok;
 
@@ -88,6 +88,23 @@ const clientProblems = clientFiles.flatMap((f) => {
   return /process\.env|document\.cookie|localStorage|sessionStorage|indexedDB/.test(code) ? [f] : [];
 });
 ok = report("the widget's client components never read process.env, cookies or browser storage", clientProblems.length === 0, clientProblems.join("\n")) && ok;
+
+// 7b. Browser storage is confined to position-storage.ts and holds ONLY the button's coordinates.
+const widgetDir = "src/components/feedback-widget";
+const storageUsers = readdirSync(widgetDir)
+  .filter((f) => /\.(ts|tsx)$/.test(f))
+  .filter((f) => /localStorage|sessionStorage|indexedDB/.test(stripComments(read(`${widgetDir}/${f}`))));
+ok = report("only position-storage.ts touches browser storage in the widget", storageUsers.length === 1 && storageUsers[0] === "position-storage.ts", storageUsers.join("\n")) && ok;
+const storageCode = stripComments(read("src/components/feedback-widget/position-storage.ts"));
+ok = report(
+  "position-storage.ts persists one key with only version/right/bottom — no form, account or workspace data",
+  (storageCode.match(/setItem\(/g) ?? []).length === 1 &&
+    /JSON\.stringify\(\{ version: VERSION, right: [^}]*bottom: [^}]*\}\)/.test(storageCode) &&
+    !/subject|message|title|description|steps|email|workspace|userId|organization/i.test(storageCode),
+  "",
+) && ok;
+const formsAndWidget = clientFiles.map((f) => read(f)).join("\n");
+ok = report("the form components never import the position storage", !/position-storage/.test(read("src/components/feedback-widget/feedback-forms.tsx")) && /position-storage/.test(formsAndWidget), "") && ok;
 
 // 8. The widget is mounted only in the authenticated Staff layout.
 const mounts = grep("<FeedbackWidget", "src")

@@ -1,6 +1,6 @@
 import { sendEmailViaResend, type SendEmailFn } from "@/lib/email/resend-client";
 import { resolveSupportRecipient } from "@/lib/support-widget/config";
-import { resolveBugReportRecipient } from "./config";
+import { resolveFeedbackRecipient } from "./config";
 import { buildBugDiagnostics } from "./diagnostics";
 import { claimSubmission, contentFingerprint } from "./dedupe";
 import { buildBugReportEmailContent, buildStaffSupportEmailContent, type FeedbackSender, type FeedbackWorkspace } from "./email-content";
@@ -20,7 +20,7 @@ import {
  *
  * Routing is fixed in this file and never derived from input:
  *   support -> resolveSupportRecipient()    (PLATFORM_SUPPORT_EMAIL)
- *   bug     -> resolveBugReportRecipient()  (PLATFORM_BUG_REPORT_EMAIL)
+ *   bug     -> resolveFeedbackRecipient()  (PLATFORM_FEEDBACK_EMAIL)
  * A missing destination is NOT_CONFIGURED — the other destination is never
  * used as a fallback.
  */
@@ -101,7 +101,7 @@ export async function submitBugReport(
   if (!parsed.ok) return { ok: false, reason: "VALIDATION", fieldErrors: parsed.fieldErrors };
 
   const fromEmail = process.env.INVITATION_FROM_EMAIL;
-  const recipient = resolveBugReportRecipient();
+  const recipient = resolveFeedbackRecipient();
   if (!fromEmail || !recipient) return { ok: false, reason: "NOT_CONFIGURED" };
 
   const claim = claimSubmission(

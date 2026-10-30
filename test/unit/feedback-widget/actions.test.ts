@@ -17,7 +17,7 @@ vi.mock("@/lib/rate-limit", async () => {
 import { submitBugReportAction, submitStaffSupportAction } from "@/lib/feedback-widget/actions";
 import { resetSubmissionDedupeForTests } from "@/lib/feedback-widget/dedupe";
 
-const KEYS = ["PLATFORM_SUPPORT_EMAIL", "PLATFORM_BUG_REPORT_EMAIL", "INVITATION_FROM_EMAIL"] as const;
+const KEYS = ["PLATFORM_SUPPORT_EMAIL", "PLATFORM_FEEDBACK_EMAIL", "INVITATION_FROM_EMAIL"] as const;
 const saved: Record<string, string | undefined> = {};
 const EMPTY = { error: null };
 
@@ -36,7 +36,7 @@ beforeEach(() => {
   }
   process.env.INVITATION_FROM_EMAIL = "Aqenra <no-reply@example.com>";
   process.env.PLATFORM_SUPPORT_EMAIL = "support@example.com";
-  process.env.PLATFORM_BUG_REPORT_EMAIL = "bugs@example.com";
+  process.env.PLATFORM_FEEDBACK_EMAIL = "feedback@example.com";
   sendEmailViaResend.mockReset().mockResolvedValue({ ok: true });
   getCurrentMembership.mockReset().mockResolvedValue({
     user: { id: "user-1", name: "Jane", email: "jane@acme.example" },
@@ -106,12 +106,12 @@ describe("results and messages", () => {
     const result = await submitBugReportAction(EMPTY, form(BUG));
     expect(result).toEqual({ error: null, success: true, duplicate: false });
     const sent = sendEmailViaResend.mock.calls[0][0];
-    expect(sent.to).toBe("bugs@example.com");
+    expect(sent.to).toBe("feedback@example.com");
     expect(sent.text).toContain("Test/9.9");
   });
 
   it("bug report: unconfigured destination gives an honest message and does not fall back to support", async () => {
-    delete process.env.PLATFORM_BUG_REPORT_EMAIL;
+    delete process.env.PLATFORM_FEEDBACK_EMAIL;
     const result = await submitBugReportAction(EMPTY, form(BUG));
     expect(result.error).toMatch(/isn't available yet.*Support tab/);
     expect(sendEmailViaResend).not.toHaveBeenCalled();

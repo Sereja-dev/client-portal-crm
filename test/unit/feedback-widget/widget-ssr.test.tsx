@@ -35,8 +35,19 @@ describe("FeedbackWidget server render", () => {
     expect(html).not.toMatch(/\banimate-/);
   });
 
+  it("server-renders the CSS default position (never a stored one), so hydration cannot mismatch", () => {
+    const html = renderToStaticMarkup(<FeedbackWidget {...props} supportAvailable bugReportAvailable />);
+    expect(html).toContain("bottom-[calc(5.5rem+env(safe-area-inset-bottom))]");
+    expect(html).not.toMatch(/style="[^"]*(right|bottom):/);
+  });
+
+  it("reserves in-flow end-of-page clearance from md up (the fixed button reserves none itself)", () => {
+    const html = renderToStaticMarkup(<FeedbackWidget {...props} supportAvailable bugReportAvailable />);
+    expect(html).toMatch(/data-testid="feedback-widget-clearance"[^>]*class="hidden h-5 shrink-0 md:block"|class="hidden h-5 shrink-0 md:block"[^>]*data-testid="feedback-widget-clearance"/);
+  });
+
   it("contains no credentials or provider details in its markup", () => {
     const html = renderToStaticMarkup(<FeedbackWidget {...props} supportAvailable bugReportAvailable />);
-    expect(html).not.toMatch(/re_[A-Za-z0-9]{8,}|api[_-]?key|bugs@|support@/i);
+    expect(html).not.toMatch(/re_[A-Za-z0-9]{8,}|api[_-]?key|feedback@|support@/i);
   });
 });

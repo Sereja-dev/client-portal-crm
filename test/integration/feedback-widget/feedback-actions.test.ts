@@ -19,7 +19,7 @@ import { actAs, resetAuthMock, setMockAuthUser } from "../../support/auth-mock";
  * form field can redirect it) and independent support / bug routing.
  */
 
-const KEYS = ["PLATFORM_SUPPORT_EMAIL", "PLATFORM_BUG_REPORT_EMAIL", "INVITATION_FROM_EMAIL"] as const;
+const KEYS = ["PLATFORM_SUPPORT_EMAIL", "PLATFORM_FEEDBACK_EMAIL", "INVITATION_FROM_EMAIL"] as const;
 const saved: Record<string, string | undefined> = {};
 const EMPTY = { error: null };
 
@@ -47,7 +47,7 @@ beforeEach(() => {
   for (const key of KEYS) saved[key] = process.env[key];
   process.env.INVITATION_FROM_EMAIL = "Aqenra <no-reply@example.com>";
   process.env.PLATFORM_SUPPORT_EMAIL = "support@example.com";
-  process.env.PLATFORM_BUG_REPORT_EMAIL = "bugs@example.com";
+  process.env.PLATFORM_FEEDBACK_EMAIL = "feedback@example.com";
   sendEmailViaResend.mockReset().mockResolvedValue({ ok: true });
   resetSubmissionDedupeForTests();
 });
@@ -82,7 +82,7 @@ describe("tenant isolation and identity", () => {
     );
     const sent = sendEmailViaResend.mock.calls[0][0];
     const everything = JSON.stringify(sent);
-    expect(sent.to).toBe("bugs@example.com");
+    expect(sent.to).toBe("feedback@example.com");
     expect(sent.replyTo).toBe(fixtures.owner.email);
     expect(everything).toContain(fixtures.orgA.id);
     expect(everything).not.toContain(fixtures.orgB.id);
@@ -119,11 +119,11 @@ describe("independent routing against the real stack", () => {
     actAs(fixtures.owner, fixtures.orgA.id);
     await submitStaffSupportAction(EMPTY, form(SUPPORT));
     await submitBugReportAction(EMPTY, form(BUG));
-    expect(sendEmailViaResend.mock.calls.map((c) => c[0].to)).toEqual(["support@example.com", "bugs@example.com"]);
+    expect(sendEmailViaResend.mock.calls.map((c) => c[0].to)).toEqual(["support@example.com", "feedback@example.com"]);
   });
 
   it("an unset bug destination fails the bug report only; support keeps working and nothing falls back", async () => {
-    delete process.env.PLATFORM_BUG_REPORT_EMAIL;
+    delete process.env.PLATFORM_FEEDBACK_EMAIL;
     actAs(fixtures.owner, fixtures.orgA.id);
     const bug = await submitBugReportAction(EMPTY, form(BUG));
     expect(bug.error).toMatch(/isn't available yet/);

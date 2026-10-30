@@ -3,7 +3,7 @@ import type { SendEmailFn, SendEmailInput } from "@/lib/email/resend-client";
 import { submitBugReport, submitStaffSupport, type StaffFeedbackIdentity } from "@/lib/feedback-widget/submit";
 import { resetSubmissionDedupeForTests } from "@/lib/feedback-widget/dedupe";
 
-const KEYS = ["PLATFORM_SUPPORT_EMAIL", "PLATFORM_BUG_REPORT_EMAIL", "INVITATION_FROM_EMAIL"] as const;
+const KEYS = ["PLATFORM_SUPPORT_EMAIL", "PLATFORM_FEEDBACK_EMAIL", "INVITATION_FROM_EMAIL"] as const;
 const saved: Record<string, string | undefined> = {};
 
 const IDENTITY: StaffFeedbackIdentity = {
@@ -27,7 +27,7 @@ beforeEach(() => {
   }
   process.env.INVITATION_FROM_EMAIL = "Aqenra <no-reply@example.com>";
   process.env.PLATFORM_SUPPORT_EMAIL = "support@example.com";
-  process.env.PLATFORM_BUG_REPORT_EMAIL = "bugs@example.com";
+  process.env.PLATFORM_FEEDBACK_EMAIL = "feedback@example.com";
   resetSubmissionDedupeForTests();
 });
 
@@ -52,7 +52,7 @@ describe("independent routing", () => {
     const sendEmail = okSender();
     const result = await submitBugReport(BUG, IDENTITY, { userAgent: "UA" }, { sendEmail });
     expect(result).toEqual({ ok: true });
-    expect(sent(sendEmail).to).toBe("bugs@example.com");
+    expect(sent(sendEmail).to).toBe("feedback@example.com");
     expect(sent(sendEmail).subject).toMatch(/^\[Aqenra Bug\]/);
   });
 
@@ -80,15 +80,15 @@ describe("independent routing", () => {
 });
 
 describe("missing destination configuration fails safely", () => {
-  it("bug report with no PLATFORM_BUG_REPORT_EMAIL is NOT_CONFIGURED and sends nothing — even though the support recipient is configured", async () => {
-    delete process.env.PLATFORM_BUG_REPORT_EMAIL;
+  it("bug report with no PLATFORM_FEEDBACK_EMAIL is NOT_CONFIGURED and sends nothing — even though the support recipient is configured", async () => {
+    delete process.env.PLATFORM_FEEDBACK_EMAIL;
     const sendEmail = okSender();
     expect(await submitBugReport(BUG, IDENTITY, { userAgent: "UA" }, { sendEmail })).toEqual({ ok: false, reason: "NOT_CONFIGURED" });
     expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it("bug report with a malformed destination is NOT_CONFIGURED", async () => {
-    process.env.PLATFORM_BUG_REPORT_EMAIL = "not an address";
+    process.env.PLATFORM_FEEDBACK_EMAIL = "not an address";
     const sendEmail = okSender();
     expect(await submitBugReport(BUG, IDENTITY, { userAgent: "UA" }, { sendEmail })).toEqual({ ok: false, reason: "NOT_CONFIGURED" });
     expect(sendEmail).not.toHaveBeenCalled();

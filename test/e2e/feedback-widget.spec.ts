@@ -236,6 +236,128 @@ test.describe("Staff feedback widget", () => {
     await expect(page.getByLabel("Subject")).toHaveValue("Half-written subject");
   });
 
+  const POSITION_KEY = "aqenra:feedback-widget-position";
+  const storedPosition = (page: Page) => page.evaluate((key) => localStorage.getItem(key), POSITION_KEY);
+
+  test("persistence: a dragged position is restored after reload, with only the coordinates stored", async ({ page }) => {
+    await page.goto("/dashboard");
+    await dragBy(page, trigger(page), -300, -200);
+    const moved = await box(trigger(page));
+    const raw = await storedPosition(page);
+    expect(raw).not.toBeNull();
+    expect(Object.keys(JSON.parse(raw!)).sort()).toEqual(["bottom", "right", "version"]);
+    await page.reload();
+    await expect(trigger(page)).toBeVisible();
+    const restored = await box(trigger(page));
+    expect(Math.abs(restored.x - moved.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(restored.y - moved.y)).toBeLessThanOrEqual(1);
+    await page.goto("/clients");
+    const onOtherPage = await box(trigger(page));
+    expect(Math.abs(onOtherPage.x - moved.x)).toBeLessThanOrEqual(1);
+  });
+
+  test("persistence: a keyboard move is remembered too", async ({ page }) => {
+    await page.goto("/dashboard");
+    await trigger(page).focus();
+    await page.keyboard.press("Shift+ArrowLeft");
+    await page.keyboard.press("Shift+ArrowUp");
+    const moved = await box(trigger(page));
+    await page.reload();
+    const restored = await box(trigger(page));
+    expect(Math.abs(restored.x - moved.x)).toBeLessThanOrEqual(1);
+    expect(Math.abs(restored.y - moved.y)).toBeLessThanOrEqual(1);
+  });
+
+  test("persistence: a plain open/close does not store anything", async ({ page }) => {
+    await page.goto("/dashboard");
+    await trigger(page).click();
+    await page.keyboard.press("Escape");
+    expect(await storedPosition(page)).toBeNull();
+  });
+
+  test("persistence: nothing the user types is ever written to browser storage", async ({ page }) => {
+    await page.goto("/dashboard");
+    await dragBy(page, trigger(page), -50, -50);
+    await page.waitForTimeout(450);
+    await trigger(page).click();
+    await page.getByLabel("Subject").fill("UNIQUE-SUBJECT-MARKER-91");
+    await page.getByLabel("Message").fill("UNIQUE-MESSAGE-MARKER-91 please do not store this anywhere at all.");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await expect(panel(page)).toContainText("has been sent");
+    const dump = await page.evaluate(() => JSON.stringify({ ...localStorage }) + JSON.stringify({ ...sessionStorage }) + document.cookie);
+    expect(dump).not.toContain("UNIQUE-");
+    expect(dump).not.toContain(fixtures.owner.email);
+    expect(Object.keys(await page.evaluate(() => ({ ...localStorage }))).filter((k) => k.includes("feedback"))).toEqual([POSITION_KEY]);
+  });
+
+  test("persistence: a stored far-off position is clamped on a small viewport and the preferred spot returns when the window grows back", async ({ page }) => {
+    await page.goto("/dashboard");
+    await dragBy(page, trigger(page), -700, -400);
+    const wide = await box(trigger(page));
+    await page.setViewportSize({ width: 390, height: 700 });
+    await expectInsideViewport(page, trigger(page));
+    expect(JSON.parse((await storedPosition(page))!).right).toBeGreaterThan(300);
+    await page.reload();
+    await expectInsideViewport(page, trigger(page));
+    await expectNoHorizontalOverflow(page);
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await expect.poll(async () => Math.abs((await box(trigger(page))).x - wide.x)).toBeLessThanOrEqual(1);
+  });
+
+  test("persistence: corrupt, foreign or out-of-range stored data falls back to the default spot", async ({ page }) => {
+    await page.goto("/dashboard");
+    const defaultBox = await box(trigger(page));
+    for (const bad of ["not json", '{"version":9,"right":50,"bottom":50}', '{"version":1,"right":99999,"bottom":99999}', '{"version":1,"right":"x","bottom":1}']) {
+      await page.evaluate(([key, value]) => localStorage.setItem(key, value), [POSITION_KEY, bad]);
+      await page.reload();
+      const b = await box(trigger(page));
+      expect(Math.abs(b.x - defaultBox.x)).toBeLessThanOrEqual(1);
+      expect(Math.abs(b.y - defaultBox.y)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  test("persistence: an in-range stored value larger than the window is clamped inside it", async ({ page }) => {
+    await page.goto("/dashboard");
+    await page.evaluate((key) => localStorage.setItem(key, JSON.stringify({ version: 1, right: 5000, bottom: 5000 })), POSITION_KEY);
+    await page.reload();
+    await expectInsideViewport(page, trigger(page));
+  });
+
+  test("persistence: restoring a stored position causes no hydration warning", async ({ page }) => {
+    const problems: string[] = [];
+    page.on("console", (m) => {
+      if (m.type() === "error" || m.type() === "warning") problems.push(m.text());
+    });
+    page.on("pageerror", (e) => problems.push(String(e)));
+    await page.goto("/dashboard");
+    await dragBy(page, trigger(page), -120, -90);
+    await page.reload();
+    await expect(trigger(page)).toBeVisible();
+    await page.goto("/clients");
+    expect(problems.filter((p) => /hydrat|did not match|server rendered HTML/i.test(p))).toEqual([]);
+  });
+
+  test("persistence: blocked storage never breaks dragging or the panel", async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(String(e)));
+    await page.addInitScript(() => {
+      Storage.prototype.setItem = () => {
+        throw new DOMException("blocked", "SecurityError");
+      };
+      Storage.prototype.getItem = () => {
+        throw new DOMException("blocked", "SecurityError");
+      };
+    });
+    await page.goto("/dashboard");
+    const before = await box(trigger(page));
+    await dragBy(page, trigger(page), -100, -100);
+    expect((await box(trigger(page))).x).toBeLessThan(before.x - 50);
+    await page.waitForTimeout(450);
+    await trigger(page).click();
+    await expect(panel(page)).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+
   test("is absent from pre-auth pages, which keep their own support widget", async ({ page, context }) => {
     await context.clearCookies();
     await page.goto("/login");

@@ -1,8 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type PointerEvent } from "react";
 import { SupportIcon, CloseIcon } from "@/components/ui/icons";
 import { BugReportForm, SupportForm } from "./feedback-forms";
+import {
+  getStoredPositionServerSnapshot,
+  getStoredPositionSnapshot,
+  rememberPosition,
+  subscribeNoop,
+} from "./position-storage";
 import {
   clampOffset,
   dragOffset,
@@ -37,11 +43,30 @@ import {
 type TabKey = "support" | "bug";
 
 // h-12 w-12 above is WIDGET_BUTTON_SIZE (48px) in position.ts — the drag clamping relies on that size.
+// Default spot: bottom-right. On phones 5.5rem clears both the fixed bottom navigation and, on the focused
+// create/edit routes that hide that bar, the global footer's legal links.
 const DEFAULT_CLASSES = "right-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] md:bottom-8 sm:right-6";
 const SUPPRESS_CLICK_MS = 350;
 
 function readViewport(): Viewport {
   return { width: window.innerWidth, height: window.innerHeight };
+}
+
+// Window size as an external store, so the displayed position is DERIVED (clamped to the current
+// window at render time) rather than copied into state by a resize effect. Cached so an unchanged
+// size returns the identical object.
+let viewportCache: Viewport | null = null;
+function getViewportSnapshot(): Viewport {
+  const next = readViewport();
+  if (!viewportCache || viewportCache.width !== next.width || viewportCache.height !== next.height) viewportCache = next;
+  return viewportCache;
+}
+function subscribeViewport(onChange: () => void): () => void {
+  window.addEventListener("resize", onChange);
+  return () => window.removeEventListener("resize", onChange);
+}
+function getServerViewport(): Viewport | null {
+  return null;
 }
 
 function readOffset(element: HTMLElement): Offset {
@@ -63,7 +88,14 @@ export function FeedbackWidget({
   const [open, setOpen] = useState(false);
   const [hasOpened, setHasOpened] = useState(false);
   const [tab, setTab] = useState<TabKey>(supportAvailable ? "support" : "bug");
-  const [offset, setOffset] = useState<Offset | null>(null);
+  // Where the user parked the button: moved this session, else remembered from a previous visit. Never
+  // clamped in state — shrinking the window must not forget the preferred spot for when it grows back.
+  const [moved, setMoved] = useState<Offset | null>(null);
+  const stored = useSyncExternalStore(subscribeNoop, getStoredPositionSnapshot, getStoredPositionServerSnapshot);
+  const viewport = useSyncExternalStore(subscribeViewport, getViewportSnapshot, getServerViewport);
+  const chosen = moved ?? stored;
+  // Null (CSS default position) on the server and the hydrating render, so markup always matches.
+  const offset = chosen && viewport ? clampOffset(chosen, viewport) : null;
   const [dragging, setDragging] = useState(false);
   const [placement, setPlacement] = useState<PanelPlacement>({ mode: "sheet" });
 
@@ -81,19 +113,12 @@ export function FeedbackWidget({
     setPlacement(panelPlacement(readOffset(buttonRef.current), readViewport()));
   }, []);
 
-  // Keep a moved button — and the open panel — usable when the window resizes.
-  useEffect(() => {
-    const onResize = () => {
-      setOffset((current) => (current ? clampOffset(current, readViewport()) : current));
-      if (open) recomputePlacement();
-    };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-  }, [open, recomputePlacement]);
-
+  // Keep the open panel usable when the button moves or the window resizes.
+  const offsetRight = offset?.right;
+  const offsetBottom = offset?.bottom;
   useLayoutEffect(() => {
     if (open) recomputePlacement();
-  }, [open, offset, recomputePlacement]);
+  }, [open, offsetRight, offsetBottom, viewport, recomputePlacement]);
 
   // On open, move focus into the panel (the selected tab); on close, back to the button.
   const wasOpen = useRef(false);
@@ -139,14 +164,17 @@ export function FeedbackWidget({
       state.moved = true;
       setDragging(true);
     }
-    setOffset(dragOffset(state.startOffset, { dx, dy }, readViewport()));
+    setMoved(dragOffset(state.startOffset, { dx, dy }, readViewport()));
   };
 
   const endDrag = (event: PointerEvent<HTMLButtonElement>) => {
     const state = drag.current;
     if (!state || state.pointerId !== event.pointerId) return;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    if (state.moved) suppressClickUntil.current = performance.now() + SUPPRESS_CLICK_MS;
+    if (state.moved) {
+      suppressClickUntil.current = performance.now() + SUPPRESS_CLICK_MS;
+      rememberPosition(readOffset(event.currentTarget));
+    }
     drag.current = null;
     setDragging(false);
   };
@@ -163,10 +191,11 @@ export function FeedbackWidget({
       return;
     }
     if (!event.shiftKey || !buttonRef.current) return;
-    const moved = keyboardMove(readOffset(buttonRef.current), event.key, readViewport());
-    if (moved) {
+    const next = keyboardMove(readOffset(buttonRef.current), event.key, readViewport());
+    if (next) {
       event.preventDefault();
-      setOffset(moved);
+      setMoved(next);
+      rememberPosition(next);
     }
   };
 
@@ -217,6 +246,14 @@ export function FeedbackWidget({
 
   return (
     <div className="print:hidden">
+      {/*
+        In-flow end-of-page clearance (the button itself is fixed, so it reserves nothing). From md up the
+        button sits 32px from the bottom edge, which put its top 7px over the last row's actions and the
+        pagination "Next" link once scrolled to the end (content ends 24px of <main> padding + the global
+        footer above the edge). On phones the bottom navigation's own spacer already clears it. <main> is
+        flex-1, so on a page shorter than the window this takes room from <main> and adds no scroll.
+      */}
+      <div aria-hidden="true" data-testid="feedback-widget-clearance" className="hidden h-5 shrink-0 md:block" />
       <button
         ref={buttonRef}
         type="button"
