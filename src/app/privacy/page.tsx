@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { siteConfig } from "@/config/site";
-import { getPlatformLegalConfig } from "@/lib/legal/platform-config";
+import { formatEffectiveLine, getPlatformLegalConfig } from "@/lib/legal/platform-config";
 import { LegalBackButton } from "@/components/legal/legal-back-button";
 
 export const metadata: Metadata = {
@@ -16,7 +16,7 @@ export default function PrivacyPolicyPage() {
       <LegalBackButton />
 
       <h1 className="mt-4 text-3xl font-semibold tracking-tight text-text-primary">Privacy Policy</h1>
-      <p className="mt-2 text-sm text-text-muted">Effective {config.privacyEffectiveDate}</p>
+      <p className="mt-2 text-sm text-text-muted">{formatEffectiveLine(config.privacyEffectiveDate)}</p>
 
       <div className="mt-10 space-y-10 text-sm leading-relaxed text-text-secondary">
         <section>

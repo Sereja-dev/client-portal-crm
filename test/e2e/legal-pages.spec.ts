@@ -61,6 +61,16 @@ test.describe("Operator identity (Public Beta legal alignment)", () => {
     await expect(page.getByRole("main")).toContainText("the jurisdiction in which the Service operator is located");
   });
 
+  test("Privacy and Terms never claim an effective date before publication is confirmed; the shipped Cookie Policy keeps its date", async ({ page }) => {
+    for (const route of ["/privacy", "/terms"]) {
+      await page.goto(route);
+      await expect(page.getByRole("main")).toContainText("Effective date: to be confirmed on publication");
+      await expect(page.getByRole("main")).not.toContainText("August 9, 2026");
+    }
+    await page.goto("/cookies");
+    await expect(page.getByRole("main")).toContainText("Effective October 27, 2026");
+  });
+
   test("Terms describe the free public beta, with no live billing", async ({ page }) => {
     await page.goto("/terms");
     await expect(page.getByRole("main")).toContainText("currently offered free of charge as a public beta");

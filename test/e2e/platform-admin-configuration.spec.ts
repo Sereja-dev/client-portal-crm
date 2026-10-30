@@ -40,10 +40,13 @@ test("renders the Legal Configuration section, with its legalName resolving to t
   // product must never rename who operates it.
   await expect(legalSection.getByText("Legal name", { exact: true })).toBeVisible();
   await expect(legalSection.getByText("Umerenko Sergei", { exact: true })).toBeVisible();
-  await expect(legalSection.getByText("E2E Test Platform")).toHaveCount(0);
+  await expect(legalSection.getByText("E2E Test Platform", { exact: true })).toHaveCount(0);
+  // The effective wording the public legal pages will use for the operator, visible to the admin.
+  await expect(legalSection.getByText("Operator wording", { exact: true })).toBeVisible();
+  await expect(legalSection.getByText(/Umerenko Sergei, an individual, under the .+ brand/)).toBeVisible();
   await expect(legalSection.getByText("Jurisdiction", { exact: true })).toBeVisible();
   await expect(legalSection.getByText("the jurisdiction in which the Service operator is located")).toBeVisible();
-  await expect(legalSection.getByText("Registered address", { exact: true })).toBeVisible();
+  await expect(legalSection.getByText("Postal address", { exact: true })).toBeVisible();
   await expect(legalSection.getByText("Not set").first()).toBeVisible();
   await expect(legalSection.getByText("Privacy Policy effective date", { exact: true })).toBeVisible();
   await expect(legalSection.getByText("Terms of Service effective date", { exact: true })).toBeVisible();
@@ -239,7 +242,7 @@ test("renders the Environment Information rollup, deriving every row from the sa
   await expect(environmentSection.getByText("Favicon", { exact: true })).toBeVisible();
   await expect(environmentSection.getByText("Email provider (Resend)", { exact: true })).toBeVisible();
   await expect(environmentSection.getByText("Custom domain", { exact: true })).toBeVisible();
-  await expect(environmentSection.getByText("Legal registered address", { exact: true })).toBeVisible();
+  await expect(environmentSection.getByText("Legal postal address", { exact: true })).toBeVisible();
 
   // PLATFORM_LOGO_URL, RESEND_API_KEY are set in the webServer env ->
   // "Set"/"Configured"; PLATFORM_FAVICON_URL and PLATFORM_LEGAL_ADDRESS

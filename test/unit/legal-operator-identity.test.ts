@@ -72,12 +72,54 @@ describe("Terms and Privacy stay truthful about payments during the free beta", 
   });
 });
 
-describe("effective dates are explicit and never backdated", () => {
-  it("documents the revision history next to the date constants", () => {
-    expect(CONFIG).toMatch(/PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE = "October 30, 2026"/);
-    expect(CONFIG).toMatch(/TOS_DEFAULT_EFFECTIVE_DATE = "October 30, 2026"/);
+describe("effective dates are explicit, never backdated, and never claim an unshipped revision", () => {
+  it("Privacy and Terms default to the pending marker; only the already-published Cookie Policy keeps a real date", () => {
+    expect(CONFIG).toMatch(/PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE = EFFECTIVE_DATE_PENDING/);
+    expect(CONFIG).toMatch(/TOS_DEFAULT_EFFECTIVE_DATE = EFFECTIVE_DATE_PENDING/);
     expect(CONFIG).toMatch(/COOKIE_POLICY_DEFAULT_EFFECTIVE_DATE = "October 27, 2026"/);
+  });
+
+  it("no guessed publication date for the revised Privacy/Terms is hardcoded, and the original date is not reused", () => {
+    expect(CONFIG).not.toMatch(/(PRIVACY_POLICY|TOS)_DEFAULT_EFFECTIVE_DATE = "/);
+    expect(CONFIG).not.toMatch(/October 30, 2026/);
+  });
+
+  it("documents the revision history and the publication procedure next to the constants", () => {
     expect(CONFIG).toMatch(/2026-08-09 initial/);
-    expect(CONFIG).toMatch(/never\s*\*?\s*backdated/);
+    expect(CONFIG).toMatch(/never backdated/);
+    expect(CONFIG).toMatch(/PRIVACY_POLICY_EFFECTIVE_DATE\s*\*?\s*\/ TOS_EFFECTIVE_DATE/);
+  });
+
+  for (const [name, source] of Object.entries(PAGES)) {
+    it(`/${name} renders its date through formatEffectiveLine, never a bare "Effective {raw}"`, () => {
+      expect(source).toMatch(/formatEffectiveLine\(config\.\w+EffectiveDate\)/);
+      expect(source).not.toMatch(/Effective \{config\./);
+    });
+  }
+});
+
+describe("operator wording cannot diverge between surfaces", () => {
+  for (const [name, source] of Object.entries(PAGES)) {
+    it(`/${name} never reads config.legalName directly (only the shared operatorDescription)`, () => {
+      expect(source).not.toMatch(/config\.legalName/);
+    });
+  }
+
+  it("the marketing-site operator constant is referenced next to the default operator, so the two are changed together", () => {
+    expect(CONFIG).toMatch(/aqenra-marketing, src\/config\/site\.ts OPERATOR_NAME/);
+  });
+});
+
+describe("unresolved jurisdiction clauses are inventoried — a new use must be reviewed", () => {
+  it("config.jurisdiction is rendered in exactly the three known public clauses", () => {
+    expect(PAGES.terms.match(/config\.jurisdiction/g)).toHaveLength(1);
+    expect(PAGES.privacy.match(/config\.jurisdiction/g)).toHaveLength(1);
+    expect(PAGES.cookies.match(/config\.jurisdiction/g)).toHaveLength(1);
+  });
+
+  it("the default remains the generic placeholder and the config documents the open decision", () => {
+    expect(CONFIG).toMatch(/OPEN OWNER\/LEGAL DECISION/);
+    expect(CONFIG).toMatch(/Terms of Service §10/);
+    expect(CONFIG).toMatch(/Privacy Policy §9 and Cookie Policy §8/);
   });
 });

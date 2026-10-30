@@ -150,8 +150,9 @@ export default async function PlatformAdminConfigurationPage() {
       <DetailSection id="legal" title="Legal Configuration">
         <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Field label="Legal name" value={legal.legalName} />
+          <Field label="Operator wording" value={legal.operatorDescription} />
           <Field label="Jurisdiction" value={legal.jurisdiction} />
-          <Field label="Registered address" value={legal.legalAddress ?? "Not set"} />
+          <Field label="Postal address" value={legal.legalAddress ?? "Not set"} />
           <Field label="Support email" value={legal.supportEmail ?? "Not set"} />
           <Field label="Privacy Policy effective date" value={legal.privacyEffectiveDate} />
           <Field label="Terms of Service effective date" value={legal.tosEffectiveDate} />
@@ -195,7 +196,7 @@ export default async function PlatformAdminConfigurationPage() {
           <Field label="Billing email" value={email.billingEmail ? "Set" : "Not set"} />
           <Field label="Billing provider (Paddle)" value={billing.providerConfigured ? "Configured" : "Not configured"} />
           <Field label="Custom domain" value={domain.customDomain ? "Configured" : "Not configured"} />
-          <Field label="Legal registered address" value={legal.legalAddress ? "Set" : "Not set"} />
+          <Field label="Legal postal address" value={legal.legalAddress ? "Set" : "Not set"} />
           <Field label="Legal support email" value={legal.supportEmail ? "Set" : "Not set"} />
         </dl>
       </DetailSection>

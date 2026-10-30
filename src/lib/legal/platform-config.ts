@@ -50,7 +50,13 @@ export type PlatformLegalConfig = {
   legalAddress: string | null;
   /** Contact address for privacy/legal requests, if configured. */
   supportEmail: string | null;
-  /** Free-text jurisdiction description used in the governing-law clause. */
+  /**
+   * Free-text jurisdiction used in the governing-law clause. OPEN OWNER/LEGAL DECISION: the default is a generic
+   * placeholder, not a chosen law or venue. It is rendered in exactly three public clauses — Terms of Service §10
+   * ("These Terms are governed by the laws applicable in …"), Privacy Policy §9 and Cookie Policy §8 ("This policy
+   * is interpreted under the laws applicable in …") — and in the platform-admin Legal Configuration. Nothing else in
+   * the code names a law, jurisdiction or venue.
+   */
   jurisdiction: string;
   /** Human-readable effective date shown on the Privacy Policy page. */
   privacyEffectiveDate: string;
@@ -79,26 +85,39 @@ export type PlatformLegalConfig = {
  * below — still an open Product Owner decision).
  */
 const DEFAULT_OPERATOR_NAME = "Umerenko Sergei";
+// The public marketing site (aqenra-marketing, src/config/site.ts OPERATOR_NAME) states the same operator as a
+// constant. Keep the two in step; a PLATFORM_LEGAL_NAME that names a DIFFERENT operator would contradict that site.
 
 /**
- * Default effective dates, explicit and auditable. A revised policy is never
- * backdated: the date is the date that revision is published.
+ * Effective dates, explicit and auditable. A revised policy is never backdated
+ * and an unshipped revision is never presented as already effective.
  *
- *   Privacy Policy  2026-08-09 initial · 2026-10-26 cookie disclosure ·
- *                   2026-10-30 operator identity (individual operator,
- *                   support contact) — published as this date
- *   Terms of Service 2026-08-09 initial · 2026-10-30 operator identity and
- *                   free-beta wording — published as this date
- *   Cookie Policy   2026-10-27 first published (operator wording aligned on
- *                   2026-10-30; substance unchanged, date kept)
+ *   Privacy Policy   2026-08-09 initial · 2026-10-26 cookie disclosure ·
+ *                    revision with the individual-operator identity: NOT YET
+ *                    PUBLISHED, so its date is PENDING (see below)
+ *   Terms of Service 2026-08-09 initial · revision with the individual-operator
+ *                    identity and free-beta wording: NOT YET PUBLISHED, so its
+ *                    date is PENDING (see below)
+ *   Cookie Policy    2026-10-27 first published (operator wording aligned
+ *                    later; substance unchanged, so the date is kept)
  *
- * Each can be overridden per deployment (PRIVACY_POLICY_EFFECTIVE_DATE,
- * TOS_EFFECTIVE_DATE, COOKIE_POLICY_EFFECTIVE_DATE) — set them to the real
- * publication date if it differs from the default below.
+ * The Privacy and Terms defaults are deliberately the pending marker, not a
+ * guessed date: until a real publication date is set the pages say
+ * "Effective date: to be confirmed on publication". At publication, set the
+ * real date — either as the two constants below in the same reviewed change
+ * that ships the wording (auditable in git), or via PRIVACY_POLICY_EFFECTIVE_DATE
+ * / TOS_EFFECTIVE_DATE (each overrides its constant). Never use the date of an
+ * earlier revision.
  */
-const PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE = "October 30, 2026";
-const TOS_DEFAULT_EFFECTIVE_DATE = "October 30, 2026";
+export const EFFECTIVE_DATE_PENDING = "to be confirmed on publication";
+const PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE = EFFECTIVE_DATE_PENDING;
+const TOS_DEFAULT_EFFECTIVE_DATE = EFFECTIVE_DATE_PENDING;
 const COOKIE_POLICY_DEFAULT_EFFECTIVE_DATE = "October 27, 2026";
+
+/** The line under a legal page's title: "Effective <date>", or an explicit pending notice — never a guessed date. */
+export function formatEffectiveLine(effectiveDate: string): string {
+  return effectiveDate === EFFECTIVE_DATE_PENDING ? `Effective date: ${EFFECTIVE_DATE_PENDING}` : `Effective ${effectiveDate}`;
+}
 
 // The one email-shape check this module uses — shared by extractEmailAddress
 // below and getTransactionalReplyToEmail, so a malformed PLATFORM_REPLY_TO_EMAIL
@@ -164,7 +183,10 @@ export function getPlatformBranding(): PlatformBranding {
  * the null cases instead of assuming a value.
  */
 export function getPlatformLegalConfig(): PlatformLegalConfig {
-  const configuredLegalName = trimmedEnv("PLATFORM_LEGAL_NAME");
+  // Setting PLATFORM_LEGAL_NAME to the default operator's own name is the default operator, not a "different" one —
+  // otherwise it would silently drop the individual-operator wording and contradict the marketing site.
+  const configuredName = trimmedEnv("PLATFORM_LEGAL_NAME");
+  const configuredLegalName = configuredName === DEFAULT_OPERATOR_NAME ? null : configuredName;
   const brandName = getPlatformBranding().name;
   return {
     legalName: configuredLegalName ?? DEFAULT_OPERATOR_NAME,

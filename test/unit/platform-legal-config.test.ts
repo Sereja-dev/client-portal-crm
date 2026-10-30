@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getPlatformCopyrightLine, getPlatformLegalConfig } from "@/lib/legal/platform-config";
+import {
+  EFFECTIVE_DATE_PENDING,
+  formatEffectiveLine,
+  getPlatformCopyrightLine,
+  getPlatformLegalConfig,
+} from "@/lib/legal/platform-config";
 
 const LEGAL_ENV_KEYS = [
   "PLATFORM_LEGAL_NAME",
@@ -42,10 +47,30 @@ describe("getPlatformLegalConfig", () => {
     expect(config.legalAddress).toBeNull();
     expect(config.supportEmail).toBeNull();
     expect(config.jurisdiction).toBe("the jurisdiction in which the Service operator is located");
-    // Revised Privacy/Terms are dated by their publication, never backdated to the original August 9, 2026.
-    expect(config.privacyEffectiveDate).toBe("October 30, 2026");
-    expect(config.tosEffectiveDate).toBe("October 30, 2026");
+    // The revised Privacy/Terms are not yet published: no guessed date, and never the original August 9, 2026.
+    expect(config.privacyEffectiveDate).toBe(EFFECTIVE_DATE_PENDING);
+    expect(config.tosEffectiveDate).toBe(EFFECTIVE_DATE_PENDING);
     expect(config.cookiePolicyEffectiveDate).toBe("October 27, 2026");
+  });
+
+  it("an explicit publication date set for Privacy and Terms is used as-is", () => {
+    process.env.PRIVACY_POLICY_EFFECTIVE_DATE = "November 4, 2026";
+    process.env.TOS_EFFECTIVE_DATE = "November 4, 2026";
+
+    const config = getPlatformLegalConfig();
+
+    expect(config.privacyEffectiveDate).toBe("November 4, 2026");
+    expect(config.tosEffectiveDate).toBe("November 4, 2026");
+    expect(config.cookiePolicyEffectiveDate).toBe("October 27, 2026");
+  });
+
+  it("setting PLATFORM_LEGAL_NAME to the default operator's own name keeps the individual-operator wording (no contradictory description)", () => {
+    process.env.PLATFORM_LEGAL_NAME = "Umerenko Sergei";
+
+    const config = getPlatformLegalConfig();
+
+    expect(config.operatorDescription).toBe("Umerenko Sergei, an individual, under the Aqenra brand");
+    expect(config.brandDisclaimer).toBe("Aqenra is a product name, not a registered company.");
   });
 
   it("prefers every explicitly configured env var over its fallback", () => {
@@ -124,6 +149,16 @@ describe("getPlatformLegalConfig", () => {
 
     expect(config.operatorDescription).toBe("Acme Legal Entity LLC");
     expect(config.brandDisclaimer).toBeNull();
+  });
+});
+
+describe("formatEffectiveLine", () => {
+  it("renders a real date as 'Effective <date>'", () => {
+    expect(formatEffectiveLine("October 27, 2026")).toBe("Effective October 27, 2026");
+  });
+
+  it("renders the pending marker as an explicit notice, never as a date and never as 'Effective <marker>'", () => {
+    expect(formatEffectiveLine(EFFECTIVE_DATE_PENDING)).toBe("Effective date: to be confirmed on publication");
   });
 });
 
