@@ -160,7 +160,10 @@ test.describe("Invoice internal notes — validation-error field persistence", (
     await page.getByLabel("Internal notes").fill("Submitted internal note");
 
     await page.getByRole("button", { name: "Create invoice" }).click();
-    await expect(page).toHaveURL(/\/invoices(\?|$|\/)/);
+    // Must NOT match /invoices/new, the page the click starts on — the `|\/` branch used to, so this
+    // wait resolved instantly and the lookup below could run before the create action had committed.
+    // The action redirects to the list only after its transaction commits.
+    await expect(page).toHaveURL(/\/invoices(\?|$)/);
 
     const created = await dbQuery<{ internalNotes: string | null }>("invoice", "findFirstOrThrow", {
       where: { invoiceNumber },
