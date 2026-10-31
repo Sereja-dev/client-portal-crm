@@ -51,6 +51,7 @@ describe("Cookie Policy page", () => {
     expect(cookiesSource).toMatch(/Table column preferences/);
     expect(cookiesSource).toMatch(/Recent searches/);
     expect(cookiesSource).toMatch(/Public-beta notice dismissal/);
+    expect(cookiesSource).toMatch(/Feedback button position/);
     expect(cookiesSource).toMatch(/Authentication session/);
   });
 

@@ -78,6 +78,14 @@ const STORAGE_ROWS: StorageRow[] = [
     control: "Clear site data in your browser",
   },
   {
+    name: "Feedback button position",
+    type: "Browser-local storage",
+    purpose: "Remembers where you moved the floating Feedback button on your screen, so it stays where you put it. Stores only the button's position — nothing you type into the feedback form and nothing about you.",
+    setBy: "Aqenra",
+    retention: "Until you move the button again, or clear your browser's site data",
+    control: "Move the button, or clear site data in your browser",
+  },
+  {
     name: "Public-beta notice dismissal",
     type: "Browser-local storage",
     purpose: "Remembers that you dismissed the public-beta notice, so it doesn't reappear.",

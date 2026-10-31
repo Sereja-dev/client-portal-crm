@@ -144,6 +144,8 @@ export default defineConfig({
       // own TEST_MODE branch before this value is used for anything but
       // the one `to:` field in that intercepted (never dispatched) call.
       PLATFORM_SUPPORT_EMAIL: "support-e2e@example.com",
+      // Staff Feedback Widget: the dedicated bug-report destination (E2E only; TEST_MODE never sends real email).
+      PLATFORM_FEEDBACK_EMAIL: "feedback-e2e@example.com",
     },
   },
 });
