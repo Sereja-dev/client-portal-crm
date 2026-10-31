@@ -43,10 +43,10 @@ describe("getPlatformLegalConfig", () => {
     expect(config.supportEmail).toBeNull();
     expect(config.jurisdiction).toBe("the jurisdiction in which the Service operator is located");
     // Product Owner approved dates: the revised Privacy/Terms are effective October 31, 2026 (never the original
-    // August 9, 2026); the Cookie Policy keeps the date it was first published.
+    // August 9, 2026); the Cookie Policy was revised on the same date to add the Feedback button position disclosure.
     expect(config.privacyEffectiveDate).toBe("October 31, 2026");
     expect(config.tosEffectiveDate).toBe("October 31, 2026");
-    expect(config.cookiePolicyEffectiveDate).toBe("October 27, 2026");
+    expect(config.cookiePolicyEffectiveDate).toBe("October 31, 2026");
   });
 
   it("an environment override still takes precedence over the Privacy and Terms defaults, each independently", () => {
@@ -56,7 +56,7 @@ describe("getPlatformLegalConfig", () => {
 
     expect(config.privacyEffectiveDate).toBe("November 4, 2026");
     expect(config.tosEffectiveDate).toBe("October 31, 2026");
-    expect(config.cookiePolicyEffectiveDate).toBe("October 27, 2026");
+    expect(config.cookiePolicyEffectiveDate).toBe("October 31, 2026");
   });
 
   it("setting PLATFORM_LEGAL_NAME to the default operator's own name keeps the individual-operator wording (no contradictory description)", () => {

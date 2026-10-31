@@ -97,8 +97,9 @@ const DEFAULT_OPERATOR_NAME = "Umerenko Sergei";
  *   Terms of Service 2026-08-09 initial · 2026-10-31 revision with the
  *                    individual-operator identity and free-beta wording
  *                    (Product Owner approved this publication date)
- *   Cookie Policy    2026-10-27 first published (operator wording aligned
- *                    later; substance unchanged, so the date is kept)
+ *   Cookie Policy    2026-10-27 first published · 2026-10-31 revision adding the
+ *                    Feedback button position (browser-local storage) disclosure
+ *                    (Product Owner approved this publication date)
  *
  * Each can be overridden per deployment (PRIVACY_POLICY_EFFECTIVE_DATE,
  * TOS_EFFECTIVE_DATE, COOKIE_POLICY_EFFECTIVE_DATE); an override takes
@@ -107,7 +108,7 @@ const DEFAULT_OPERATOR_NAME = "Umerenko Sergei";
  */
 const PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE = "October 31, 2026";
 const TOS_DEFAULT_EFFECTIVE_DATE = "October 31, 2026";
-const COOKIE_POLICY_DEFAULT_EFFECTIVE_DATE = "October 27, 2026";
+const COOKIE_POLICY_DEFAULT_EFFECTIVE_DATE = "October 31, 2026";
 
 // The one email-shape check this module uses — shared by extractEmailAddress
 // below and getTransactionalReplyToEmail, so a malformed PLATFORM_REPLY_TO_EMAIL
