@@ -31,13 +31,32 @@ export type PlatformEmailConfig = {
 };
 
 export type PlatformLegalConfig = {
-  /** Legal/trading name of the entity operating this Service. */
+  /** Legal name of whoever operates this Service: the individual operator by default, or PLATFORM_LEGAL_NAME when configured. Not the product brand. */
   legalName: string;
+  /**
+   * How the operator is introduced in running text. By default
+   * "Umerenko Sergei, an individual, under the Aqenra brand"; when
+   * PLATFORM_LEGAL_NAME is configured, just that name — nothing is claimed
+   * about a configured operator's legal form (individual, company, ...).
+   */
+  operatorDescription: string;
+  /**
+   * "Aqenra is a product name, not a registered company." for the default
+   * operator; null when PLATFORM_LEGAL_NAME is configured (that operator's
+   * legal form is unknown to this code, so no statement is made about it).
+   */
+  brandDisclaimer: string | null;
   /** Registered/mailing address, if the operator has configured one — never invented. */
   legalAddress: string | null;
   /** Contact address for privacy/legal requests, if configured. */
   supportEmail: string | null;
-  /** Free-text jurisdiction description used in the governing-law clause. */
+  /**
+   * Free-text jurisdiction used in the governing-law clause. OPEN OWNER/LEGAL DECISION: the default is a generic
+   * placeholder, not a chosen law or venue. It is rendered in exactly three public clauses — Terms of Service §10
+   * ("These Terms are governed by the laws applicable in …"), Privacy Policy §9 and Cookie Policy §8 ("This policy
+   * is interpreted under the laws applicable in …") — and in the platform-admin Legal Configuration. Nothing else in
+   * the code names a law, jurisdiction or venue.
+   */
   jurisdiction: string;
   /** Human-readable effective date shown on the Privacy Policy page. */
   privacyEffectiveDate: string;
@@ -53,6 +72,42 @@ export type PlatformLegalConfig = {
    */
   cookiePolicyEffectiveDate: string;
 };
+
+/**
+ * Confirmed operator facts (Product Owner, 2026-10-30): Aqenra is a product
+ * brand, NOT a registered company — it is operated by an individual. These
+ * are code defaults, deliberately not environment-dependent, so a deployment
+ * renders the correct operator even while every PLATFORM_LEGAL_* variable is
+ * unset. A deployment run by someone else sets PLATFORM_LEGAL_NAME.
+ *
+ * Nothing else about the operator is asserted anywhere: no address, tax or
+ * registration number, country, governing law or venue (see `jurisdiction`
+ * below — still an open Product Owner decision).
+ */
+const DEFAULT_OPERATOR_NAME = "Umerenko Sergei";
+// The public marketing site (aqenra-marketing, src/config/site.ts OPERATOR_NAME) states the same operator as a
+// constant. Keep the two in step; a PLATFORM_LEGAL_NAME that names a DIFFERENT operator would contradict that site.
+
+/**
+ * Effective dates, explicit and auditable. A revised policy is never backdated.
+ *
+ *   Privacy Policy   2026-08-09 initial · 2026-10-26 cookie disclosure ·
+ *                    2026-10-31 revision with the individual-operator identity
+ *                    (Product Owner approved this publication date)
+ *   Terms of Service 2026-08-09 initial · 2026-10-31 revision with the
+ *                    individual-operator identity and free-beta wording
+ *                    (Product Owner approved this publication date)
+ *   Cookie Policy    2026-10-27 first published (operator wording aligned
+ *                    later; substance unchanged, so the date is kept)
+ *
+ * Each can be overridden per deployment (PRIVACY_POLICY_EFFECTIVE_DATE,
+ * TOS_EFFECTIVE_DATE, COOKIE_POLICY_EFFECTIVE_DATE); an override takes
+ * precedence over the constant. A future revision gets its own new date here,
+ * in the same reviewed change that ships its wording — never an earlier date.
+ */
+const PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE = "October 31, 2026";
+const TOS_DEFAULT_EFFECTIVE_DATE = "October 31, 2026";
+const COOKIE_POLICY_DEFAULT_EFFECTIVE_DATE = "October 27, 2026";
 
 // The one email-shape check this module uses — shared by extractEmailAddress
 // below and getTransactionalReplyToEmail, so a malformed PLATFORM_REPLY_TO_EMAIL
@@ -118,15 +173,34 @@ export function getPlatformBranding(): PlatformBranding {
  * the null cases instead of assuming a value.
  */
 export function getPlatformLegalConfig(): PlatformLegalConfig {
+  // Setting PLATFORM_LEGAL_NAME to the default operator's own name is the default operator, not a "different" one —
+  // otherwise it would silently drop the individual-operator wording and contradict the marketing site.
+  const configuredName = trimmedEnv("PLATFORM_LEGAL_NAME");
+  const configuredLegalName = configuredName === DEFAULT_OPERATOR_NAME ? null : configuredName;
+  const brandName = getPlatformBranding().name;
   return {
-    legalName: trimmedEnv("PLATFORM_LEGAL_NAME") ?? getPlatformBranding().name,
+    legalName: configuredLegalName ?? DEFAULT_OPERATOR_NAME,
+    operatorDescription: configuredLegalName ?? `${DEFAULT_OPERATOR_NAME}, an individual, under the ${brandName} brand`,
+    brandDisclaimer: configuredLegalName ? null : `${brandName} is a product name, not a registered company.`,
     legalAddress: trimmedEnv("PLATFORM_LEGAL_ADDRESS"),
     supportEmail: trimmedEnv("PLATFORM_SUPPORT_EMAIL") ?? extractEmailAddress(process.env.INVITATION_FROM_EMAIL),
     jurisdiction: trimmedEnv("PLATFORM_JURISDICTION") ?? "the jurisdiction in which the Service operator is located",
-    privacyEffectiveDate: trimmedEnv("PRIVACY_POLICY_EFFECTIVE_DATE") ?? "August 9, 2026",
-    tosEffectiveDate: trimmedEnv("TOS_EFFECTIVE_DATE") ?? "August 9, 2026",
-    cookiePolicyEffectiveDate: trimmedEnv("COOKIE_POLICY_EFFECTIVE_DATE") ?? "October 27, 2026",
+    privacyEffectiveDate: trimmedEnv("PRIVACY_POLICY_EFFECTIVE_DATE") ?? PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE,
+    tosEffectiveDate: trimmedEnv("TOS_EFFECTIVE_DATE") ?? TOS_DEFAULT_EFFECTIVE_DATE,
+    cookiePolicyEffectiveDate: trimmedEnv("COOKIE_POLICY_EFFECTIVE_DATE") ?? COOKIE_POLICY_DEFAULT_EFFECTIVE_DATE,
   };
+}
+
+/**
+ * The copyright line shown in every footer — one place, so the app footer and
+ * the pre-auth footer cannot drift. Distinguishes the brand from its operator
+ * ("© 2026 Aqenra · Operated by Umerenko Sergei"); when an operator configures
+ * a legal name equal to the brand name, it collapses to "© 2026 Aqenra".
+ */
+export function getPlatformCopyrightLine(year: number): string {
+  const { legalName } = getPlatformLegalConfig();
+  const brandName = getPlatformBranding().name;
+  return legalName === brandName ? `© ${year} ${brandName}` : `© ${year} ${brandName} · Operated by ${legalName}`;
 }
 
 /**

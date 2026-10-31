@@ -23,7 +23,8 @@ export default function TermsOfServicePage() {
           <h2 className="text-lg font-semibold text-text-primary">1. Agreement</h2>
           <p className="mt-3">
             These Terms of Service (&ldquo;Terms&rdquo;) govern your use of {siteConfig.name} (the
-            &ldquo;Service&rdquo;), operated by {config.legalName} (&ldquo;we&rdquo;, &ldquo;us&rdquo;). By
+            &ldquo;Service&rdquo;), operated by {config.operatorDescription} (&ldquo;we&rdquo;, &ldquo;us&rdquo;).
+            {config.brandDisclaimer ? ` ${config.brandDisclaimer}` : ""} By
             creating an account or otherwise using the Service, you agree to these Terms. If you are creating an
             account on behalf of a business, you confirm you have authority to bind that business, and
             &ldquo;you&rdquo; refers to that business as well as you personally.
@@ -83,10 +84,10 @@ export default function TermsOfServicePage() {
         <section>
           <h2 className="text-lg font-semibold text-text-primary">6. Billing</h2>
           <p className="mt-3">
-            The Service does not currently charge for access through any live payment processor &mdash;
-            organizations today use the Service on a trial or complimentary basis. If paid subscription plans
-            are enabled in the future, these Terms will be updated to describe pricing, billing, and cancellation
-            terms before any charge is introduced.
+            The Service is currently offered free of charge as a public beta, and it does not charge for access
+            through any live payment processor. Beta access may be subject to usage limits and may change. If paid
+            subscription plans are enabled in the future, these Terms will be updated to describe pricing,
+            billing, and cancellation terms before any charge is introduced.
           </p>
         </section>
 

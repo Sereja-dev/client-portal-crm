@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { getPlatformLegalConfig } from "@/lib/legal/platform-config";
+import { getPlatformCopyrightLine, getPlatformLegalConfig } from "@/lib/legal/platform-config";
 
 const LEGAL_ENV_KEYS = [
   "PLATFORM_LEGAL_NAME",
@@ -33,16 +33,39 @@ afterEach(() => {
 });
 
 describe("getPlatformLegalConfig", () => {
-  it("falls back to the site name and safe, honest defaults when nothing is configured — never a fabricated address or mailbox", () => {
+  it("defaults to the confirmed individual operator and safe, honest values when nothing is configured — never a fabricated address, mailbox or jurisdiction", () => {
     const config = getPlatformLegalConfig();
 
-    expect(config.legalName).toBe("Aqenra");
+    expect(config.legalName).toBe("Umerenko Sergei");
+    expect(config.operatorDescription).toBe("Umerenko Sergei, an individual, under the Aqenra brand");
+    expect(config.brandDisclaimer).toBe("Aqenra is a product name, not a registered company.");
     expect(config.legalAddress).toBeNull();
     expect(config.supportEmail).toBeNull();
     expect(config.jurisdiction).toBe("the jurisdiction in which the Service operator is located");
-    expect(config.privacyEffectiveDate).toBe("August 9, 2026");
-    expect(config.tosEffectiveDate).toBe("August 9, 2026");
+    // Product Owner approved dates: the revised Privacy/Terms are effective October 31, 2026 (never the original
+    // August 9, 2026); the Cookie Policy keeps the date it was first published.
+    expect(config.privacyEffectiveDate).toBe("October 31, 2026");
+    expect(config.tosEffectiveDate).toBe("October 31, 2026");
     expect(config.cookiePolicyEffectiveDate).toBe("October 27, 2026");
+  });
+
+  it("an environment override still takes precedence over the Privacy and Terms defaults, each independently", () => {
+    process.env.PRIVACY_POLICY_EFFECTIVE_DATE = "November 4, 2026";
+
+    const config = getPlatformLegalConfig();
+
+    expect(config.privacyEffectiveDate).toBe("November 4, 2026");
+    expect(config.tosEffectiveDate).toBe("October 31, 2026");
+    expect(config.cookiePolicyEffectiveDate).toBe("October 27, 2026");
+  });
+
+  it("setting PLATFORM_LEGAL_NAME to the default operator's own name keeps the individual-operator wording (no contradictory description)", () => {
+    process.env.PLATFORM_LEGAL_NAME = "Umerenko Sergei";
+
+    const config = getPlatformLegalConfig();
+
+    expect(config.operatorDescription).toBe("Umerenko Sergei, an individual, under the Aqenra brand");
+    expect(config.brandDisclaimer).toBe("Aqenra is a product name, not a registered company.");
   });
 
   it("prefers every explicitly configured env var over its fallback", () => {
@@ -58,6 +81,8 @@ describe("getPlatformLegalConfig", () => {
 
     expect(config).toEqual({
       legalName: "Acme Legal Co",
+      operatorDescription: "Acme Legal Co",
+      brandDisclaimer: null,
       legalAddress: "123 Main St, Springfield",
       supportEmail: "privacy@acme.example",
       jurisdiction: "the State of Delaware, USA",
@@ -91,14 +116,18 @@ describe("getPlatformLegalConfig", () => {
 
     const config = getPlatformLegalConfig();
 
-    expect(config.legalName).toBe("Aqenra");
+    expect(config.legalName).toBe("Umerenko Sergei");
     expect(config.legalAddress).toBeNull();
   });
 
-  it("Sale-Ready Phase D, D2: legalName falls back through PLATFORM_NAME (Branding) when PLATFORM_LEGAL_NAME is unset — one name, not two independent facts", () => {
+  it("the operator is a code default, independent of PLATFORM_NAME (the brand): renaming the brand never renames the operator", () => {
     process.env.PLATFORM_NAME = "Acme Platform";
 
-    expect(getPlatformLegalConfig().legalName).toBe("Acme Platform");
+    const config = getPlatformLegalConfig();
+
+    expect(config.legalName).toBe("Umerenko Sergei");
+    expect(config.operatorDescription).toBe("Umerenko Sergei, an individual, under the Acme Platform brand");
+    expect(config.brandDisclaimer).toBe("Acme Platform is a product name, not a registered company.");
   });
 
   it("PLATFORM_LEGAL_NAME still wins over PLATFORM_NAME when both are set — legal identity can differ from the marketing name", () => {
@@ -106,5 +135,32 @@ describe("getPlatformLegalConfig", () => {
     process.env.PLATFORM_LEGAL_NAME = "Acme Legal Entity LLC";
 
     expect(getPlatformLegalConfig().legalName).toBe("Acme Legal Entity LLC");
+  });
+
+  it("a configured PLATFORM_LEGAL_NAME is never described as an individual or as 'not a registered company' — nothing is claimed about its legal form", () => {
+    process.env.PLATFORM_LEGAL_NAME = "Acme Legal Entity LLC";
+
+    const config = getPlatformLegalConfig();
+
+    expect(config.operatorDescription).toBe("Acme Legal Entity LLC");
+    expect(config.brandDisclaimer).toBeNull();
+  });
+});
+
+describe("getPlatformCopyrightLine", () => {
+  it("distinguishes the brand from its operator", () => {
+    expect(getPlatformCopyrightLine(2026)).toBe("© 2026 Aqenra · Operated by Umerenko Sergei");
+  });
+
+  it("collapses to the brand alone when the configured legal name equals the brand name", () => {
+    process.env.PLATFORM_LEGAL_NAME = "Aqenra";
+
+    expect(getPlatformCopyrightLine(2026)).toBe("© 2026 Aqenra");
+  });
+
+  it("uses a configured legal name as the operator", () => {
+    process.env.PLATFORM_LEGAL_NAME = "Acme Legal Co";
+
+    expect(getPlatformCopyrightLine(2027)).toBe("© 2027 Aqenra · Operated by Acme Legal Co");
   });
 });
