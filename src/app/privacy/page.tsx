@@ -50,6 +50,15 @@ export default function PrivacyPolicyPage() {
               option, we store that phone number too.
             </li>
             <li>
+              <strong className="text-text-primary">Staff sign-up records.</strong> When someone starts creating a
+              staff account, we record the email address entered, the time of the first and the most recent
+              recorded attempt, how many attempts we recorded, whether the sign-up was made on its own or through a
+              team invitation, and, once the email is confirmed and the account is created, the time that
+              happened. This includes attempts that are never completed through email confirmation. We use it to
+              understand how many people start and finish sign-up and to look into sign-up problems. This record
+              does not contain your password, confirmation links, IP address, or browser details.
+            </li>
+            <li>
               <strong className="text-text-primary">Organization and business data.</strong> Information an
               Organization&rsquo;s staff enter into the Service, including organization/business identity details,
               client contacts, projects, tasks, invoices, comments, and activity history.
@@ -158,6 +167,13 @@ export default function PrivacyPolicyPage() {
             We retain account and business data for as long as your account or Organization remains active. Read
             in-app notifications are automatically deleted 90 days after they are marked read; unread
             notifications are kept until you read or otherwise clear them.
+          </p>
+          <p className="mt-3">
+            Staff sign-up records for attempts that were never completed into an account are automatically deleted
+            90 days after the most recent recorded attempt. Sign-up records for completed accounts are kept for as
+            long as the account remains active. Deleting a sign-up record does not by itself delete the
+            authentication data held by our authentication provider (Supabase Auth) for an incomplete sign-up; to
+            ask us to delete that data, contact us using the details in Section 9.
           </p>
           <p className="mt-3">
             We do not currently offer a self-service &ldquo;delete my account&rdquo; or &ldquo;export my

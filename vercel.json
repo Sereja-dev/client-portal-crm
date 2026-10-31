@@ -20,6 +20,10 @@
     {
       "path": "/api/cron/integration-delivery",
       "schedule": "35 5 * * *"
+    },
+    {
+      "path": "/api/cron/signup-attempt-retention",
+      "schedule": "45 5 * * *"
     }
   ]
 }

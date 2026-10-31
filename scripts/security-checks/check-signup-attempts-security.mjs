@@ -18,6 +18,12 @@ import { report } from "./lib.mjs";
 // 4. The Portal signup action never records a Staff attempt.
 // 5. The Staff signup action records only after a successful token
 //    generation, and the model's columns are exactly the approved set.
+// 6. Retention (src/lib/signup-attempts/retention.ts) is the only other
+//    writer. It runs only from the CRON_SECRET-protected cron route, only
+//    reads User, never touches Supabase Auth, organizations, memberships
+//    or business data, logs nothing, uses no raw SQL, and its 90-day
+//    constant matches the Privacy Policy's promise. The schedule exists
+//    exactly once in vercel.json.
 
 let ok = true;
 
@@ -33,13 +39,17 @@ function walk(dir) {
 }
 
 const RECORDER = "src/lib/signup-attempts/record.ts";
+const RETENTION = "src/lib/signup-attempts/retention.ts";
+const RETENTION_ROUTE = "src/app/api/cron/signup-attempt-retention/route.ts";
 const ALLOWED_READERS = ["src/lib/platform-admin/queries/"];
 
 const delegateUsers = walk("src").filter((f) => /\bsignupAttempt\b/.test(stripComments(read(f))));
-const unexpected = delegateUsers.filter((f) => f !== RECORDER && !ALLOWED_READERS.some((p) => f.startsWith(p)));
+const unexpected = delegateUsers.filter(
+  (f) => f !== RECORDER && f !== RETENTION && !ALLOWED_READERS.some((p) => f.startsWith(p)),
+);
 ok = report(
-  "only the recorder and the guarded Platform Admin query layer reference the SignupAttempt delegate",
-  delegateUsers.includes(RECORDER) && unexpected.length === 0,
+  "only the recorder, the retention job and the guarded Platform Admin query layer reference the SignupAttempt delegate",
+  delegateUsers.includes(RECORDER) && delegateUsers.includes(RETENTION) && unexpected.length === 0,
   unexpected.join("\n"),
 ) && ok;
 
@@ -117,5 +127,51 @@ ok = report(
   columns.join(", "),
 ) && ok;
 ok = report("SignupAttempt has no organization or tenant column (platform-level by design)", !columns.some((c) => /organization|tenant/i.test(c)), "") && ok;
+
+const retention = stripComments(read(RETENTION));
+const retentionImporters = walk("src")
+  .filter((f) => f !== RETENTION && /@\/lib\/signup-attempts\/retention/.test(stripComments(read(f))))
+  .sort();
+ok = report(
+  "the retention job is imported only by its cron route",
+  JSON.stringify(retentionImporters) === JSON.stringify([RETENTION_ROUTE]),
+  retentionImporters.join("\n"),
+) && ok;
+
+const route = stripComments(read(RETENTION_ROUTE));
+ok = report(
+  "the retention route authenticates with the shared requireCronAuth before doing anything else",
+  /requireCronAuth\(request\)/.test(route) && route.indexOf("requireCronAuth(request)") < route.indexOf("cleanupSignupAttempts("),
+  "",
+) && ok;
+ok = report(
+  "the retention route logs only one fixed line with no error text",
+  [...route.matchAll(/console\.\w+\(([^;]*)\);/g)].map((m) => m[1]).join("|") === '"[signup-attempts] retention cleanup failed."',
+  "",
+) && ok;
+
+ok = report(
+  "retention never touches Supabase Auth, organizations, memberships or other business models",
+  !/supabase|auth\.admin|getSupabaseAuthAdminClient/i.test(retention) &&
+    !/prisma\.(organization|membership|invitation|portalUser|client|project|task|invoice|subscription)\b/.test(retention),
+  "",
+) && ok;
+ok = report(
+  "retention only reads User (no create/update/upsert/delete on it) and uses no raw SQL",
+  !/prisma\.user\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\b/.test(retention) && !/\$queryRaw|\$executeRaw/.test(retention),
+  "",
+) && ok;
+ok = report("retention logs nothing and reads no request-scoped data", !/console\./.test(retention) && !/next\/headers|\bcookies\s*\(|\bheaders\s*\(|\bFormData\b|\bRequest\b/.test(retention), "") && ok;
+
+const days = retention.match(/SIGNUP_ATTEMPT_RETENTION_DAYS\s*=\s*(\d+)/);
+const privacy = read("src/app/privacy/page.tsx").replace(/\s+/g, " ");
+ok = report(
+  "the retention window in code matches the Privacy Policy's stated period",
+  days !== null && privacy.includes(`automatically deleted ${days[1]} days after the most recent recorded attempt`),
+  days ? `code says ${days[1]} days` : "SIGNUP_ATTEMPT_RETENTION_DAYS not found",
+) && ok;
+
+const cronEntries = (JSON.parse(read("vercel.json")).crons ?? []).filter((c) => c.path === "/api/cron/signup-attempt-retention");
+ok = report("vercel.json schedules the retention route exactly once", cronEntries.length === 1, JSON.stringify(cronEntries)) && ok;
 
 process.exit(ok ? 0 : 1);
