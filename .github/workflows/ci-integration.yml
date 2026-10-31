@@ -18,7 +18,7 @@ concurrency:
 jobs:
   integration:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     # Deliberately independent from ci-fast.yml (no `needs:`) — both run in
     # parallel so a PR gets both signals sooner, at the cost of sometimes
     # running this heavier job for a PR ci-fast.yml was always going to
