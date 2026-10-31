@@ -5078,3 +5078,65 @@ enum AiAssistantTurnOutcome {
   EMPTY_ANSWER
   REF_LEAK
 }
+
+// Platform Admin Growth V1, Slice A (registration data foundation). Where
+// a Staff signup identity was first and last observed by THIS application,
+// and when it became an application User. Platform-level by design: no
+// organizationId, never read by any tenant-scoped (dashboard)/portal path
+// (see scripts/security-checks/check-signup-attempts-security.mjs).
+//
+// Not a second source of truth for authentication: Supabase Auth remains
+// authoritative for credentials and email-confirmation state. `activatedAt`
+// is the application-provisioning timestamp of the matching User row
+// (User.createdAt), recomputable from it at any time.
+//
+// Timestamps are OBSERVATION times, never reconstructed ones:
+//   - firstAttemptedAt: the earliest moment this application recorded the
+//     identity (monotonically lowered, never raised, under concurrency).
+//     A pre-existing Auth user whose first attempt predates this table is
+//     first seen later than it was created; nothing here claims otherwise.
+//   - attemptCount counts only recorded attempts that reached a returned
+//     Auth user id; attempts Supabase rejected before returning an id are
+//     not counted.
+//   - Historical identities exist only after an explicit, separately
+//     approved backfill (recordedVia = BACKFILL).
+//
+// Deliberately never stored: passwords, confirmation tokens or links, raw
+// request bodies, IP addresses, user agents, or Auth metadata.
+model SignupAttempt {
+  id String @id @default(uuid()) @db.Uuid
+
+  // The Supabase Auth user id; equals User.id once activated. Deliberately
+  // not a foreign key: this row exists BEFORE the User row does.
+  authUserId String @unique @db.Uuid
+
+  // Trimmed, lower-cased email as submitted at the first recorded attempt.
+  email String
+
+  origin SignupOrigin
+
+  firstAttemptedAt DateTime
+  lastAttemptedAt  DateTime
+  attemptCount     Int      @default(1)
+
+  activatedAt DateTime?
+
+  recordedVia SignupRecordedVia @default(LIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([firstAttemptedAt])
+  @@index([activatedAt])
+}
+
+enum SignupOrigin {
+  STANDALONE
+  INVITED
+  UNKNOWN
+}
+
+enum SignupRecordedVia {
+  LIVE
+  BACKFILL
+}
