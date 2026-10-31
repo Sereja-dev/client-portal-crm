@@ -10,7 +10,7 @@ import { bootstrapOrganizationStatusDefinitions } from "@/lib/custom-statuses/bo
 import { isOrganizationSuspended, ORGANIZATION_UNAVAILABLE_PATH } from "@/lib/organization-access";
 import { seedThemeModeFromRequestCookie } from "@/lib/theme/request-cookie-seed";
 import { redirectToLoginForSessionLoss } from "@/lib/auth/staff-session-redirect";
-import { recordSignupActivation } from "@/lib/signup-attempts/record";
+import { provisionUser } from "@/lib/signup-attempts/provision-user";
 
 const ACTIVE_ORG_COOKIE = "active_organization_id";
 const ACTIVE_ORG_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
@@ -74,23 +74,17 @@ export async function getOrCreateUser(currentPath?: string) {
   const seededThemeMode = await seedThemeModeFromRequestCookie();
 
   try {
-    const provisioned = await prisma.user.upsert({
-      where: { id: authUser.id },
-      update: {},
-      create: {
-        id: authUser.id,
-        email: authUser.email!,
-        name: authUser.user_metadata?.name ?? authUser.email!.split("@")[0],
-        themeMode: seededThemeMode,
-      },
+    // Platform Admin Growth V1: the User row and the matching SignupAttempt
+    // activation are created in one transaction (best-effort fallback if
+    // the analytics side is unavailable) — see provisionUser()'s own doc
+    // comment. The early-return above means this runs only for an identity
+    // with no User row yet.
+    return await provisionUser({
+      id: authUser.id,
+      email: authUser.email!,
+      name: authUser.user_metadata?.name ?? authUser.email!.split("@")[0],
+      themeMode: seededThemeMode,
     });
-    // Platform Admin Growth V1: complete the matching SignupAttempt (if one
-    // was recorded) at the User row's own createdAt. Never throws, bounded
-    // in time, idempotent, and it never creates a row — see
-    // recordSignupActivation()'s own doc comment. The early-return above
-    // means this runs only for an identity with no User row yet.
-    await recordSignupActivation({ authUserId: provisioned.id, activatedAt: provisioned.createdAt });
-    return provisioned;
   } catch (err) {
     if (
       err instanceof Prisma.PrismaClientKnownRequestError &&

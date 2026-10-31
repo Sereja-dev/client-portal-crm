@@ -27,16 +27,25 @@ import { prisma } from "@/lib/prisma";
  * Idempotent: with nothing eligible it is a clean no-op, and any partial
  * run simply leaves the remainder for the next one.
  *
- * Concurrency: the delete itself is guarded (activatedAt IS NULL and the
- * row still older than the cutoff), so an activation or a fresh attempt
- * recorded before the delete statement protects the row. The one window
- * those guards cannot close is a User row committed between the existence
- * check and the delete; so after deleting, the same ids are checked
- * against User once more, and any row that turns out to belong to an
- * existing User is restored exactly as it was read, with activatedAt set
- * to that User's own createdAt. If the process dies between the delete and
- * that check, the loss is limited to a row whose owner activated within
- * the same few milliseconds and who also had no attempt for 90+ days.
+ * Concurrency. Healthy path (guaranteed): a User row is created together
+ * with its attempt's activation in ONE transaction (provision-user.ts), and
+ * this job's DELETE is a single statement guarded by activatedAt IS NULL
+ * and by the row still being older than the cutoff. Postgres therefore
+ * serializes the two: if the account's transaction committed first, the
+ * row is activated and the delete skips it; if the delete committed first,
+ * the account did not exist when the record expired. A process dying at any
+ * point leaves either both writes or neither. A fresh attempt recorded
+ * before the delete likewise moves lastAttemptedAt past the cutoff and
+ * protects the row.
+ *
+ * Degraded path (not guaranteed): if the atomic activation is unavailable
+ * (provisionUser falls back to a best-effort activation), a User committed
+ * between this job's existence check and its delete could lose its record.
+ * The post-delete re-check below restores such a row, unchanged and
+ * activated at the User's createdAt, but it is not atomic: a process death
+ * between the delete and that re-check would leave the loss in place. That
+ * requires the activation fallback, a 90+ day old attempt, a concurrent
+ * cleanup run, and a crash within milliseconds.
  */
 
 export const SIGNUP_ATTEMPT_RETENTION_DAYS = 90;

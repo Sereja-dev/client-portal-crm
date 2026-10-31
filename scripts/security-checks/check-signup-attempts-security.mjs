@@ -90,8 +90,8 @@ const recorderImporters = walk("src")
   .filter((f) => f !== RECORDER && /@\/lib\/signup-attempts\/record/.test(stripComments(read(f))))
   .sort();
 ok = report(
-  "the recorder is imported only by the Staff signup action and the User provisioning module",
-  JSON.stringify(recorderImporters) === JSON.stringify(["src/app/(auth)/signup/actions.ts", "src/lib/current-user.ts"]),
+  "the recorder is imported only by the Staff signup action and the User provisioning module (provision-user.ts)",
+  JSON.stringify(recorderImporters) === JSON.stringify(["src/app/(auth)/signup/actions.ts", "src/lib/signup-attempts/provision-user.ts"]),
   recorderImporters.join("\n"),
 ) && ok;
 
@@ -167,11 +167,43 @@ const days = retention.match(/SIGNUP_ATTEMPT_RETENTION_DAYS\s*=\s*(\d+)/);
 const privacy = read("src/app/privacy/page.tsx").replace(/\s+/g, " ");
 ok = report(
   "the retention window in code matches the Privacy Policy's stated period",
-  days !== null && privacy.includes(`automatically deleted ${days[1]} days after the most recent recorded attempt`),
+  days !== null && privacy.includes(`deleted automatically once ${days[1]} days have passed since the most recent recorded attempt`),
   days ? `code says ${days[1]} days` : "SIGNUP_ATTEMPT_RETENTION_DAYS not found",
 ) && ok;
 
 const cronEntries = (JSON.parse(read("vercel.json")).crons ?? []).filter((c) => c.path === "/api/cron/signup-attempt-retention");
 ok = report("vercel.json schedules the retention route exactly once", cronEntries.length === 1, JSON.stringify(cronEntries)) && ok;
+
+const PROVISION = "src/lib/signup-attempts/provision-user.ts";
+const provision = stripComments(read(PROVISION));
+const provisionImporters = walk("src")
+  .filter((f) => f !== PROVISION && /@\/lib\/signup-attempts\/provision-user/.test(stripComments(read(f))))
+  .sort();
+ok = report(
+  "User provisioning with activation is used only by getOrCreateUser (the one place a User is created)",
+  JSON.stringify(provisionImporters) === JSON.stringify(["src/lib/current-user.ts"]),
+  provisionImporters.join("\n"),
+) && ok;
+ok = report(
+  "the atomic path creates the User and activates the attempt inside one $transaction, and the plain upsert exists only as the catch fallback",
+  /\$transaction\(\s*async \(tx\) =>[\s\S]*tx\.user\.upsert[\s\S]*await activate\(tx,/.test(provision) &&
+    (provision.match(/prisma\.user\.upsert\(/g) ?? []).length === 1 &&
+    provision.indexOf("prisma.user.upsert(") > provision.indexOf("} catch {"),
+  "",
+) && ok;
+ok = report(
+  "provisioning logs only one fixed line and never touches Supabase Auth, organizations or memberships",
+  [...provision.matchAll(/console\.\w+\(([^;]*)\);/g)].map((m) => m[1]).join("|") === '"[signup-attempts] atomic activation unavailable, used the best-effort path."' &&
+    !/supabase|prisma\.(organization|membership)\b|tx\.(organization|membership)\b/i.test(provision),
+  "",
+) && ok;
+const usersCreatedOutside = walk("src")
+  .filter((f) => f !== PROVISION && /\b(prisma|tx)\.user\.(create|createMany|upsert)\b/.test(stripComments(read(f))))
+  .sort();
+ok = report(
+  "no other module creates Users except provisioning and the existing FK-race recovery in current-user.ts",
+  JSON.stringify(usersCreatedOutside) === JSON.stringify(["src/lib/current-user.ts"]),
+  usersCreatedOutside.join("\n"),
+) && ok;
 
 process.exit(ok ? 0 : 1);

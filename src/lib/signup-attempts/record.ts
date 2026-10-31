@@ -200,3 +200,24 @@ export async function recordSignupActivation(
     return { recorded: false, reason: timedOut ? "TIMEOUT" : "WRITE_FAILED" };
   }
 }
+
+/**
+ * Activation as part of the SAME database transaction that creates the User
+ * row (see provision-user.ts). Because the User insert and this update
+ * commit or roll back together, "a committed User exists" implies "its
+ * attempt row (if one exists) is already activated", which is exactly what
+ * the retention job's guarded delete (activatedAt IS NULL) relies on to
+ * never remove an existing account's record. Same match-by-authUserId,
+ * only-while-null, never-creates-a-row semantics as recordSignupActivation.
+ * Unlike that function it deliberately throws on failure, so the caller's
+ * transaction rolls back and the caller can fall back.
+ */
+export function activateSignupAttemptInTransaction(
+  tx: Prisma.TransactionClient,
+  input: { authUserId: string; activatedAt: Date },
+) {
+  return tx.signupAttempt.updateMany({
+    where: { authUserId: input.authUserId, activatedAt: null },
+    data: { activatedAt: input.activatedAt },
+  });
+}

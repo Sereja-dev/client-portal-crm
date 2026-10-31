@@ -60,12 +60,17 @@ describe("Privacy Policy sign-up record disclosure", () => {
   });
 
   it("states the 90-day rule for incomplete sign-ups and that completed-account records follow the account", () => {
-    expect(privacy).toContain("automatically deleted 90 days after the most recent recorded attempt");
+    expect(privacy).toContain("deleted automatically once 90 days have passed since the most recent recorded attempt");
     expect(privacy).toContain("kept for as long as the account remains active");
   });
 
+  it("says the cleanup is a daily, batched job and not an instantaneous deletion at the 90-day mark", () => {
+    expect(privacy).toContain("This cleanup runs daily, in batches, so a record may remain for a short time after the 90 days end.");
+    expect(privacy).not.toMatch(/immediately|instantly|at the exact moment/i);
+  });
+
   it("does not claim that authentication data is deleted with the record", () => {
-    expect(privacy).toContain("does not by itself delete the authentication data held by our authentication provider");
+    expect(privacy).toContain("removes only the sign-up record; it does not delete or change any account held by our authentication provider (Supabase Auth)");
     expect(privacy).not.toMatch(/all authentication data is (automatically )?deleted/i);
   });
 

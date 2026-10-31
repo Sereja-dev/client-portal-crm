@@ -169,11 +169,12 @@ export default function PrivacyPolicyPage() {
             notifications are kept until you read or otherwise clear them.
           </p>
           <p className="mt-3">
-            Staff sign-up records for attempts that were never completed into an account are automatically deleted
-            90 days after the most recent recorded attempt. Sign-up records for completed accounts are kept for as
-            long as the account remains active. Deleting a sign-up record does not by itself delete the
-            authentication data held by our authentication provider (Supabase Auth) for an incomplete sign-up; to
-            ask us to delete that data, contact us using the details in Section 9.
+            Staff sign-up records for attempts that were never completed into an account are deleted automatically
+            once 90 days have passed since the most recent recorded attempt. This cleanup runs daily, in batches,
+            so a record may remain for a short time after the 90 days end. Sign-up records for completed accounts
+            are kept for as long as the account remains active. The cleanup removes only the sign-up record; it
+            does not delete or change any account held by our authentication provider (Supabase Auth). To ask us to
+            delete that data, contact us using the details in Section 9.
           </p>
           <p className="mt-3">
             We do not currently offer a self-service &ldquo;delete my account&rdquo; or &ldquo;export my
