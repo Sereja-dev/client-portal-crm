@@ -73,12 +73,14 @@ describe("Terms and Privacy stay truthful about payments during the free beta", 
 });
 
 describe("effective dates are the Product Owner's approved dates, explicit and never backdated", () => {
-  it("Privacy, Terms and the Cookie Policy all default to October 31, 2026", () => {
-    expect(CONFIG).toMatch(/PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE = "October 31, 2026"/);
+  it("Privacy defaults to November 1, 2026; Terms and the Cookie Policy default to October 31, 2026", () => {
+    expect(CONFIG).toMatch(/PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE = "November 1, 2026"/);
     expect(CONFIG).toMatch(/TOS_DEFAULT_EFFECTIVE_DATE = "October 31, 2026"/);
     expect(CONFIG).toMatch(/COOKIE_POLICY_DEFAULT_EFFECTIVE_DATE = "October 31, 2026"/);
     // The first publication date stays in the revision history; it is never a default again.
     expect(CONFIG).toMatch(/Cookie Policy\s+2026-10-27 first published/);
+    // Earlier Privacy revisions stay in the history too.
+    expect(CONFIG).toMatch(/2026-10-31 revision with the individual-operator identity/);
   });
 
   it("no pending-publication marker or placeholder remains anywhere in the shipped legal code", () => {
