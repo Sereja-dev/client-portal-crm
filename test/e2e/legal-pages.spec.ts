@@ -61,7 +61,7 @@ test.describe("Operator identity (Public Beta legal alignment)", () => {
     await expect(page.getByRole("main")).toContainText("the jurisdiction in which the Service operator is located");
   });
 
-  test("Privacy and Terms are effective October 31, 2026 and the Cookie Policy keeps October 27, 2026", async ({ page }) => {
+  test("Privacy, Terms and the Cookie Policy are all effective October 31, 2026", async ({ page }) => {
     for (const route of ["/privacy", "/terms"]) {
       await page.goto(route);
       await expect(page.getByRole("main")).toContainText("Effective October 31, 2026");
@@ -69,7 +69,8 @@ test.describe("Operator identity (Public Beta legal alignment)", () => {
       await expect(page.getByRole("main")).not.toContainText("to be confirmed on publication");
     }
     await page.goto("/cookies");
-    await expect(page.getByRole("main")).toContainText("Effective October 27, 2026");
+    await expect(page.getByRole("main")).toContainText("Effective October 31, 2026");
+    await expect(page.getByRole("main")).not.toContainText("October 27, 2026");
   });
 
   test("Terms describe the free public beta, with no live billing", async ({ page }) => {
