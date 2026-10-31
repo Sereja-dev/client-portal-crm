@@ -1,19 +1,25 @@
 # Aqenra Launch Handoff
 
+> **Refreshed October 31, 2026 for the Free Public Beta launch (baseline `fc72e83`).** §1–§20 describe the current Production state. §21 is the preserved September 2026 Quotes/Invoice smoke record (historical). §22–§27 are the Public Beta additions: Free Beta posture, Feedback Widget, verification record, accepted limitations, post-launch list, and the launch checklist.
+>
+> Evidence labels used throughout: **Verified** = checked with read-only CLI/HTTP/CI evidence on the date given; **Product Owner confirmed** = verified manually by the Product Owner; **Not performed** = no verification is claimed.
+
 ## 1. Current Status
 
-**Overall status: Core SaaS ready. Marketing live. Paid billing and AI intentionally not enabled.**
+**Overall status: Public Beta launch-ready. Launch decision: GO — no Product blockers identified (Product Owner decision, October 31, 2026).**
 
-- App baseline SHA: `e2fe12b3e6ba7027e997edbe9570cf5134fb5818` (`main`, clean, matches `origin/main`) — updated 2026-09-08 with the completed Quotes + Invoice Production smoke (see §21)
-- Marketing baseline SHA: `b635a6f6a8c188b23936d6907c7f55ff54ccda7f` (`main`, clean, matches `origin/main`)
-- Production domains: `https://aqenra.com`, `https://www.aqenra.com`, `https://app.aqenra.com` — all live, verified responding as of this handoff (see §2, §4).
-- Already live: the SaaS app (Staff + Client Portal + Platform Admin), Quotes (Staff create/send/archive lifecycle + Portal approval/decline + Quote → Invoice conversion — see §21), the marketing site, transactional email, Supabase Storage.
+Aqenra runs as a **Free Public Beta**: no paid checkout, **5 members** and **3 GB of storage** per organization, and trial/subscription enforcement suspended by `FREE_BETA_MODE` (see §22). Online payments (Paddle) and the AI Assistant remain intentionally not enabled.
+
+- App baseline SHA: `fc72e83b3e76ea6a11438683099900357f1b75f1` (`main`, merge of PR #195). Production deployment `dpl_CfrhiHtA2Xq3nxBdHf26s1cZ1HpG`, READY, `app.aqenra.com` attached (see §24).
+- Marketing baseline SHA: `e9517cf463e48d8ee2934f0a3b979f8de3130ec2` (`main`, merge of Marketing PR #1). Production deployment `dpl_67uAHSe3BfMYZMVryXvv4dDhy4S6`, READY, `aqenra.com` attached.
+- Production domains: `https://aqenra.com`, `https://www.aqenra.com` (308 to the apex), `https://app.aqenra.com` — all responding (Verified 2026-10-31, see §24).
+- Already live: the SaaS app (Staff + Client Portal + Platform Admin), Quotes (§21), the redesigned onboarding (Product Owner confirmed), the Staff Feedback Widget V1 (§23), the marketing site, transactional email, Supabase Storage, and the Privacy Policy, Terms of Service and Cookie Policy (§14).
 - Intentionally disabled/deferred:
-  - **Paddle billing** — not configured in Production, fails closed (see §11)
+  - **Paddle billing** — not configured in Production, fails closed; paid checkout is additionally blocked server-side during the beta (see §11, §22)
   - **AI Assistant** — not configured in Production, fails closed (see §12)
-  - **Public dollar pricing** — not finalized; marketing states "Launch pricing will be announced before public release"
+  - **Public dollar pricing** — not finalized (see §13)
 
-This is **not** a "full public launch complete" state — it is a ready core product with two deliberately gated features (billing, AI) and one open business decision (pricing) remaining.
+**Launch decision record.** The decision is **GO** for Public Beta. A read-only launch review on 2026-10-31 found no launch blockers and no required code change. The limitations the Product Owner accepted for launch are in §25; the post-launch improvement list is §26; the short launch checklist is §27.
 
 ---
 
@@ -41,14 +47,14 @@ This is **not** a "full public launch complete" state — it is a ready core pro
 **client-portal-crm**
 - Path: `~/Projects/freelance/client-portal-crm`
 - Remote: `git@github.com:Sereja-dev/client-portal-crm.git`
-- Current `main` SHA: `e2fe12b3e6ba7027e997edbe9570cf5134fb5818`
+- Current `main` SHA: `fc72e83b3e76ea6a11438683099900357f1b75f1` (Verified 2026-10-31: equals `origin/main`; no open pull requests)
 
 **aqenra-marketing**
 - Path: `~/Projects/freelance/aqenra-marketing`
 - Remote: `https://github.com/Sereja-dev/aqenra-marketing.git`
-- Current `main` SHA: `b635a6f6a8c188b23936d6907c7f55ff54ccda7f`
+- Current `main` SHA: `e9517cf463e48d8ee2934f0a3b979f8de3130ec2` (Verified 2026-10-31: no open pull requests)
 
-Both repos deploy from `main` via each project's own Vercel GitHub integration — a push to `main` triggers a Production deploy in that project. The marketing repo is kept separate by design, in part for future transfer/sale isolation of the SaaS product from the marketing asset.
+Both repos deploy from `main` via each project's own Vercel GitHub integration — a push to `main` triggers a Production deploy in that project. Changes land through pull requests with CI (§24). The marketing repo is kept separate by design, in part for future transfer/sale isolation of the SaaS product from the marketing asset.
 
 ---
 
@@ -59,8 +65,8 @@ Both repos deploy from `main` via each project's own Vercel GitHub integration �
 | Staff invited signup | **DONE (manual, Production)** | Real invited signup completed against Production with a real test identity; verified via a direct, read-only DB check afterward, then cleaned up. |
 | Staff confirmation | **DONE (manual, Production)** | Same test — confirmed via a real Resend-delivered confirmation email link. |
 | Staff invitation acceptance | **DONE (manual, Production)** | Same test — Membership row confirmed created correctly, then removed. |
-| standalone Staff signup | Not independently re-verified in Production | Code-verified (automated tests + build); the completed manual test above was invitation-based, not standalone. |
-| standalone Staff login after logout | Not independently re-verified in Production | Code-verified only. |
+| standalone Staff signup | **DONE (Product Owner confirmed, Production)** | Verified manually by the Product Owner before the Public Beta decision (signup, Resend-delivered confirmation, login). The September 2026 Production test was invitation-based only. |
+| standalone Staff login after logout | **DONE (Product Owner confirmed, Production)** | Logout/login verified manually by the Product Owner. |
 | Portal invitation flow | **DONE (manual, Production)** | A full real invite → sign up → confirm → accept flow was completed for the Quotes Phase 4 smoke (`umerenko.s.v+portal3@gmail.com` → Portal Isolation Test Client) — see §21.5. |
 | Portal signup | **DONE (manual, Production)** | Same test — a real Portal account was created via the signup form. |
 | Portal confirmation | **DONE (manual, Production)** | Same test — confirmed via a real Resend-delivered confirmation email link. |
@@ -93,6 +99,13 @@ Both repos deploy from `main` via each project's own Vercel GitHub integration �
 | app.aqenra.com | **DONE (verified live)** | `200`, confirmed responding as of this handoff. |
 | new Aqenra favicon/brand mark on marketing | **DONE (verified live)** | `favicon.ico`, `icon.svg`, `apple-touch-icon` all confirmed serving the new mark on `aqenra.com`. |
 | new Aqenra favicon/brand mark on app | **DONE (verified live)** | Same three assets confirmed serving the new mark on `app.aqenra.com` (favicon size matches the new asset, not the old generic one). |
+| Onboarding redesign | **DONE (Product Owner confirmed, Production)** | Verified manually by the Product Owner. |
+| Free Beta model and limits | **DONE (Product Owner confirmed; code-verified)** | See §22. The `FREE_BETA_MODE` value itself is sensitive and was not read. |
+| Privacy / Terms / Cookie Policy (live) | **DONE (Verified 2026-10-31 + Product Owner confirmed)** | HTTP 200; "Effective October 31, 2026" on all three; operator and contact present; feedback disclosures present. Product Owner also checked all three manually. See §14. |
+| `support@aqenra.com` and `feedback@aqenra.com` routing | **DONE (Product Owner confirmed)** | Cloudflare Email Routing active; real forwarding to the operator's inbox verified; `support@` routing preserved when `feedback@` was added. See §8. |
+| Feedback Widget V1 | **DONE (Product Owner confirmed, Production)** | A real bug report was submitted and its delivery verified in the mailbox; the draggable position and its persistence across reload were verified. See §23. |
+| Staff password reset (Production) | **Not performed** | Automated coverage exists (§25); no manual Production smoke is recorded. |
+| Cross-tenant live click-through (Production) | **Not performed** | Tenant isolation is evidenced by automated tests only (§25). |
 
 ---
 
@@ -175,18 +188,26 @@ A real Production upload/download UI smoke test has **not** been independently p
 
 ## 8. Email / Resend
 
-- `aqenra.com` sending domain: functional, inferred from a successful real send (see §4) — not independently checked against Resend's own domain-verification dashboard.
-- Sender: `Aqenra <no-reply@aqenra.com>`
-- Email flows in place: Staff invite, Portal invite, Staff signup confirmation, Portal signup confirmation, password reset, and a shared legal footer (Privacy/Terms links) on every transactional email.
+- `aqenra.com` sending domain: functional — real emails have been delivered from Production (signup confirmation, invitations, and the Feedback Widget's bug report). Not independently checked against Resend's own domain-verification dashboard.
+- Sender: `Aqenra <no-reply@aqenra.com>` (the previously documented `INVITATION_FROM_EMAIL`; its value is sensitive and was not re-read).
+- Email flows in place: Staff invite, Portal invite, Staff signup confirmation, Portal signup confirmation, password reset, Staff Feedback Widget messages (§23), and a shared legal footer (Privacy/Terms links) on every transactional email.
 
-**Required Production variables**
+**Operational mailboxes (Cloudflare Email Routing, forwarding to the operator's inbox)**
 
-| Variable | Status |
-|---|---|
-| `RESEND_API_KEY` | Present in Vercel Production |
-| `INVITATION_FROM_EMAIL` | Present in Vercel Production |
+| Address | Used for | Status |
+|---|---|---|
+| `support@aqenra.com` | Support contact on the legal pages; pre-auth support widget and the Staff "Support" tab recipient | Routing and delivery **Product Owner confirmed** |
+| `feedback@aqenra.com` | Recipient of the Staff "Report a bug" tab (own destination, no fallback to support) | Routing and real delivery **Product Owner confirmed** |
 
-(Values not printed or inspected.)
+**Production variables (names checked 2026-10-31; values never printed or read)**
+
+| Variable | Role | Status |
+|---|---|---|
+| `RESEND_API_KEY` | Email provider credential (sensitive) | Present |
+| `INVITATION_FROM_EMAIL` | Sender address for platform email | Present |
+| `PLATFORM_SUPPORT_EMAIL` | Support recipient and public support contact | Present (the live legal pages show `support@aqenra.com`) |
+| `PLATFORM_FEEDBACK_EMAIL` | Report-a-bug recipient; no fallback — if unset or malformed the tab says it is unavailable and nothing is sent | Present |
+| `PLATFORM_REPLY_TO_EMAIL` | Reply-To header on Aqenra's own transactional email (customer invoice emails deliberately do not use it) | Present |
 
 ---
 
@@ -198,7 +219,10 @@ A real Production upload/download UI smoke test has **not** been independently p
 - Concept: two overlapping rounded squares, using the app's own already-approved "Aqenra Indigo" accent colors — no letterform, no resemblance to the generic Next.js/Vercel triangle it replaced.
 - The generic stock favicon has been removed from both repos (app and marketing).
 - The marketing Open Graph image was left unchanged — it already contained no generic mark and was judged intentional as-is.
-- Current pricing copy on the marketing site states "Launch pricing will be announced before public release" — accurate to the app's own current state (no dollar pricing exists anywhere in the product yet).
+- Marketing CTAs (Verified 2026-10-31): "Open preview" / "Open product preview" / "Open current preview" go to `https://app.aqenra.com/signup`; "Sign in" goes to `https://app.aqenra.com/login`; Privacy and Terms link to the app's legal pages.
+- **Wording limitation (accepted for launch, §25):** the marketing site still describes the product as "Working product · advanced pre-launch · pre-revenue" with "Open preview" buttons, and says pricing and wider validation "remain before full commercial release". It does not mention the Free Public Beta. It understates rather than overclaims; align it when separately approved.
+- The marketing footer states "Operated by Umerenko Sergei, an individual", and the marketing Cookie page names the same operator (§14).
+- No dollar pricing exists anywhere in the product or on the marketing site.
 
 ---
 
@@ -219,7 +243,7 @@ A real Production upload/download UI smoke test has **not** been independently p
 
 ## 11. Paddle — Intentionally Deferred
 
-**This is a launch gate if paid billing is required.**
+**This is a launch gate if paid billing is required. It is not a gate for the Free Public Beta (see §22).** During the beta, paid checkout and manage-subscription are rejected server-side regardless of provider configuration.
 
 **Current state**
 - Code readiness: PASS
@@ -286,6 +310,8 @@ A real Production upload/download UI smoke test has **not** been independently p
 
 ## 13. Pricing — Business Decision Required
 
+The "free or paid first" question is decided: Aqenra launches as a **Free Public Beta** (§22). The dollar-pricing decision below is deferred until after launch.
+
 - No dollar prices are hardcoded anywhere in the app.
 - Paddle price IDs are entirely environment-variable-driven (`BILLING_STARTER_PRICE_ID`, `BILLING_PRO_PRICE_ID`).
 - The marketing site currently, intentionally, avoids stating any real price.
@@ -296,15 +322,25 @@ A real Production upload/download UI smoke test has **not** been independently p
 
 ## 14. Legal
 
-- Privacy: `https://app.aqenra.com/privacy`
-- Terms: `https://app.aqenra.com/terms`
-- The marketing site's links point to these same URLs.
-- Every transactional email's legal footer points to these same URLs.
-- Moving the legal pages to `aqenra.com` is optional, not required — the current location is fully functional.
+**Live documents (Verified 2026-10-31: HTTP 200 on each; Product Owner also verified all three manually)**
 
-**Manual operator check required:** verify the actual legal entity name, support contact, and address fields configured for the platform are appropriate before any public commercial launch. (This document does not provide legal advice or assess the current values.)
+| Document | URL | Effective |
+|---|---|---|
+| Privacy Policy | `https://app.aqenra.com/privacy` | **October 31, 2026** |
+| Terms of Service | `https://app.aqenra.com/terms` | **October 31, 2026** |
+| Cookie Policy | `https://app.aqenra.com/cookies` | **October 31, 2026** (first published October 27, 2026; re-dated when the "Feedback button position" storage disclosure was added, PR #195) |
 
-**Support email — unfinished (see §20 for the tracked step):** `support@aqenra.com` is not yet configured. Remaining work: set it up via Cloudflare Email Routing forwarding to the existing Gmail inbox, without breaking the existing Resend DNS configuration for `aqenra.com`; then replace `no-reply@aqenra.com` with `support@aqenra.com` in the appropriate Privacy/Terms/support/legal contact locations. Until that's done, `no-reply@aqenra.com` remains the sender/contact address in use (see §8).
+**Operator identity.** Aqenra is operated by **Umerenko Sergei, an individual, under the Aqenra brand**; "Aqenra is a product name, not a registered company". Contact: `support@aqenra.com`. These come from the shared legal configuration (`src/lib/legal/platform-config.ts`); Production sets no legal-name, address, jurisdiction or effective-date overrides (names checked 2026-10-31), so the code defaults apply.
+
+**Where it appears.** The three legal pages; the Staff, public and auth footers ("© 2026 Aqenra · Operated by Umerenko Sergei"); the Platform Admin configuration labels; every transactional email's legal footer; the marketing footer and the marketing Cookie page. The marketing site's Privacy/Terms links point to the app's pages above. The marketing Cookie page carries no date of its own and links to the app's dated Cookie Policy.
+
+**Disclosures added with the Feedback Widget.** Privacy: "Feedback from inside the app" (what a message or bug report includes). Cookie Policy: "Feedback button position" (browser-local storage of the button's coordinates only).
+
+**Date rule.** A revised policy is never backdated; a revision gets its own new date in the same reviewed change that ships its wording (see the history comment in `platform-config.ts`).
+
+**Not claimed.** No legal counsel review or approval is claimed for any of this text. Open for operator/legal review (accepted for launch, §25): the governing-law/jurisdiction clause uses generic placeholder wording ("the jurisdiction in which the Service operator is located"); no postal address is published; the liability clause has not been reviewed.
+
+Moving the legal pages to `aqenra.com` is optional, not required — the current location is fully functional.
 
 ---
 
@@ -322,6 +358,13 @@ A real Production upload/download UI smoke test has **not** been independently p
 | `INVITATION_FROM_EMAIL` | Email | Present | Sensitive |
 | `PLATFORM_ADMIN_EMAILS` | Platform Admin | Present | Sensitive |
 | `CRON_SECRET` | Cron | Present | Sensitive |
+| `FREE_BETA_MODE` | Free Public Beta | Present | Sensitive; value not read. Strict: only the literal `true` enables it (§22) |
+| `PLATFORM_SUPPORT_EMAIL` | Email / legal contact | Present | §8 |
+| `PLATFORM_FEEDBACK_EMAIL` | Feedback Widget | Present | §8, §23 |
+| `PLATFORM_REPLY_TO_EMAIL` | Email | Present | §8 |
+| `INTEGRATIONS_ENCRYPTION_KEY_V1` | Integrations | Present | Sensitive; master key for encrypting stored Integrations credentials (AES-256-GCM) |
+
+Names checked 2026-10-31 with `vercel env ls production`; no value was read or printed.
 
 **Deferred (missing intentionally)**
 
@@ -331,12 +374,16 @@ A real Production upload/download UI smoke test has **not** been independently p
 | `AI_PROVIDER` | AI | Missing intentionally |
 | `AQENRA_OPENAI_API_KEY` | AI | Missing intentionally |
 | `TEST_MODE` | Test infra | Absent intentionally |
+| `PLATFORM_LEGAL_NAME` / `PLATFORM_LEGAL_ADDRESS` / `PLATFORM_JURISDICTION` / `PRIVACY_POLICY_EFFECTIVE_DATE` / `TOS_EFFECTIVE_DATE` / `COOKIE_POLICY_EFFECTIVE_DATE` | Legal overrides | Absent intentionally — code defaults apply (§14) |
 
 **`TEST_MODE` must remain absent in Production.** Its presence would enable mock providers and TEST_MODE-only surfaces in the live environment.
 
 ---
 
 ## 16. Final Launch Gates
+
+### Free Public Beta launch
+**Decision: GO (October 31, 2026). No blockers identified.** Satisfied: public entry points, authentication, Free Beta availability, essential transactional email, legal pages, and Marketing-to-app navigation (evidence in §4 and §24). Accepted limitations: §25. Checklist: §27.
 
 ### Core app launch
 Already satisfied:
@@ -373,6 +420,10 @@ Required:
 
 **App:** redeploy the previous known-good Vercel deployment, or revert `main` in `client-portal-crm` and push.
 
+**Feedback Widget:** unset or blank `PLATFORM_FEEDBACK_EMAIL` and redeploy — the "Report a bug" tab then says it is unavailable and sends nothing (the Support tab is unaffected); or revert the widget's merge commit.
+
+**Free Beta mode:** do **not** disable `FREE_BETA_MODE` as a rollback. See the exit invariant in §22 — turning it off without an approved transition plan can put existing organizations into read-only access immediately.
+
 **AI:** remove or blank `AI_PROVIDER` (or `AQENRA_OPENAI_API_KEY`) in Vercel Production and redeploy — restores the fail-closed state immediately.
 
 **Paddle:** remove or blank the billing provider environment variables in Vercel Production and redeploy — restores the fail-closed "not configured" state immediately.
@@ -383,8 +434,10 @@ No destructive database rollback is documented here, as none is required for any
 
 ## 18. Known Good Baselines
 
-**App:** `e2fe12b3e6ba7027e997edbe9570cf5134fb5818`
-**Marketing:** `b635a6f6a8c188b23936d6907c7f55ff54ccda7f`
+**App:** `fc72e83b3e76ea6a11438683099900357f1b75f1` (Public Beta launch baseline, 2026-10-31)
+**Marketing:** `e9517cf463e48d8ee2934f0a3b979f8de3130ec2` (2026-10-31)
+
+Earlier baselines (historical): app `e2fe12b3e6ba7027e997edbe9570cf5134fb5818` and marketing `b635a6f6a8c188b23936d6907c7f55ff54ccda7f` (2026-09-08, see §21). The October 2026 release history is in §24.
 
 Notable prior commits (app repo, most recent first) — see §21 for full detail on the first five: Portal invite existing-user conflict UX fix, Quotes Portal approval (Phase 4), Quotes Staff UI (Phase 3), Invoice Client/Project link UX, Invoice → Project FK `SET NULL` migration (Phase 2.4), final P2 hardening cleanup, task/invoice creation rate limiting, dual-identity UX hardening, Aqenra brand mark, Portal signup-confirmation fix, invited-signup organization-creation fix.
 
@@ -402,18 +455,22 @@ Notable prior commits (app repo, most recent first) — see §21 for full detail
 - Do not remove Storage app-side authorization just because Storage RLS currently has zero policies — the app-side scoping is the real, primary enforcement layer.
 - Do not "fix" the Prisma `npm audit` findings by blindly downgrading Prisma.
 - Do not force an ESLint 10 upgrade in the marketing repo until its plugin chain supports it safely.
+- Do not turn `FREE_BETA_MODE` off without a separately approved transition plan (§22).
+- Do not add a fallback for `PLATFORM_FEEDBACK_EMAIL` (not to support, not to the sender address) — bug reports must never be routed to an unrelated mailbox.
+- Do not backdate a legal document; a revision gets a new effective date (§14).
+- Do not publish claims of legal counsel approval, a registered company, or live online payments — none exist.
 
 ---
 
 ## 20. Exact Next Steps
 
-1. Decide whether launch is free/no-billing first, or paid immediately. — **business decision**
-2. Decide Starter/Pro dollar pricing. — **business decision**
-3. Configure `support@aqenra.com` via Cloudflare Email Routing, forwarding to the existing Gmail inbox, without breaking the existing Resend DNS configuration for `aqenra.com`; then replace `no-reply@aqenra.com` with `support@aqenra.com` in the appropriate Privacy/Terms/support/legal contact locations (see §14). — **manual external setup**, then **Production mutation** (email routing + doc/UI copy update)
-4. If paid: configure Paddle sandbox → run E2E → configure live. — **manual external setup**, then **Production mutation** (env vars)
-5. Create the OpenAI Production project/key only when AI is ready to be enabled. — **manual external setup**, then **Production mutation** (env vars)
-6. Run final post-configuration smoke tests for whichever of Paddle/AI was just enabled. — **manual verification** (Claude can assist with a structured smoke-test pass)
-7. Declare the product ready for its next real launch milestone once the above are complete.
+1. Decide whether launch is free/no-billing first, or paid immediately. — **DECIDED: Free Public Beta** (§22).
+2. Decide Starter/Pro dollar pricing. — **Deferred** to after launch (business decision, §13).
+3. Configure `support@aqenra.com` and update the contact locations. — **DONE** (§8, §14). `feedback@aqenra.com` is also configured (§23).
+4. If/when paid: configure Paddle sandbox, run E2E, then live (§11). — **Deferred.**
+5. Create the OpenAI Production project/key only when AI is ready to be enabled (§12). — **Deferred.**
+6. Post-configuration smoke tests for whichever of Paddle/AI is enabled later. — **Not applicable until enabled.**
+7. Public Beta launch. — **Decision recorded: GO.** Remaining steps are the checklist in §27.
 
 ---
 
@@ -421,7 +478,7 @@ Notable prior commits (app repo, most recent first) — see §21 for full detail
 
 Manual Production verification completed 2026-09-08, closing out the gaps §4 previously left open for the Quotes feature, project-less Invoices, and the Invoice→Project FK. All test data below was created against Production directly by the operator and is either retained as a documented reusable smoke artifact or was cleaned up — see §21.7 for the exact final state.
 
-Latest Production HEAD as of this update: `e2fe12b3e6ba7027e997edbe9570cf5134fb5818`. Relevant deployed commits covered below: `01046ef` (Project FK `SetNull`, §21.2), `1847ce5` (Invoice Client/Project links, §21.3), `134bf2d` (Staff Quotes UI, §21.4), `0d18fc5` (Portal Quote approval, §21.5), `e2fe12b` (Portal invite conflict UX fix, §21.8).
+Latest Production HEAD as of this update (historical — the September 2026 baseline; the current baseline is in §1 and §18): `e2fe12b3e6ba7027e997edbe9570cf5134fb5818`. Relevant deployed commits covered below: `01046ef` (Project FK `SetNull`, §21.2), `1847ce5` (Invoice Client/Project links, §21.3), `134bf2d` (Staff Quotes UI, §21.4), `0d18fc5` (Portal Quote approval, §21.5), `e2fe12b` (Portal invite conflict UX fix, §21.8).
 
 ### 21.1 Project-less Invoice (Phase 2.3)
 
@@ -583,3 +640,138 @@ Real multi-Client-per-login support would require a future architectural change:
 - Automatic Lead → Client conversion on Quote approval
 - Multi-Client-per-Portal-login architecture (see §21.8)
 - Custom Quote workflows/statuses
+
+---
+
+## 22. Free Public Beta Posture
+
+Aqenra launches as a **Free Public Beta**. No paid plan is offered, no checkout can be started, and no organization is charged.
+
+**Switch.** `FREE_BETA_MODE` is set in Vercel Production (sensitive; the value was not read; the beta model was confirmed by the Product Owner). `isFreeBetaModeEnabled()` (`src/lib/billing/free-beta-mode.ts`) is the single predicate; it is **strict** — only the literal string `true` enables it, so `1`, `TRUE`, `yes` or a typo means disabled.
+
+**What it does (code-verified at the baseline)**
+- **Access.** It forces full access for every organization regardless of subscription status or whether a billing provider is configured. This is a *computed* access mode only — no Subscription row is written (`src/lib/billing/entitlements.ts`).
+- **Limits.** Effective ceiling of **5 members per organization** (members plus pending invitations count toward it) and **3 GB of storage per organization**, applied at one central entitlement point (`FREE_BETA_MAX_MEMBERS`, `FREE_BETA_MAX_STORAGE_BYTES` in `src/lib/billing/plans.ts`). The beta does not override the other per-plan limits; each real plan's native allowance is untouched.
+- **No paid checkout.** `requestPlanChangeAction` and `manageSubscriptionAction` (`src/app/(dashboard)/settings/billing/actions.ts`) reject server-side with "Paid plans aren't available during the free beta." — hiding the button is not the only defense.
+- **No billing provider configured.** No `BILLING_*` variables exist in Production (§15); billing fails closed.
+- **No implicit paid-plan activation.** Adding provider credentials later cannot turn the beta off by itself (the override is unconditional), and nothing in the beta writes a plan or status change.
+- **Messaging.** The dashboard shows a Public Beta notice (its dismissal is stored in browser-local storage and listed in the Cookie Policy). The Terms describe the free public beta with no live billing; the Privacy Policy states that no payment provider currently processes live payments.
+
+**Exit invariant — read before ever changing the flag.** Every organization's real subscription and trial dates kept advancing in the database the whole time the beta ran. If `FREE_BETA_MODE` is disabled and a billing provider is configured, organizations past their calendar trial become **read-only immediately, with no warning or grace period**. Ending the beta safely requires Product Owner approval, a defined transition policy (for example a fresh grace period or a trial-date backfill), advance user communication, and testing against Production data shapes. None of that is implemented, by design.
+
+---
+
+## 23. Feedback Widget V1
+
+**Shipped** in PR #194 (merge `967eaf9`), running in Production at the baseline. **Product Owner confirmed in Production:** a real bug report was submitted and its delivery verified in the mailbox; the draggable position and its persistence across reload were verified.
+
+**What it is.** A floating, draggable button inside the authenticated Staff app only (mounted in the `(dashboard)` layout; never on pre-auth or Client Portal pages) with two tabs.
+
+| Tab | Destination | Notes |
+|---|---|---|
+| Support | `PLATFORM_SUPPORT_EMAIL` (`support@aqenra.com`) | Same resolver as the pre-auth support widget |
+| Report a bug | `PLATFORM_FEEDBACK_EMAIL` (`feedback@aqenra.com`) | Own destination, **no fallback**; if unset or malformed the tab says it is unavailable and nothing is sent |
+
+**Behavior and protections**
+- Both tabs send with Reply-To set to the signed-in account's own email, with no attachments.
+- Identity, role and workspace are resolved server-side from the session; nothing identifying is read from the form (unit and integration tests cover spoofed fields and tenant isolation).
+- Rate limits: **5/hour** per user (Support), **10/hour** per user (Report a bug), **30/hour** per workspace. These are in-memory and per instance (§25).
+- Bounded validation on every field, HTML-escaped email content, a honeypot field, and a duplicate-submission guard (per-form id plus a content fingerprint).
+- Bug-report diagnostics are limited to the page path (no query string or fragment), a server timestamp, the user agent, and the viewport size; they are disclosed in the form. No cookies, tokens, passwords or form contents are ever collected.
+- The button's position is remembered in browser-local storage under `aqenra:feedback-widget-position` (coordinates only; no form contents or user data), restored on page load, and clamped to the current window. Disclosed in the Cookie Policy and the Privacy Policy (§14).
+- Layout: from the `md` breakpoint up, an in-flow end-of-page clearance keeps the pagination "Next" link and last-row actions clear of the button.
+- Keyboard and accessibility: Shift+Arrow moves the button; arrow keys switch tabs; Escape closes and returns focus; reduced-motion is respected.
+
+**Production prerequisites (completed; Product Owner confirmed).** `PLATFORM_FEEDBACK_EMAIL=feedback@aqenra.com` configured in Vercel Production, the required redeploy completed, Cloudflare Email Routing for `feedback@aqenra.com` active, and `support@aqenra.com` routing preserved.
+
+**Rollback.** See §17.
+
+---
+
+## 24. Verification Record at the Baseline (`fc72e83`)
+
+All rows below were checked read-only on October 31, 2026 unless stated. No Production data was changed to produce this evidence.
+
+| Item | Result | Evidence |
+|---|---|---|
+| App `main` vs Production | `origin/main` = `fc72e83b3e76ea6a11438683099900357f1b75f1`; nothing after it | Git; GitHub deployment records tie that SHA to the Production deployment |
+| App Production deployment | `dpl_CfrhiHtA2Xq3nxBdHf26s1cZ1HpG`, target Production, READY, `app.aqenra.com` attached | Vercel CLI |
+| Marketing Production deployment | `dpl_67uAHSe3BfMYZMVryXvv4dDhy4S6`, target Production, READY, `aqenra.com` and `www.aqenra.com` attached; `main` = `e9517cf463e48d8ee2934f0a3b979f8de3130ec2` | Vercel CLI; GitHub deployment record |
+| Open pull requests | None, in either repository | GitHub |
+| Post-merge CI on the baseline (`push` to `main`) | Fast Checks: pass. Integration & E2E: pass — Vitest 324 files passed; Playwright 1623 planned: **1621 passed, 1 flaky (retried), 1 skipped, 0 failed, 0 not run** (19.7 min). | GitHub Actions |
+| Pre-merge CI on PR #195 (same suite) | Playwright: 1622 passed, 1 skipped, 0 failed, 0 flaky, 0 not run | GitHub Actions |
+| CI limits | Integration & E2E job has a **45-minute** timeout (it was 30; a 30-minute cap cancelled one run on PR #194). Recent runs took about 22–31 minutes. Fast Checks: 10; Production Migration Status: 5. | Workflow files; run history |
+| Database migrations | **60** migrations; "Database schema is up to date!" — run automatically after each Production deployment | Production Migration Status workflow, run on `fc72e83` |
+| Public legal routes | `/privacy`, `/terms`, `/cookies` return 200; "Effective October 31, 2026" on each; operator and feedback disclosures present | HTTP GET |
+| Authentication gates | Anonymous requests to `/dashboard`, `/clients`, `/invoices`, `/settings/billing`, `/platform-admin` get a 307 to login; `/portal` goes to the Portal login | HTTP GET |
+| Dev and test surfaces | `/api/e2e-test-storage/*`, `/billing/mock/*`, `/test-only/*` return 404 in Production | HTTP GET |
+| Security headers (app) | CSP, HSTS, `X-Frame-Options: DENY`, `X-Content-Type-Options`, Referrer-Policy and Permissions-Policy present | HTTP HEAD |
+| Security checks | The static security checks (23 at the baseline) pass in CI Fast Checks | GitHub Actions |
+| Production environment | All expected variables present; `TEST_MODE`, `BILLING_*` and AI variables absent (§15) | `vercel env ls` (names only) |
+| Marketing entry points | CTAs link to `app.aqenra.com/signup` and `/login`; `www` redirects to the apex; `robots.txt` and `sitemap.xml` respond | HTTP GET |
+| Signup gating | None in code (no invite-only, waitlist or environment flag); signup and login routes read no environment variables | Code review |
+
+**October 2026 release history (app, merge commits on `main`)**
+
+| PR | Change | Merge |
+|---|---|---|
+| #191 | Exclude nested worktrees from the build | `8e6c1ed` |
+| #192 | E2E fixture isolation and dashboard KPI 320px fix | `659b37e` |
+| #193 | Legal identity alignment (individual operator, Privacy/Terms October 31, 2026) | `d4c6700` |
+| #194 | Staff Feedback Widget V1 (with legal-release reconciliation, CI timeout 30→45 min, and an invoice E2E wait fix) | `967eaf9` |
+| #195 | Cookie Policy effective date aligned to October 31, 2026 | `fc72e83` |
+| Marketing #1 | Individual operator on the marketing site | `e9517cf` |
+
+---
+
+## 25. Accepted Launch Limitations
+
+These were reviewed for the Public Beta launch and accepted by the Product Owner. None is a launch blocker.
+
+1. **Online payments deferred.** Paddle is not configured and paid checkout is blocked during the beta (§11, §22).
+2. **Marketing wording.** The marketing site still says "pre-launch / preview" and does not mention the Free Public Beta, until separately updated (§9).
+3. **Legal review open.** The jurisdiction clause is generic placeholder wording, no postal address is published, and the liability clause is unreviewed. Subject to operator/legal review. No legal counsel approval is claimed (§14).
+4. **Rate limiting is not distributed.** Counters are in-memory and per instance and reset on a cold start — an accepted app-wide tradeoff that also applies to the Feedback Widget limits.
+5. **Password reset.** No manual Production smoke is recorded. Automated coverage exists (an E2E spec and integration/unit tests for the request, confirm and update paths), and it uses the same email path as the flows verified in Production.
+6. **Occasional E2E flakes are tracked.** `settings-uploads-migration.spec.ts:194` retried once in the post-merge CI (its first attempt matched two `table` elements with an ambiguous locator); `company-profile.spec.ts:243` is timing-sensitive and passes when run alone. A third, `invoice-internal-notes-validation-reset.spec.ts:145`, was fixed by correcting a URL wait that also matched `/invoices/new` (PR #194). None is a confirmed Product defect.
+7. **No live cross-tenant click-through is claimed.** Tenant isolation is evidenced by automated tests (integration suite, dedicated security checks, and the widget's tenant tests), not by a manual cross-tenant test in Production.
+8. **Carried over from earlier handoffs:** the five `npm audit` HIGH findings confined to the Prisma CLI's build-time chain (§10); the Quotes gaps in §21.9; one Portal login belongs to one Client (§21.8).
+
+---
+
+## 26. Post-Launch Improvements
+
+Optional, in no required order. None blocks the launch.
+
+- Align the marketing wording with "Free Public Beta" and announce pricing when it is decided (§9, §13).
+- Operator/legal review of the jurisdiction, address and liability wording (§14).
+- A shared store for distributed rate limiting (§25, item 4).
+- An optional manual Production password-reset smoke (§25, item 5), and an optional live cross-tenant check (§25, item 7).
+- Stabilize the tracked flaky specs; consider sharding the E2E job if its runtime keeps growing toward the 45-minute cap.
+- Look into an occasional Prisma "record not found" (`P2025`) line in E2E server logs, seen around the Platform Admin Organization Detail page when a fixture organization is deleted mid-request; no test failed because of it and its cause is not proven.
+- Cosmetic: a visitor who deep-links to a protected page and is redirected to login sees "Your session expired" even if they never signed in.
+- Paddle billing (§11), the AI Assistant (§12), and a defined plan for ending the free beta (§22) when those become priorities.
+
+---
+
+## 27. Public Beta Launch Checklist
+
+**Already done**
+- [x] Launch decision recorded: GO, no Product blockers (October 31, 2026).
+- [x] Production serves the baseline `fc72e83`; migrations up to date; post-merge CI passed (§24).
+- [x] Privacy, Terms and Cookie Policy live, all effective October 31, 2026; operator and contact shown (§14).
+- [x] `support@aqenra.com` and `feedback@aqenra.com` routing and delivery confirmed; Feedback Widget V1 confirmed in Production (§8, §23).
+- [x] Free Public Beta posture in place: 5 members, 3 GB, no paid checkout (§22).
+
+**Before announcing**
+- [ ] Re-check that `app.aqenra.com` is still serving the baseline (or record the new SHA here if something has been deployed since).
+- [ ] Write the announcement so it says *Free Public Beta*, states the 5-member / 3 GB limits, names `support@aqenra.com`, and mentions the in-app feedback button — the marketing site does not say this yet (§9).
+- [ ] Optional: align the marketing wording first (§26).
+- [ ] Optional: run a manual password-reset check in Production (§25, item 5).
+- [ ] At the operator's discretion: obtain legal review of the open legal wording (§14).
+
+**After announcing**
+- [ ] Watch the `support@` and `feedback@` inboxes (forwarded to the operator's inbox) and reply to users.
+- [ ] Check the Platform Admin observability page and the Vercel logs for errors; the Production Migration Status workflow runs automatically after each Production deployment.
+- [ ] Keep `FREE_BETA_MODE` on; make no Production environment changes without updating this document.
+- [ ] Record anything significant that changes (new baselines, new limitations, decisions) in this document.
