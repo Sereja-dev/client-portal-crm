@@ -19,7 +19,7 @@ import { dbQuery } from "./fixtures";
 const PLATFORM_ADMIN_EMAIL = "platform-admin-e2e@example.com";
 const BASE_PATH = "/platform-admin/configuration";
 
-test("renders the Legal Configuration section, including its legalName now resolving through the re-pointed PLATFORM_NAME fallback", async ({
+test("renders the Legal Configuration section, with its legalName resolving to the individual operator independently of PLATFORM_NAME", async ({
   context,
   baseURL,
 }) => {
@@ -35,16 +35,18 @@ test("renders the Legal Configuration section, including its legalName now resol
 
   // TEST_MODE's webServer env (playwright.config.ts) sets none of the
   // PLATFORM_LEGAL_* vars but DOES set PLATFORM_NAME (for the Branding
-  // section below) — so this exercises getPlatformLegalConfig()'s own
-  // real, re-pointed fallback chain (Sale-Ready Phase D, D2):
-  // legalName now falls back through PLATFORM_NAME, not siteConfig.name
-  // directly, so "E2E Test Platform" is the correct value here, not
-  // "Client Portal CRM".
+  // section below). The legal name is the operator (a code default, "Umerenko
+  // Sergei"), deliberately NOT derived from the brand name: renaming the
+  // product must never rename who operates it.
   await expect(legalSection.getByText("Legal name", { exact: true })).toBeVisible();
-  await expect(legalSection.getByText("E2E Test Platform")).toBeVisible();
+  await expect(legalSection.getByText("Umerenko Sergei", { exact: true })).toBeVisible();
+  await expect(legalSection.getByText("E2E Test Platform", { exact: true })).toHaveCount(0);
+  // The effective wording the public legal pages will use for the operator, visible to the admin.
+  await expect(legalSection.getByText("Operator wording", { exact: true })).toBeVisible();
+  await expect(legalSection.getByText(/Umerenko Sergei, an individual, under the .+ brand/)).toBeVisible();
   await expect(legalSection.getByText("Jurisdiction", { exact: true })).toBeVisible();
   await expect(legalSection.getByText("the jurisdiction in which the Service operator is located")).toBeVisible();
-  await expect(legalSection.getByText("Registered address", { exact: true })).toBeVisible();
+  await expect(legalSection.getByText("Postal address", { exact: true })).toBeVisible();
   await expect(legalSection.getByText("Not set").first()).toBeVisible();
   await expect(legalSection.getByText("Privacy Policy effective date", { exact: true })).toBeVisible();
   await expect(legalSection.getByText("Terms of Service effective date", { exact: true })).toBeVisible();
@@ -240,7 +242,7 @@ test("renders the Environment Information rollup, deriving every row from the sa
   await expect(environmentSection.getByText("Favicon", { exact: true })).toBeVisible();
   await expect(environmentSection.getByText("Email provider (Resend)", { exact: true })).toBeVisible();
   await expect(environmentSection.getByText("Custom domain", { exact: true })).toBeVisible();
-  await expect(environmentSection.getByText("Legal registered address", { exact: true })).toBeVisible();
+  await expect(environmentSection.getByText("Legal postal address", { exact: true })).toBeVisible();
 
   // PLATFORM_LOGO_URL, RESEND_API_KEY are set in the webServer env ->
   // "Set"/"Configured"; PLATFORM_FAVICON_URL and PLATFORM_LEGAL_ADDRESS

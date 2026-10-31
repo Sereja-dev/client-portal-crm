@@ -22,10 +22,11 @@ export default function PrivacyPolicyPage() {
         <section>
           <h2 className="text-lg font-semibold text-text-primary">1. Who this policy covers</h2>
           <p className="mt-3">
-            {config.legalName} (&ldquo;we&rdquo;, &ldquo;us&rdquo;) operates {siteConfig.name} (the
-            &ldquo;Service&rdquo;), a client relationship management tool that lets a business (an
-            &ldquo;Organization&rdquo;) manage its own clients, projects, tasks, invoices, and files, and
-            optionally invite its clients to a limited self-service &ldquo;Client Portal&rdquo;.
+            {siteConfig.name} (the &ldquo;Service&rdquo;), a client relationship management tool that lets a
+            business (an &ldquo;Organization&rdquo;) manage its own clients, projects, tasks, invoices, and files,
+            and optionally invite its clients to a limited self-service &ldquo;Client Portal&rdquo;, is operated
+            by {config.operatorDescription} (&ldquo;we&rdquo;, &ldquo;us&rdquo;).
+            {config.brandDisclaimer ? ` ${config.brandDisclaimer}` : ""}
           </p>
           <p className="mt-3">
             This policy applies to everyone who uses the Service: staff members of an Organization, and Client
@@ -33,7 +34,7 @@ export default function PrivacyPolicyPage() {
             Organization &mdash; not us &mdash; controls the business data it enters about you, and is the right
             party to contact about that data. We act as the Organization&rsquo;s data processor for that
             information.
-            {config.legalAddress ? ` Our registered address is ${config.legalAddress}.` : ""}
+            {config.legalAddress ? ` Our postal address is ${config.legalAddress}.` : ""}
           </p>
         </section>
 

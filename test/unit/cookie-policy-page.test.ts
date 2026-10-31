@@ -152,7 +152,11 @@ describe("Platform legal config — Cookie Policy effective date", () => {
   });
 
   it("never silently reuses the Privacy Policy's effective date as a fallback", () => {
-    const match = legalConfigSource.match(/cookiePolicyEffectiveDate:\s*trimmedEnv\([^)]+\)\s*\?\?\s*"([^"]+)"/);
+    // The fallback is its own named constant (never the Privacy Policy's), holding a real, non-empty date.
+    expect(legalConfigSource).toMatch(
+      /cookiePolicyEffectiveDate:\s*trimmedEnv\("COOKIE_POLICY_EFFECTIVE_DATE"\)\s*\?\?\s*COOKIE_POLICY_DEFAULT_EFFECTIVE_DATE/,
+    );
+    const match = legalConfigSource.match(/const COOKIE_POLICY_DEFAULT_EFFECTIVE_DATE = "([^"]+)"/);
     expect(match).not.toBeNull();
     expect(match![1]).not.toBe("");
   });
