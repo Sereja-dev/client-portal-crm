@@ -26,6 +26,7 @@ export function TaskForm({
   projects,
   assignees,
   defaultValues,
+  returnTo,
   submitLabel = "Create task",
   pendingLabel = "Creating…",
 }: {
@@ -37,18 +38,37 @@ export function TaskForm({
   /** Work Hub V1 — same-organization Staff members only, mirrors LeadForm's own `assignees` prop exactly. Always offered, for every role — assignment is a convenience field, not a permission (see tasks/query.ts's own TaskListParams doc comment). */
   assignees: { id: string; name: string }[];
   defaultValues?: TaskFormDefaults;
+  /** Explicit navigation context, never a URL: only the literal "project" (Project Hub origin) is ever emitted; the server re-verifies the project. */
+  returnTo?: "project";
   submitLabel?: string;
   pendingLabel?: string;
 }) {
   const [state, formAction, pending] = useActionState(action, initialState);
+  // After a REJECTED submit React 19 natively resets the form to each field's
+  // defaultValue, so the just-attempted values (state.values) must become the
+  // defaults — otherwise every edit reverts to the URL/persisted defaults. The
+  // selects are also keyed by their effective default so a changed selection
+  // is re-mounted onto the right option. `undefined` (initial render, edit
+  // mode, success) falls back to the normal defaults.
+  const submitted = state.values;
+  const initial = {
+    title: submitted?.title ?? defaultValues?.title,
+    description: submitted?.description ?? defaultValues?.description ?? "",
+    projectId: submitted?.projectId ?? defaultValues?.projectId ?? "",
+    status: submitted?.status ?? defaultValues?.status ?? "TODO",
+    priority: submitted?.priority ?? defaultValues?.priority ?? "MEDIUM",
+    dueDate: submitted?.dueDate ?? defaultValues?.dueDate ?? "",
+    assigneeId: submitted?.assigneeId ?? defaultValues?.assigneeId ?? "",
+  };
 
   return (
     <form action={formAction} className="space-y-4">
+      {returnTo === "project" && <input type="hidden" name="returnTo" value="project" />}
       <FormField label="Title" htmlFor="title" required error={state.fieldErrors?.title}>
         <Input
           id="title"
           name="title"
-          defaultValue={defaultValues?.title}
+          defaultValue={initial.title}
           required
           aria-invalid={!!state.fieldErrors?.title}
           aria-describedby={state.fieldErrors?.title ? "title-error" : undefined}
@@ -60,7 +80,7 @@ export function TaskForm({
           id="description"
           name="description"
           rows={3}
-          defaultValue={defaultValues?.description ?? ""}
+          defaultValue={initial.description}
         />
       </FormField>
 
@@ -71,9 +91,10 @@ export function TaskForm({
         error={state.fieldErrors?.projectId}
       >
         <Select
+          key={initial.projectId}
           id="projectId"
           name="projectId"
-          defaultValue={defaultValues?.projectId ?? ""}
+          defaultValue={initial.projectId}
           required
           aria-invalid={!!state.fieldErrors?.projectId}
           aria-describedby={
@@ -94,9 +115,10 @@ export function TaskForm({
       <div className="grid grid-cols-2 gap-4">
         <FormField label="Status" htmlFor="status" error={state.fieldErrors?.status}>
           <Select
+            key={initial.status}
             id="status"
             name="status"
-            defaultValue={defaultValues?.status ?? "TODO"}
+            defaultValue={initial.status}
             aria-invalid={!!state.fieldErrors?.status}
             aria-describedby={
               state.fieldErrors?.status ? "status-error" : undefined
@@ -116,9 +138,10 @@ export function TaskForm({
           error={state.fieldErrors?.priority}
         >
           <Select
+            key={initial.priority}
             id="priority"
             name="priority"
-            defaultValue={defaultValues?.priority ?? "MEDIUM"}
+            defaultValue={initial.priority}
             aria-invalid={!!state.fieldErrors?.priority}
             aria-describedby={
               state.fieldErrors?.priority ? "priority-error" : undefined
@@ -143,7 +166,7 @@ export function TaskForm({
             id="dueDate"
             name="dueDate"
             type="date"
-            defaultValue={defaultValues?.dueDate ?? ""}
+            defaultValue={initial.dueDate}
             aria-invalid={!!state.fieldErrors?.dueDate}
             aria-describedby={
               state.fieldErrors?.dueDate ? "dueDate-error" : undefined
@@ -153,9 +176,10 @@ export function TaskForm({
 
         <FormField label="Assignee" htmlFor="assigneeId" error={state.fieldErrors?.assigneeId}>
           <Select
+            key={initial.assigneeId}
             id="assigneeId"
             name="assigneeId"
-            defaultValue={defaultValues?.assigneeId ?? ""}
+            defaultValue={initial.assigneeId}
             aria-invalid={!!state.fieldErrors?.assigneeId}
             aria-describedby={state.fieldErrors?.assigneeId ? "assigneeId-error" : undefined}
           >

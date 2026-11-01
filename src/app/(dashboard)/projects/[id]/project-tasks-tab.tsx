@@ -18,7 +18,8 @@ const PRIMARY_LINK_CLASSES =
  * canonical `isTaskOverdue` rule, the shared quick-log dialog) — never a
  * second, parallel Task rendering implementation (read-only audit §8's
  * own explicit instruction). "Add task" prefills `?projectId=` so the
- * create form opens already scoped to this Project.
+ * create form opens already scoped to this Project, and sends the explicit
+ * `from=project` context so a successful create (and Cancel) returns here.
  */
 export function ProjectTasksTab({
   projectId,
@@ -34,7 +35,7 @@ export function ProjectTasksTab({
   return (
     <div className="space-y-4">
       <div className="flex justify-end">
-        <Link href={`/tasks/new?projectId=${projectId}`} className={PRIMARY_LINK_CLASSES}>
+        <Link href={`/tasks/new?projectId=${projectId}&from=project`} className={PRIMARY_LINK_CLASSES}>
           Add task
         </Link>
       </div>
@@ -44,7 +45,7 @@ export function ProjectTasksTab({
           title="No tasks yet"
           description="Break this project down into the specific work you need to track and complete."
           action={
-            <Link href={`/tasks/new?projectId=${projectId}`} className={PRIMARY_LINK_CLASSES}>
+            <Link href={`/tasks/new?projectId=${projectId}&from=project`} className={PRIMARY_LINK_CLASSES}>
               Add task
             </Link>
           }

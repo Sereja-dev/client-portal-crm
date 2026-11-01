@@ -3,7 +3,7 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { getCurrentUserOrganization } from "@/lib/current-user";
-import { parseTaskForm, deriveCompletedAt } from "@/lib/validation/task";
+import { parseTaskForm, deriveCompletedAt, readSubmittedTaskValues } from "@/lib/validation/task";
 import { withToast } from "@/lib/toast-url";
 import { createActivity } from "@/lib/activity/create-activity";
 import { buildTaskMetadata } from "@/lib/activity/task-metadata";
@@ -15,9 +15,12 @@ export async function createTaskAction(
   formData: FormData,
 ): Promise<TaskFormState> {
   const { values, fieldErrors } = parseTaskForm(formData);
+  // Every rejected return below carries the submitted values so the form keeps
+  // what the user actually entered (never persisted, never trusted).
+  const submitted = readSubmittedTaskValues(formData);
 
   if (Object.keys(fieldErrors).length > 0) {
-    return { error: null, fieldErrors };
+    return { error: null, fieldErrors, values: submitted };
   }
 
   const { user, organizationId } = await getCurrentUserOrganization();
@@ -28,7 +31,7 @@ export async function createTaskAction(
   // uses (see e.g. createCommentForEntity).
   const limitCheck = checkRateLimit(TASK_CREATE_LIMIT, user.id);
   if (limitCheck.limited) {
-    return { error: RATE_LIMIT_MESSAGE };
+    return { error: RATE_LIMIT_MESSAGE, values: submitted };
   }
 
   // The <select> only lists this org's projects, but the submitted value
@@ -43,6 +46,7 @@ export async function createTaskAction(
     return {
       error: null,
       fieldErrors: { projectId: "Select a valid project." },
+      values: submitted,
     };
   }
 
@@ -57,7 +61,7 @@ export async function createTaskAction(
       select: { userId: true },
     });
     if (!membership) {
-      return { error: null, fieldErrors: { assigneeId: "Select a valid team member." } };
+      return { error: null, fieldErrors: { assigneeId: "Select a valid team member." }, values: submitted };
     }
   }
 
@@ -87,6 +91,14 @@ export async function createTaskAction(
       metadata: buildTaskMetadata(task, project.name, user.name),
     });
   });
+
+  // Slice B — only the literal "project" opts into the Project Hub return;
+  // anything else (absent, malformed, unexpected) is the global behavior.
+  // The destination is built solely from the server-verified `project.id`
+  // above (found in this organization), never from submitted input.
+  if (formData.get("returnTo") === "project") {
+    redirect(withToast(`/projects/${project.id}?tab=tasks`, "Task created"));
+  }
 
   redirect(withToast("/tasks", "Task created"));
 }

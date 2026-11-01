@@ -104,6 +104,20 @@ export type TaskFormState = {
   fieldErrors?: Partial<
     Record<"title" | "projectId" | "status" | "priority" | "dueDate" | "assigneeId", string>
   >;
+  // Failed-submit state preservation — the just-attempted values, exactly as
+  // the user left them (raw strings, valid fields included), so the form can
+  // re-render them instead of React 19's post-action form reset reverting
+  // every field to its initial defaults. Returned only on a REJECTED create;
+  // absent on the initial render. Same pattern as CompanyProfileFormState.values.
+  values?: {
+    title: string;
+    description: string;
+    projectId: string;
+    status: string;
+    priority: string;
+    dueDate: string;
+    assigneeId: string;
+  };
 };
 
 // Leads / Sales Pipeline Phase 3. Same field set as

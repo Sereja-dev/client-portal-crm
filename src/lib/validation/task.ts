@@ -32,6 +32,23 @@ function parseDate(raw: string): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+/**
+ * The submitted values exactly as typed/selected (no trimming or coercion),
+ * for re-rendering the form after a rejected submission. Never persisted.
+ */
+export function readSubmittedTaskValues(formData: FormData): NonNullable<TaskFormState["values"]> {
+  const read = (name: string) => String(formData.get(name) ?? "");
+  return {
+    title: read("title"),
+    description: read("description"),
+    projectId: read("projectId"),
+    status: read("status"),
+    priority: read("priority"),
+    dueDate: read("dueDate"),
+    assigneeId: read("assigneeId"),
+  };
+}
+
 export function parseTaskForm(formData: FormData): {
   values: ParsedTaskInput;
   fieldErrors: NonNullable<TaskFormState["fieldErrors"]>;
