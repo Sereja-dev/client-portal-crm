@@ -36,7 +36,18 @@ import { getSupabaseAuthAdminClient } from "@/lib/supabase/admin-client";
  */
 
 export type GenerateSignupConfirmationTokenResult =
-  | { ok: true; tokenHash: string; alreadyConfirmed: boolean }
+  | {
+      ok: true;
+      tokenHash: string;
+      alreadyConfirmed: boolean;
+      /**
+       * The Supabase Auth user id generateLink created or matched. Always
+       * present from the real implementation; optional only so injected
+       * test doubles that predate it stay valid. Consumers must tolerate
+       * its absence.
+       */
+      authUserId?: string;
+    }
   | { ok: false; error: string };
 
 export type GenerateSignupConfirmationTokenFn = (params: {
@@ -77,6 +88,7 @@ export const generateSignupConfirmationToken: GenerateSignupConfirmationTokenFn 
       ok: true,
       tokenHash: data.properties.hashed_token,
       alreadyConfirmed: Boolean(data.user.email_confirmed_at ?? data.user.confirmed_at),
+      authUserId: data.user.id,
     };
   } catch {
     return { ok: false, error: GENERIC_ERROR };

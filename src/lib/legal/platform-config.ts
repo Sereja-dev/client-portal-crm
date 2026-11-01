@@ -92,8 +92,10 @@ const DEFAULT_OPERATOR_NAME = "Umerenko Sergei";
  * Effective dates, explicit and auditable. A revised policy is never backdated.
  *
  *   Privacy Policy   2026-08-09 initial · 2026-10-26 cookie disclosure ·
- *                    2026-10-31 revision with the individual-operator identity
- *                    (Product Owner approved this publication date)
+ *                    2026-10-31 revision with the individual-operator identity ·
+ *                    2026-11-01 revision adding the Staff sign-up records
+ *                    disclosure and its 90-day retention
+ *                    (Product Owner approved these publication dates)
  *   Terms of Service 2026-08-09 initial · 2026-10-31 revision with the
  *                    individual-operator identity and free-beta wording
  *                    (Product Owner approved this publication date)
@@ -106,7 +108,7 @@ const DEFAULT_OPERATOR_NAME = "Umerenko Sergei";
  * precedence over the constant. A future revision gets its own new date here,
  * in the same reviewed change that ships its wording — never an earlier date.
  */
-const PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE = "October 31, 2026";
+const PRIVACY_POLICY_DEFAULT_EFFECTIVE_DATE = "November 1, 2026";
 const TOS_DEFAULT_EFFECTIVE_DATE = "October 31, 2026";
 const COOKIE_POLICY_DEFAULT_EFFECTIVE_DATE = "October 31, 2026";
 

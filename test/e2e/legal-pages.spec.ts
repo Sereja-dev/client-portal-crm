@@ -61,13 +61,16 @@ test.describe("Operator identity (Public Beta legal alignment)", () => {
     await expect(page.getByRole("main")).toContainText("the jurisdiction in which the Service operator is located");
   });
 
-  test("Privacy, Terms and the Cookie Policy are all effective October 31, 2026", async ({ page }) => {
-    for (const route of ["/privacy", "/terms"]) {
-      await page.goto(route);
-      await expect(page.getByRole("main")).toContainText("Effective October 31, 2026");
-      await expect(page.getByRole("main")).not.toContainText("August 9, 2026");
-      await expect(page.getByRole("main")).not.toContainText("to be confirmed on publication");
-    }
+  test("Privacy is effective November 1, 2026; Terms and the Cookie Policy are effective October 31, 2026", async ({ page }) => {
+    await page.goto("/privacy");
+    await expect(page.getByRole("main")).toContainText("Effective November 1, 2026");
+    await expect(page.getByRole("main")).not.toContainText("Effective October 31, 2026");
+    await expect(page.getByRole("main")).not.toContainText("August 9, 2026");
+    await expect(page.getByRole("main")).not.toContainText("to be confirmed on publication");
+    await page.goto("/terms");
+    await expect(page.getByRole("main")).toContainText("Effective October 31, 2026");
+    await expect(page.getByRole("main")).not.toContainText("August 9, 2026");
+    await expect(page.getByRole("main")).not.toContainText("to be confirmed on publication");
     await page.goto("/cookies");
     await expect(page.getByRole("main")).toContainText("Effective October 31, 2026");
     await expect(page.getByRole("main")).not.toContainText("October 27, 2026");

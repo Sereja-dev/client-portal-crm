@@ -37,7 +37,7 @@ describe("generateSignupConfirmationToken", () => {
       password: "correct-horse",
       options: undefined,
     });
-    expect(result).toEqual({ ok: true, tokenHash: "hash-abc", alreadyConfirmed: false });
+    expect(result).toEqual({ ok: true, tokenHash: "hash-abc", alreadyConfirmed: false, authUserId: "u1" });
   });
 
   it("passes organizationName through as user_metadata (options.data) only when provided", async () => {
@@ -66,7 +66,7 @@ describe("generateSignupConfirmationToken", () => {
     });
 
     const result = await generateSignupConfirmationToken({ email: "c@example.com", password: "x" });
-    expect(result).toEqual({ ok: true, tokenHash: "hash-ghi", alreadyConfirmed: true });
+    expect(result).toEqual({ ok: true, tokenHash: "hash-ghi", alreadyConfirmed: true, authUserId: "u3" });
   });
 
   it("classifies alreadyConfirmed: true when only confirmed_at (not email_confirmed_at) is set", async () => {

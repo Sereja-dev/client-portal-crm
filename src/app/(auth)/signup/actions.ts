@@ -7,6 +7,7 @@ import { withToast } from "@/lib/toast-url";
 import { sanitizeRedirectPath } from "@/lib/safe-redirect";
 import { checkRateLimit, getRequestIp, SIGNUP_LIMIT } from "@/lib/rate-limit";
 import { resolveValidSignupInvitation } from "@/lib/invitations/resolve-signup-invitation";
+import { recordSignupAttempt, type RecordSignupAttemptFn } from "@/lib/signup-attempts/record";
 import {
   generateSignupConfirmationToken,
   type GenerateSignupConfirmationTokenFn,
@@ -24,6 +25,7 @@ const MIN_PASSWORD_LENGTH = 8;
 export type SignupDeps = {
   generateToken?: GenerateSignupConfirmationTokenFn;
   sendConfirmationEmail?: SendSignupConfirmationEmailFn;
+  recordSignupAttempt?: RecordSignupAttemptFn;
 };
 
 /**
@@ -64,6 +66,7 @@ export async function signup(
 ): Promise<AuthActionState> {
   const generateToken = deps.generateToken ?? generateSignupConfirmationToken;
   const sendConfirmationEmail = deps.sendConfirmationEmail ?? sendSignupConfirmationEmail;
+  const recordAttempt = deps.recordSignupAttempt ?? recordSignupAttempt;
 
   const ip = await getRequestIp();
   const limitCheck = checkRateLimit(SIGNUP_LIMIT, ip);
@@ -123,6 +126,25 @@ export async function signup(
 
   if (!tokenResult.ok) {
     return { error: tokenResult.error };
+  }
+
+  // Platform Admin Growth V1: record this Staff signup identity. Origin is
+  // known here, never inferred later: an invitation token means INVITED,
+  // otherwise STANDALONE. Staff-only by construction — the Portal signup
+  // action has its own copy of this flow and never calls the recorder.
+  // Best-effort by contract: the recorder never throws and is bounded in
+  // time, and the catch is defense in depth for an injected double, so
+  // nothing here can change the signup outcome.
+  if (tokenResult.authUserId) {
+    try {
+      await recordAttempt({
+        authUserId: tokenResult.authUserId,
+        email,
+        origin: invitation ? "INVITED" : "STANDALONE",
+      });
+    } catch {
+      // Intentionally ignored: registration analytics never affect signup.
+    }
   }
 
   if (tokenResult.alreadyConfirmed) {

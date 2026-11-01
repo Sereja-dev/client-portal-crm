@@ -42,9 +42,10 @@ describe("getPlatformLegalConfig", () => {
     expect(config.legalAddress).toBeNull();
     expect(config.supportEmail).toBeNull();
     expect(config.jurisdiction).toBe("the jurisdiction in which the Service operator is located");
-    // Product Owner approved dates: the revised Privacy/Terms are effective October 31, 2026 (never the original
-    // August 9, 2026); the Cookie Policy was revised on the same date to add the Feedback button position disclosure.
-    expect(config.privacyEffectiveDate).toBe("October 31, 2026");
+    // Product Owner approved dates: the Terms are effective October 31, 2026 (never the original August 9, 2026); the
+    // Cookie Policy was revised on that date to add the Feedback button position disclosure; the Privacy Policy was
+    // revised again on November 1, 2026 to add the Staff sign-up records disclosure and its 90-day retention.
+    expect(config.privacyEffectiveDate).toBe("November 1, 2026");
     expect(config.tosEffectiveDate).toBe("October 31, 2026");
     expect(config.cookiePolicyEffectiveDate).toBe("October 31, 2026");
   });

@@ -10,6 +10,7 @@ import { bootstrapOrganizationStatusDefinitions } from "@/lib/custom-statuses/bo
 import { isOrganizationSuspended, ORGANIZATION_UNAVAILABLE_PATH } from "@/lib/organization-access";
 import { seedThemeModeFromRequestCookie } from "@/lib/theme/request-cookie-seed";
 import { redirectToLoginForSessionLoss } from "@/lib/auth/staff-session-redirect";
+import { provisionUser } from "@/lib/signup-attempts/provision-user";
 
 const ACTIVE_ORG_COOKIE = "active_organization_id";
 const ACTIVE_ORG_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
@@ -73,15 +74,16 @@ export async function getOrCreateUser(currentPath?: string) {
   const seededThemeMode = await seedThemeModeFromRequestCookie();
 
   try {
-    return await prisma.user.upsert({
-      where: { id: authUser.id },
-      update: {},
-      create: {
-        id: authUser.id,
-        email: authUser.email!,
-        name: authUser.user_metadata?.name ?? authUser.email!.split("@")[0],
-        themeMode: seededThemeMode,
-      },
+    // Platform Admin Growth V1: the User row and the matching SignupAttempt
+    // activation are created in one transaction (best-effort fallback if
+    // the analytics side is unavailable) — see provisionUser()'s own doc
+    // comment. The early-return above means this runs only for an identity
+    // with no User row yet.
+    return await provisionUser({
+      id: authUser.id,
+      email: authUser.email!,
+      name: authUser.user_metadata?.name ?? authUser.email!.split("@")[0],
+      themeMode: seededThemeMode,
     });
   } catch (err) {
     if (
