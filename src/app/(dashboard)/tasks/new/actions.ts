@@ -92,5 +92,13 @@ export async function createTaskAction(
     });
   });
 
+  // Slice B — only the literal "project" opts into the Project Hub return;
+  // anything else (absent, malformed, unexpected) is the global behavior.
+  // The destination is built solely from the server-verified `project.id`
+  // above (found in this organization), never from submitted input.
+  if (formData.get("returnTo") === "project") {
+    redirect(withToast(`/projects/${project.id}?tab=tasks`, "Task created"));
+  }
+
   redirect(withToast("/tasks", "Task created"));
 }

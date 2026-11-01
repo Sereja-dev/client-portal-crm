@@ -28,6 +28,13 @@ export default async function NewTaskPage({
   // re-verifies whatever projectId is actually submitted, exactly like
   // every other prefilled create form in this app.
   const projectId = parseSearchParam(resolvedSearchParams.projectId);
+  // First-Time User Experience V2, Slice B — navigation origin is its own
+  // explicit signal. Only the exact `from=project` (sent by Project Hub's
+  // Tasks tab) opts into the project-return context; `projectId` alone is
+  // just a prefill and never implies where the user came from.
+  // Exact string match only — a repeated `from=` (an array), different case or
+  // padding is ambiguous and falls back to the global behavior.
+  const fromProject = resolvedSearchParams.from === "project";
   const [projects, memberships] = await Promise.all([
     prisma.project.findMany({
       where: { organizationId },
@@ -43,6 +50,13 @@ export default async function NewTaskPage({
     }),
   ]);
   const assignees = memberships.map((m) => ({ id: m.user.id, name: m.user.name }));
+  // The origin Project is resolved against this organization's own project
+  // list (already fetched above, org-scoped) — a syntactically valid UUID is
+  // never trusted by itself. Foreign, deleted or malformed ids resolve to
+  // nothing, which falls back to the global behavior. Cancel is based on this
+  // original project, not on a later change to the Project select.
+  const originProjectId = fromProject ? (projects.find((p) => p.id === projectId)?.id ?? null) : null;
+  const cancelHref = originProjectId ? `/projects/${originProjectId}?tab=tasks` : "/tasks";
 
   return (
     <div className="mx-auto max-w-xl">
@@ -50,7 +64,7 @@ export default async function NewTaskPage({
         <h1 className="text-text-primary text-2xl font-semibold tracking-tight">
           Add task
         </h1>
-        <Link href="/tasks" className={ACTION_LINK_CLASSES}>
+        <Link href={cancelHref} className={ACTION_LINK_CLASSES}>
           Cancel
         </Link>
       </div>
@@ -75,6 +89,7 @@ export default async function NewTaskPage({
             }))}
             assignees={assignees}
             defaultValues={projectId ? { projectId } : undefined}
+            returnTo={originProjectId ? "project" : undefined}
           />
         </div>
       )}

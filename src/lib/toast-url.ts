@@ -11,5 +11,7 @@ export function withToast(
   if (variant === "error") {
     params.set("toastVariant", "error");
   }
-  return `${path}?${params.toString()}`;
+  // A path that already carries a query (e.g. `/projects/<id>?tab=tasks`)
+  // keeps it intact; the toast params are appended after it.
+  return `${path}${path.includes("?") ? "&" : "?"}${params.toString()}`;
 }

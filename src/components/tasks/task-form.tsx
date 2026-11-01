@@ -26,6 +26,7 @@ export function TaskForm({
   projects,
   assignees,
   defaultValues,
+  returnTo,
   submitLabel = "Create task",
   pendingLabel = "Creating…",
 }: {
@@ -37,6 +38,8 @@ export function TaskForm({
   /** Work Hub V1 — same-organization Staff members only, mirrors LeadForm's own `assignees` prop exactly. Always offered, for every role — assignment is a convenience field, not a permission (see tasks/query.ts's own TaskListParams doc comment). */
   assignees: { id: string; name: string }[];
   defaultValues?: TaskFormDefaults;
+  /** Explicit navigation context, never a URL: only the literal "project" (Project Hub origin) is ever emitted; the server re-verifies the project. */
+  returnTo?: "project";
   submitLabel?: string;
   pendingLabel?: string;
 }) {
@@ -60,6 +63,7 @@ export function TaskForm({
 
   return (
     <form action={formAction} className="space-y-4">
+      {returnTo === "project" && <input type="hidden" name="returnTo" value="project" />}
       <FormField label="Title" htmlFor="title" required error={state.fieldErrors?.title}>
         <Input
           id="title"
