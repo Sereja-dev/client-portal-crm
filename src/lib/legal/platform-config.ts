@@ -94,7 +94,11 @@ const DEFAULT_OPERATOR_NAME = "Umerenko Sergei";
  *   Privacy Policy   2026-08-09 initial · 2026-10-26 cookie disclosure ·
  *                    2026-10-31 revision with the individual-operator identity ·
  *                    2026-11-01 revision adding the Staff sign-up records
- *                    disclosure and its 90-day retention
+ *                    disclosure and its 90-day retention, and the prospective
+ *                    website-analytics disclosure (corrected the same day to
+ *                    separate Vercel's guaranteed reporting window from its
+ *                    actual retention, to attribute the no-cookies statement
+ *                    to Vercel, and to describe query strings)
  *                    (Product Owner approved these publication dates)
  *   Terms of Service 2026-08-09 initial · 2026-10-31 revision with the
  *                    individual-operator identity and free-beta wording

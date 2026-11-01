@@ -60,3 +60,47 @@ describe("Privacy Policy cookie disclosure (Section 3)", () => {
     expect(privacySource).not.toMatch(/paddle/i);
   });
 });
+
+describe("Privacy Policy prospective website-analytics wording stays factual", () => {
+  const flat = privacySource.replace(/\s+/g, " ");
+  const bullet = flat.slice(flat.indexOf("Website analytics (if enabled)."), flat.indexOf("Website analytics (if enabled).") + 2500);
+
+  it("stays prospective: describes what happens only if and when it is switched on", () => {
+    expect(bullet).toContain("We may measure traffic");
+    expect(bullet).toContain("If and when we switch it on");
+    expect(flat).not.toMatch(/we (currently )?use Vercel Web Analytics/i);
+  });
+
+  it("separates Vercel's guaranteed reporting window from its actual retention, and promises no deletion date", () => {
+    expect(bullet).toContain("keeps this data available to us for the reporting window of our hosting plan and may keep it for longer");
+    expect(bullet).toContain("cannot promise a deletion date");
+    expect(flat).not.toContain("retains the underlying data for the reporting period");
+    expect(flat).not.toMatch(/Vercel (deletes|removes|erases)/i);
+  });
+
+  it("attributes the no-cookies claim to Vercel and makes no categorical browser-storage claim about the script", () => {
+    expect(bullet).toContain("According to Vercel, it does not use cookies");
+    expect(bullet).not.toContain("It does not use cookies or other browser storage");
+    expect(bullet).toContain("we add no cookies or other browser storage of our own for it");
+  });
+
+  it("describes the page address and the possible query string, and states the intent to remove it", () => {
+    expect(bullet).toContain("the web address of the page viewed");
+    expect(bullet).toContain("A web address can include a query string");
+    expect(bullet).toContain("we intend to remove query strings before this measurement is sent");
+    expect(bullet).not.toContain("the page path viewed");
+  });
+
+  it("still discloses the daily identifier, the data categories and that Aqenra stores no IPs or visit records", () => {
+    expect(bullet).toContain("country, device type, browser, and operating system");
+    expect(bullet).toContain("resets daily");
+    expect(bullet).toContain("Aqenra does not store IP addresses or individual visit records");
+  });
+
+  it("records query-string stripping as an explicit future activation requirement next to the traffic configuration", () => {
+    const env = readFileSync(".env.example", "utf8").replace(/\s+/g, " ").replace(/# /g, "");
+    expect(env).toContain("ACTIVATION REQUIREMENT (not implemented yet)");
+    expect(env).toContain("must strip query strings");
+    expect(env).toContain("beforeSend");
+  });
+});
