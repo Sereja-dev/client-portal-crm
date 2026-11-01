@@ -1,8 +1,8 @@
 # Aqenra Launch Handoff
 
-> **Refreshed October 31, 2026 for the Free Public Beta launch (baseline `fc72e83`).** §1–§20 describe the current Production state. §21 is the preserved September 2026 Quotes/Invoice smoke record (historical). §22–§27 are the Public Beta additions: Free Beta posture, Feedback Widget, verification record, accepted limitations, post-launch list, and the launch checklist.
+> **Refreshed November 1, 2026 (current baselines: app `2a12e7a`, marketing `42fd441`).** §1–§20 describe the current Production state. §21 is the preserved September 2026 Quotes/Invoice smoke record (historical). §22–§27 are the Public Beta additions written at the October 31, 2026 launch baseline (`fc72e83`, kept as the historical launch record and updated where facts have since changed): Free Beta posture, Feedback Widget, verification records, accepted limitations, post-launch list, and the launch checklist. §28–§30 were added on November 1, 2026: the SignupAttempt and Growth dashboard work, Website Traffic (built but deliberately disabled), and the operations still waiting on a real event.
 >
-> Evidence labels used throughout: **Verified** = checked with read-only CLI/HTTP/CI evidence on the date given; **Product Owner confirmed** = verified manually by the Product Owner; **Not performed** = no verification is claimed.
+> Evidence labels used throughout: **Verified** = checked with read-only CLI/HTTP/CI evidence on the date given; **Product Owner confirmed** = verified manually by the Product Owner (not re-checked by this document); **Pending organic event** = cannot be evidenced until a real signup, login or scheduled run happens, and no such event has been observed yet; **Open — actionable** = a specific verification still to be done; **Accepted limitation** = reviewed and accepted by the Product Owner, not a blocker; **Optional post-launch** = nice to have, no required order; **Not performed** = no verification is claimed. A pending or open item is an evidence question, not a Product defect.
 
 ## 1. Current Status
 
@@ -10,16 +10,20 @@
 
 Aqenra runs as a **Free Public Beta**: no paid checkout, **5 members** and **3 GB of storage** per organization, and trial/subscription enforcement suspended by `FREE_BETA_MODE` (see §22). Online payments (Paddle) and the AI Assistant remain intentionally not enabled.
 
-- App baseline SHA: `fc72e83b3e76ea6a11438683099900357f1b75f1` (`main`, merge of PR #195). Production deployment `dpl_CfrhiHtA2Xq3nxBdHf26s1cZ1HpG`, READY, `app.aqenra.com` attached (see §24).
-- Marketing baseline SHA: `e9517cf463e48d8ee2934f0a3b979f8de3130ec2` (`main`, merge of Marketing PR #1). Production deployment `dpl_67uAHSe3BfMYZMVryXvv4dDhy4S6`, READY, `aqenra.com` attached.
-- Production domains: `https://aqenra.com`, `https://www.aqenra.com` (308 to the apex), `https://app.aqenra.com` — all responding (Verified 2026-10-31, see §24).
-- Already live: the SaaS app (Staff + Client Portal + Platform Admin), Quotes (§21), the redesigned onboarding (Product Owner confirmed), the Staff Feedback Widget V1 (§23), the marketing site, transactional email, Supabase Storage, and the Privacy Policy, Terms of Service and Cookie Policy (§14).
+- **Current** app baseline SHA: `2a12e7a8fce8eea666cc6501f0484ee033987ce9` (`main`, merge of PR #200). Production deployment `dpl_3HXhCVCJd2xUw8wyFrfNEtpXmnjh`, READY, target Production, `app.aqenra.com` attached (Verified 2026-11-01, see §24).
+- **Current** marketing baseline SHA: `42fd441368b0cc55a1024464101d099057c65a86` (`main`, merge of Marketing PR #4). Production deployment `dpl_9nLYq2zuFhnFrAdN1LxK2c9Z9c1Z`, READY, target Production, `aqenra.com` and `www.aqenra.com` attached (Verified 2026-11-01).
+- Historical Public Beta launch baseline (October 31, 2026): app `fc72e83b3e76ea6a11438683099900357f1b75f1` (deployment `dpl_CfrhiHtA2Xq3nxBdHf26s1cZ1HpG`), marketing `e9517cf463e48d8ee2934f0a3b979f8de3130ec2` (deployment `dpl_67uAHSe3BfMYZMVryXvv4dDhy4S6`). Kept as the launch record in §24.
+- Production domains: `https://aqenra.com`, `https://www.aqenra.com` (308 to the apex), `https://app.aqenra.com` — all responding (Verified 2026-11-01, see §24).
+- Production database: **61** migrations, "Database schema is up to date!" (Verified 2026-11-01 on `2a12e7a`). **Six** Vercel cron jobs are deployed (§2).
+- Already live: the SaaS app (Staff + Client Portal + Platform Admin), Quotes (§21), the redesigned onboarding (Product Owner confirmed), the Staff Feedback Widget V1 (§23), the marketing site (now describing the Free Public Beta, §9), transactional email, Supabase Storage, the Platform Admin Growth dashboard with SignupAttempt recording (§28), and the Privacy Policy, Terms of Service and Cookie Policy (§14).
+- Built but deliberately **not active**: Website Traffic — the Platform Admin integration is shipped, collection is disabled, no visitor data exists, and activation is deferred by the Product Owner (§29).
 - Intentionally disabled/deferred:
   - **Paddle billing** — not configured in Production, fails closed; paid checkout is additionally blocked server-side during the beta (see §11, §22)
   - **AI Assistant** — not configured in Production, fails closed (see §12)
   - **Public dollar pricing** — not finalized (see §13)
+  - **Website Traffic collection** — disabled; no analytics script, token or environment variable exists in Production (see §29)
 
-**Launch decision record.** The decision is **GO** for Public Beta. A read-only launch review on 2026-10-31 found no launch blockers and no required code change. The limitations the Product Owner accepted for launch are in §25; the post-launch improvement list is §26; the short launch checklist is §27.
+**Launch decision record.** The decision is **GO** for Public Beta. A read-only launch review on 2026-10-31 found no launch blockers and no required code change, and a read-only reconciliation on 2026-11-01 again found no P0 blocker. The limitations the Product Owner accepted are in §25; the post-launch improvement list is §26; the short launch checklist is §27; the operations still waiting on a real event are in §30.
 
 ---
 
@@ -35,6 +39,17 @@ Aqenra runs as a **Free Public Beta**: no paid checkout, **5 members** and **3 G
 - `https://app.aqenra.com` — live
 - Existing SaaS Vercel project (unchanged, pre-dates the marketing site)
 
+**Scheduled jobs (Vercel Cron, app project; Verified 2026-11-01 in the deployed configuration of `2a12e7a`).** Six jobs, all daily, all UTC, all behind `CRON_SECRET` (an unauthenticated request returns 401). The plan is Vercel **Hobby**, whose cron timing is only accurate to within the hour.
+
+| Route | Schedule (UTC) | Purpose (by route) |
+|---|---|---|
+| `/api/cron/notification-delivery` | 05:00 | Notification email delivery |
+| `/api/cron/notification-cleanup` | 05:30 | Deletes read in-app notifications after 90 days |
+| `/api/cron/integration-delivery` | 05:35 | Integrations delivery |
+| `/api/cron/signup-attempt-retention` | **05:45** | Deletes unactivated SignupAttempt records 90 days after their last recorded attempt (§28) |
+| `/api/cron/recurring-invoices` | 06:00 | Recurring invoices |
+| `/api/cron/invoice-pdf-reconciliation` | 07:00 | Invoice PDF archive reconciliation |
+
 **Isolation notes**
 - Marketing and the SaaS app are **intentionally isolated**: separate repos, separate Vercel projects, no shared code or runtime dependency. This is deliberate, in part to keep the SaaS product cleanly separable for a future transfer/sale.
 - `app.aqenra.com` (auth, API, Portal, billing webhook, Platform Admin) must **never** be moved into the marketing project or repo.
@@ -47,12 +62,12 @@ Aqenra runs as a **Free Public Beta**: no paid checkout, **5 members** and **3 G
 **client-portal-crm**
 - Path: `~/Projects/freelance/client-portal-crm`
 - Remote: `git@github.com:Sereja-dev/client-portal-crm.git`
-- Current `main` SHA: `fc72e83b3e76ea6a11438683099900357f1b75f1` (Verified 2026-10-31: equals `origin/main`; no open pull requests)
+- Current `main` SHA: `2a12e7a8fce8eea666cc6501f0484ee033987ce9` (Verified 2026-11-01: equals `origin/main` and the latest Production deployment; no open pull requests). Launch baseline of October 31: `fc72e83`.
 
 **aqenra-marketing**
 - Path: `~/Projects/freelance/aqenra-marketing`
 - Remote: `https://github.com/Sereja-dev/aqenra-marketing.git`
-- Current `main` SHA: `e9517cf463e48d8ee2934f0a3b979f8de3130ec2` (Verified 2026-10-31: no open pull requests)
+- Current `main` SHA: `42fd441368b0cc55a1024464101d099057c65a86` (Verified 2026-11-01: equals `origin/main` and the latest Production deployment; no open pull requests). Launch baseline of October 31: `e9517cf`.
 
 Both repos deploy from `main` via each project's own Vercel GitHub integration — a push to `main` triggers a Production deploy in that project. Changes land through pull requests with CI (§24). The marketing repo is kept separate by design, in part for future transfer/sale isolation of the SaaS product from the marketing asset.
 
@@ -81,7 +96,7 @@ Both repos deploy from `main` via each project's own Vercel GitHub integration �
 | Quotes — Portal approval | **DONE (manual, Production)** | Full invite → signup → confirm → accept → approve E2E — see §21.5. |
 | Quote → Invoice conversion | **DONE (manual, Production)** | `Q-0001` → `QUOTE-SMOKE-001`, then cleaned up — see §21.6. |
 | Portal invite existing-user conflict UX | **DONE (manual + automated, Production)** | Honest, non-leaking denial message for the one-Client-per-Portal-login conflict; no schema change — see §21.8. |
-| Platform Admin access | Config verified only | `PLATFORM_ADMIN_EMAILS` confirmed present in Vercel Production (value not inspected); no live login-as-admin functional test performed. |
+| Platform Admin access | **Product Owner confirmed**; unauthenticated denial Verified 2026-11-01 | `PLATFORM_ADMIN_EMAILS` is present in Vercel Production (value not inspected). The Product Owner states the Platform Admin Growth dashboard is Production-verified and the authentication hardening is complete; that is not re-verified by this document. Unauthenticated requests to `/platform-admin/*` get a 307 to login (Verified). |
 | transactional email delivery | **DONE (manual, Production)** | A real Resend email was sent and successfully used during the Staff invited-signup test above. |
 | Resend sender/domain | Functional (inferred from successful send) | No direct Resend-dashboard domain-verification check was performed; the successful real delivery above is the evidence. |
 | Storage attachments upload | Not independently re-verified in Production | Config/metadata-verified only (see §7); no manual UI upload test performed. |
@@ -90,7 +105,7 @@ Both repos deploy from `main` via each project's own Vercel GitHub integration �
 | attachments bucket hardening | **DONE (verified against real Production metadata)** | Direct, read-only query against Production confirmed `file_size_limit`/`allowed_mime_types` are set to match the app's own limits. |
 | marketing desktop | Automated verification only | Screenshot pass (4 breakpoints) against the built artifact pre-deploy; live content confirmed matches via HTTP fetch. Not manually reviewed in a live browser. |
 | marketing mobile | Automated verification only | Same as above. |
-| marketing CTAs | **DONE (verified live)** | Live `href` targets on `aqenra.com` confirmed pointing at `app.aqenra.com/login` and `/signup`. |
+| marketing CTAs | **DONE (verified live)** | Live `href` targets on `aqenra.com` confirmed pointing at `app.aqenra.com/login` and `/signup`; since Marketing PR #2 the primary CTA reads **Start free** (§9). |
 | privacy/terms links | **DONE (verified live)** | Confirmed pointing at `app.aqenra.com/privacy` and `/terms`. |
 | robots.txt | **DONE (verified live)** | Fetched live, correct content, scoped only to `aqenra.com`. |
 | sitemap.xml | **DONE (verified live)** | Fetched live, correct single-URL content. |
@@ -101,11 +116,17 @@ Both repos deploy from `main` via each project's own Vercel GitHub integration �
 | new Aqenra favicon/brand mark on app | **DONE (verified live)** | Same three assets confirmed serving the new mark on `app.aqenra.com` (favicon size matches the new asset, not the old generic one). |
 | Onboarding redesign | **DONE (Product Owner confirmed, Production)** | Verified manually by the Product Owner. |
 | Free Beta model and limits | **DONE (Product Owner confirmed; code-verified)** | See §22. The `FREE_BETA_MODE` value itself is sensitive and was not read. |
-| Privacy / Terms / Cookie Policy (live) | **DONE (Verified 2026-10-31 + Product Owner confirmed)** | HTTP 200; "Effective October 31, 2026" on all three; operator and contact present; feedback disclosures present. Product Owner also checked all three manually. See §14. |
+| Privacy / Terms / Cookie Policy (live) | **DONE (Verified 2026-11-01; Product Owner checked the launch versions)** | HTTP 200 on all three. **Privacy: "Effective November 1, 2026"; Terms and Cookie Policy: "Effective October 31, 2026".** Operator and contact present; feedback, Staff sign-up records and prospective website-analytics disclosures present. See §14. |
 | `support@aqenra.com` and `feedback@aqenra.com` routing | **DONE (Product Owner confirmed)** | Cloudflare Email Routing active; real forwarding to the operator's inbox verified; `support@` routing preserved when `feedback@` was added. See §8. |
 | Feedback Widget V1 | **DONE (Product Owner confirmed, Production)** | A real bug report was submitted and its delivery verified in the mailbox; the draggable position and its persistence across reload were verified. See §23. |
 | Staff password reset (Production) | **Not performed** | Automated coverage exists (§25); no manual Production smoke is recorded. |
 | Cross-tenant live click-through (Production) | **Not performed** | Tenant isolation is evidenced by automated tests only (§25). |
+| SignupAttempt table and migration | **Verified (Production)** | `20261031000000_add_signup_attempt_foundation` applied to Production on 2026-11-01 with the approved wrapper (additive); status then 61 migrations, up to date (§24, §28). |
+| Platform Admin Growth dashboard | **Product Owner confirmed (Production)**; deployment and denial Verified 2026-11-01 | `/platform-admin/growth` shipped in PR #198; the Product Owner states it is Production-verified. Unauthenticated access gets a 307 to login. See §28. |
+| Website Traffic section on Growth | **Product Owner confirmed (UI)**; disabled state Verified | Shipped in PR #199; the section shows its safe "not enabled" state. Collection is **disabled** and no tracking exists (§29). |
+| First real SignupAttempt record | **Pending organic event** | No organic Staff signup has been observed since recording shipped. Evidence will be on the Growth page (§30). |
+| First SignupAttempt retention cron run | **Pending organic event** (scheduled) | First run is 05:45 UTC on 2026-11-02 (Hobby: ±1 hour). No run has been observed (§30). |
+| Staff signup → confirm → login after the SignupAttempt changes | **Open — actionable** | The Staff signup action and first-login provisioning changed on 2026-11-01; covered by CI (integration + E2E) only. One real signup would close it. Not a known defect (§30). |
 
 ---
 
@@ -137,7 +158,9 @@ Both repos deploy from `main` via each project's own Vercel GitHub integration �
 **Completed**
 - Tenant isolation (organization-scoped queries throughout)
 - Portal project/invoice isolation (client-scoped, verified via dedicated tests)
-- Platform Admin authorization via an env-var allowlist, never tied to workspace ownership
+- Platform Admin authorization via an env-var allowlist, never tied to workspace ownership; every Platform Admin query calls the guard first (enforced by static security checks — 25 pass in CI), with no server actions, route handlers or raw SQL in the Platform Admin code. The Product Owner states the Platform Admin authentication hardening is complete.
+- Growth and SignupAttempt (§28): registration data is read only through guard-first Platform Admin queries, is never exposed to Staff or Portal routes, and the recorder stores no passwords, tokens, links, IPs or user agents.
+- Website Traffic (§29): the only outbound credentialed call in Platform Admin is gated by a strict `WEBSITE_TRAFFIC_ENABLED === "true"` check, is server-side only, never falls back to the app's own Vercel project, and logs nothing.
 - Supabase Storage: deny-by-default RLS posture
 - Storage: bucket-level size/MIME limits set on both buckets
 - Storage: signed-URL-based download authorization, app-side scoping enforced before every signed URL is issued
@@ -218,9 +241,9 @@ A real Production upload/download UI smoke test has **not** been independently p
 - A custom Aqenra favicon/logomark has been implemented and is live in both repos.
 - Concept: two overlapping rounded squares, using the app's own already-approved "Aqenra Indigo" accent colors — no letterform, no resemblance to the generic Next.js/Vercel triangle it replaced.
 - The generic stock favicon has been removed from both repos (app and marketing).
-- The marketing Open Graph image was left unchanged — it already contained no generic mark and was judged intentional as-is.
-- Marketing CTAs (Verified 2026-10-31): "Open preview" / "Open product preview" / "Open current preview" go to `https://app.aqenra.com/signup`; "Sign in" goes to `https://app.aqenra.com/login`; Privacy and Terms link to the app's legal pages.
-- **Wording limitation (accepted for launch, §25):** the marketing site still describes the product as "Working product · advanced pre-launch · pre-revenue" with "Open preview" buttons, and says pricing and wider validation "remain before full commercial release". It does not mention the Free Public Beta. It understates rather than overclaims; align it when separately approved.
+- The marketing Open Graph image: it contained no generic mark. Its tagline was updated on 2026-11-01 (Marketing PR #2) from the pre-launch wording to "Free Public Beta · registration open".
+- **Marketing messaging (Verified live 2026-11-01; shipped in Marketing PR #2, merge `1e9aad2`).** The site presents Aqenra as a **Free Public Beta with registration open**: hero badge "Free Public Beta · registration open", the note "Free during the public beta. No payment required. Features and availability may evolve.", the stage stat "Free Public Beta · no payment required", a launch section titled "Aqenra is open for registration — free during the public beta.", a FAQ "Is Aqenra available now?" (yes; no payment required; paid plans and online payments are not available), and a footer line "Free Public Beta · registration open · no payment required". The primary CTAs read **Start free** (header, mobile menu, hero, launch section) and go to `https://app.aqenra.com/signup`; "Sign in" goes to `https://app.aqenra.com/login`; Privacy and Terms link to the app's legal pages. The nav and footer label is "Free beta". The earlier "advanced pre-launch · pre-revenue" and "Open preview" wording is gone. No paid plan, price, date, customer count or testimonial is stated. This closes the former marketing-wording limitation (§25).
+- The marketing Cookie page describes the planned, not-yet-enabled analytics measurement in prospective terms (§14, §29). The marketing site contains **no** analytics component, package or script.
 - The marketing footer states "Operated by Umerenko Sergei, an individual", and the marketing Cookie page names the same operator (§14).
 - No dollar pricing exists anywhere in the product or on the marketing site.
 
@@ -322,11 +345,11 @@ The "free or paid first" question is decided: Aqenra launches as a **Free Public
 
 ## 14. Legal
 
-**Live documents (Verified 2026-10-31: HTTP 200 on each; Product Owner also verified all three manually)**
+**Live documents (Verified 2026-11-01: HTTP 200 on each; the Product Owner verified the launch versions manually on 2026-10-31)**
 
 | Document | URL | Effective |
 |---|---|---|
-| Privacy Policy | `https://app.aqenra.com/privacy` | **October 31, 2026** |
+| Privacy Policy | `https://app.aqenra.com/privacy` | **November 1, 2026** (re-dated when the Staff sign-up records disclosure and the prospective website-analytics disclosure were added) |
 | Terms of Service | `https://app.aqenra.com/terms` | **October 31, 2026** |
 | Cookie Policy | `https://app.aqenra.com/cookies` | **October 31, 2026** (first published October 27, 2026; re-dated when the "Feedback button position" storage disclosure was added, PR #195) |
 
@@ -336,7 +359,13 @@ The "free or paid first" question is decided: Aqenra launches as a **Free Public
 
 **Disclosures added with the Feedback Widget.** Privacy: "Feedback from inside the app" (what a message or bug report includes). Cookie Policy: "Feedback button position" (browser-local storage of the button's coordinates only).
 
-**Date rule.** A revised policy is never backdated; a revision gets its own new date in the same reviewed change that ships its wording (see the history comment in `platform-config.ts`).
+**Disclosures added on 2026-11-01 (Privacy Policy, effective November 1, 2026).**
+- **Staff sign-up records** (PR #197): what is recorded for a Staff signup attempt (email, first and latest recorded attempt, attempt count, signup origin, activation time), that it includes attempts never completed through email confirmation, that the record holds no password, confirmation link, IP address or browser details, and that unactivated records are deleted automatically once 90 days have passed since the most recent recorded attempt (a daily, batched cleanup, so a record may outlive the 90 days briefly). The cleanup removes only the sign-up record and does not delete or change any Supabase Auth account.
+- **Website analytics (if enabled)** (PR #199, corrected in PR #200): written in prospective terms only ("We may measure…", "If and when we switch it on…"). The application-level "no third-party analytics" claim is scoped to the application itself.
+- **Three factual corrections shipped in PR #200 (Privacy) and Marketing PR #4 (Cookie page):** (1) retention — Vercel keeps the data available for the plan's reporting window and may keep it longer; Aqenra promises no deletion date; (2) browser storage — the no-cookies statement is attributed to Vercel and the unverified claim that the script uses no browser storage was removed (Aqenra adds none of its own); (3) URL parameters — the recorded web address can include a query string, and query strings are intended to be removed before events are sent. **That sanitizer is not implemented** (§29).
+- **Marketing Cookie page:** no effective date of its own. It says the site itself sets no cookies, browser storage, tracking pixels or advertising trackers, describes the planned cookieless measurement (analytics cookies — none, according to Vercel; functional browser storage set by the site — none), and promises to state the switch-on date.
+
+**Date rule.** A revised policy is never backdated; a revision gets its own new date in the same reviewed change that ships its wording (see the history comment in `platform-config.ts`). When website analytics is eventually switched on, the Privacy Policy date and the Marketing Cookie page must be updated on the actual publication day (Asia/Bangkok), and the activation requirements in §29 apply.
 
 **Not claimed.** No legal counsel review or approval is claimed for any of this text. Open for operator/legal review (accepted for launch, §25): the governing-law/jurisdiction clause uses generic placeholder wording ("the jurisdiction in which the Service operator is located"); no postal address is published; the liability clause has not been reviewed.
 
@@ -364,7 +393,7 @@ Moving the legal pages to `aqenra.com` is optional, not required — the current
 | `PLATFORM_REPLY_TO_EMAIL` | Email | Present | §8 |
 | `INTEGRATIONS_ENCRYPTION_KEY_V1` | Integrations | Present | Sensitive; master key for encrypting stored Integrations credentials (AES-256-GCM) |
 
-Names checked 2026-10-31 with `vercel env ls production`; no value was read or printed.
+Names checked 2026-10-31 with `vercel env ls production`; no value was read or printed. Re-checked 2026-11-01 (structure and names only): the Production environment is unchanged — its most recent change predates 2026-11-01 — and none of the Website Traffic variables below exist.
 
 **Deferred (missing intentionally)**
 
@@ -374,6 +403,7 @@ Names checked 2026-10-31 with `vercel env ls production`; no value was read or p
 | `AI_PROVIDER` | AI | Missing intentionally |
 | `AQENRA_OPENAI_API_KEY` | AI | Missing intentionally |
 | `TEST_MODE` | Test infra | Absent intentionally |
+| `WEBSITE_TRAFFIC_ENABLED` / `VERCEL_ANALYTICS_TOKEN` / `VERCEL_ANALYTICS_PROJECT_ID` / `VERCEL_ANALYTICS_TEAM_ID` / `WEBSITE_TRAFFIC_COLLECTION_START` / `WEBSITE_TRAFFIC_REPORTING_WINDOW_DAYS` | Website Traffic | Absent intentionally — collection is disabled; activation deferred (§29). The names are documented, without values, in `.env.example` |
 | `PLATFORM_LEGAL_NAME` / `PLATFORM_LEGAL_ADDRESS` / `PLATFORM_JURISDICTION` / `PRIVACY_POLICY_EFFECTIVE_DATE` / `TOS_EFFECTIVE_DATE` / `COOKIE_POLICY_EFFECTIVE_DATE` | Legal overrides | Absent intentionally — code defaults apply (§14) |
 
 **`TEST_MODE` must remain absent in Production.** Its presence would enable mock providers and TEST_MODE-only surfaces in the live environment.
@@ -392,11 +422,14 @@ Already satisfied:
 - Quotes (Staff create/send/archive lifecycle + Portal approval/decline + Quote → Invoice conversion — see §21; known gaps are listed in §21.9)
 - Email
 - Storage
-- Platform Admin
-- Marketing
+- Platform Admin (owner-only access; Growth dashboard, §28)
+- Marketing (now describing the Free Public Beta, §9)
 - Domains
 - Branding
 - Security hardening
+
+### Website Traffic activation (deferred)
+Not a launch gate. Required before collection may ever be switched on (details in §29): applicable visitor jurisdictions and the consent approach (legal review); the Vercel Hobby commercial-use question and the hosting plan; a live test of the Web Analytics read API with a project-scoped token (explicit Product Owner approval); token lifetime, scope and storage; the real collection start date and the day-bucket timezone; the `beforeSend` query-string sanitizer; verification of the script's browser-storage behavior; and the publication-day Privacy and Cookie-page updates.
 
 ### Paid billing launch
 Required:
@@ -424,6 +457,10 @@ Required:
 
 **Free Beta mode:** do **not** disable `FREE_BETA_MODE` as a rollback. See the exit invariant in §22 — turning it off without an approved transition plan can put existing organizations into read-only access immediately.
 
+**SignupAttempt retention cron (§28):** to stop it, remove the `/api/cron/signup-attempt-retention` entry from `vercel.json` and redeploy; the route stays protected by `CRON_SECRET`. The project-wide "Disable Cron Jobs" setting also stops it but stops all six jobs — avoid unless urgent. **Do not drop the `SignupAttempt` table as a rollback:** it holds personal data collected under the published disclosure, Prisma migrations are forward-only, and the previous application code ignores the table. Recording is best-effort and cannot block signup or login, so a recording defect is fixed forward.
+
+**Website Traffic (§29):** it is disabled; leave `WEBSITE_TRAFFIC_ENABLED` unset. If it were ever enabled and misbehaved, unsetting it (and redeploying) restores the disabled state.
+
 **AI:** remove or blank `AI_PROVIDER` (or `AQENRA_OPENAI_API_KEY`) in Vercel Production and redeploy — restores the fail-closed state immediately.
 
 **Paddle:** remove or blank the billing provider environment variables in Vercel Production and redeploy — restores the fail-closed "not configured" state immediately.
@@ -434,8 +471,11 @@ No destructive database rollback is documented here, as none is required for any
 
 ## 18. Known Good Baselines
 
-**App:** `fc72e83b3e76ea6a11438683099900357f1b75f1` (Public Beta launch baseline, 2026-10-31)
-**Marketing:** `e9517cf463e48d8ee2934f0a3b979f8de3130ec2` (2026-10-31)
+**App (current):** `2a12e7a8fce8eea666cc6501f0484ee033987ce9` (2026-11-01)
+**Marketing (current):** `42fd441368b0cc55a1024464101d099057c65a86` (2026-11-01)
+
+**App (Public Beta launch baseline, historical):** `fc72e83b3e76ea6a11438683099900357f1b75f1` (2026-10-31)
+**Marketing (Public Beta launch baseline, historical):** `e9517cf463e48d8ee2934f0a3b979f8de3130ec2` (2026-10-31)
 
 Earlier baselines (historical): app `e2fe12b3e6ba7027e997edbe9570cf5134fb5818` and marketing `b635a6f6a8c188b23936d6907c7f55ff54ccda7f` (2026-09-08, see §21). The October 2026 release history is in §24.
 
@@ -459,6 +499,10 @@ Notable prior commits (app repo, most recent first) — see §21 for full detail
 - Do not add a fallback for `PLATFORM_FEEDBACK_EMAIL` (not to support, not to the sender address) — bug reports must never be routed to an unrelated mailbox.
 - Do not backdate a legal document; a revision gets a new effective date (§14).
 - Do not publish claims of legal counsel approval, a registered company, or live online payments — none exist.
+- Do not enable Website Traffic (`WEBSITE_TRAFFIC_ENABLED`), create an analytics token, enable Vercel Web Analytics or add an analytics component to the marketing site outside the activation requirements in §29.
+- Do not drop the `SignupAttempt` table or backfill it from Supabase Auth without a separate decision: a backfill would be deleted by the 90-day retention cron for any unconfirmed signup older than 90 days.
+- Do not delete a user's account by hand without also removing their `SignupAttempt` row (there is no cascade).
+- Do not backdate the Privacy Policy: a changed policy text needs a new effective date set on its actual publication day (Asia/Bangkok).
 
 ---
 
@@ -471,6 +515,10 @@ Notable prior commits (app repo, most recent first) — see §21 for full detail
 5. Create the OpenAI Production project/key only when AI is ready to be enabled (§12). — **Deferred.**
 6. Post-configuration smoke tests for whichever of Paddle/AI is enabled later. — **Not applicable until enabled.**
 7. Public Beta launch. — **Decision recorded: GO.** Remaining steps are the checklist in §27.
+8. Marketing messaging aligned with the Free Public Beta. — **DONE** (2026-11-01, §9).
+9. Staff signup recording, Platform Admin Growth dashboard and the 90-day retention cron. — **Shipped** (2026-11-01, §28). Evidence still pending a real event: §30.
+10. Website Traffic. — **Built, disabled, activation deferred by the Product Owner** (§29).
+11. Operations waiting on a real event (first SignupAttempt record, first retention cron run, post-change Staff signup, final `main` CI). — **See §30.**
 
 ---
 
@@ -722,6 +770,36 @@ All rows below were checked read-only on October 31, 2026 unless stated. No Prod
 | #195 | Cookie Policy effective date aligned to October 31, 2026 | `fc72e83` |
 | Marketing #1 | Individual operator on the marketing site | `e9517cf` |
 
+**November 1, 2026 release history (merge commits on `main`)**
+
+| PR | Change | Merge |
+|---|---|---|
+| #196 | Launch handoff refresh for the Free Public Beta (baseline `fc72e83`) | `090d540` |
+| #197 | SignupAttempt foundation: table and additive migration, Staff signup-attempt recording, atomic activation with User creation, 90-day retention cron, Privacy Policy disclosure (effective November 1, 2026) | `3c4694e` |
+| #198 | Platform Admin Growth dashboard | `374ad7d` |
+| #199 | Website Traffic preparation: disabled-by-default Platform Admin section, prospective Privacy and Cookie-page disclosures | `f776938` |
+| #200 | Privacy Policy wording correction (retention, browser storage, URL parameters) | `2a12e7a` |
+| Marketing #2 | Free Public Beta copy ("Start free", Open Graph tagline) | `1e9aad2` |
+| Marketing #3 | Prospective cookieless-analytics disclosure on the Cookie page | `cd987f1` |
+| Marketing #4 | Cookie-page wording correction (same three corrections) | `42fd441` |
+
+**Verification record at the November 1, 2026 baseline (app `2a12e7a`, marketing `42fd441`)** — checked read-only on 2026-11-01 unless stated; no Production data was changed to produce it.
+
+| Item | Result | Evidence |
+|---|---|---|
+| App `main` vs Production | `origin/main` = `2a12e7a8fce8eea666cc6501f0484ee033987ce9` = latest Production deployment; no open pull requests | Git; GitHub deployment records |
+| App Production deployment | `dpl_3HXhCVCJd2xUw8wyFrfNEtpXmnjh`, target Production, READY, `app.aqenra.com` attached; six crons in the deployed configuration | Vercel CLI and API (read-only) |
+| Marketing Production deployment | `dpl_9nLYq2zuFhnFrAdN1LxK2c9Z9c1Z`, target Production, READY, `aqenra.com` and `www.aqenra.com` attached; `main` = `42fd441368b0cc55a1024464101d099057c65a86`; no open pull requests | Vercel CLI and API; GitHub |
+| Database migrations | **61** migrations; "Database schema is up to date!"; nothing pending or failed | Production Migration Status workflow, run on `2a12e7a` |
+| Public routes | `aqenra.com/`, `/cookies`, and `app.aqenra.com/login`, `/signup`, `/privacy` return 200; `www.aqenra.com` returns 308 to the apex | HTTP GET |
+| Privacy Policy | "Effective November 1, 2026"; Staff sign-up records, 90-day retention and the prospective website-analytics wording (with the three corrections) present | HTTP GET |
+| Marketing Cookie page | Prospective analytics description with the three corrections; no claim that analytics is active; no mention of a sanitizer as shipped | HTTP GET |
+| Tracking disabled | Marketing `package.json` has only Next.js and React; no analytics component or script in `src`; `/_vercel/insights/script.js` returns 404; the marketing project's Web Analytics setting has no `enabledAt`; none of the Website Traffic variables exist in CRM Production | Git; HTTP GET; Vercel API (keys and names only) |
+| Platform Admin and cron denial | Unauthenticated `/platform-admin/growth` → 307 to login; unauthenticated `/api/cron/signup-attempt-retention` → 401 | HTTP GET |
+| Static security checks | 25 pass in CI Fast Checks | GitHub Actions |
+| Post-merge CI on `2a12e7a` (`push` to `main`) | Fast Checks: pass. Production Migration Status: pass. Integration & E2E: **pass** — Vitest 329 of 329 files; Playwright 1639 planned: **1638 passed, 0 failed, 0 flaky, 1 skipped, 0 not run** (15.4 min). Checked after the run completed (2026-11-01). | GitHub Actions |
+| PR CI before merge (PR #200, same code) | Vitest 329 of 329 files; Playwright 1639 planned: **1638 passed, 0 failed, 0 flaky, 1 skipped, 0 not run** | GitHub Actions |
+
 ---
 
 ## 25. Accepted Launch Limitations
@@ -729,13 +807,17 @@ All rows below were checked read-only on October 31, 2026 unless stated. No Prod
 These were reviewed for the Public Beta launch and accepted by the Product Owner. None is a launch blocker.
 
 1. **Online payments deferred.** Paddle is not configured and paid checkout is blocked during the beta (§11, §22).
-2. **Marketing wording.** The marketing site still says "pre-launch / preview" and does not mention the Free Public Beta, until separately updated (§9).
+2. **Marketing wording — closed 2026-11-01.** The marketing site now describes the Free Public Beta with a "Start free" CTA (Marketing PR #2, §9). Kept here so the earlier acceptance is not mistaken for an open item.
 3. **Legal review open.** The jurisdiction clause is generic placeholder wording, no postal address is published, and the liability clause is unreviewed. Subject to operator/legal review. No legal counsel approval is claimed (§14).
 4. **Rate limiting is not distributed.** Counters are in-memory and per instance and reset on a cold start — an accepted app-wide tradeoff that also applies to the Feedback Widget limits.
 5. **Password reset.** No manual Production smoke is recorded. Automated coverage exists (an E2E spec and integration/unit tests for the request, confirm and update paths), and it uses the same email path as the flows verified in Production.
-6. **Occasional E2E flakes are tracked.** `settings-uploads-migration.spec.ts:194` retried once in the post-merge CI (its first attempt matched two `table` elements with an ambiguous locator); `company-profile.spec.ts:243` is timing-sensitive and passes when run alone. A third, `invoice-internal-notes-validation-reset.spec.ts:145`, was fixed by correcting a URL wait that also matched `/invoices/new` (PR #194). None is a confirmed Product defect.
+6. **Occasional E2E flakes are tracked and undiagnosed.** `settings-uploads-migration.spec.ts:194` retried once in the post-merge CI (its first attempt matched two `table` elements with an ambiguous locator); `company-profile.spec.ts:243` is timing-sensitive and passes when run alone. One, `invoice-internal-notes-validation-reset.spec.ts:145`, was fixed by correcting a URL wait that also matched `/invoices/new` (PR #194). Since then three more first-attempt failures passed on Playwright's automatic retry in later PR runs: `client-column-customization.spec.ts:136` (empty column headers on the first attempt, PR #197), `projects-tasks-migration.spec.ts:112` (two `Comment` textareas matched, PR #197) and `client-column-customization.spec.ts:204` (expected row order not yet present, PR #199). The causes are not diagnosed, so none is classified as unrelated or as a Product defect; the final retry of each passed.
 7. **No live cross-tenant click-through is claimed.** Tenant isolation is evidenced by automated tests (integration suite, dedicated security checks, and the widget's tenant tests), not by a manual cross-tenant test in Production.
 8. **Carried over from earlier handoffs:** the five `npm audit` HIGH findings confined to the Prisma CLI's build-time chain (§10); the Quotes gaps in §21.9; one Portal login belongs to one Client (§21.8).
+9. **Vercel Hobby plan and commercial use (Product Owner decision, 2026-11-01).** The Product Owner decided not to buy Vercel Pro and not to contact Vercel Support. Vercel restricts Hobby to non-commercial personal use and defines commercial use broadly (financial gain of anyone involved in any part of production, including advertising the sale of a product or service). Whether a free public beta of a product planned to become paid is permitted is **not explicitly addressed** by the terms: a standing hosting-plan ambiguity that is accepted, not resolved. No claim is made either way.
+10. **Website Traffic deferred.** The integration is shipped and collection is disabled (§29). There is no visitor data and none will exist until separately activated.
+11. **Hobby runtime logs are kept for one hour** (Vercel's documented limit). A failure of SignupAttempt recording or of the retention cron is not retrievable from logs after about an hour; the durable evidence is the Growth page data. Hobby cron timing is also only accurate to within the hour.
+12. **SignupAttempt history is incomplete.** Recording began on 2026-11-01 and no backfill was run; earlier accounts appear only as "Without a recorded signup". Recorded attempts are a lower bound (attempts rejected before an Auth user id was returned are not counted). Unactivated records are deleted 90 days after their last attempt (§28).
 
 ---
 
@@ -743,11 +825,13 @@ These were reviewed for the Public Beta launch and accepted by the Product Owner
 
 Optional, in no required order. None blocks the launch.
 
-- Align the marketing wording with "Free Public Beta" and announce pricing when it is decided (§9, §13).
+- Announce pricing when it is decided (§13). (The marketing wording was already aligned with "Free Public Beta" on 2026-11-01, §9.)
 - Operator/legal review of the jurisdiction, address and liability wording (§14).
 - A shared store for distributed rate limiting (§25, item 4).
 - An optional manual Production password-reset smoke (§25, item 5), and an optional live cross-tenant check (§25, item 7).
-- Stabilize the tracked flaky specs; consider sharding the E2E job if its runtime keeps growing toward the 45-minute cap.
+- Website Traffic activation, if the Product Owner later chooses to pursue it (§29).
+- Decide the Vercel hosting plan if the commercial-use ambiguity or the Hobby limits (§25, items 9 and 11) start to matter.
+- Stabilize the tracked flaky specs (§25, item 6); consider sharding the E2E job if its runtime keeps growing toward the 45-minute cap.
 - Look into an occasional Prisma "record not found" (`P2025`) line in E2E server logs, seen around the Platform Admin Organization Detail page when a fixture organization is deleted mid-request; no test failed because of it and its cause is not proven.
 - Cosmetic: a visitor who deep-links to a protected page and is redirected to login sees "Your session expired" even if they never signed in.
 - Paddle billing (§11), the AI Assistant (§12), and a defined plan for ending the free beta (§22) when those become priorities.
@@ -758,15 +842,17 @@ Optional, in no required order. None blocks the launch.
 
 **Already done**
 - [x] Launch decision recorded: GO, no Product blockers (October 31, 2026).
-- [x] Production serves the baseline `fc72e83`; migrations up to date; post-merge CI passed (§24).
-- [x] Privacy, Terms and Cookie Policy live, all effective October 31, 2026; operator and contact shown (§14).
+- [x] Production serves the launch baseline `fc72e83` (2026-10-31); migrations up to date; post-merge CI passed (§24). Current baseline `2a12e7a` with 61 migrations: §24.
+- [x] Privacy (effective November 1, 2026), Terms and Cookie Policy (effective October 31, 2026) live; operator and contact shown (§14).
+- [x] Marketing site describes the Free Public Beta with a "Start free" CTA (§9).
+- [x] SignupAttempt recording, the Growth dashboard and the 90-day retention cron are shipped; Website Traffic is built and disabled (§28, §29).
 - [x] `support@aqenra.com` and `feedback@aqenra.com` routing and delivery confirmed; Feedback Widget V1 confirmed in Production (§8, §23).
 - [x] Free Public Beta posture in place: 5 members, 3 GB, no paid checkout (§22).
 
 **Before announcing**
-- [ ] Re-check that `app.aqenra.com` is still serving the baseline (or record the new SHA here if something has been deployed since).
-- [ ] Write the announcement so it says *Free Public Beta*, states the 5-member / 3 GB limits, names `support@aqenra.com`, and mentions the in-app feedback button — the marketing site does not say this yet (§9).
-- [ ] Optional: align the marketing wording first (§26).
+- [ ] Re-check that `app.aqenra.com` is still serving the current baseline `2a12e7a` (or record the new SHA here if something has been deployed since).
+- [ ] Write the announcement so it says *Free Public Beta*, states the 5-member / 3 GB limits, names `support@aqenra.com`, and mentions the in-app feedback button. The marketing site already says *Free Public Beta* (§9) but does not state the limits or the feedback button.
+- [ ] Open — actionable: confirm one real standalone Staff signup → confirm → login after the SignupAttempt changes (§30).
 - [ ] Optional: run a manual password-reset check in Production (§25, item 5).
 - [ ] At the operator's discretion: obtain legal review of the open legal wording (§14).
 
@@ -775,3 +861,70 @@ Optional, in no required order. None blocks the launch.
 - [ ] Check the Platform Admin observability page and the Vercel logs for errors; the Production Migration Status workflow runs automatically after each Production deployment.
 - [ ] Keep `FREE_BETA_MODE` on; make no Production environment changes without updating this document.
 - [ ] Record anything significant that changes (new baselines, new limitations, decisions) in this document.
+- [ ] Pending organic events: the first real SignupAttempt record and the first retention cron run (§30).
+
+---
+
+## 28. SignupAttempt and the Platform Admin Growth Dashboard
+
+**Shipped 2026-11-01** in PR #197 (merge `3c4694e`) and PR #198 (merge `374ad7d`); Verified deployed (§24).
+
+**What is recorded.** One `SignupAttempt` row per Supabase Auth identity that submitted a **Staff** signup after the release: normalized email, origin (`STANDALONE` or `INVITED`, taken from the invitation token — never inferred), first and latest recorded attempt times, a recorded-attempt count, and an activation time. Portal signups are never recorded. Nothing else is stored — no password, confirmation token or link, request body, IP address, user agent or Auth metadata. Recording is best-effort and time-bounded: a failure is logged as one fixed line and can never block or fail a signup or login.
+
+**Activation.** The Prisma `User` row and the matching attempt's activation are written in one transaction when the account is first provisioned, so a committed account always carries its activation; if that step is unavailable, the account is still created and activation falls back to a best-effort write. `User.createdAt` is the authoritative app-account creation time. No email-confirmation timestamp is shown anywhere, because Supabase Auth is not queried.
+
+**Production migration.** `20261031000000_add_signup_attempt_foundation` (additive: one table, two enums, two indexes, two CHECK constraints) was applied to Production on 2026-11-01 with the approved wrapper, before the code was deployed. No other table was touched.
+
+**Historical limitations.**
+- Recording **began with the 2026-11-01 release**. **No historical backfill has been run.** Accounts created earlier appear on the Growth page only as "Without a recorded signup", and signup counts cover the recording period only; a zero before it is not evidence that nobody registered.
+- Recorded attempts are a lower bound; `firstAttemptedAt` is when this application first recorded the identity, not necessarily the true signup time of an older account.
+- A backfill (not authorized) would need care: retention would delete any backfilled unconfirmed signup older than 90 days.
+
+**Retention (published in the Privacy Policy, effective 2026-11-01).** A daily cron (`/api/cron/signup-attempt-retention`, 05:45 UTC) deletes **unactivated** records whose latest recorded attempt is more than 90 days old (exactly 90 days is kept), in bounded batches (500 per batch, at most five batches per run). Prisma `User` existence is authoritative: a record whose account exists is never deleted (it is repaired to the account's creation time instead). The job only reads `User` and only writes `SignupAttempt`; it never touches Supabase Auth, organizations, memberships or business data. Activated records follow the account's lifecycle. Deleting a record does not delete the Auth identity.
+
+**Growth dashboard (`/platform-admin/growth`, owner-only).** Cards separate signup identities, recorded attempts, activated Staff accounts and workspaces (organizations) so they are never read as the same thing; 7 / 30 / 90-day UTC windows with a two-series daily chart (days before recording show a gap, not zero); and a paginated, searchable, stably sorted registration directory with UTC timestamps, origin, attempt count, status and at most three linked workspaces per row. Status is derived from `User` existence, not only from the recorded activation. Reads are bounded (counts, aggregates, one page, or capped single-column reads) and a cap is reported rather than hidden. **Product Owner confirmed** in Production; the page and its guard-first queries are covered by unit, integration and E2E tests.
+
+**Evidence not yet available.** No organic Staff signup has been observed since recording shipped, so no real Production record is claimed (§30).
+
+---
+
+## 29. Website Traffic (Built, Deliberately Disabled)
+
+**Shipped 2026-11-01** in PR #199 (merge `f776938`) with disclosure corrections in PR #200 (merge `2a12e7a`) and Marketing PRs #3 and #4. **Collection is DISABLED and activation is deferred by the Product Owner.**
+
+**What exists.**
+- A "Website traffic" section on `/platform-admin/growth` that reads the official Vercel Web Analytics query API server-side. **Product Owner confirmed** in Production (UI); the safe "not enabled" state is what it shows. It makes no request unless `WEBSITE_TRAFFIC_ENABLED` is exactly `true`, and it needs a server-only token, the marketing project id and a collection start date. Failures become typed states and cannot affect the registration dashboard. Daily visitors are per-UTC-day figures (never "unique people over a period"); there are no sessions and no visitor-to-signup conversion.
+- Prospective disclosures: the Privacy Policy bullet "Website analytics (if enabled)" and a paragraph on the Marketing Cookie page, both worded so they do not claim analytics is active.
+
+**What does not exist (Verified 2026-11-01).** No analytics component, package or script in the marketing site (its only dependencies are Next.js and React; `/_vercel/insights/script.js` returns 404); the marketing project's Web Analytics setting has no `enabledAt`; none of the Website Traffic environment variables exist in CRM Production, and no Vercel analytics token was created. **No visitor has been counted and no traffic history exists**; nothing can be backfilled.
+
+**Decisions (Product Owner, 2026-11-01).** No Vercel Pro subscription, no contact with Vercel Support, no activation at this time.
+
+**Hobby facts that apply if it is ever activated** (Vercel documentation): Web Analytics is free on Hobby up to 50,000 events a month (a 3-day grace period, then collection pauses; it resumes after 7 days); the reporting window is 1 month; custom events and UTM parameters are not available. Whether the read API is supported on Hobby, and whether a project-scoped token can call it, are **not documented** and would need a live test.
+
+**Activation requirements preserved (all open, none started).**
+1. Visitor jurisdictions and the consent approach, with legal review.
+2. The Vercel Hobby commercial-use question and the hosting plan (§25, item 9).
+3. A live test of the Web Analytics read API with a project-scoped token, with explicit Product Owner approval: the `by` parameter form, the `pageviews` and `visitors` fields, whether `teamId` is accepted, the reporting-window edge, the day-bucket timezone, and the documented rate limits (none published).
+4. Token lifetime, scope and secure storage.
+5. The real collection start date, and a conservative reporting-window setting (28 days) until the live test settles it.
+6. **The `beforeSend` sanitizer: strip query strings and fragments from every event URL before collection starts. It is NOT implemented.**
+7. Verification of the standard script's browser-storage behavior.
+8. On the publication day: the Marketing Cookie page states the switch-on date, and the Privacy Policy effective date is updated.
+
+---
+
+## 30. Pending Operations and Evidence
+
+These are **evidence questions, not Product defects.** No Product bug is known for any of them.
+
+| Item | Classification | What is needed | Notes |
+|---|---|---|---|
+| First real SignupAttempt record | **Pending organic event** | Look at `/platform-admin/growth` (recorded identities, earliest recorded) after the first organic Staff signup. | No organic Staff signup has been observed since recording shipped on 2026-11-01. Do not create synthetic signups to close it. Hobby logs last one hour, so the Growth page data is the durable evidence. |
+| First retention cron execution | **Pending organic event** (scheduled) | In the Vercel project's Cron Jobs → View Logs, within about an hour after 05:45 UTC on 2026-11-02 (Hobby timing is ±1 hour). | Expected result: HTTP 200 with aggregate counts all zero — no record can be 90 days old before late January 2027. No run is claimed to have occurred. |
+| Staff signup → confirm → login after the SignupAttempt changes | **Open — actionable** | One real standalone Staff signup, confirmation email and login — organic, or one the Product Owner chooses to perform. | The Staff signup action and first-login provisioning changed on 2026-11-01. They are covered by CI (integration and E2E) but have not been observed in a real Production signup since. A real signup would also produce the first SignupAttempt record above. |
+| Final post-merge CI on `main` (`2a12e7a`) | **Verified** (complete, passed) | None. | Fast Checks, Production Migration Status and Integration & E2E all passed; counts in §24. Re-check the status after any later deployment. |
+| Earlier Playwright flaky tests | **Accepted limitation** | None required. | §25, item 6. |
+| Website Traffic activation | **Accepted limitation** (deferred) | Only if the Product Owner reopens it. | §29. |
+| Vercel Hobby commercial-use ambiguity | **Accepted limitation** (Product Owner decision) | Only if the Product Owner reopens it. | §25, item 9. |
+| Manual password-reset smoke; live cross-tenant check | **Optional post-launch** | None required. | §25, items 5 and 7. |
