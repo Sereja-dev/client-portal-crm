@@ -106,15 +106,18 @@ export default function PrivacyPolicyPage() {
             <li>
               <strong className="text-text-primary">Website analytics (if enabled).</strong> We may measure traffic to
               our marketing website at aqenra.com using Vercel Web Analytics, provided by Vercel as our service
-              provider. If and when we switch it on, it records page views and approximate visitor counts, the page
-              path viewed, the referring website, and the country, device type, browser, and operating system that
-              Vercel derives from the request. It does not use cookies or other browser storage. Visitors are counted
-              using an identifier derived from the request that resets daily; Vercel states that this means a visitor
-              cannot be tracked from one day to the next or across websites. We use it only to understand how the
-              website is used and to improve it. Aqenra does not store IP addresses or individual visit records from
-              this measurement: we view aggregate daily counts, and Vercel retains the underlying data for the
-              reporting period of our hosting plan. Our hosting provider may separately retain standard request logs,
-              as described under Technical data.
+              provider. If and when we switch it on, it records page views and approximate visitor counts, the web
+              address of the page viewed, the referring website, and the country, device type, browser, and
+              operating system that Vercel derives from the request. A web address can include a query string (the
+              part after a question mark); we intend to remove query strings before this measurement is sent, and
+              this page will say when it is switched on. According to Vercel, it does not use cookies, and we add
+              no cookies or other browser storage of our own for it. Visitors are counted using an identifier
+              derived from the request that resets daily; Vercel states that this means a visitor cannot be tracked
+              from one day to the next or across websites. We use it only to understand how the website is used and
+              to improve it. Aqenra does not store IP addresses or individual visit records from this measurement:
+              we view aggregate daily counts. Vercel keeps this data available to us for the reporting window of our
+              hosting plan and may keep it for longer; we do not control that and cannot promise a deletion date.
+              Our hosting provider may separately retain standard request logs, as described under Technical data.
             </li>
           </ul>
         </section>
