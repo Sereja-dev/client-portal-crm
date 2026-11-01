@@ -18,6 +18,10 @@ import { report } from "./lib.mjs";
 // 4. The Portal signup action never records a Staff attempt.
 // 5. The Staff signup action records only after a successful token
 //    generation, and the model's columns are exactly the approved set.
+// 7. Growth dashboard (src/lib/platform-admin/queries/growth.ts) is a
+//    read-only consumer: it uses only count/findMany/aggregate on the
+//    delegate, never exposes the Supabase Auth user id in a returned row,
+//    uses no raw SQL, and is imported only by the Growth page.
 // 6. Retention (src/lib/signup-attempts/retention.ts) is the only other
 //    writer. It runs only from the CRON_SECRET-protected cron route, only
 //    reads User, never touches Supabase Auth, organizations, memberships
@@ -204,6 +208,31 @@ ok = report(
   "no other module creates Users except provisioning and the existing FK-race recovery in current-user.ts",
   JSON.stringify(usersCreatedOutside) === JSON.stringify(["src/lib/current-user.ts"]),
   usersCreatedOutside.join("\n"),
+) && ok;
+
+const GROWTH = "src/lib/platform-admin/queries/growth.ts";
+const GROWTH_PAGE = "src/app/(platform-admin)/platform-admin/growth/page.tsx";
+const growth = stripComments(read(GROWTH));
+const methods = [...growth.matchAll(/\.signupAttempt\.(\w+)\(/g)].map((m) => m[1]);
+ok = report(
+  "the Growth queries use only read operations (count, findMany, aggregate) on SignupAttempt",
+  methods.length > 0 && methods.every((m) => ["count", "findMany", "aggregate"].includes(m)),
+  [...new Set(methods)].join(", "),
+) && ok;
+const rowType = growth.match(/export type RegistrationRow = \{([\s\S]*?)\n\};/);
+ok = report(
+  "a returned registration row never carries the Supabase Auth user id",
+  rowType !== null && !/authUserId/.test(rowType[1]),
+  "",
+) && ok;
+ok = report("the Growth queries use no raw SQL", !/\$queryRaw|\$executeRaw/.test(growth), "") && ok;
+const growthImporters = walk("src")
+  .filter((f) => f !== GROWTH && /@\/lib\/platform-admin\/queries\/growth/.test(stripComments(read(f))))
+  .sort();
+ok = report(
+  "the Growth queries are imported only by the Growth page and its chart component (type only)",
+  JSON.stringify(growthImporters) === JSON.stringify([GROWTH_PAGE, "src/components/platform-admin/growth-trend-chart.tsx"].sort()),
+  growthImporters.join("\n"),
 ) && ok;
 
 process.exit(ok ? 0 : 1);

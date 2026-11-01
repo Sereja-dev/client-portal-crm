@@ -6,6 +6,7 @@ const links = [
   { href: "/platform-admin", label: "Dashboard" },
   { href: "/platform-admin/organizations", label: "Organizations" },
   { href: "/platform-admin/users", label: "Users" },
+  { href: "/platform-admin/growth", label: "Growth" },
   { href: "/platform-admin/observability", label: "Observability" },
   { href: "/platform-admin/configuration", label: "Configuration" },
 ];
