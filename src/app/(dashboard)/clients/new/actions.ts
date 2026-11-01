@@ -70,6 +70,10 @@ export async function createClientAction(
 
   let clientActivity: Awaited<ReturnType<typeof createClientCore>>["activity"] | undefined;
   let integrationDeliveryId: string | null = null;
+  // The id of the Client this call actually persisted, captured inside the
+  // transaction below (no extra query) so the success redirect can land on
+  // the new Client Profile.
+  let createdClientId: string | undefined;
 
   try {
     // Client create (via the shared createClientCore — see that
@@ -89,6 +93,7 @@ export async function createClientAction(
         requestedStatusDefinitionId: values.statusDefinitionId,
       });
       clientActivity = activity;
+      createdClientId = client.id;
 
       await persistCustomFieldValuesInTransaction(tx, {
         organizationId,
@@ -143,5 +148,12 @@ export async function createClientAction(
     await deliverIntegrationEventBestEffort(integrationDeliveryId);
   }
 
-  redirect(withToast("/clients", "Client created"));
+  // First-Time User Experience V2, Slice A: land on the new Client Profile,
+  // whose primary "Create project" action (/projects/new?clientId=<id>)
+  // is the natural next step — the same pattern Project creation already
+  // follows (it lands on its Project Hub). Every ordinary Client creation
+  // uses this action, so the behavior is consistent, not onboarding-only.
+  // createdClientId is always set once the transaction above has committed;
+  // the "/clients" fallback is defensive only and cannot be reached.
+  redirect(withToast(createdClientId ? `/clients/${createdClientId}` : "/clients", "Client created"));
 }

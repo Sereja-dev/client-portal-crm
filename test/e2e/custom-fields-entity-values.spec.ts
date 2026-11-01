@@ -144,7 +144,9 @@ test.describe("Custom Fields — Entity Values UI (Phase 2B)", () => {
     await page.getByLabel("Deal Size").fill("5000");
     await page.getByRole("button", { name: "Create client" }).click();
 
-    await expect(page).toHaveURL(/\/clients/);
+    // Creating a Client lands on its Client Profile (/clients/<id>); the edit link used below lives on the list.
+    await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}(\?|$)/);
+    await page.goto("/clients");
     await goToEdit(page, "Custom Field E2E Client");
     await expect(page).toHaveURL(/\/clients\/.+\/edit/);
 
@@ -236,7 +238,7 @@ test.describe("Custom Fields — Entity Values UI (Phase 2B)", () => {
     await page.getByRole("textbox", { name: "Name", exact: true }).fill("Required Field E2E Client");
     await page.getByLabel("Required Note").fill("Now provided");
     await page.getByRole("button", { name: "Create client" }).click();
-    await expect(page).toHaveURL(/\/clients/);
+    await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}(\?|$)/);
     await expect(page).not.toHaveURL(/\/clients\/new/);
   });
 
@@ -251,12 +253,14 @@ test.describe("Custom Fields — Entity Values UI (Phase 2B)", () => {
     await page.getByLabel("Tier").selectOption({ label: "Legacy Bronze" });
     await page.getByRole("button", { name: "Create client" }).click();
     // Not just /\/clients/ — that also matches /clients/new, hiding a rejected create (e.g. "Select a valid option.").
+    // Creating a Client lands on its Client Profile (/clients/<id>); the edit link used below lives on the list.
     await expect(page).not.toHaveURL(/\/clients\/new/);
-    await expect(page).toHaveURL(/\/clients/);
+    await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}(\?|$)/);
 
     // Now archive that option out from under the existing selection.
     await archiveOption(legacy.id);
 
+    await page.goto("/clients");
     await goToEdit(page, "Select E2E Client");
     const select = page.getByLabel("Tier");
     await expect(select).toHaveValue(legacy.id);

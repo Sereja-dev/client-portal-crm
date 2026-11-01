@@ -126,7 +126,9 @@ test("Client create → edit → delete works end to end, and the dashboard metr
     page.waitForResponse((r) => r.url().includes("/clients/new") && r.request().method() === "POST"),
     page.getByRole("button", { name: "Create client" }).click(),
   ]);
-  await expect(page).toHaveURL(/\/clients(\?|$)/);
+  // Creating a Client lands on its Client Profile (/clients/<id>); the list is a separate page.
+  await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}(\?|$)/);
+  await page.goto("/clients");
 
   const createdRow = page.getByRole("row", { name: new RegExp(clientName) });
   await expect(createdRow).toBeVisible();

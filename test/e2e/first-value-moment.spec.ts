@@ -244,7 +244,9 @@ test.describe("OWNER can create first entities from the empty-state CTA", () => 
         page.waitForResponse((r) => r.url().includes("/clients/new") && r.request().method() === "POST"),
         page.getByRole("button", { name: "Create client" }).click(),
       ]);
-      await expect(page).toHaveURL(/\/clients(\?|$)/);
+      // Creating a Client lands on its Client Profile (/clients/<id>); the list is a separate page.
+      await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}(\?|$)/);
+      await gotoAndSettle(page, `${baseURL}/clients`);
       await expect(page.getByText("No clients yet")).toHaveCount(0);
       // exact: the row-action cell is named "Edit More actions for client First Value Client", which also contains this text.
       await expect(page.getByRole("cell", { name: "First Value Client", exact: true })).toBeVisible();
@@ -286,6 +288,47 @@ test.describe("OWNER can create first entities from the empty-state CTA", () => 
       await cleanupFreshOrg(fresh);
     }
   });
+
+  test("creating a client lands on its Client Profile with the toast, and 'Create project' opens the Project form with that client preselected", async ({
+    context,
+    baseURL,
+    page,
+  }) => {
+    const fresh = await createFreshOrg(fixtures.runId, "owner-profile-landing");
+    await actAsMember(context, baseURL!, fresh.owner, fresh.org.id);
+    const clientName = "Profile Landing Client";
+
+    try {
+      await gotoAndSettle(page, `${baseURL}/clients/new`);
+      await page.getByRole("textbox", { name: "Name", exact: true }).fill(clientName);
+      await Promise.all([
+        page.waitForResponse((r) => r.url().includes("/clients/new") && r.request().method() === "POST"),
+        page.getByRole("button", { name: "Create client" }).click(),
+      ]);
+
+      // Lands on the NEW client's profile — not the global list — with the success toast.
+      await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}(\?|$)/);
+      await expect(page).not.toHaveURL(/\/clients\/new/);
+      const clientId = new URL(page.url()).pathname.split("/").pop()!;
+      await expect(page.getByText("Client created")).toBeVisible();
+      await expect(page.getByRole("heading", { name: clientName, level: 1 })).toBeVisible();
+
+      // The Profile's primary action opens the Project form with this client preselected.
+      const createProject = page.getByRole("link", { name: "Create project" }).first();
+      await expect(createProject).toHaveAttribute("href", `/projects/new?clientId=${clientId}`);
+      await createProject.click();
+      await page.waitForURL(/\/projects\/new\?clientId=/);
+      await expect(page.getByLabel("Client")).toHaveValue(clientId);
+      await expect(page.getByLabel("Client").locator("option:checked")).toHaveText(clientName);
+
+      // The list still works normally and holds exactly one row for the new client.
+      await gotoAndSettle(page, `${baseURL}/clients`);
+      await expect(page.getByRole("cell", { name: clientName, exact: true })).toHaveCount(1);
+    } finally {
+      await dbQuery("client", "deleteMany", { where: { organizationId: fresh.org.id } });
+      await cleanupFreshOrg(fresh);
+    }
+  });
 });
 
 test.describe("Permissions unchanged", () => {
@@ -317,7 +360,8 @@ test.describe("Permissions unchanged", () => {
         page.waitForResponse((r) => r.url().includes("/clients/new") && r.request().method() === "POST"),
         page.getByRole("button", { name: "Create client" }).click(),
       ]);
-      await expect(page).toHaveURL(/\/clients(\?|$)/);
+      await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}(\?|$)/);
+      await gotoAndSettle(page, `${baseURL}/clients`);
       await expect(page.getByRole("cell", { name: "Member Created Client", exact: true })).toBeVisible();
     } finally {
       await dbQuery("client", "deleteMany", { where: { organizationId: fresh.org.id } });
