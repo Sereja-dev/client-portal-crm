@@ -87,7 +87,9 @@ test("injected script-like text renders as literal text and never executes", asy
       page.waitForResponse((r) => r.url().includes("/clients/new") && r.request().method() === "POST"),
       page.getByRole("button", { name: "Create client" }).click(),
     ]);
-    await expect(page).toHaveURL(/\/clients(\?|$)/);
+    // Creating a Client lands on its Client Profile; the assertions below are about the list rendering.
+    await expect(page).toHaveURL(/\/clients\/[0-9a-f-]{36}(\?|$)/);
+    await page.goto("/clients");
 
     // Rendered as literal, visible text — proves React's default escaping
     // held for real, user-supplied content round-tripped through the DB.
