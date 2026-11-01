@@ -41,6 +41,7 @@ test.describe("Task create — project context", () => {
 
   test.afterAll(async () => {
     await dbQuery("task", "deleteMany", { where: { title: { startsWith: PREFIX } } });
+    await dbQuery("project", "deleteMany", { where: { name: { startsWith: PREFIX } } });
     await cleanupTestData(fixtures);
   });
 
@@ -133,5 +134,45 @@ test.describe("Task create — project context", () => {
     await page.getByRole("button", { name: "Create task" }).click();
     await expect(page).toHaveURL(new RegExp(`/projects/${fixtures.project.id}\\?tab=tasks$`));
     await expect(page.getByText(title, { exact: true })).toBeVisible();
+  });
+
+  test("combined: Hub → Add task → change Project → validation error keeps values and context → fix → lands on the ACTUAL project's Tasks tab; Cancel stays on the origin", async ({ context, baseURL, page }) => {
+    await actAs(context, baseURL!, fixtures.owner, fixtures.orgA.id);
+    const other = await dbQuery<{ id: string }>("project", "create", {
+      data: { name: `${PREFIX}-proj-${Date.now()}`, organizationId: fixtures.orgA.id, clientId: fixtures.clientA.id, ownerId: fixtures.owner.id },
+    });
+    const title = `${PREFIX}-combined-${Date.now()}`;
+    const originTasks = `/projects/${fixtures.project.id}?tab=tasks`;
+
+    await page.goto(originTasks);
+    await page.getByRole("link", { name: "Add task" }).first().click();
+    await page.waitForURL(/\/tasks\/new/);
+    await page.getByLabel("Project").selectOption(other.id);
+    await page.getByLabel("Description").fill("typed description");
+    await page.getByLabel("Priority").selectOption("HIGH");
+    await page.getByLabel("Title").fill("   ");
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      await page.getByRole("button", { name: "Create task" }).click();
+      await expect(page.getByText("Title is required.")).toBeVisible();
+      await expect(page).toHaveURL(/\/tasks\/new/);
+      await expect(page.locator('input[name="returnTo"]')).toHaveCount(1);
+      await expect(page.getByLabel("Project")).toHaveValue(other.id);
+      await expect(page.getByLabel("Description")).toHaveValue("typed description");
+      await expect(page.getByLabel("Priority")).toHaveValue("HIGH");
+      // Cancel follows the ORIGINAL project, not the changed select.
+      await expect(page.getByRole("link", { name: "Cancel" })).toHaveAttribute("href", originTasks);
+    }
+    expect(await dbQuery("task", "count", { where: { title: { startsWith: `${PREFIX}-combined` } } })).toBe(0);
+
+    await page.getByLabel("Title").fill(title);
+    await page.getByRole("button", { name: "Create task" }).click();
+
+    await expect(page).toHaveURL(new RegExp(`/projects/${other.id}\\?tab=tasks$`));
+    await expect(page.getByText("Task created")).toBeVisible();
+    await expect(page.getByText(title, { exact: true })).toBeVisible();
+    expect(await dbQuery("task", "count", { where: { title } })).toBe(1);
+    const created = await dbQuery<{ projectId: string }>("task", "findFirst", { where: { title } });
+    expect(created.projectId).toBe(other.id);
   });
 });
