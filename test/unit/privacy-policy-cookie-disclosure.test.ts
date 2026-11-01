@@ -47,8 +47,9 @@ describe("Privacy Policy cookie disclosure (Section 3)", () => {
     expect(privacySource).toMatch(/not\s*\n?\s*automatically sent with every request/);
   });
 
-  it("does not claim the Service uses analytics, marketing, or advertising trackers", () => {
-    expect(privacySource).toMatch(/do not\s*\n?\s*currently use third-party analytics or advertising trackers/);
+  it("does not claim the application uses analytics, marketing, or advertising trackers — scoped to the application, with website analytics disclosed separately", () => {
+    expect(privacySource).toMatch(/do not\s*\n?\s*currently use third-party analytics or advertising trackers inside the application itself/);
+    expect(privacySource).toMatch(/Measurement of\s*\n?\s*our marketing website is described in Section 2 and applies only if and when we switch it on/);
   });
 
   it("links to the dedicated Cookie Policy (Slice 2 — /cookies now exists)", () => {

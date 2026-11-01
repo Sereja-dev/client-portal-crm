@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { Suspense } from "react";
 import { getTotalPages, type RawSearchParams } from "@/lib/list-params";
 import {
   GROWTH_PERIOD_DAYS,
@@ -17,6 +18,7 @@ import { SearchFilterBar } from "@/components/list/search-filter-bar";
 import { Pagination } from "@/components/list/pagination";
 import { Table, TableHead, TableHeaderCell, TableBody, TableRow, TableCell } from "@/components/ui/table";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
+import { WebsiteTrafficSection, WebsiteTrafficSkeleton } from "./website-traffic-section";
 
 export const metadata: Metadata = {
   title: "Growth — Platform Admin",
@@ -223,6 +225,10 @@ export default async function PlatformAdminGrowthPage({
           )}
         </div>
       </section>
+
+      <Suspense fallback={<WebsiteTrafficSkeleton />}>
+        <WebsiteTrafficSection periodDays={params.periodDays} />
+      </Suspense>
 
       <section aria-labelledby="directory-heading">
         <h2 id="directory-heading" className="text-text-primary text-lg font-semibold tracking-tight">

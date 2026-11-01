@@ -36,6 +36,10 @@ export default function PrivacyPolicyPage() {
             information.
             {config.legalAddress ? ` Our postal address is ${config.legalAddress}.` : ""}
           </p>
+          <p className="mt-3">
+            Section 2 also describes the limited information we may collect about visitors to our marketing website
+            at aqenra.com, if we enable website analytics.
+          </p>
         </section>
 
         <section>
@@ -99,6 +103,19 @@ export default function PrivacyPolicyPage() {
               infrastructure request logs (such as IP address and timestamps) as part of operating the servers
               the Service runs on.
             </li>
+            <li>
+              <strong className="text-text-primary">Website analytics (if enabled).</strong> We may measure traffic to
+              our marketing website at aqenra.com using Vercel Web Analytics, provided by Vercel as our service
+              provider. If and when we switch it on, it records page views and approximate visitor counts, the page
+              path viewed, the referring website, and the country, device type, browser, and operating system that
+              Vercel derives from the request. It does not use cookies or other browser storage. Visitors are counted
+              using an identifier derived from the request that resets daily; Vercel states that this means a visitor
+              cannot be tracked from one day to the next or across websites. We use it only to understand how the
+              website is used and to improve it. Aqenra does not store IP addresses or individual visit records from
+              this measurement: we view aggregate daily counts, and Vercel retains the underlying data for the
+              reporting period of our hosting plan. Our hosting provider may separately retain standard request logs,
+              as described under Technical data.
+            </li>
           </ul>
         </section>
 
@@ -116,7 +133,8 @@ export default function PrivacyPolicyPage() {
           </ul>
           <p className="mt-3">
             We do not sell personal information, and we do not use your data for advertising. We do not
-            currently use third-party analytics or advertising trackers on the Service. We use first-party
+            currently use third-party analytics or advertising trackers inside the application itself. Measurement of
+            our marketing website is described in Section 2 and applies only if and when we switch it on. We use first-party
             cookies to support sign-in, remember your active workspace, and retain display preferences such as
             your selected theme. We also use browser-local storage for certain preferences and features,
             including saved views, table column settings, recently selected search results, and dismissal of the
@@ -142,7 +160,7 @@ export default function PrivacyPolicyPage() {
           <ul className="mt-3 list-disc space-y-2 pl-5">
             <li><strong className="text-text-primary">Supabase</strong> &mdash; database hosting, authentication, and file storage.</li>
             <li><strong className="text-text-primary">Resend</strong> &mdash; delivery of transactional email (invitations, password resets, notifications).</li>
-            <li><strong className="text-text-primary">Vercel</strong> &mdash; application hosting and infrastructure.</li>
+            <li><strong className="text-text-primary">Vercel</strong> &mdash; application hosting and infrastructure and, if we enable it, cookieless website analytics for aqenra.com.</li>
           </ul>
           <p className="mt-3">
             Staff data you enter about your own clients is visible to other staff members of your Organization
