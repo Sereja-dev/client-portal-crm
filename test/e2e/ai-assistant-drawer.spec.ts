@@ -1,4 +1,4 @@
-import { test, expect, type BrowserContext, type Page } from "@playwright/test";
+import { test, expect, type BrowserContext, type Page, type Route } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, expectNoHorizontalPageOverflow, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 
@@ -84,19 +84,53 @@ test.describe("desktop", () => {
   });
 
   test("opens the panel, focuses the composer, submits a question, and shows the deterministic mock answer atomically (no fake streaming)", async ({ page }) => {
-    await page.goto("/dashboard");
-    await openPanel(page);
+    // The mock provider answers within milliseconds, so "Thinking…" is only
+    // on screen for as long as the request is in flight -- too brief for the
+    // assertion below to observe reliably. The real request is held here,
+    // unmodified, until the loading state has been asserted, then forwarded
+    // as-is with route.continue(); the response is still the real route's.
+    let releaseRequest!: () => void;
+    const requestGate = new Promise<void>((resolve) => {
+      releaseRequest = resolve;
+    });
+    let markRequestHeld!: (body: unknown) => void;
+    const requestHeld = new Promise<unknown>((resolve) => {
+      markRequestHeld = resolve;
+    });
+    const holdAssistantRequest = async (route: Route) => {
+      markRequestHeld(route.request().postDataJSON());
+      await requestGate;
+      await route.continue();
+    };
+    await page.route("**/api/ai/assistant", holdAssistantRequest);
 
-    await composer(page).fill("How many clients do we have?");
-    await composer(page).press("Enter");
+    try {
+      await page.goto("/dashboard");
+      await openPanel(page);
 
-    await expect(panel(page).getByText("Thinking…")).toBeVisible();
-    await expect(panel(page).getByText("This is a mock AI Assistant response for automated testing.")).toBeVisible();
-    // The question itself is also shown, locked, above the answer.
-    await expect(panel(page).getByText("How many clients do we have?")).toBeVisible();
-    // No composer while an answer is showing — this is a one-question,
-    // one-answer card, not a growing transcript.
-    await expect(composer(page)).toHaveCount(0);
+      await composer(page).fill("How many clients do we have?");
+      await composer(page).press("Enter");
+
+      // Proves the submit actually produced the request (and nothing else
+      // can be what "Thinking…" is waiting on) before the state is asserted.
+      expect(await requestHeld).toEqual({ message: "How many clients do we have?" });
+      await expect(panel(page).getByText("Thinking…")).toBeVisible();
+
+      releaseRequest();
+
+      await expect(panel(page).getByText("This is a mock AI Assistant response for automated testing.")).toBeVisible();
+      await expect(panel(page).getByText("Thinking…")).toHaveCount(0);
+      // The question itself is also shown, locked, above the answer.
+      await expect(panel(page).getByText("How many clients do we have?")).toBeVisible();
+      // No composer while an answer is showing — this is a one-question,
+      // one-answer card, not a growing transcript.
+      await expect(composer(page)).toHaveCount(0);
+    } finally {
+      // Always release a still-held request (an assertion above may have
+      // failed first) so no route handler or fetch is left hanging.
+      releaseRequest();
+      await page.unroute("**/api/ai/assistant", holdAssistantRequest);
+    }
   });
 
   test("Shift+Enter inserts a newline instead of submitting", async ({ page }) => {
