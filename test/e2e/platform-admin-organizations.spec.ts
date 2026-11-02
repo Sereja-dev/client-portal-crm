@@ -37,9 +37,32 @@ test.afterAll(async () => {
   await cleanupTestData(fixtures);
 });
 
+// Every admin page this file opens. Fixture cleanup closes them first, so a
+// page that is still open (and able to issue follow-up reads of an
+// organization or its owner) can never race the destructive fixture deletes
+// below -- see closeAdminPages().
+const adminPages = new Set<Page>();
+
 async function asAdmin(context: BrowserContext, baseURL: string): Promise<Page> {
   await injectTestSession(context, { id: `e2e-platform-admin-orgs-${randomUUID()}`, email: PLATFORM_ADMIN_EMAIL }, baseURL);
-  return context.newPage();
+  const page = await context.newPage();
+  adminPages.add(page);
+  return page;
+}
+
+/**
+ * Lets any in-flight request of the still-open admin pages finish, then
+ * closes them, so no read of the test organization is outstanding when its
+ * rows are deleted. Best-effort and bounded: a page that is already closed or
+ * never settles must not break (or hide a failure of) the test's own cleanup.
+ */
+async function closeAdminPages(): Promise<void> {
+  for (const page of adminPages) {
+    if (page.isClosed()) continue;
+    await page.waitForLoadState("networkidle", { timeout: 5_000 }).catch(() => undefined);
+    await page.close().catch(() => undefined);
+  }
+  adminPages.clear();
 }
 
 /**
@@ -85,6 +108,7 @@ async function createTestOrganization(
 }
 
 async function cleanupTestOrganization(org: { organizationId: string; userId: string }): Promise<void> {
+  await closeAdminPages();
   await dbQuery("organization", "delete", { where: { id: org.organizationId } });
   await dbQuery("user", "delete", { where: { id: org.userId } });
 }
