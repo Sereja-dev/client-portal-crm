@@ -86,7 +86,18 @@ async function expectSecondary(page: Page) {
   }
 }
 
-async function contrastRatio(link: Locator): Promise<number> {
+/**
+ * Waits until the link has no running CSS animation/transition (the links use
+ * `transition-colors`), so the colors read afterwards are the settled ones --
+ * never a mid-transition frame. Deterministic: it polls the browser's own
+ * animation list instead of sleeping for a fixed time.
+ */
+async function waitForSettledColors(link: Locator): Promise<void> {
+  await expect.poll(() => link.evaluate((el) => el.getAnimations().length), { timeout: 5000 }).toBe(0);
+}
+
+/** WCAG contrast of the link's text against its own background, plus that background's relative luminance. */
+async function measureLink(link: Locator): Promise<{ ratio: number; backgroundLuminance: number }> {
   return link.evaluate((el) => {
     const ctx = document.createElement("canvas").getContext("2d")!;
     const rgb = (value: string) => {
@@ -104,7 +115,7 @@ async function contrastRatio(link: Locator): Promise<number> {
     const style = getComputedStyle(el);
     const fg = lum(rgb(style.color));
     const bg = lum(rgb(style.backgroundColor));
-    return (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05);
+    return { ratio: (Math.max(fg, bg) + 0.05) / (Math.min(fg, bg) + 0.05), backgroundLuminance: bg };
   });
 }
 
@@ -219,12 +230,37 @@ test.describe("Dashboard quick action hierarchy", () => {
 
   test("accessibility: demoted actions are real links reachable by keyboard with a visible focus ring, and meet 4.5:1 contrast in light and dark", async ({ context, baseURL, page }) => {
     const f = await fresh("a11y");
-    for (const theme of ["light.light", "dark.dark"]) {
-      await actAs(context, baseURL!, f.owner, f.orgId, theme);
-      await openDashboard(page);
-      for (const { name } of ACTIONS) {
-        expect(await contrastRatio(action(page, name))).toBeGreaterThanOrEqual(4.5);
+    // The Dashboard layout reconciles the runtime theme with the user's
+    // PERSISTED themeMode one frame after mount, so a cookie alone is not
+    // enough: align the persisted mode with each cookie (exactly like
+    // appearance-settings.spec.ts), otherwise the page flips theme -- and
+    // animates its colors -- mid-measurement, and the "dark" pass could even
+    // end up measuring the light theme.
+    const original = await dbQuery<{ themeMode: string }>("user", "findUnique", { where: { id: f.owner.id }, select: { themeMode: true } });
+    const themes = [
+      { cookie: "light.light", persisted: "LIGHT", rendered: "light" },
+      { cookie: "dark.dark", persisted: "DARK", rendered: "dark" },
+    ];
+    try {
+      for (const theme of themes) {
+        await dbQuery("user", "update", { where: { id: f.owner.id }, data: { themeMode: theme.persisted } });
+        await actAs(context, baseURL!, f.owner, f.orgId, theme.cookie);
+        await openDashboard(page);
+        // The intended theme must actually be the rendered one before anything is measured.
+        await expect(page.locator("html")).toHaveAttribute("data-theme", theme.rendered);
+        for (const { name } of ACTIONS) {
+          const link = action(page, name);
+          await waitForSettledColors(link);
+          const { ratio, backgroundLuminance } = await measureLink(link);
+          // The surface really is the theme's surface (dark vs light), so the
+          // dark pass can never be satisfied by the light theme.
+          if (theme.rendered === "dark") expect(backgroundLuminance).toBeLessThan(0.2);
+          else expect(backgroundLuminance).toBeGreaterThan(0.8);
+          expect(ratio).toBeGreaterThanOrEqual(4.5);
+        }
       }
+    } finally {
+      await dbQuery("user", "update", { where: { id: f.owner.id }, data: { themeMode: original.themeMode } });
     }
 
     const link = action(page, "Add client");
