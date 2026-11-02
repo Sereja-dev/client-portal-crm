@@ -273,7 +273,22 @@ export async function getOrganizationDetail(organizationId: string, now: Date): 
       }
     : null;
 
-  const ownerMembership = staffRows.find((row) => row.role === "OWNER");
+  // `include: { user }` is loaded by this app's Prisma client as a SECOND SQL
+  // statement after the Membership select (observed: two statements, not a
+  // join), so a User deleted between the two reads yields a Membership whose
+  // required `user` relation comes back null even though Membership.user is
+  // onDelete: Cascade -- a transient, non-corrupt state. Such a row has no
+  // identity to show: skip it (never fabricate a name/email, never throw), so
+  // `owner` becomes null (the contract already allows it) and `staff` lists
+  // only real people. Only a count is logged -- no ids, names or emails.
+  const staffWithUser = staffRows.filter((row) => row.user != null);
+  if (staffWithUser.length !== staffRows.length) {
+    console.warn(
+      `[platform-admin] organization detail skipped ${staffRows.length - staffWithUser.length} membership(s) whose user record was no longer available.`,
+    );
+  }
+
+  const ownerMembership = staffWithUser.find((row) => row.role === "OWNER");
 
   return {
     organization,
@@ -298,7 +313,7 @@ export async function getOrganizationDetail(organizationId: string, now: Date): 
       }),
     })),
     recentAdminActions,
-    staff: staffRows.map((row) => ({
+    staff: staffWithUser.map((row) => ({
       id: row.user.id,
       name: row.user.name,
       email: row.user.email,
