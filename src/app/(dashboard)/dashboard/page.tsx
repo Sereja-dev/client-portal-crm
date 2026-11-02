@@ -14,6 +14,7 @@ import { DEFAULT_DASHBOARD_PERIOD } from "@/lib/dashboard/period";
 import { getOrganizationOnboardingSignals } from "@/lib/onboarding/progress";
 import { buildVisibleOnboardingProgress } from "@/lib/onboarding/visible-progress";
 import { isEligibleForSampleData } from "@/lib/onboarding/sample-data";
+import { resolveOnboardingCtaHref } from "@/lib/onboarding/next-step-context";
 import { getDashboardAnalytics } from "./query";
 
 /**
@@ -71,6 +72,14 @@ export default async function DashboardPage() {
   // §10) — unchanged mechanism, just read directly off the same raw
   // signals rather than the full legacy summary.
   const isOnboardingDismissed = onboardingSignals.actedStepKeys.has("FINISH");
+  // Slice C — at most one bounded candidate query, and only when the card
+  // will show a Create-project/Create-task CTA this role may act on; null
+  // keeps the step's static generic href.
+  const onboardingCtaHref = await resolveOnboardingCtaHref({
+    organizationId,
+    progress: onboardingProgress,
+    isDismissed: isOnboardingDismissed,
+  });
 
   return (
     <div className="space-y-8">
@@ -96,7 +105,7 @@ export default async function DashboardPage() {
         <DashboardActions />
       </div>
 
-      <OnboardingCard progress={onboardingProgress} isDismissed={isOnboardingDismissed} />
+      <OnboardingCard progress={onboardingProgress} isDismissed={isOnboardingDismissed} ctaHref={onboardingCtaHref} />
       <StartWithSampleData eligible={sampleDataEligible} />
 
       <div className="grid grid-cols-1 gap-4 min-[360px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">

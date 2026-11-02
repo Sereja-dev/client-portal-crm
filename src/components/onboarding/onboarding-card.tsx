@@ -30,9 +30,12 @@ function stepLabelId(key: string): string {
 export function OnboardingCard({
   progress,
   isDismissed,
+  ctaHref,
 }: {
   progress: VisibleOnboardingProgress;
   isDismissed: boolean;
+  /** Optional server-resolved contextual destination for the next step's CTA; falls back to the step's static targetHref. */
+  ctaHref?: string | null;
 }) {
   if (!shouldRenderOnboardingCard({ isComplete: progress.isComplete, isDismissed })) {
     return null;
@@ -83,7 +86,7 @@ export function OnboardingCard({
             {(showCta || step.skippable) && (
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 {showCta && (
-                  <Link href={step.targetHref} className={PRIMARY_LINK_CLASSES}>
+                  <Link href={ctaHref ?? step.targetHref} className={PRIMARY_LINK_CLASSES}>
                     Get started
                   </Link>
                 )}
