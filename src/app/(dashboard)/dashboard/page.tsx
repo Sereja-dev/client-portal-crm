@@ -14,6 +14,7 @@ import { DEFAULT_DASHBOARD_PERIOD } from "@/lib/dashboard/period";
 import { getOrganizationOnboardingSignals } from "@/lib/onboarding/progress";
 import { buildVisibleOnboardingProgress } from "@/lib/onboarding/visible-progress";
 import { isEligibleForSampleData } from "@/lib/onboarding/sample-data";
+import { shouldRenderOnboardingCard } from "@/components/onboarding/should-render-card";
 import { resolveOnboardingCtaHref } from "@/lib/onboarding/next-step-context";
 import { getDashboardAnalytics } from "./query";
 
@@ -72,6 +73,13 @@ export default async function DashboardPage() {
   // §10) — unchanged mechanism, just read directly off the same raw
   // signals rather than the full legacy summary.
   const isOnboardingDismissed = onboardingSignals.actedStepKeys.has("FINISH");
+  // Slice D -- exactly the decision OnboardingCard itself makes before
+  // rendering (same function, same inputs), so the header actions are demoted
+  // if and only if the card is actually on screen. No new state or query.
+  const onboardingCardVisible = shouldRenderOnboardingCard({
+    isComplete: onboardingProgress.isComplete,
+    isDismissed: isOnboardingDismissed,
+  });
   // Slice C — at most one bounded candidate query, and only when the card
   // will show a Create-project/Create-task CTA this role may act on; null
   // keeps the step's static generic href.
@@ -102,7 +110,7 @@ export default async function DashboardPage() {
             An overview of your clients, projects, tasks, and invoices.
           </p>
         </div>
-        <DashboardActions />
+        <DashboardActions demotedDuringOnboarding={onboardingCardVisible} />
       </div>
 
       <OnboardingCard progress={onboardingProgress} isDismissed={isOnboardingDismissed} ctaHref={onboardingCtaHref} />
