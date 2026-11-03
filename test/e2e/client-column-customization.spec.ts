@@ -90,6 +90,25 @@ async function cleanupSeeded(): Promise<void> {
   }
 }
 
+/**
+ * Waits until BOTH seeded rows are rendered in the same result, then requires
+ * the newer one to come first. Re-reads on every poll, so a loading-skeleton
+ * transition (no rows yet) is retried instead of being read once, and a
+ * missing row or a reversed order still fails with a specific reason.
+ */
+async function expectNewerAboveOlder(page: Page, newerName: string, olderName: string): Promise<void> {
+  await expect
+    .poll(async () => {
+      const rows = await page.getByRole("row").allTextContents();
+      const newerIndex = rows.findIndex((text) => text.includes(newerName));
+      const olderIndex = rows.findIndex((text) => text.includes(olderName));
+      if (newerIndex === -1) return "newer row missing";
+      if (olderIndex === -1) return "older row missing";
+      return newerIndex < olderIndex ? "newer above older" : "newer below older";
+    })
+    .toBe("newer above older");
+}
+
 /** Idempotent -- see invoice/contract/quote-column-customization.spec.ts's own identical reasoning. */
 async function openColumnsPanel(page: Page): Promise<void> {
   const panel = page.getByRole("group", { name: "Column visibility" });
@@ -208,10 +227,7 @@ test.describe("Client Column Customization (Tables Improvement Slice E3B)", () =
     await page.goto(`/clients?q=E2E-COL-C-SORT&sort=createdAt:desc`);
 
     await expect(page.getByLabel("Sort by")).toHaveValue("createdAt:desc");
-    const rowsBefore = await page.getByRole("row").allTextContents();
-    expect(rowsBefore.findIndex((t) => t.includes(newer.name))).toBeLessThan(
-      rowsBefore.findIndex((t) => t.includes(older.name)),
-    );
+    await expectNewerAboveOlder(page, newer.name, older.name);
 
     await openColumnsPanel(page);
     await page.getByRole("checkbox", { name: "Created", exact: true }).uncheck();
@@ -219,10 +235,7 @@ test.describe("Client Column Customization (Tables Improvement Slice E3B)", () =
     await expect(page.getByRole("columnheader", { name: "Created" })).toHaveCount(0);
     await expect(page).toHaveURL(/sort=createdAt(%3A|:)desc/);
     await expect(page.getByLabel("Sort by")).toHaveValue("createdAt:desc");
-    const rowsAfter = await page.getByRole("row").allTextContents();
-    expect(rowsAfter.findIndex((t) => t.includes(newer.name))).toBeLessThan(
-      rowsAfter.findIndex((t) => t.includes(older.name)),
-    );
+    await expectNewerAboveOlder(page, newer.name, older.name);
 
     await openColumnsPanel(page);
     await page.getByRole("button", { name: "Reset to default" }).click();

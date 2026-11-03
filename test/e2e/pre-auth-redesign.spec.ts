@@ -374,7 +374,14 @@ test.describe("Pre-auth support widget — submission lifecycle", () => {
       });
     });
     await page.getByRole("button", { name: "Send message" }).click();
-    await expect(page.getByRole("alert")).toBeVisible();
+    // Scoped to the dialog and matched by its text: a bare
+    // page.getByRole("alert") also matches Next.js's empty, always-present
+    // route announcer (div#__next-route-announcer__[role="alert"]), which
+    // can satisfy a visibility check before the validation message exists.
+    const dialog = page.getByRole("dialog");
+    const validationAlert = dialog.getByRole("alert").filter({ hasText: "at least 20 characters" });
+    await expect(validationAlert).toHaveText("Please describe the issue in at least 20 characters.");
+    await expect(dialog).toBeVisible();
 
     // Retry with the corrected message, same still-open dialog.
     await page.getByLabel("Message").fill("I have tried logging in several times and keep seeing an error.");
