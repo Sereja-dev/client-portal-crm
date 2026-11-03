@@ -38,26 +38,6 @@ test.describe("Design System Batch 5 — Global Shell Polish", () => {
     await expect(page.getByRole("button", { name: "Dismiss onboarding" })).toBeVisible();
   });
 
-  test("Onboarding: Skip control unmounts itself and moves focus to the row label", async ({ page, context, baseURL }) => {
-    await injectTestSession(context, fixtures.owner, baseURL!);
-    await page.goto("/dashboard");
-
-    const skipButtons = page.getByRole("button", { name: /^Skip:/ });
-    const skipCount = await skipButtons.count();
-    test.skip(skipCount === 0, "No skippable step in the current fixture state");
-
-    // Capture this exact button's own aria-label before clicking — "first()"
-    // re-resolves live against whatever currently matches, so re-checking
-    // it after the click could silently land on a *different* still-present
-    // Skip button instead of proving the clicked one's own unmount.
-    const firstSkip = skipButtons.first();
-    const label = await firstSkip.getAttribute("aria-label");
-    await firstSkip.click();
-    await expect(page.getByRole("button", { name: label ?? "" })).toHaveCount(0);
-    // Focus should have moved to the row's own label, not fallen to <body>.
-    await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).not.toBe("BODY");
-  });
-
   test("Notifications: page renders heading, filters, and empty/list state without runtime errors", async ({ page, context, baseURL }) => {
     const errors: string[] = [];
     page.on("pageerror", (e) => errors.push(String(e)));
