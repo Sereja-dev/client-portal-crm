@@ -371,6 +371,14 @@ async function resolveActiveOrganizationId(user: {
   const cookieStore = await cookies();
   const requestedOrganizationId = cookieStore.get(ACTIVE_ORG_COOKIE)?.value;
 
+  // True only when the cookie's Membership row was read but its
+  // Organization was already gone (Prisma loads the relation with a second
+  // statement, so a concurrent hard delete can land between the two). That
+  // is a real membership that just vanished mid-resolution — not a user who
+  // started with none — so it must never fall through to the no-memberships
+  // provisioning branch below and mint a fresh workspace for this request.
+  let membershipOrganizationVanished = false;
+
   if (requestedOrganizationId) {
     const membership = await prisma.membership.findUnique({
       where: {
@@ -380,6 +388,9 @@ async function resolveActiveOrganizationId(user: {
     });
     if (membership && !isOrganizationSuspended(membership.organization)) {
       return membership.organizationId;
+    }
+    if (membership && membership.organization == null) {
+      membershipOrganizationVanished = true;
     }
   }
 
@@ -405,12 +416,14 @@ async function resolveActiveOrganizationId(user: {
     return usableMembership.organizationId;
   }
 
-  if (memberships.length > 0) {
-    // A real membership exists, but every one of them is suspended — a
-    // hard, terminal denial. Deliberately never falls through to
-    // getOrCreateOrganizationId() below, which would otherwise silently
-    // auto-provision a brand-new personal organization for someone who
-    // already has a real membership.
+  if (memberships.length > 0 || membershipOrganizationVanished) {
+    // A real membership exists (or existed a moment ago — see
+    // membershipOrganizationVanished above), but none is usable: every
+    // remaining one is suspended, or the only one's Organization vanished
+    // mid-request — a hard, terminal denial. Deliberately never falls
+    // through to getOrCreateOrganizationId() below, which would otherwise
+    // silently auto-provision a brand-new personal organization for
+    // someone who already has a real membership.
     redirect(ORGANIZATION_UNAVAILABLE_PATH);
   }
 

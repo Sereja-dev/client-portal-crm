@@ -10,6 +10,11 @@ describe("isOrganizationSuspended", () => {
     expect(isOrganizationSuspended({ suspendedAt: new Date() })).toBe(true);
     expect(isOrganizationSuspended({ suspendedAt: new Date(0) })).toBe(true);
   });
+
+  it("is true for a missing organization (null/undefined): unusable, never a TypeError", () => {
+    expect(isOrganizationSuspended(null)).toBe(true);
+    expect(isOrganizationSuspended(undefined)).toBe(true);
+  });
 });
 
 describe("ORGANIZATION_UNAVAILABLE_PATH", () => {

@@ -29,6 +29,19 @@
  * corrected once — each caller applies this decision the way appropriate
  * to its own contract instead.
  *
+ * A missing organization (null/undefined) is treated exactly like a
+ * suspended one: unusable, so every caller fails closed. Prisma loads a
+ * Membership's `organization` relation with a second, separate statement,
+ * so an Organization hard-deleted between the two statements surfaces as
+ * `membership.organization === null` even though the schema types it as
+ * required. Reading `.suspendedAt` off that null used to throw a TypeError
+ * mid-request; denying instead is the same decision
+ * current-portal-user.ts's getOrganizationSuspensionState() already makes
+ * for the same vanished-organization race. This predicate only decides —
+ * it never selects another organization, redirects, queries or provisions;
+ * a caller that must not fall through to provisioning (see
+ * current-user.ts's resolveActiveOrganizationId) tracks that itself.
+ *
  * Deliberately does NOT import "server-only": this module has no secret,
  * no cookie/session read, and no database access of its own — a pure
  * predicate over a field name and a fixed route string, safe by
@@ -38,7 +51,10 @@
  * in its own unit tests, breaking several that have no reason to know
  * this module exists.
  */
-export function isOrganizationSuspended(organization: { suspendedAt: Date | null }): boolean {
+export function isOrganizationSuspended(organization: { suspendedAt: Date | null } | null | undefined): boolean {
+  if (organization == null) {
+    return true;
+  }
   return organization.suspendedAt !== null;
 }
 
