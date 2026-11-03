@@ -1,6 +1,6 @@
 import { getOrCreateUser } from "@/lib/current-user";
 import { RecoveryPhoneSettings } from "@/components/settings/recovery-phone-settings";
-import { maskPhoneNumber } from "@/lib/phone";
+import { getPhoneCountryOptions, maskPhoneNumber } from "@/lib/phone";
 import { checkPhoneVerificationProviderReadiness } from "@/lib/phone/twilio-verify";
 
 /**
@@ -48,6 +48,7 @@ export default async function AccountSettingsPage() {
           maskedPhone={user.phone ? maskPhoneNumber(user.phone) : null}
           isVerified={user.phoneVerifiedAt !== null}
           verificationAvailable={checkPhoneVerificationProviderReadiness() === "ready"}
+          countryOptions={getPhoneCountryOptions()}
         />
       </div>
     </div>

@@ -9,11 +9,9 @@ import { Select } from "@/components/ui/select";
 import { FormLabel } from "@/components/ui/form-field";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
-import { getPhoneCountryOptions, formatPhoneNumberAsYouType, DEFAULT_PHONE_COUNTRY, type CountryCode } from "@/lib/phone";
+import { formatPhoneNumberAsYouType, DEFAULT_PHONE_COUNTRY, type CountryCode, type PhoneCountryOption } from "@/lib/phone";
 
 const initialState: RecoveryPhoneFormState = { error: null };
-
-const COUNTRY_OPTIONS = getPhoneCountryOptions();
 
 /**
  * Phone Recovery Foundation, Slice B1/B2 (read-only architecture audit:
@@ -92,11 +90,21 @@ export function RecoveryPhoneSettings({
   maskedPhone,
   isVerified,
   verificationAvailable,
+  countryOptions,
 }: {
   hasPhone: boolean;
   maskedPhone: string | null;
   isVerified: boolean;
   verificationAvailable: boolean;
+  /**
+   * Resolved once by the Server Component (page.tsx) and passed down as plain
+   * data, so the server render and the client's first render use byte-identical
+   * labels. Never recompute these here: `Intl.DisplayNames` formats some region
+   * names differently in Node and in the browser ("Hong Kong SAR China" vs
+   * "Hong Kong"), which makes hydration fail (React error #418) and replaces
+   * the server-rendered form, dropping anything typed before hydration.
+   */
+  countryOptions: PhoneCountryOption[];
 }) {
   const [state, formAction, pending] = useActionState(updateRecoveryPhoneAction, initialState);
   const [country, setCountry] = useState<CountryCode>(DEFAULT_PHONE_COUNTRY);
@@ -195,7 +203,7 @@ export function RecoveryPhoneSettings({
                 value={country}
                 onChange={(event) => setCountry(event.target.value as CountryCode)}
               >
-                {COUNTRY_OPTIONS.map((option) => (
+                {countryOptions.map((option) => (
                   <option key={option.code} value={option.code}>
                     {option.name} (+{option.callingCode})
                   </option>
