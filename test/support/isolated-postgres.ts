@@ -139,27 +139,80 @@ export type IsolatedDatabase = {
 
 /**
  * Steps 1-2 of the required lifecycle: create the PGlite engine, start
- * its socket server on `port`, wait for a real TCP handshake to succeed
- * (mirrors the shared canonical harness's own identical
- * waitForSocketReady precedent in test/support/local-postgres.ts — the
- * socket server's own `start()` can resolve slightly before the
- * underlying net.Server actually accepts connections), then create the
- * two inert Supabase-role stand-ins every migration history expects to
- * find. Returns the raw `databaseUrl` for the caller to run `prisma
- * migrate deploy` (or a partial-history variant) against — this module
- * has no opinion on migration strategy; that stays test-owned, since two
- * of the six callers need a non-trivial partial-history dance this
- * shared helper must not know about.
+ * its socket server, wait for a real TCP handshake to succeed (mirrors
+ * the shared canonical harness's own identical waitForSocketReady
+ * precedent in test/support/local-postgres.ts -- the socket server's own
+ * `start()` can resolve slightly before the underlying net.Server
+ * actually accepts connections), then create the two inert Supabase-role
+ * stand-ins every migration history expects to find. Returns the raw
+ * `databaseUrl` for the caller to run `prisma migrate deploy` (or a
+ * partial-history variant) against -- this module has no opinion on
+ * migration strategy; that stays test-owned, since two of the six
+ * callers need a non-trivial partial-history dance this shared helper
+ * must not know about.
+ *
+ * The listener is bound to an OS-assigned port (port 0) and the URL is
+ * built from the port the socket server actually reports -- never from a
+ * number the caller chose. Hardcoded ports in the 55xxx range sit inside
+ * Linux's ephemeral range (32768-60999), and this suite makes many
+ * short-lived loopback client connections of its own, so a fixed port can
+ * already be taken (listen EADDRINUSE) by the time a test binds it; that
+ * produced recurring, order-of-30-per-300 CI failures (all on even ports,
+ * which is the half the kernel hands to outgoing connect() calls -- the
+ * mechanism is likely, not proven). The kernel guarantees a port it
+ * assigns for bind(0) is free, so there is nothing to collide with.
+ *
+ * `requestedPort` is accepted only so existing call sites keep compiling
+ * and each keeps a distinct, greppable number; it is deliberately NOT
+ * bound. Every current caller consumes the returned `databaseUrl`, and
+ * none depends on a particular port. A test that genuinely needs a
+ * specific port must construct its own PGLiteSocketServer (as
+ * pglite-socket-shutdown.test.ts does) instead of using this helper.
+ *
+ * If startup fails after the PGlite engine exists, the half-started
+ * server and the engine are torn down before the ORIGINAL startup error is
+ * rethrown unchanged; a failure during that cleanup never replaces it.
  */
-export async function startIsolatedDatabase(port: number): Promise<IsolatedDatabase> {
+export async function startIsolatedDatabase(requestedPort?: number): Promise<IsolatedDatabase> {
+  void requestedPort;
   const pglite = new PGlite();
-  const socketServer = new PGLiteSocketServer({ db: pglite, host: "127.0.0.1", port, maxConnections: 5 });
-  await socketServer.start();
-  await waitForSocketReady(port);
-  await pglite.query("CREATE ROLE anon NOLOGIN");
-  await pglite.query("CREATE ROLE authenticated NOLOGIN");
-  const databaseUrl = `postgresql://postgres@127.0.0.1:${port}/postgres`;
-  return { databaseUrl, pglite, socketServer };
+  const socketServer = new PGLiteSocketServer({ db: pglite, host: "127.0.0.1", port: 0, maxConnections: 5 });
+  try {
+    await socketServer.start();
+    const port = readBoundPort(socketServer);
+    await waitForSocketReady(port);
+    await pglite.query("CREATE ROLE anon NOLOGIN");
+    await pglite.query("CREATE ROLE authenticated NOLOGIN");
+    const databaseUrl = `postgresql://postgres@127.0.0.1:${port}/postgres`;
+    return { databaseUrl, pglite, socketServer };
+  } catch (startupError) {
+    await stopAfterFailedStartup(socketServer, pglite);
+    throw startupError;
+  }
+}
+
+/**
+ * The port the socket server is really listening on, read through its
+ * supported accessor (`getServerConn()` -> "host:port"; after `start()` the
+ * server has replaced the requested port with `net.Server#address().port`).
+ * Validated, so a literal 0 (or anything unexpected) can never leak into a
+ * connection URL.
+ */
+function readBoundPort(socketServer: PGLiteSocketServer): number {
+  const connection = socketServer.getServerConn();
+  const separator = connection.lastIndexOf(":");
+  const host = connection.slice(0, separator);
+  const port = Number(connection.slice(separator + 1));
+  if (host !== "127.0.0.1" || !Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`isolated PGlite socket server reported an unusable listening address: ${connection}`);
+  }
+  return port;
+}
+
+/** Best-effort teardown of a database whose startup failed. Never throws: the caller rethrows the original startup error. */
+async function stopAfterFailedStartup(socketServer: PGLiteSocketServer, pglite: PGlite): Promise<void> {
+  await socketServer.stop().catch(() => undefined);
+  await pglite.close().catch(() => undefined);
 }
 
 /**
