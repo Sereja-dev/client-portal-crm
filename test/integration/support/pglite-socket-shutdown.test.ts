@@ -1,6 +1,6 @@
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import pg from "pg";
-import { connect as rawConnect } from "node:net";
+import { connect as rawConnect, createServer as createNetServer, type Server as NetServer } from "node:net";
 import { PGlite } from "@electric-sql/pglite";
 import { PGLiteSocketServer, PGLiteSocketHandler } from "@electric-sql/pglite-socket";
 import {
@@ -32,8 +32,11 @@ import {
  * replaced or skipped, only delayed, by a precise amount each test fully
  * controls.
  *
- * Own dedicated port range (55740-55744), independent of every other
- * isolated/shared-harness test file.
+ * Every server binds an OS-assigned port (port 0) and the tests connect
+ * through the port it actually reports, so no test depends on a fixed
+ * listener port that something else on the machine could already hold (a
+ * fixed 55740 once failed CI with EADDRINUSE during startup). The final
+ * describe block below pins that behavior down deterministically.
  */
 
 type DetachFn = (this: PGLiteSocketHandler, close?: boolean) => Promise<PGLiteSocketHandler>;
@@ -93,12 +96,41 @@ async function waitForSocketReady(port: number): Promise<void> {
   throw new Error(`socket never became reachable on port ${port}: ${String(lastError)}`);
 }
 
-async function startServer(port: number): Promise<{ pglite: PGlite; server: PGLiteSocketServer }> {
+/**
+ * The port the socket server is really listening on, read through its
+ * supported accessor (`getServerConn()` -> "host:port"; after `start()` the
+ * server has replaced the requested port with `net.Server#address().port`).
+ * Validated, so a literal 0 (or anything unexpected) can never reach a client.
+ */
+function readBoundPort(socketServer: Pick<PGLiteSocketServer, "getServerConn">): number {
+  const connection = socketServer.getServerConn();
+  const separator = connection.lastIndexOf(":");
+  const host = connection.slice(0, separator);
+  const port = Number(connection.slice(separator + 1));
+  if (host !== "127.0.0.1" || !Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`PGlite socket server reported an unusable listening address: ${connection}`);
+  }
+  return port;
+}
+
+type StartedServer = { pglite: PGlite; server: PGLiteSocketServer; port: number };
+
+/** `requestedPort` defaults to 0 (OS-assigned); only the collision regression passes an explicit one. */
+async function startServer(requestedPort = 0): Promise<StartedServer> {
   const pglite = new PGlite();
-  const server = new PGLiteSocketServer({ db: pglite, host: "127.0.0.1", port, maxConnections: 5 });
-  await server.start();
-  await waitForSocketReady(port);
-  return { pglite, server };
+  const server = new PGLiteSocketServer({ db: pglite, host: "127.0.0.1", port: requestedPort, maxConnections: 5 });
+  try {
+    await server.start();
+    const port = readBoundPort(server);
+    await waitForSocketReady(port);
+    return { pglite, server, port };
+  } catch (startupError) {
+    // Release whatever was created, but never let a cleanup failure replace
+    // the original startup error the caller needs to see.
+    await server.stop().catch(() => undefined);
+    await pglite.close().catch(() => undefined);
+    throw startupError;
+  }
 }
 
 async function waitForPendingDetachCount(atLeast: number): Promise<void> {
@@ -110,8 +142,7 @@ async function waitForPendingDetachCount(atLeast: number): Promise<void> {
 
 describe("PGliteSocket detach / admission gate (Defect #1, main-process layer)", () => {
   it("A. admission waits for a pending detach: a new connection is not processed until the prior handler's real detach completes", async () => {
-    const port = 55740;
-    const { pglite, server } = await startServer(port);
+    const { pglite, server, port } = await startServer();
     try {
       const barrier = holdNextDetaches();
 
@@ -145,8 +176,7 @@ describe("PGliteSocket detach / admission gate (Defect #1, main-process layer)",
   }, 30_000);
 
   it("B. multiple pending detaches: a new connection waits for all of them", async () => {
-    const port = 55741;
-    const { pglite, server } = await startServer(port);
+    const { pglite, server, port } = await startServer();
     try {
       let resolveA: (() => void) | undefined;
       let resolveA2: (() => void) | undefined;
@@ -199,8 +229,7 @@ describe("PGliteSocket detach / admission gate (Defect #1, main-process layer)",
   }, 30_000);
 
   it("C. a detach rejection is surfaced truthfully: no unhandled rejection, the incoming connection is refused, and assertNoPgliteSocketShutdownErrors throws", async () => {
-    const port = 55742;
-    const { pglite, server } = await startServer(port);
+    const { pglite, server, port } = await startServer();
     const uncaughtHits: unknown[] = [];
     const onUncaught = (err: unknown) => uncaughtHits.push(err);
     process.on("uncaughtException", onUncaught);
@@ -266,8 +295,7 @@ describe("PGliteSocket detach / admission gate (Defect #1, main-process layer)",
   }, 30_000);
 
   it("D. server.stop() waits for a detach it triggers directly", async () => {
-    const port = 55743;
-    const { pglite, server } = await startServer(port);
+    const { pglite, server, port } = await startServer();
     try {
       const barrier = holdNextDetaches();
 
@@ -303,8 +331,7 @@ describe("PGliteSocket detach / admission gate (Defect #1, main-process layer)",
   });
 
   it("F. no semantic drift: with no pending detach, a normal connection is admitted and works exactly as before", async () => {
-    const port = 55744;
-    const { pglite, server } = await startServer(port);
+    const { pglite, server, port } = await startServer();
     try {
       expect(getPendingDetachCountForTesting()).toBe(0);
 
@@ -318,4 +345,115 @@ describe("PGliteSocket detach / admission gate (Defect #1, main-process layer)",
       await pglite.close();
     }
   }, 30_000);
+});
+
+describe("fixed-port collision vs OS-assigned port (regression for the CI EADDRINUSE on 55740)", () => {
+  const blockers: NetServer[] = [];
+
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await Promise.all(
+      blockers.splice(0).map((blocker) => new Promise<void>((resolve) => blocker.close(() => resolve()))),
+    );
+  });
+
+  /** A listener that keeps an OS-assigned port occupied until afterEach closes it. */
+  async function occupyPort(): Promise<number> {
+    const blocker = createNetServer();
+    blockers.push(blocker);
+    await new Promise<void>((resolve, reject) => {
+      blocker.once("error", reject);
+      blocker.listen(0, "127.0.0.1", () => resolve());
+    });
+    return (blocker.address() as { port: number }).port;
+  }
+
+  /** PGlite.close() delegates internally, so one close shows up as more than one spy call; what matters is that it ran and every instance it ran on is now closed. */
+  function expectEngineClosed(closeSpy: { mock: { calls: unknown[]; contexts: unknown[] } }): void {
+    expect(closeSpy.mock.calls.length).toBeGreaterThan(0);
+    for (const instance of closeSpy.mock.contexts) {
+      expect((instance as PGlite).closed).toBe(true);
+    }
+  }
+
+  function isConnectionRefused(port: number): Promise<boolean> {
+    return new Promise((resolve) => {
+      const socket = rawConnect({ host: "127.0.0.1", port });
+      socket.once("connect", () => {
+        socket.destroy();
+        resolve(false);
+      });
+      socket.once("error", (err: NodeJS.ErrnoException) => resolve(err.code === "ECONNREFUSED"));
+    });
+  }
+
+  it("a server told to listen on exactly an occupied port fails with EADDRINUSE, and its startup cleanup releases the engine and listener", async () => {
+    const occupied = await occupyPort();
+    const stopSpy = vi.spyOn(PGLiteSocketServer.prototype, "stop");
+    const closeSpy = vi.spyOn(PGlite.prototype, "close");
+
+    await expect(startServer(occupied)).rejects.toMatchObject({ code: "EADDRINUSE" });
+
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+    expectEngineClosed(closeSpy);
+  });
+
+  it("a startup step that fails after the listener is up still stops the listener and closes the engine", async () => {
+    const stopSpy = vi.spyOn(PGLiteSocketServer.prototype, "stop");
+    const closeSpy = vi.spyOn(PGlite.prototype, "close");
+    const realGetServerConn = PGLiteSocketServer.prototype.getServerConn;
+    let lastRealConnection = "";
+    // Report an unusable address (port 0) so the post-start validation fails
+    // while remembering what the listener's real address was.
+    vi.spyOn(PGLiteSocketServer.prototype, "getServerConn").mockImplementation(function (this: PGLiteSocketServer) {
+      lastRealConnection = realGetServerConn.call(this);
+      return "127.0.0.1:0";
+    });
+
+    await expect(startServer()).rejects.toThrow(/unusable listening address/);
+
+    expect(stopSpy).toHaveBeenCalledTimes(1);
+    expectEngineClosed(closeSpy);
+    const port = Number(lastRealConnection.slice(lastRealConnection.lastIndexOf(":") + 1));
+    expect(port).toBeGreaterThan(0);
+    expect(await isConnectionRefused(port)).toBe(true);
+  });
+
+  it("an OS-assigned server starts while that same port stays occupied, on a different port, and is fully released afterwards", async () => {
+    const occupied = await occupyPort();
+    const { pglite, server, port } = await startServer();
+    try {
+      expect(port).not.toBe(occupied);
+      expect(port).toBeGreaterThan(0);
+
+      const client = new pg.Client({ host: "127.0.0.1", port, database: "postgres", user: "postgres" });
+      await client.connect();
+      const result = await client.query("SELECT 1 AS n");
+      expect(result.rows[0].n).toBe(1);
+      await client.end();
+    } finally {
+      await server.stop();
+      await pglite.close();
+    }
+
+    expect(pglite.closed).toBe(true);
+    expect(await isConnectionRefused(port)).toBe(true);
+  });
+
+  it("a cleanup failure during startup never replaces the original startup error", async () => {
+    const occupied = await occupyPort();
+    const realClose = PGlite.prototype.close;
+    vi.spyOn(PGlite.prototype, "close").mockImplementation(async function (this: PGlite) {
+      await realClose.call(this);
+      throw new Error("SYNTHETIC_CLEANUP_FAILURE");
+    });
+
+    await expect(startServer(occupied)).rejects.toMatchObject({ code: "EADDRINUSE" });
+  });
+
+  it("readBoundPort refuses a literal port 0 or a non-loopback host instead of handing it to a client", () => {
+    expect(readBoundPort({ getServerConn: () => "127.0.0.1:51234" })).toBe(51234);
+    expect(() => readBoundPort({ getServerConn: () => "127.0.0.1:0" })).toThrow(/unusable listening address/);
+    expect(() => readBoundPort({ getServerConn: () => "0.0.0.0:51234" })).toThrow(/unusable listening address/);
+  });
 });
