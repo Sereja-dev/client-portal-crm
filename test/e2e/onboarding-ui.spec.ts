@@ -213,6 +213,14 @@ test.describe("Actions", () => {
     await expect(onboardingCard(page).getByText("Invite a teammate or client")).toBeVisible();
     await expect(page).toHaveURL(/\/dashboard$/);
 
+    // The clicked Skip control unmounts with its step...
+    await expect(onboardingCard(page).getByRole("button", { name: "Skip: Create a task or invoice" })).toHaveCount(0);
+    // ...and keyboard focus is handed to the step label (SkipStepButton's
+    // returnFocusId) rather than dropped to <body>: the label is the card's
+    // focus anchor (tabIndex -1), now naming the next step.
+    await expect(onboardingCard(page).getByText("Invite a teammate or client", { exact: true })).toBeFocused();
+    await expect(page.locator("body")).not.toBeFocused();
+
     await dbQuery("project", "delete", { where: { id: project.id } });
     await dbQuery("client", "delete", { where: { id: client.id } });
     await dbQuery("organizationProfile", "deleteMany", { where: { organizationId: fresh.org.id } });
