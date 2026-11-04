@@ -104,10 +104,21 @@ export type PortalInvoiceDetail = PortalInvoiceSummary & {
   hasArchivedPdf: boolean;
 };
 
+/**
+ * One currency's share of the open (SENT/OVERDUE) invoices. Totals are always
+ * kept per currency and never added across currencies (no FX conversion).
+ */
+export type PortalOutstandingTotal = {
+  currency: string;
+  amount: number;
+};
+
 export type PortalOverview = {
   activeProjectsCount: number;
+  /** Count of open invoices across every currency (a count, not money). */
   openInvoicesCount: number;
-  outstandingAmount: number;
+  /** One entry per currency that has open invoices, ordered by currency code; empty when nothing is open. */
+  outstandingByCurrency: PortalOutstandingTotal[];
   recentProjects: PortalProjectSummary[];
   recentInvoices: PortalInvoiceSummary[];
 };
@@ -179,10 +190,14 @@ export async function getPortalOverview(
     ? { clientId, OR: [{ statusDefinitionId: inProgressDefinition.id }, { statusDefinitionId: null, status: ACTIVE_PROJECT_STATUS }] }
     : { clientId, status: ACTIVE_PROJECT_STATUS };
 
-  const [activeProjectsCount, openInvoicesAgg, recentProjects, recentInvoices] =
+  const [activeProjectsCount, openInvoiceGroups, recentProjects, recentInvoices] =
     await Promise.all([
       prisma.project.count({ where: activeProjectsWhere }),
-      prisma.invoice.aggregate({
+      // Grouped by each invoice's own currency: the database sums the exact
+      // Decimal amounts per currency, so amounts in different currencies are
+      // never added together and no money is ever summed in JavaScript.
+      prisma.invoice.groupBy({
+        by: ["currency"],
         where: { clientId, organizationId, status: { in: [...OPEN_INVOICE_STATUSES] } },
         _count: { _all: true },
         _sum: { amount: true },
@@ -201,10 +216,16 @@ export async function getPortalOverview(
       }),
     ]);
 
+  // Plain code-unit ordering of the currency code, independent of any
+  // database collation, so the display order is stable.
+  const outstandingByCurrency = openInvoiceGroups
+    .map((group) => ({ currency: group.currency, amount: Number(group._sum.amount ?? 0) }))
+    .sort((a, b) => (a.currency < b.currency ? -1 : a.currency > b.currency ? 1 : 0));
+
   return {
     activeProjectsCount,
-    openInvoicesCount: openInvoicesAgg._count._all,
-    outstandingAmount: Number(openInvoicesAgg._sum.amount ?? 0),
+    openInvoicesCount: openInvoiceGroups.reduce((count, group) => count + group._count._all, 0),
+    outstandingByCurrency,
     recentProjects,
     recentInvoices: recentInvoices.map(toInvoiceSummary),
   };

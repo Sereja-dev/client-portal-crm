@@ -942,6 +942,128 @@ if (existsSync(invoiceEmailHistoryFile)) {
 // behavior) lives in integration/E2E tests, not here — this check exists
 // only for the one property a static text scan can prove more cheaply
 // and durably than a runtime test: the literal array contents.
+// --- Structural inspection helpers for check 16d (bounded; fail closed) ----
+//
+// maskNonCode() returns the source with every comment blanked and every
+// string/template literal's contents blanked (newlines and positions are kept),
+// so only real code remains searchable. It returns null for syntax it will not
+// interpret (an unterminated comment/string, or a template literal containing
+// `${`), and callers must treat null as a failure.
+function maskNonCode(source) {
+  const out = source.split("");
+  let i = 0;
+  while (i < source.length) {
+    const c = source[i];
+    const next = source[i + 1];
+    if (c === "/" && next === "/") {
+      while (i < source.length && source[i] !== "\n") { out[i] = " "; i += 1; }
+    } else if (c === "/" && next === "*") {
+      const end = source.indexOf("*/", i + 2);
+      if (end === -1) return null;
+      for (let k = i; k < end + 2; k += 1) if (source[k] !== "\n") out[k] = " ";
+      i = end + 2;
+    } else if (c === '"' || c === "'" || c === "`") {
+      let j = i + 1;
+      while (j < source.length && source[j] !== c) {
+        if (source[j] === "\\") { out[j] = " "; j += 1; }
+        else if (c === "`" && source[j] === "$" && source[j + 1] === "{") return null;
+        else if (c !== "`" && source[j] === "\n") return null;
+        if (j < source.length) out[j] = source[j] === "\n" ? "\n" : " ";
+        j += 1;
+      }
+      if (j >= source.length) return null;
+      i = j + 1;
+    } else {
+      i += 1;
+    }
+  }
+  return out.join("");
+}
+
+// Index just past the "}" that balances the "{" at openIndex, or -1.
+function balancedEnd(code, openIndex) {
+  let depth = 0;
+  for (let i = openIndex; i < code.length; i += 1) {
+    if (code[i] === "{") depth += 1;
+    else if (code[i] === "}") {
+      depth -= 1;
+      if (depth === 0) return i + 1;
+    }
+  }
+  return -1;
+}
+
+// Brace depth of position `index` inside `block` (the block's own "{" is depth 1).
+function depthAt(block, index) {
+  let depth = 0;
+  for (let i = 0; i < index; i += 1) {
+    if (block[i] === "{") depth += 1;
+    else if (block[i] === "}") depth -= 1;
+  }
+  return depth;
+}
+
+function inspectPortalOverviewOpenInvoiceQuery(source) {
+  const code = maskNonCode(source);
+  if (code === null) {
+    return { ok: false, detail: "src/lib/client-portal/queries.ts contains syntax this guard will not interpret (unterminated comment or string, or a template literal with ${}); failing closed." };
+  }
+  const header = code.match(/export\s+async\s+function\s+getPortalOverview\s*\(/);
+  if (!header) return { ok: false, detail: "getPortalOverview was not found." };
+  // Skip the parameter list by paren depth, then take the function body's braces.
+  let parenDepth = 1;
+  let j = header.index + header[0].length;
+  while (j < code.length && parenDepth > 0) {
+    if (code[j] === "(") parenDepth += 1;
+    else if (code[j] === ")") parenDepth -= 1;
+    j += 1;
+  }
+  const bodyOpen = code.indexOf("{", j);
+  const bodyEnd = bodyOpen === -1 ? -1 : balancedEnd(code, bodyOpen);
+  if (bodyEnd === -1) return { ok: false, detail: "Could not delimit the getPortalOverview function body." };
+  const body = code.slice(bodyOpen, bodyEnd);
+
+  const callRe = /prisma\.invoice\.(?:aggregate|groupBy)\s*\(\s*\{/g;
+  const calls = [];
+  let m;
+  while ((m = callRe.exec(body))) calls.push(m.index + m[0].length - 1);
+  if (calls.length !== 1) {
+    return { ok: false, detail: `Expected exactly one prisma.invoice.aggregate/groupBy call in getPortalOverview, found ${calls.length}.` };
+  }
+  const argEnd = balancedEnd(body, calls[0]);
+  if (argEnd === -1) return { ok: false, detail: "Could not delimit the open-Invoice query's argument object." };
+  const arg = body.slice(calls[0], argEnd);
+
+  // The argument's own top-level `where:` (depth 1), never a nested one.
+  const whereRe = /\bwhere\s*:\s*\{/g;
+  let whereOpen = -1;
+  while ((m = whereRe.exec(arg))) {
+    if (depthAt(arg, m.index) === 1) { whereOpen = m.index + m[0].length - 1; break; }
+  }
+  if (whereOpen === -1) return { ok: false, detail: "The open-Invoice query has no top-level where block." };
+  const whereEnd = balancedEnd(arg, whereOpen);
+  if (whereEnd === -1) return { ok: false, detail: "Could not delimit the open-Invoice query's where block." };
+  const where = arg.slice(whereOpen, whereEnd);
+
+  const topLevel = (re) => {
+    const found = new RegExp(re.source, "g");
+    let hit;
+    while ((hit = found.exec(where))) if (depthAt(where, hit.index) === 1) return true;
+    return false;
+  };
+  const hasClient = topLevel(/\bclientId\b/);
+  const hasOrganization = topLevel(/\borganizationId\b/);
+  const hasStatus = topLevel(/\bstatus\s*:\s*\{\s*in\s*:\s*\[\s*\.\.\.\s*OPEN_INVOICE_STATUSES\s*\]\s*\}/);
+  const missing = [
+    hasClient ? null : "clientId",
+    hasOrganization ? null : "organizationId",
+    hasStatus ? null : "status: { in: [...OPEN_INVOICE_STATUSES] }",
+  ].filter(Boolean);
+  return missing.length === 0
+    ? { ok: true, detail: "" }
+    : { ok: false, detail: `The open-Invoice query's own where block is missing: ${missing.join(", ")}.` };
+}
+
 const clientPortalQueriesFile = "src/lib/client-portal/queries.ts";
 if (existsSync(clientPortalQueriesFile)) {
   const queriesContent = readFileSync(clientPortalQueriesFile, "utf8");
@@ -1002,12 +1124,18 @@ if (existsSync(clientPortalQueriesFile)) {
     "",
   ) && ok;
 
-  // 16d. getPortalOverview's own open-Invoice aggregate filters through
-  // OPEN_INVOICE_STATUSES.
+  // 16d. getPortalOverview's own open-Invoice query (an aggregate or a
+  // groupBy) filters through OPEN_INVOICE_STATUSES, and is scoped to the
+  // verified client and organization. Inspected structurally, on the
+  // function's own code with comments and string contents masked out, and on
+  // that one call's own top-level `where` block -- so the same words in an
+  // unrelated query, a comment or a string can never satisfy it, and
+  // anything this bounded scanner cannot interpret safely fails closed.
+  const openInvoiceQuery = inspectPortalOverviewOpenInvoiceQuery(queriesContent);
   ok = report(
-    "getPortalOverview's own open-Invoice aggregate filters status through OPEN_INVOICE_STATUSES",
-    /aggregate\(\{[\s\S]*?OPEN_INVOICE_STATUSES[\s\S]*?\}\)/.test(getPortalOverviewBody),
-    "",
+    "getPortalOverview's own open-Invoice query filters status through OPEN_INVOICE_STATUSES, scoped to clientId and organizationId",
+    openInvoiceQuery.ok,
+    openInvoiceQuery.detail,
   ) && ok;
 } else {
   ok = report(`${clientPortalQueriesFile} exists`, false, `Expected ${clientPortalQueriesFile} to exist.`) && ok;
