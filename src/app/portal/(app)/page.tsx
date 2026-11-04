@@ -115,11 +115,16 @@ export default async function PortalOverviewPage() {
           ) : (
             <ul className="space-y-3">
               {overview.recentInvoices.map((invoice) => (
-                <li key={invoice.id} className="flex items-center justify-between gap-3">
-                  <Link href={`/portal/invoices/${invoice.id}`} className={itemLinkClass}>
+                // The amount and status group cannot shrink, so on a narrow card a long
+                // invoice number plus a large amount used to push it past the card's
+                // edge. `flex-wrap` moves the group onto its own line when the row
+                // does not fit (it stays right-aligned via `ml-auto`), and the number
+                // may shrink and break instead of forcing the row wider.
+                <li key={invoice.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                  <Link href={`/portal/invoices/${invoice.id}`} className={`${itemLinkClass} min-w-0 break-words`}>
                     {invoice.invoiceNumber}
                   </Link>
-                  <div className="flex items-center gap-3">
+                  <div className="ml-auto flex items-center gap-3">
                     <span className="text-text-muted text-sm">
                       {formatCurrency(invoice.amount, invoice.currency)}
                     </span>
