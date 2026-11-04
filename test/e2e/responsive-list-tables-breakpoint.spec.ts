@@ -1,5 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
-import { seedE2EFixtures, cleanupTestData, type TestFixtures } from "./fixtures";
+import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
 
 /**
@@ -45,11 +45,97 @@ import { injectTestSession } from "../support/e2e-session";
 
 let fixtures: TestFixtures;
 
+// Recurring Invoices list fixtures (isolated, run-scoped, removed in afterAll
+// before cleanupTestData so the client/project FKs never block it).
+const RECURRING_STAMP = `${Date.now()}`;
+const LONG_NAME = "Quarterly managed retainer for the whole engineering and design organisation including all regional teams";
+const SHORT_STAMP = RECURRING_STAMP.slice(-6);
+const RECURRING = {
+  full: {
+    name: `RLR full schedule ${RECURRING_STAMP}`,
+    prefix: `RF${SHORT_STAMP}-`,
+    sequence: 7,
+    generated: 2,
+  },
+  longPaused: { name: LONG_NAME, prefix: `RL${SHORT_STAMP}-`, sequence: 12, generated: 0 },
+  untitled: { prefix: `RU${SHORT_STAMP}-`, sequence: 1, generated: 0 },
+};
+const NEXT_ISSUE = new Date("2031-03-15T00:00:00.000Z");
+const NEXT_ISSUE_DISPLAY = NEXT_ISSUE.toLocaleDateString(undefined, { timeZone: "UTC" });
+let recurringScheduleIds: { full: string; longPaused: string; untitled: string };
+
+async function createSchedule(data: {
+  name: string | null;
+  prefix: string;
+  sequence: number;
+  frequency: string;
+  status: string;
+  projectId: string | null;
+}): Promise<string> {
+  const schedule = await dbQuery<{ id: string }>("recurringInvoice", "create", {
+    data: {
+      name: data.name,
+      organizationId: fixtures.orgA.id,
+      clientId: fixtures.clientA.id,
+      projectId: data.projectId,
+      frequency: data.frequency,
+      anchorDay: 15,
+      nextIssueDate: NEXT_ISSUE,
+      invoiceNumberPrefix: data.prefix,
+      nextSequence: data.sequence,
+      currency: "USD",
+      status: data.status,
+      lineItems: { create: [{ description: "Retainer", quantity: "1", unitPrice: "100", position: 0 }] },
+    },
+  });
+  return schedule.id;
+}
+
 test.beforeAll(async () => {
   fixtures = await seedE2EFixtures();
+  recurringScheduleIds = {
+    full: await createSchedule({
+      name: RECURRING.full.name,
+      prefix: RECURRING.full.prefix,
+      sequence: RECURRING.full.sequence,
+      frequency: "MONTHLY",
+      status: "ACTIVE",
+      projectId: fixtures.project.id,
+    }),
+    longPaused: await createSchedule({
+      name: RECURRING.longPaused.name,
+      prefix: RECURRING.longPaused.prefix,
+      sequence: RECURRING.longPaused.sequence,
+      frequency: "QUARTERLY",
+      status: "PAUSED",
+      projectId: null,
+    }),
+    untitled: await createSchedule({
+      name: null,
+      prefix: RECURRING.untitled.prefix,
+      sequence: RECURRING.untitled.sequence,
+      frequency: "WEEKLY",
+      status: "ACTIVE",
+      projectId: null,
+    }),
+  };
+  for (let i = 0; i < RECURRING.full.generated; i++) {
+    await dbQuery("invoice", "create", {
+      data: {
+        invoiceNumber: `${RECURRING.full.prefix}gen-${i}`,
+        amount: "100",
+        currency: "USD",
+        clientId: fixtures.clientA.id,
+        organizationId: fixtures.orgA.id,
+        recurringInvoiceId: recurringScheduleIds.full,
+      },
+    });
+  }
 });
 
 test.afterAll(async () => {
+  await dbQuery("invoice", "deleteMany", { where: { recurringInvoiceId: { in: Object.values(recurringScheduleIds) } } });
+  await dbQuery("recurringInvoice", "deleteMany", { where: { id: { in: Object.values(recurringScheduleIds) } } });
   await cleanupTestData(fixtures);
 });
 
@@ -58,7 +144,7 @@ test.beforeEach(async ({ context, baseURL }) => {
 });
 
 const WIDTHS = [320, 375, 390, 767, 768, 800, 900, 1024, 1100, 1200, 1279, 1280, 1440];
-const SURFACES = ["/clients", "/projects", "/tasks", "/invoices", "/team"];
+const SURFACES = ["/clients", "/projects", "/tasks", "/invoices", "/team", "/recurring-invoices"];
 
 /**
  * Real CSS-pixel geometry for every `<table>` on the page, read via
@@ -233,4 +319,164 @@ test.describe("Tasks — Actions column and Edit/Delete controls fully contained
     }));
     expect(scrollWidth).toBeLessThanOrEqual(clientWidth);
   });
+});
+
+/**
+ * Recurring Invoices list — the eight-column table used to be shown from `md`
+ * with columns appearing by breakpoint (`sm`/`md`/`lg`), so the sidebar's
+ * 224px at `md` left it clipped inside its own scroller at 320–430,
+ * 768–850 and 1024–1075px. Below `xl` it is now the shared card list, which
+ * must carry all eight fields; from `xl` the table must show all eight
+ * columns and fit.
+ */
+const RECURRING_WIDTHS = [320, 390, 640, 768, 1024, 1279, 1280];
+const RECURRING_HEADERS = ["Name", "Client", "Project", "Frequency", "Next issue date", "Status", "Next invoice", "Generated"];
+
+async function expectNoDocumentOverflow(page: Page, label: string) {
+  const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+    scrollWidth: document.documentElement.scrollWidth,
+    clientWidth: document.documentElement.clientWidth,
+  }));
+  expect(scrollWidth, `${label}: document must not scroll horizontally`).toBeLessThanOrEqual(clientWidth);
+}
+
+test.describe("/recurring-invoices — card list below xl, full table from xl", () => {
+  for (const width of RECURRING_WIDTHS) {
+    const tableShown = width >= 1280;
+
+    test(`at ${width}px: ${tableShown ? "table with all eight columns, cards hidden" : "cards with all eight fields, table hidden"}`, async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto("/recurring-invoices");
+
+      const cardList = page.locator('ul[class~="xl:hidden"]').filter({ hasText: RECURRING.full.name });
+      const table = page.locator("table");
+      const scheduleHref = `/recurring-invoices/${recurringScheduleIds.full}`;
+
+      if (!tableShown) {
+        await expect(cardList).toBeVisible();
+        await expect(table).toBeHidden();
+        // The hidden table is display:none, so its links are not accessible: exactly one link per schedule.
+        await expect(page.getByRole("link", { name: RECURRING.full.name })).toHaveCount(1);
+
+        const card = cardList.locator("li").filter({ hasText: RECURRING.full.name });
+        await expect(card).toHaveCount(1);
+        for (const label of RECURRING_HEADERS) {
+          await expect(card.getByText(label, { exact: true }), `card label ${label}`).toBeVisible();
+        }
+        await expect(card.getByRole("link", { name: RECURRING.full.name })).toHaveAttribute("href", scheduleHref);
+        await expect(card).toContainText(fixtures.clientA.name);
+        await expect(card).toContainText(fixtures.project.name);
+        await expect(card).toContainText("Monthly");
+        await expect(card).toContainText(NEXT_ISSUE_DISPLAY);
+        await expect(card).toContainText("Active");
+        await expect(card).toContainText(`${RECURRING.full.prefix}${RECURRING.full.sequence}`);
+        // Generated count is the last field's value.
+        await expect(card.locator("div", { has: page.getByText("Generated", { exact: true }) }).last()).toContainText(
+          String(RECURRING.full.generated),
+        );
+
+        // Missing optional data: no-project and zero-generated fall back, an empty name reads "Untitled schedule".
+        const untitled = cardList.locator("li").filter({ hasText: `${RECURRING.untitled.prefix}${RECURRING.untitled.sequence}` });
+        await expect(untitled.getByRole("link", { name: "Untitled schedule" })).toHaveAttribute(
+          "href",
+          `/recurring-invoices/${recurringScheduleIds.untitled}`,
+        );
+        await expect(untitled).toContainText("Weekly");
+        const untitledProject = untitled.locator("div", { has: page.getByText("Project", { exact: true }) }).last();
+        await expect(untitledProject).toContainText("—");
+        const untitledGenerated = untitled.locator("div", { has: page.getByText("Generated", { exact: true }) }).last();
+        await expect(untitledGenerated).toContainText("0");
+
+        // Long name + Paused: wraps inside the card, nothing leaves the card or the viewport.
+        const longCard = cardList.locator("li").filter({ hasText: RECURRING.longPaused.prefix });
+        await expect(longCard.getByRole("link", { name: LONG_NAME })).toBeVisible();
+        await expect(longCard).toContainText("Paused");
+        await expect(longCard).toContainText("Quarterly");
+
+        // No field clipped outside its card.
+        for (const li of await cardList.locator("li").all()) {
+          const cardBox = await li.boundingBox();
+          expect(cardBox).not.toBeNull();
+          const outside = await li.evaluate((el) => {
+            const box = el.getBoundingClientRect();
+            return Array.from(el.querySelectorAll("span, a"))
+              .map((child) => child.getBoundingClientRect())
+              .filter((r) => r.width > 0 && (r.left < box.left - 0.5 || r.right > box.right + 0.5))
+              .length;
+          });
+          expect(outside, "no label/value may extend beyond its card").toBe(0);
+          expect(cardBox!.x + cardBox!.width, "card within viewport").toBeLessThanOrEqual(width);
+        }
+
+        // Keyboard: the link is reachable by Tab and shows a visible focus ring.
+        const link = card.getByRole("link", { name: RECURRING.full.name });
+        await link.focus();
+        await expect(link).toBeFocused();
+        await expect.poll(() => link.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe("none");
+      } else {
+        await expect(table).toBeVisible();
+        await expect(page.locator('ul[class~="xl:hidden"]')).toBeHidden();
+        await expect(page.getByRole("link", { name: RECURRING.full.name })).toHaveCount(1);
+        const headers = table.getByRole("columnheader");
+        await expect(headers).toHaveText(RECURRING_HEADERS);
+
+        const row = table.getByRole("row").filter({ hasText: RECURRING.full.name });
+        await expect(row.getByRole("link", { name: RECURRING.full.name })).toHaveAttribute("href", scheduleHref);
+        const cells = row.getByRole("cell");
+        await expect(cells).toHaveText([
+          RECURRING.full.name,
+          fixtures.clientA.name,
+          fixtures.project.name,
+          "Monthly",
+          NEXT_ISSUE_DISPLAY,
+          "Active",
+          `${RECURRING.full.prefix}${RECURRING.full.sequence}`,
+          String(RECURRING.full.generated),
+        ]);
+
+        const geometry = await measureTableFit(page);
+        for (const t of geometry) {
+          expect(t.scrollWidth, "table must fit its container at 1280px with the long-name fixture present").toBeLessThanOrEqual(
+            t.containerClientWidth + 1,
+          );
+        }
+      }
+      await expectNoDocumentOverflow(page, `/recurring-invoices at ${width}px`);
+    });
+  }
+});
+
+test.describe("/recurring-invoices — an unbroken long name wraps inside its card", () => {
+  for (const width of [320, 390]) {
+    test(`at ${width}px: a 60-character unbreakable name stays inside its card and the page`, async ({ page }) => {
+      const token = `U${"x".repeat(59)}`;
+      const id = await createSchedule({
+        name: token,
+        prefix: `RT${SHORT_STAMP}-`,
+        sequence: 3,
+        frequency: "YEARLY",
+        status: "ACTIVE",
+        projectId: null,
+      });
+      try {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto("/recurring-invoices");
+        const link = page.getByRole("link", { name: token });
+        await expect(link).toBeVisible();
+        await expect(link).toHaveAttribute("href", `/recurring-invoices/${id}`);
+        const card = page.locator("li").filter({ has: link });
+        const contained = await card.evaluate((el, linkText) => {
+          const box = el.getBoundingClientRect();
+          const a = Array.from(el.querySelectorAll("a")).find((n) => n.textContent === linkText)!.getBoundingClientRect();
+          return a.left >= box.left - 0.5 && a.right <= box.right + 0.5;
+        }, token);
+        expect(contained, "the unbreakable name must wrap inside its card").toBe(true);
+        await expectNoDocumentOverflow(page, `/recurring-invoices unbreakable name at ${width}px`);
+      } finally {
+        await dbQuery("recurringInvoice", "deleteMany", { where: { id } });
+      }
+    });
+  }
 });
