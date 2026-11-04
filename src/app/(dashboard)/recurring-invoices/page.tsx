@@ -21,6 +21,13 @@ const PRIMARY_LINK_CLASSES =
 const SCHEDULE_LINK_CLASSES =
   "focus-visible:ring-focus-ring rounded hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
 
+// User-authored values (schedule name up to 200 characters, client/project names, and an invoice
+// prefix of up to 40 characters plus a sequence) may contain no break opportunity at all. Plain
+// `break-words` does not lower a table cell's minimum width, so one long unbroken name stretched the
+// table to ~2500px and pushed the remaining columns out of its scroller, unreachable by keyboard.
+// `overflow-wrap: anywhere` lets the text wrap inside its column without altering or truncating it.
+const WRAP_LONG_VALUE_CLASSES = "wrap-anywhere";
+
 const FREQUENCY_LABELS: Record<string, string> = {
   WEEKLY: "Weekly",
   MONTHLY: "Monthly",
@@ -146,19 +153,23 @@ export default async function RecurringInvoicesPage({ searchParams }: { searchPa
               <TableBody>
                 {schedules.map((schedule) => (
                   <TableRow key={schedule.id}>
-                    <TableCell emphasis>
+                    <TableCell emphasis className={WRAP_LONG_VALUE_CLASSES}>
                       <Link href={`/recurring-invoices/${schedule.id}`} className={SCHEDULE_LINK_CLASSES}>
                         {schedule.name ?? "Untitled schedule"}
                       </Link>
                     </TableCell>
-                    <TableCell>{clientNameById.get(schedule.clientId) ?? "—"}</TableCell>
-                    <TableCell>{schedule.projectId ? (projectNameById.get(schedule.projectId) ?? "—") : "—"}</TableCell>
+                    <TableCell className={WRAP_LONG_VALUE_CLASSES}>{clientNameById.get(schedule.clientId) ?? "—"}</TableCell>
+                    <TableCell className={WRAP_LONG_VALUE_CLASSES}>
+                      {schedule.projectId ? (projectNameById.get(schedule.projectId) ?? "—") : "—"}
+                    </TableCell>
                     <TableCell>{FREQUENCY_LABELS[schedule.frequency] ?? formatStatusLabel(schedule.frequency)}</TableCell>
                     <TableCell>{formatDateOnlyForDisplay(schedule.nextIssueDate)}</TableCell>
                     <TableCell>
                       <StatusBadge status={schedule.status} />
                     </TableCell>
-                    <TableCell>{composeInvoiceNumberCandidate(schedule.invoiceNumberPrefix, schedule.nextSequence)}</TableCell>
+                    <TableCell className={WRAP_LONG_VALUE_CLASSES}>
+                      {composeInvoiceNumberCandidate(schedule.invoiceNumberPrefix, schedule.nextSequence)}
+                    </TableCell>
                     <TableCell align="right">{invoiceCountById.get(schedule.id) ?? 0}</TableCell>
                   </TableRow>
                 ))}

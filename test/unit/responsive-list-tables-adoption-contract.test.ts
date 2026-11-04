@@ -422,6 +422,12 @@ describe("Recurring invoices list page — responsive stacked-card adoption", ()
     ]);
   });
 
+  it("the user-authored table cells (Name, Client, Project, Next invoice) wrap unbroken long values instead of widening the table", () => {
+    expect(source).toMatch(/const WRAP_LONG_VALUE_CLASSES = "wrap-anywhere"/);
+    const tableRegion = source.slice(source.indexOf("<Table>"), source.indexOf("</Table>"));
+    expect([...tableRegion.matchAll(/<TableCell[^>]*className=\{WRAP_LONG_VALUE_CLASSES\}/g)]).toHaveLength(4);
+  });
+
   it("the card keeps the same link destination, fallbacks, and value sources as the table", () => {
     expect(cardRegion).toMatch(/href=\{`\/recurring-invoices\/\$\{schedule\.id\}`\}/);
     expect(cardRegion).toMatch(/schedule\.name \?\? "Untitled schedule"/);

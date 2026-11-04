@@ -480,3 +480,84 @@ test.describe("/recurring-invoices — an unbroken long name wraps inside its ca
     });
   }
 });
+
+/**
+ * Valid-but-extreme content at desktop width. Limits come from the real
+ * validation: name <= RECURRING_INVOICE_NAME_MAX_LENGTH (200, any characters,
+ * no whitespace required) and prefix <= INVOICE_NUMBER_PREFIX_MAX_LENGTH (40)
+ * with a sequence up to 1,000,000,000 (10 digits). An unbroken 200-character
+ * name used to stretch the table to ~2500px, pushing seven of the eight
+ * columns out of the 942px scroller at 1280px where only a pointer (or a
+ * wheel) could reveal them: the wrapper has no tabindex and its only focusable
+ * child is the Name link, so a keyboard user could not reach them. Every
+ * column must now be visible without any inner scrolling.
+ */
+test.describe("/recurring-invoices — longest valid values stay fully readable in the desktop table", () => {
+  const LONGEST_NAME = `L${"y".repeat(199)}`;
+  const LONGEST_PREFIX = `P${"z".repeat(39)}`;
+  const LONGEST_SEQUENCE = 1_000_000_000;
+
+  for (const width of [1280, 1440]) {
+    test(`at ${width}px: all eight columns and the full name and invoice number are visible with no inner scrolling`, async ({
+      page,
+    }) => {
+      const id = await createSchedule({
+        name: LONGEST_NAME,
+        prefix: LONGEST_PREFIX,
+        sequence: LONGEST_SEQUENCE,
+        frequency: "QUARTERLY",
+        status: "ACTIVE",
+        projectId: fixtures.project.id,
+      });
+      try {
+        await page.setViewportSize({ width, height: 900 });
+        await page.goto("/recurring-invoices");
+        const table = page.locator("table");
+        await expect(table).toBeVisible();
+        const link = table.getByRole("link", { name: LONGEST_NAME });
+        await expect(link).toHaveAttribute("href", `/recurring-invoices/${id}`);
+
+        const row = table.getByRole("row").filter({ has: page.getByRole("link", { name: LONGEST_NAME }) });
+        await expect(row.getByRole("cell")).toHaveText([
+          LONGEST_NAME,
+          fixtures.clientA.name,
+          fixtures.project.name,
+          "Quarterly",
+          NEXT_ISSUE_DISPLAY,
+          "Active",
+          `${LONGEST_PREFIX}${LONGEST_SEQUENCE}`,
+          "0",
+        ]);
+        await expect(table.getByRole("columnheader")).toHaveText(RECURRING_HEADERS);
+
+        // Nothing needs scrolling to be read: the wrapper holds the whole table.
+        const geometry = await measureTableFit(page);
+        for (const t of geometry) {
+          expect(t.scrollWidth, "the table must not need an inner horizontal scroll").toBeLessThanOrEqual(t.containerClientWidth + 1);
+        }
+        // Every header and every cell of the long row lies inside the wrapper, without any scrolling.
+        const outside = await page.evaluate((linkText) => {
+          const t = Array.from(document.querySelectorAll("table")).find((n) => n.textContent!.includes(linkText))!;
+          const wrapper = t.parentElement!.getBoundingClientRect();
+          const tr = Array.from(t.querySelectorAll("tbody tr")).find((r) => r.textContent!.includes(linkText))!;
+          return [...Array.from(t.querySelectorAll("th")), ...Array.from(tr.querySelectorAll("td"))]
+            .filter((c) => {
+              const r = c.getBoundingClientRect();
+              return r.left < wrapper.left - 0.5 || r.right > wrapper.right + 0.5;
+            })
+            .map((c) => c.textContent!.slice(0, 20));
+        }, LONGEST_NAME);
+        expect(outside, "cells/headers outside the visible table area").toEqual([]);
+
+        // The Name link keeps a visible focus ring.
+        await link.focus();
+        await expect(link).toBeFocused();
+        await expect.poll(() => link.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe("none");
+
+        await expectNoDocumentOverflow(page, `/recurring-invoices longest valid values at ${width}px`);
+      } finally {
+        await dbQuery("recurringInvoice", "deleteMany", { where: { id } });
+      }
+    });
+  }
+});
