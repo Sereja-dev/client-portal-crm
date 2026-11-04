@@ -49,6 +49,7 @@ export function InvoiceLineItemRow({
   onMoveDown,
   canMoveUp,
   canMoveDown,
+  compact = false,
 }: {
   index: number;
   value: InvoiceLineItemFormValue;
@@ -59,6 +60,19 @@ export function InvoiceLineItemRow({
   onMoveDown: () => void;
   canMoveUp: boolean;
   canMoveDown: boolean;
+  /**
+   * For a host whose column can never be wide enough for the four-track
+   * row below (Recurring Invoice: its `max-w-xl` card leaves ~460px while
+   * that row needs ~594px, so from `sm:` up the action buttons were pushed
+   * out of the row's visible area and only reachable by scrolling it).
+   * Below `sm:` it is the same stacked single column as the default. From
+   * `sm:` up, Description spans the full width, Qty and Unit price sit side
+   * by side, and the actions get their own line — a layout that needs only
+   * ~280px (the third track is a flexible spacer), so nothing is clipped at
+   * any width. Defaults to false: every other consumer renders exactly the
+   * class strings it always did.
+   */
+  compact?: boolean;
 }) {
   return (
     // Desktop line-item compression fix — below this point, the bare
@@ -90,11 +104,14 @@ export function InvoiceLineItemRow({
     // page-level overflow this fix must never reintroduce.
     <fieldset
       aria-label={`Line item ${index + 1}`}
-      className="border-border-default grid min-w-0 grid-cols-1 gap-3 overflow-x-auto rounded-md border p-3 sm:grid-cols-[minmax(10rem,1fr)_7rem_8rem_auto]"
+      className={`border-border-default grid min-w-0 grid-cols-1 gap-3 overflow-x-auto rounded-md border p-3 ${
+        compact ? "sm:grid-cols-[7rem_8rem_minmax(0,1fr)]" : "sm:grid-cols-[minmax(10rem,1fr)_7rem_8rem_auto]"
+      }`}
     >
       <RowField
         id={`lineItems.${index}.description`}
         label="Description"
+        className={compact ? "sm:col-span-3" : undefined}
         value={value.description}
         error={errors?.description}
         onChange={(next) => onChange({ ...value, description: next })}
@@ -113,7 +130,7 @@ export function InvoiceLineItemRow({
         error={errors?.unitPrice}
         onChange={(next) => onChange({ ...value, unitPrice: next })}
       />
-      <div className="flex items-end gap-1 pb-0.5">
+      <div className={`flex items-end gap-1 pb-0.5${compact ? " sm:col-span-3" : ""}`}>
         <button
           type="button"
           onClick={onMoveUp}

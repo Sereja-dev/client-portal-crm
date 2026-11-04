@@ -620,6 +620,7 @@ export function RecurringInvoiceForm({
                 onMoveDown={() => moveLineItem(index, 1)}
                 canMoveUp={index > 0}
                 canMoveDown={index < lineItems.length - 1}
+                compact
               />
             ))}
           </div>

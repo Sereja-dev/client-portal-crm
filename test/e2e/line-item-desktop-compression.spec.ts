@@ -92,18 +92,27 @@ test.describe("Desktop line-item compression fix — Recurring Invoice", () => {
       await expect(page.getByLabel("Currency")).toBeVisible();
       await expect(page.getByText("Advanced options (discount, tax, notes)")).toBeVisible();
 
-      // No overlap: Qty/Unit price/action buttons never collide with
-      // Description or each other — each occupies a disjoint horizontal
-      // band within the row (same row, same baseline).
+      // No overlap: Recurring uses the compact row layout from `sm:` up
+      // (Description full width, Qty and Unit price side by side, the
+      // actions on their own line -- see recurring-invoice-line-item-
+      // actions.spec.ts), so these four boxes must simply never intersect.
       const [descBox, qtyBox, priceBox, removeBox] = await Promise.all([
         row1.getByLabel("Description").boundingBox(),
         row1.getByLabel("Qty").boundingBox(),
         row1.getByLabel("Unit price").boundingBox(),
         page.getByRole("button", { name: "Remove line item 1" }).boundingBox(),
       ]);
-      expect(descBox && qtyBox && descBox.x + descBox.width <= qtyBox.x + 1).toBe(true);
-      expect(qtyBox && priceBox && qtyBox.x + qtyBox.width <= priceBox.x + 1).toBe(true);
-      expect(priceBox && removeBox && priceBox.x + priceBox.width <= removeBox.x + 1).toBe(true);
+      const boxes = [descBox, qtyBox, priceBox, removeBox];
+      expect(boxes.every((box) => box !== null)).toBe(true);
+      for (let i = 0; i < boxes.length; i += 1) {
+        for (let j = i + 1; j < boxes.length; j += 1) {
+          const a = boxes[i]!;
+          const b = boxes[j]!;
+          const separated =
+            a.x + a.width <= b.x + 1 || b.x + b.width <= a.x + 1 || a.y + a.height <= b.y + 1 || b.y + b.height <= a.y + 1;
+          expect(separated).toBe(true);
+        }
+      }
     });
   }
 
