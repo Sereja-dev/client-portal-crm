@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getCurrentPortalUser } from "@/lib/current-portal-user";
-import { getPortalOverview } from "@/lib/client-portal/queries";
+import { getPortalOverview, type PortalOutstandingTotal } from "@/lib/client-portal/queries";
 import { MetricCard } from "@/components/dashboard/metric-card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { resolveStatusPresentation } from "@/lib/custom-statuses/presentation";
@@ -11,6 +11,23 @@ import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { formatCurrency } from "@/lib/format";
 
 const OVERVIEW_HEADING_ID = "portal-overview-heading";
+
+/**
+ * Each currency's open total, shown with its currency code (so currencies that
+ * share a symbol, such as USD, CAD and AUD, stay distinguishable) and never
+ * combined across currencies. Nothing open reads as "No open invoices", which
+ * implies no currency.
+ */
+function formatOutstandingTotals(totals: PortalOutstandingTotal[]): string {
+  if (totals.length === 0) {
+    return "No open invoices";
+  }
+  return totals
+    .map(({ currency, amount }) =>
+      new Intl.NumberFormat("en-US", { style: "currency", currency, currencyDisplay: "code" }).format(amount),
+    )
+    .join(" · ");
+}
 
 const itemLinkClass =
   "text-text-primary focus-visible:ring-focus-ring rounded text-sm font-medium hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2";
@@ -54,7 +71,7 @@ export default async function PortalOverviewPage() {
         />
         <MetricCard
           label="Outstanding amount"
-          value={formatCurrency(overview.outstandingAmount)}
+          value={formatOutstandingTotals(overview.outstandingByCurrency)}
           href="/portal/invoices?status=open"
         />
       </div>

@@ -140,25 +140,31 @@ describe("Portal Invoice visibility — DRAFT is never visible; SENT/OVERDUE/PAI
       expect(overview.recentInvoices.some((i) => i.id === sentInvoice.id)).toBe(true);
     });
 
-    it("the open-Invoice aggregate (count and outstanding amount) excludes DRAFT", async () => {
+    it("the open-Invoice aggregate (count and outstanding amounts) excludes DRAFT", async () => {
       // Isolate this proof from the other four fixture invoices' amounts by
       // reading straight from Prisma with the exact same predicate the
       // corrected OPEN_INVOICE_STATUSES now expresses, then comparing
       // against the real getPortalOverview() result for internal
       // consistency — this is a behavioral proof, not a re-implementation
-      // of the query under test.
+      // of the query under test. Totals are per currency (never combined).
       const overview = await getPortalOverview(fixtures.clientA.id, fixtures.orgA.id);
-      const expectedOpenAgg = await prisma.invoice.aggregate({
+      const expectedGroups = await prisma.invoice.groupBy({
+        by: ["currency"],
         where: { clientId: fixtures.clientA.id, organizationId: fixtures.orgA.id, status: { in: ["SENT", "OVERDUE"] } },
         _count: { _all: true },
         _sum: { amount: true },
+        orderBy: { currency: "asc" },
       });
-      expect(overview.openInvoicesCount).toBe(expectedOpenAgg._count._all);
-      expect(overview.outstandingAmount).toBe(Number(expectedOpenAgg._sum.amount ?? 0));
+      expect(overview.openInvoicesCount).toBe(expectedGroups.reduce((count, group) => count + group._count._all, 0));
+      expect(overview.outstandingByCurrency).toEqual(
+        expectedGroups.map((group) => ({ currency: group.currency, amount: Number(group._sum.amount ?? 0) })),
+      );
       // The DRAFT fixture's own $100.00 must never be folded into this sum
       // — a regression here would silently re-inflate the Portal's own
       // "outstanding" KPI with work that was never actually issued.
-      expect(overview.outstandingAmount).not.toBe(Number(expectedOpenAgg._sum.amount ?? 0) + 100);
+      const expectedUsd = Number(expectedGroups.find((group) => group.currency === "USD")?._sum.amount ?? 0);
+      const reportedUsd = overview.outstandingByCurrency.find((total) => total.currency === "USD")?.amount ?? 0;
+      expect(reportedUsd).not.toBe(expectedUsd + 100);
     });
   });
 

@@ -69,7 +69,9 @@ describe("Client Portal — project-less Invoice (Quotes / Estimates Phase 2.3)"
   it("counted in getPortalOverview's open invoices / outstanding amount, and appears in recentInvoices", async () => {
     const overview = await getPortalOverview(fixtures.clientA.id, fixtures.orgA.id);
     expect(overview.openInvoicesCount).toBeGreaterThan(0);
-    expect(overview.outstandingAmount).toBeGreaterThanOrEqual(450);
+    // The invoice is in the default (USD) currency; its 450.00 is part of that currency's open total.
+    const usdTotal = overview.outstandingByCurrency.find((total) => total.currency === "USD")?.amount ?? 0;
+    expect(usdTotal).toBeGreaterThanOrEqual(450);
     expect(overview.recentInvoices.some((r) => r.id === projectLessInvoice.id)).toBe(true);
   });
 
