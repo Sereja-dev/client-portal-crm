@@ -132,16 +132,19 @@ test.describe("Contract Column Customization (Tables Improvement Slice E2)", () 
     // HTML semantics), but has no text content -- it's a selection
     // control, not a data column (see contract-list-with-selection.tsx's
     // own identical comment) -- filtered out here before comparing.
-    const headerNames = await page.getByRole("columnheader").allTextContents();
-    expect(headerNames.map((t) => cleanHeaderText(t)).filter((t) => t.length > 0)).toEqual([
-      "Contract #",
-      "Title",
-      "Client",
-      "Project",
-      "Status",
-      "Issue date",
-      "Actions",
-    ]);
+    //
+    // Polled, not read once: right after navigation the route can still be
+    // on its loading skeleton (which has no column headers), so a single
+    // snapshot could see an empty list. Each poll re-reads and re-normalizes
+    // the headers; the result must still equal the exact seven, in order,
+    // so a table that never renders, or renders a missing/extra/renamed/
+    // reordered header, still fails (showing what was received).
+    await expect
+      .poll(async () => {
+        const headerNames = await page.getByRole("columnheader").allTextContents();
+        return headerNames.map((t) => cleanHeaderText(t)).filter((t) => t.length > 0);
+      })
+      .toEqual(["Contract #", "Title", "Client", "Project", "Status", "Issue date", "Actions"]);
   });
 
   test("picker: mandatory Contract #/Status/Actions checked+disabled+'Always shown'; optional Title/Client/Project/Issue date toggleable; checkbox never appears", async ({ page }) => {
