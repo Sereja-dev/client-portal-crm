@@ -154,10 +154,23 @@ test.describe("Design System Batch 7 — Shared uploads + simple Settings", () =
     await page.goto("/settings/company");
     await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("dark");
 
-    const form = page.locator("form").filter({ hasText: "Business" });
+    // Scoped to <main> and anchored on the company-profile form's own
+    // "Business" <legend>. A page-wide `form` lookup strict-mode-failed
+    // intermittently: while the route's Suspense boundary resolves, React
+    // briefly leaves the server-streamed copy of this form in a hidden
+    // staging container (`<div hidden id="S:0">`, outside <main>) next to
+    // the visible, client-rendered one inside <main>. The hidden copy is
+    // not the form a user sees, so it must not be what is asserted on; the
+    // visible form is still required to exist and to be unique within <main>.
+    const form = page
+      .getByRole("main")
+      .locator("form")
+      .filter({ has: page.locator("legend", { hasText: /^Business$/ }) });
+    await expect(form).toBeVisible();
     await expect.poll(() => form.evaluate((el) => getComputedStyle(el).backgroundColor)).toBe("rgb(27, 31, 38)");
 
-    const legend = page.getByText("Business", { exact: true });
+    const legend = form.getByText("Business", { exact: true });
+    await expect(legend).toBeVisible();
     await expect.poll(() => legend.evaluate((el) => getComputedStyle(el).color)).toBe("rgb(236, 237, 238)");
 
     // The logo card is a sibling, separately-migrated surface.
