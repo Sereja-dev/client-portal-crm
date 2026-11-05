@@ -57,6 +57,7 @@ const PATHS = {
   // file instead.
   invoicesDesktopTable: "src/components/invoices/invoice-desktop-table.tsx",
   team: "src/app/(dashboard)/team/page.tsx",
+  recurringInvoices: "src/app/(dashboard)/recurring-invoices/page.tsx",
 };
 
 function read(path: string): string {
@@ -371,5 +372,71 @@ describe("Team list page — responsive stacked-card adoption (both tables)", ()
     const region = source.slice(secondListStart, secondListEnd);
     const fieldLabels = [...region.matchAll(/label="([^"]+)"/g)].map((m) => m[1]);
     expect(fieldLabels).toEqual(expect.arrayContaining(["Email", "Role", "Invited by", "Expires"]));
+  });
+});
+
+describe("Recurring invoices list page — responsive stacked-card adoption", () => {
+  const source = read(PATHS.recurringInvoices);
+  const listStart = source.indexOf("<RecordCardList>");
+  const listEnd = source.indexOf("</RecordCardList>", listStart);
+  const cardRegion = source.slice(listStart, listEnd);
+
+  it("imports the shared RecordCardList/RecordCard/RecordCardField primitives", () => {
+    expect(importsSharedPrimitives(source)).toBe(true);
+  });
+
+  it("the existing <Table> is hidden below xl and visible at xl and up", () => {
+    expect(tableIsWrappedHiddenOnMobile(source)).toBe(true);
+  });
+
+  it("no column is hidden by a narrower breakpoint inside the xl table (every column shows whenever the table shows)", () => {
+    const tableStart = source.indexOf("<Table>");
+    const tableEnd = source.indexOf("</Table>");
+    const tableRegion = source.slice(tableStart, tableEnd);
+    expect(tableRegion).not.toMatch(/\b(sm|md|lg):table-cell\b/);
+    expect(tableRegion).not.toMatch(/\bhidden\b/);
+  });
+
+  it("exactly one RecordCardList exists and it maps the same `schedules` collection as the table", () => {
+    expect([...source.matchAll(/<RecordCardList>/g)]).toHaveLength(1);
+    expect(listStart).toBeGreaterThan(-1);
+    expect(cardRegion).toMatch(/\{schedules\.map/);
+  });
+
+  it("the table has eight data columns and the card has the same eight fields in the same order", () => {
+    // Recurring has no trailing Actions column, so countDataHeaders' "minus one" does not apply.
+    const tableStart = source.indexOf("<Table>");
+    const tableEnd = source.indexOf("</Table>");
+    expect(countDataHeaders(source, [tableStart, tableEnd]) + 1).toBe(8);
+    expect(countCardFields(source, [listStart, listEnd])).toBe(8);
+    const labels = [...cardRegion.matchAll(/label="([^"]+)"/g)].map((m) => m[1]);
+    expect(labels).toEqual([
+      "Name",
+      "Client",
+      "Project",
+      "Frequency",
+      "Next issue date",
+      "Status",
+      "Next invoice",
+      "Generated",
+    ]);
+  });
+
+  it("the user-authored table cells (Name, Client, Project, Next invoice) wrap unbroken long values instead of widening the table", () => {
+    expect(source).toMatch(/const WRAP_LONG_VALUE_CLASSES = "wrap-anywhere"/);
+    const tableRegion = source.slice(source.indexOf("<Table>"), source.indexOf("</Table>"));
+    expect([...tableRegion.matchAll(/<TableCell[^>]*className=\{WRAP_LONG_VALUE_CLASSES\}/g)]).toHaveLength(4);
+  });
+
+  it("the card keeps the same link destination, fallbacks, and value sources as the table", () => {
+    expect(cardRegion).toMatch(/href=\{`\/recurring-invoices\/\$\{schedule\.id\}`\}/);
+    expect(cardRegion).toMatch(/schedule\.name \?\? "Untitled schedule"/);
+    expect(cardRegion).toMatch(/clientNameById\.get\(schedule\.clientId\) \?\? "—"/);
+    expect(cardRegion).toMatch(/projectNameById\.get\(schedule\.projectId\)/);
+    expect(cardRegion).toMatch(/FREQUENCY_LABELS\[schedule\.frequency\]/);
+    expect(cardRegion).toMatch(/formatDateOnlyForDisplay\(schedule\.nextIssueDate\)/);
+    expect(cardRegion).toMatch(/<StatusBadge status=\{schedule\.status\}/);
+    expect(cardRegion).toMatch(/composeInvoiceNumberCandidate\(schedule\.invoiceNumberPrefix, schedule\.nextSequence\)/);
+    expect(cardRegion).toMatch(/invoiceCountById\.get\(schedule\.id\) \?\? 0/);
   });
 });
