@@ -153,7 +153,11 @@ export function ContractListWithSelection({
                         />
                       </TableCell>
                     )}
-                    <TableCell emphasis>{contract.contractNumber}</TableCell>
+                    <TableCell emphasis>
+                      <Link href={`/contracts/${contract.id}`} className={ACTION_LINK_CLASSES}>
+                        {contract.contractNumber}
+                      </Link>
+                    </TableCell>
                     {isVisible("title") && <TableCell>{contract.title}</TableCell>}
                     {isVisible("client") && (
                       <TableCell>
@@ -236,7 +240,15 @@ export function ContractListWithSelection({
                   Select
                 </label>
               )}
-              <RecordCardField label="Contract #" value={contract.contractNumber} emphasis />
+              <RecordCardField
+                label="Contract #"
+                value={
+                  <Link href={`/contracts/${contract.id}`} className={ACTION_LINK_CLASSES}>
+                    {contract.contractNumber}
+                  </Link>
+                }
+                emphasis
+              />
               <RecordCardField label="Title" value={contract.title} />
               <RecordCardField
                 label="Client"
