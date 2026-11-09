@@ -472,4 +472,128 @@ test.describe("Contract table workflow (Tables Improvement Slice B)", () => {
       expect(ssrHtml).toContain(">6/1/2026<");
     });
   });
+
+  test.describe("contract number links to the detail page", () => {
+    test("desktop: each contract's own number links to its own detail page, never the other's, never /edit or /preview", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      const first = await seedContract({ status: "DRAFT", title: "First Contract" });
+      const second = await seedContract({ status: "DRAFT", title: "Second Contract" });
+      await page.goto("/contracts");
+      await expect(page.getByRole("table")).toBeVisible();
+
+      const firstRow = page.getByRole("row", { name: new RegExp(first.contractNumber) });
+      const secondRow = page.getByRole("row", { name: new RegExp(second.contractNumber) });
+      const firstLink = firstRow.getByRole("link", { name: first.contractNumber });
+      const secondLink = secondRow.getByRole("link", { name: second.contractNumber });
+
+      // This must catch a bug where every row links to the same contract.
+      await expect(firstLink).toHaveAttribute("href", `/contracts/${first.id}`);
+      await expect(secondLink).toHaveAttribute("href", `/contracts/${second.id}`);
+      const firstHref = await firstLink.getAttribute("href");
+      const secondHref = await secondLink.getAttribute("href");
+      expect(firstHref).not.toBe(secondHref);
+      expect(firstHref).not.toContain(second.id);
+      expect(secondHref).not.toContain(first.id);
+      expect(firstHref).not.toMatch(/\/(edit|preview)$/);
+      expect(secondHref).not.toMatch(/\/(edit|preview)$/);
+
+      // No duplicate visible link for the same representation.
+      await expect(firstRow.getByRole("link", { name: first.contractNumber })).toHaveCount(1);
+
+      await firstLink.click();
+      await expect(page).toHaveURL(new RegExp(`/contracts/${first.id}$`));
+      await expect(page.getByRole("heading", { name: first.contractNumber })).toBeVisible();
+      await expect(page.getByText("First Contract")).toBeVisible();
+    });
+
+    test("mobile (390px): the visible RecordCard's own number links to the detail page, with no duplicate link from hidden desktop markup", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 390, height: 900 });
+      const contract = await seedContract({ status: "DRAFT" });
+      await page.goto("/contracts");
+
+      // Select the active representation, not the inactive one -- a
+      // hidden desktop link must never be treated as proof the visible
+      // UI works.
+      await expect(page.getByRole("table")).toBeHidden();
+      const card = page.locator("li", { hasText: contract.contractNumber });
+      const cardLink = card.getByRole("link", { name: contract.contractNumber });
+      await expect(cardLink).toHaveCount(1);
+      await expect(cardLink).toHaveAttribute("href", `/contracts/${contract.id}`);
+
+      // Exactly one visible link with this accessible name across the
+      // whole page -- the hidden desktop table's own identical link must
+      // not also count as "visible" here.
+      await expect(page.getByRole("link", { name: contract.contractNumber })).toHaveCount(1);
+
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+      expect(overflow).toBe(false);
+
+      await cardLink.click();
+      await expect(page).toHaveURL(new RegExp(`/contracts/${contract.id}$`));
+    });
+
+    test("834px (intermediate): the active representation's own number link still resolves to the correct detail page", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 834, height: 1100 });
+      const contract = await seedContract({ status: "DRAFT" });
+      await page.goto("/contracts");
+
+      const isTableVisible = await page.getByRole("table").isVisible();
+      const activeLink = isTableVisible
+        ? page.getByRole("row", { name: new RegExp(contract.contractNumber) }).getByRole("link", { name: contract.contractNumber })
+        : page.locator("li", { hasText: contract.contractNumber }).getByRole("link", { name: contract.contractNumber });
+
+      await expect(activeLink).toHaveAttribute("href", `/contracts/${contract.id}`);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+      expect(overflow).toBe(false);
+    });
+
+    test("keyboard: the number link can be focused directly and activated with Enter, without relying on a fixed Tab count", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      const contract = await seedContract({ status: "DRAFT" });
+      await page.goto("/contracts");
+
+      const link = page.getByRole("link", { name: contract.contractNumber });
+      await link.focus();
+      await expect(link).toBeFocused();
+
+      await page.keyboard.press("Enter");
+      await expect(page).toHaveURL(new RegExp(`/contracts/${contract.id}$`));
+    });
+
+    test("existing Edit action and selection checkbox remain unaffected by the new number link", async ({ page }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      const contract = await seedContract({ status: "DRAFT" });
+      await page.goto("/contracts");
+
+      const row = page.getByRole("row", { name: new RegExp(contract.contractNumber) });
+      await expect(row.getByRole("link", { name: "Edit" })).toHaveAttribute("href", `/contracts/${contract.id}/edit`);
+
+      // Selecting the row's checkbox must not navigate anywhere.
+      const checkbox = row.getByRole("checkbox", { name: `Select contract ${contract.contractNumber}` });
+      await checkbox.check();
+      await expect(checkbox).toBeChecked();
+      await expect(page).toHaveURL(/\/contracts$/);
+    });
+
+    test("a SENT (non-editable) contract's number still links to the same detail route, and its existing View action is unchanged", async ({
+      page,
+    }) => {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      const sent = await seedContract({ status: "SENT" });
+      await page.goto("/contracts");
+
+      const row = page.getByRole("row", { name: new RegExp(sent.contractNumber) });
+      await expect(row.getByRole("link", { name: "View" })).toHaveAttribute("href", `/contracts/${sent.id}`);
+      await expect(row.getByRole("link", { name: "Edit" })).toHaveCount(0);
+      await expect(row.getByRole("link", { name: sent.contractNumber })).toHaveAttribute("href", `/contracts/${sent.id}`);
+    });
+  });
 });
