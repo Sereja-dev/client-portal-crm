@@ -1,6 +1,32 @@
-import { test, expect, type Page } from "@playwright/test";
+import { test, expect, type Locator, type Page } from "@playwright/test";
 import { seedE2EFixtures, cleanupTestData, dbQuery, type TestFixtures } from "./fixtures";
 import { injectTestSession } from "../support/e2e-session";
+
+/**
+ * `locator.toBeVisible()` and a later, separate `locator.boundingBox()`
+ * call are two independent live-DOM queries, not one atomic check —
+ * passing the first is not a guarantee the second, taken immediately
+ * after, cannot still observe a transient `null` (a detach/re-render
+ * landing in the gap between them). `expect.poll` is Playwright's own
+ * bounded, auto-retrying primitive for exactly this: it re-invokes the
+ * callback (never a manual sleep) until the assertion passes or its own
+ * timeout elapses, and — unlike a plain assertion — hands back the
+ * actual last-observed value, which the sticky-position comparison
+ * needs. Never silently accepts a *different* element: `locator` is
+ * always the one already-scoped, already-identified target passed in.
+ */
+async function waitForMeasurableBoundingBox(
+  locator: Locator,
+): Promise<{ x: number; y: number; width: number; height: number }> {
+  let box: { x: number; y: number; width: number; height: number } | null = null;
+  await expect
+    .poll(async () => {
+      box = await locator.boundingBox();
+      return box;
+    }, { message: "waiting for a non-null, measurable bounding box on the identified target" })
+    .not.toBeNull();
+  return box!;
+}
 
 /**
  * Tables Improvement Slice A (Invoices pilot) — real browser coverage
@@ -294,17 +320,42 @@ test.describe("Invoice table workflow (Tables Improvement Slice A)", () => {
       }
       await page.goto(`/invoices?q=${prefix}`);
 
-      const table = page.locator("table");
+      // Readiness, explicit and bounded (never a one-shot measurement
+      // immediately after navigation, and never an arbitrary sleep):
+      // the Invoices route streams a loading skeleton with no <table>/
+      // <thead> at all (see InvoicesLoading -> ListPageSkeleton) while
+      // its Server Component data fetch is still in flight, so goto()'s
+      // own "load" event is not proof the real desktop table has
+      // replaced that skeleton yet. getByRole("table") is this page's
+      // one stable semantic anchor for the real (non-skeleton) desktop
+      // table — this viewport is xl-width, so it's the only `<table>`
+      // the mobile RecordCardList (a <ul>, never a <table>) could ever
+      // be confused with. Every further locator below is scoped to
+      // THIS exact table, never a bare page-wide "thead" lookup.
+      const table = page.getByRole("table");
+      await expect(table).toBeVisible();
+
       const scrollContainer = table.locator("xpath=..");
-      const theadBefore = await page.locator("thead").boundingBox();
-      expect(theadBefore).not.toBeNull();
+      const thead = table.locator("thead");
+      await expect(thead).toBeVisible();
+
+      // The expected seeded rows must have actually loaded into THIS
+      // table before anything about the header's position is measured
+      // — otherwise a correctly-"visible" but still-empty or partially-
+      // hydrated table could satisfy the checks above while the header
+      // measurement that follows still races the real content.
+      const lastRow = page.getByRole("row", { name: new RegExp(`${rows[9].invoiceNumber}$`) });
+      const firstRow = page.getByRole("row", { name: new RegExp(`${rows[0].invoiceNumber}$`) });
+      await expect(firstRow).toBeVisible();
+      await expect(lastRow).toBeVisible();
+
+      const theadBefore = await waitForMeasurableBoundingBox(thead);
 
       // Proves real vertical overflow exists to scroll through at all —
       // a direct scrollHeight/clientHeight comparison on the container
       // itself, not an inferred guess from row bounding boxes (which
       // depends on exact row height/page chrome above the table and is
       // not a reliable proxy for "does this element actually overflow").
-      const lastRow = page.getByRole("row", { name: new RegExp(`${rows[9].invoiceNumber}$`) });
       const wasOutsideViewportBefore = await scrollContainer.evaluate(
         (el) => el.scrollHeight > el.clientHeight,
       );
@@ -313,13 +364,12 @@ test.describe("Invoice table workflow (Tables Improvement Slice A)", () => {
         el.scrollTop = el.scrollHeight;
       });
 
-      const theadAfter = await page.locator("thead").boundingBox();
-      expect(theadAfter).not.toBeNull();
+      const theadAfter = await waitForMeasurableBoundingBox(thead);
       // Tolerant bounding-range assertion (never a brittle exact-pixel
       // match) — the header's own viewport position is unchanged (within
       // 2px, allowing for subpixel layout rounding) even though the
       // table scrolled through real rows underneath it.
-      expect(Math.abs(theadAfter!.y - theadBefore!.y)).toBeLessThanOrEqual(2);
+      expect(Math.abs(theadAfter.y - theadBefore.y)).toBeLessThanOrEqual(2);
 
       // The last row is now visible/navigable after scrolling.
       await expect(lastRow).toBeVisible();
@@ -331,7 +381,6 @@ test.describe("Invoice table workflow (Tables Improvement Slice A)", () => {
       await scrollContainer.evaluate((el) => {
         el.scrollTop = 0;
       });
-      const firstRow = page.getByRole("row", { name: new RegExp(`${rows[0].invoiceNumber}$`) });
       await expect(firstRow.getByRole("link", { name: "Edit" })).toBeVisible();
 
       expect(wasOutsideViewportBefore).toBe(true);
