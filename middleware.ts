@@ -46,12 +46,41 @@ import { TEST_MODE } from "@/lib/test-mode";
  * why this code no longer reads it at all for a security-relevant choice:
  * the Production redirect target below is a single fixed literal, with no
  * header-sourced scheme or authority whatsoever, so there is nothing for a
- * forged header to influence. The one exception is the TEST_MODE branch,
- * which real deployments can never take — enforced by scripts/security-
- * checks/check-no-test-mode.mjs, which fails CI if `TEST_MODE` ever
- * appears in committed config — so this is the project's own existing,
- * audited escape hatch for exactly this class of "local/E2E needs
- * something Production never does," not a new one invented here.
+ * forged header to influence.
+ *
+ * ON TEST_MODE, STATED CAREFULLY (an earlier version of this comment
+ * overclaimed "real deployments can never take" the local branch —
+ * corrected after review). scripts/security-checks/check-no-test-mode.mjs
+ * verifies, statically, that no file COMMITTED to this repository
+ * (.env.example, vercel.json, package.json) ever sets `TEST_MODE=1`, and
+ * that every importer of the shared TEST_MODE gate under `src/` is on an
+ * exhaustive, reviewed allowlist. It has no visibility at all into Vercel
+ * Production's actual configured environment variables — those live
+ * outside this repository — so "no committed config sets TEST_MODE" is
+ * not the same claim as "TEST_MODE is unset in Production." If it ever
+ * were set there at runtime, `TEST_MODE` (read fresh from
+ * `process.env.TEST_MODE` on every cold start, since it is not a
+ * `NEXT_PUBLIC_` variable and is therefore never inlined at build time)
+ * would genuinely be `true` there too, and this code, taken alone, would
+ * choose the http branch — the same honest limitation every one of this
+ * project's other ~23 TEST_MODE consumers already has, not a new one.
+ *
+ * `!process.env.VERCEL` below is an additional, independent signal, not a
+ * claim that the risk above is now impossible: `VERCEL` is a Vercel-
+ * documented system environment variable Vercel's own infrastructure sets
+ * on every deployment (Production and Preview alike), never set by this
+ * project's own committed config or by playwright.config.ts's webServer
+ * env (confirmed directly — that block sets VERCEL_URL/VERCEL_ENV/
+ * VERCEL_GIT_* for an unrelated Configuration-page test, but never the
+ * bare `VERCEL` key). So even in the scenario above — TEST_MODE somehow
+ * set in Vercel Production — this specific redirect would still choose
+ * the fixed https literal, because VERCEL would also genuinely be set
+ * there. This narrows, but does not by itself prove closed, the one
+ * residual gap neither this check nor that one can rule out from code
+ * alone: whether Vercel's own system VERCEL value could ever be shadowed
+ * by a project environment variable deliberately given the same name —
+ * not independently verifiable without inspecting the actual Production
+ * configuration, which is outside this task's boundaries.
  */
 const PLATFORM_ADMIN_HOSTNAME = "admin.aqenra.com";
 
@@ -85,15 +114,15 @@ export async function middleware(request: NextRequest) {
   // /platform-admin's own requirePlatformAdmin() guard still runs,
   // completely unchanged, and still denies a non-admin identity.
   if (host && host.hostname.toLowerCase() === PLATFORM_ADMIN_HOSTNAME && request.nextUrl.pathname === "/") {
-    if (TEST_MODE) {
-      // Local/E2E only (see the header comment above) — the real Vercel
-      // deployment has no TLS-terminating reverse proxy of its own in
-      // front for this app to be behind, so this http-only branch models
-      // the local Playwright webServer only, never Production. The
-      // authority here is exactly the host/port already matched above
-      // (never a different, attacker-supplied value) — only needed so the
-      // local test, which has no real DNS for this hostname, stays on the
-      // same already-resolved host:port pair it was reached on.
+    if (TEST_MODE && !process.env.VERCEL) {
+      // Local/E2E only (see the header comment above, including exactly
+      // what this second condition does and does not guarantee) — this
+      // http-only branch models the local Playwright webServer, never a
+      // real Vercel deployment. The authority here is exactly the
+      // host/port already matched above (never a different, attacker-
+      // supplied value) — only needed so the local test, which has no
+      // real DNS for this hostname, stays on the same already-resolved
+      // host:port pair it was reached on.
       const authority = host.port ? `${host.hostname}:${host.port}` : host.hostname;
       return NextResponse.redirect(`http://${authority}/login?redirectTo=%2Fplatform-admin`);
     }
