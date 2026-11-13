@@ -96,10 +96,32 @@ test.describe("Design System Batch 8 — Settings Billing", () => {
     await page.goto("/settings/billing");
     await expect.poll(() => page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("dark");
 
+    // Wait for the Plans section's own heading, not just the unrelated
+    // data-theme attribute above — this guarantees the query below runs
+    // after loading.tsx's Suspense fallback (plain Skeleton blocks, no
+    // matching text) has been replaced by the real Plans content, never
+    // mid-transition between the two.
+    const plansSection = page.locator('section[aria-labelledby="billing-plans-heading"]');
+    await expect(page.getByRole("heading", { name: "Plans", level: 2 })).toBeVisible();
+
+    // Scoped to the Plans section specifically, not the whole page.
     // "Current plan" is also the (disabled) CTA label on the current
-    // plan's own PlanActionButton — scoped to the <span> badge
-    // specifically, the only element of that tag with this text.
-    const currentBadge = page.locator("span").filter({ hasText: "Current plan" });
+    // plan's own PlanActionButton, but that renders a plain <button> with
+    // the label as a direct text child (src/components/ui/button.tsx),
+    // never a <span> — so it cannot match this locator on its own. The
+    // scoping below is a defensive narrowing, not a workaround for that:
+    // buildAvailablePlans() (src/lib/billing/view-model.ts) derives
+    // isCurrentPlan from a single `planKey === currentPlanKey` equality
+    // over purchasablePlanKeys — itself Object.keys(PLAN_CATALOG), which
+    // cannot contain a duplicate key — so at most one card in this
+    // section can ever be marked current in a settled render, and a full
+    // source search found no other component on this page that renders
+    // the literal text "Current plan" at all. This locator therefore
+    // cannot become ambiguous because of anything elsewhere on the page;
+    // it still correctly fails if the Plans section itself ever renders
+    // a genuine duplicate badge.
+    const currentBadge = plansSection.locator("span").filter({ hasText: "Current plan" });
+    await expect(currentBadge).toHaveCount(1);
     await expect(currentBadge).toBeVisible();
     // Dark's --accent is rgb(108, 101, 201) — never the old literal
     // bg-gray-900/border-gray-900.
@@ -107,7 +129,6 @@ test.describe("Design System Batch 8 — Settings Billing", () => {
       .poll(() => currentBadge.evaluate((el) => getComputedStyle(el).backgroundColor))
       .toBe("rgb(108, 101, 201)");
 
-    const plansSection = page.locator('section[aria-labelledby="billing-plans-heading"]');
     const allCards = plansSection.locator("div.rounded-lg");
     const cardCount = await allCards.count();
     test.skip(cardCount < 2, "Fixture plan catalog does not yield 2+ plan cards");
