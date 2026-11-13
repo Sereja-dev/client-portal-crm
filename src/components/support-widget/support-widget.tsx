@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Select } from "@/components/ui/select";
-import { FormLabel, describedByIds } from "@/components/ui/form-field";
+import { FormLabel, describedByIds, FormErrorMessage } from "@/components/ui/form-field";
 import { SupportIcon, CloseIcon } from "@/components/ui/icons";
 
 const INITIAL_STATE: SupportMessageSubmissionState = { error: null };
@@ -86,9 +86,9 @@ function SupportWidgetForm({ onClose }: { onClose: () => void }) {
           aria-describedby={describedByIds(state.fieldErrors?.email ? `${emailId}-error` : null)}
         />
         {state.fieldErrors?.email && (
-          <p id={`${emailId}-error`} role="alert" className="text-danger mt-1 text-sm">
+          <FormErrorMessage id={`${emailId}-error`} className="mt-1 text-sm">
             {state.fieldErrors.email}
-          </p>
+          </FormErrorMessage>
         )}
       </div>
 
@@ -115,9 +115,9 @@ function SupportWidgetForm({ onClose }: { onClose: () => void }) {
           ))}
         </Select>
         {state.fieldErrors?.issueType && (
-          <p id={`${issueTypeId}-error`} role="alert" className="text-danger mt-1 text-sm">
+          <FormErrorMessage id={`${issueTypeId}-error`} className="mt-1 text-sm">
             {state.fieldErrors.issueType}
-          </p>
+          </FormErrorMessage>
         )}
       </div>
 
@@ -141,9 +141,9 @@ function SupportWidgetForm({ onClose }: { onClose: () => void }) {
           Please describe your issue in {SUPPORT_MESSAGE_MIN_LENGTH}&ndash;{SUPPORT_MESSAGE_MAX_LENGTH} characters.
         </p>
         {state.fieldErrors?.message && (
-          <p id={`${messageId}-error`} role="alert" className="text-danger mt-1 text-sm">
+          <FormErrorMessage id={`${messageId}-error`} className="mt-1 text-sm">
             {state.fieldErrors.message}
-          </p>
+          </FormErrorMessage>
         )}
       </div>
 
@@ -165,9 +165,9 @@ function SupportWidgetForm({ onClose }: { onClose: () => void }) {
       </p>
 
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
 
       <Button type="submit" loading={pending} className="w-full">

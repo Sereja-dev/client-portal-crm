@@ -6,6 +6,7 @@ import { FileInput } from "@/components/ui/file-input";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { uploadCompanyLogoAction } from "./actions";
 import type { LogoUploadState } from "@/types";
+import { FormErrorMessage } from "@/components/ui/form-field";
 
 const initialState: LogoUploadState = { error: null };
 
@@ -103,9 +104,9 @@ function LogoUploadFormInner({ currentLogoUrl }: { currentLogoUrl: string | null
             triggerLabel="Choose logo"
           />
           {state.error && (
-            <p role="alert" className="text-danger text-sm">
+            <FormErrorMessage className="text-sm">
               {state.error}
-            </p>
+            </FormErrorMessage>
           )}
           <Button type="submit" loading={pending}>
             {pending ? "Uploading…" : currentLogoUrl ? "Replace logo" : "Upload logo"}

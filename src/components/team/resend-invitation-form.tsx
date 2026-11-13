@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { CopyLinkButton } from "./copy-link-button";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import type { InvitationFormState } from "@/types";
+import { FormErrorMessage } from "@/components/ui/form-field";
 
 const initialState: InvitationFormState = { error: null };
 
@@ -52,9 +53,9 @@ export function ResendInvitationForm({
         </form>
       </div>
       {state.error && (
-        <p role="alert" className="text-danger text-xs">
+        <FormErrorMessage className="text-xs">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
       {state.message && !state.error && (
         <p

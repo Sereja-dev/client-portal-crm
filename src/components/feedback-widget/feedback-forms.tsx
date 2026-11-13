@@ -25,7 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { FormLabel, describedByIds } from "@/components/ui/form-field";
+import { FormLabel, describedByIds, FormErrorMessage } from "@/components/ui/form-field";
 
 /**
  * Authenticated Staff Feedback Widget — the two forms. Same building blocks as
@@ -52,9 +52,9 @@ function Honeypot({ id }: { id: string }) {
 function FieldError({ id, message }: { id: string; message?: string }) {
   if (!message) return null;
   return (
-    <p id={id} role="alert" className="text-danger mt-1 text-sm">
+    <FormErrorMessage id={id} className="mt-1 text-sm">
       {message}
-    </p>
+    </FormErrorMessage>
   );
 }
 
@@ -143,9 +143,9 @@ function SupportFormInner({ accountEmail, workspaceName, onAnother }: { accountE
       <Honeypot id={`${messageId}-hp`} />
       <p className="text-text-muted text-xs">Please don&rsquo;t include passwords, verification codes, or other sensitive information.</p>
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
       <Button type="submit" loading={pending} className="w-full">
         {pending ? "Sending…" : "Send message"}
@@ -291,9 +291,9 @@ function BugReportFormInner({ accountEmail, workspaceName, onAnother }: { accoun
         </p>
       </div>
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
       <Button type="submit" loading={pending} className="w-full">
         {pending ? "Sending…" : "Send bug report"}

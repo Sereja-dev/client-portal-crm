@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { callActionWithStaleRecovery } from "@/lib/action-error";
 import type { ApplyPresetFormState } from "@/app/(dashboard)/settings/industry-presets/form-state";
+import { FormErrorMessage } from "@/components/ui/form-field";
 
 const initialState: ApplyPresetFormState = { error: null };
 
@@ -28,9 +29,9 @@ export function ApplyPresetButton({
   return (
     <form action={formAction}>
       {state.error && (
-        <p role="alert" className="text-danger mb-3 text-sm">
+        <FormErrorMessage className="mb-3 text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
       <Button type="submit" loading={pending}>
         {pending ? "Applying…" : `Apply ${presetDisplayName}`}

@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/select";
 import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/toast/toast-provider";
 import { useSavedViews } from "@/components/list/use-saved-views";
+import { FormErrorMessage } from "@/components/ui/form-field";
 import {
   normalizeSavedViewName,
   isValidSavedViewName,
@@ -248,9 +249,9 @@ export function SavedViewsControl({
             Cancel
           </button>
           {formError && (
-            <p role="alert" className="text-danger text-xs">
+            <FormErrorMessage className="text-xs">
               {formError}
-            </p>
+            </FormErrorMessage>
           )}
         </form>
       )}
@@ -278,9 +279,9 @@ export function SavedViewsControl({
             Cancel
           </button>
           {formError && (
-            <p role="alert" className="text-danger text-xs">
+            <FormErrorMessage className="text-xs">
               {formError}
-            </p>
+            </FormErrorMessage>
           )}
         </form>
       )}

@@ -4,6 +4,7 @@ import { useActionState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { FileInput } from "@/components/ui/file-input";
 import type { AttachmentUploadState } from "@/types";
+import { FormErrorMessage } from "@/components/ui/form-field";
 
 const initialState: AttachmentUploadState = { error: null };
 
@@ -46,9 +47,9 @@ export function AttachmentUploadForm({
           triggerLabel="Choose file"
         />
         {state.error && (
-          <p role="alert" className="text-danger mt-1 text-sm">
+          <FormErrorMessage className="mt-1 text-sm">
             {state.error}
-          </p>
+          </FormErrorMessage>
         )}
         {disabled && disabledReason && !state.error && (
           <p className="text-text-muted mt-1 text-sm">{disabledReason}</p>

@@ -1,4 +1,5 @@
 import { ReactNode } from "react";
+import { XCircleIcon } from "@/components/ui/icons";
 
 export function FormLabel({
   htmlFor,
@@ -70,9 +71,17 @@ export function FormField({
         <p
           id={`${htmlFor}-error`}
           role="alert"
-          className="text-danger mt-1 text-sm"
+          className="text-danger mt-1 flex items-start gap-1 text-sm font-semibold"
         >
-          {error}
+          {/*
+            Sky-Blue/Grayscale Theme Redesign V1 — Light's --danger is now
+            literal black, identical to ordinary body text color-wise, so
+            this message needs a non-color cue of its own (not just
+            StatusBadge's): a leading icon plus bold weight, matching the
+            same vocabulary StatusBadge's own danger tone now uses.
+          */}
+          <XCircleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{error}</span>
         </p>
       )}
     </div>
@@ -92,4 +101,35 @@ export function FormField({
 export function describedByIds(...ids: (string | null | undefined | false)[]): string | undefined {
   const joined = ids.filter((id): id is string => Boolean(id)).join(" ");
   return joined.length > 0 ? joined : undefined;
+}
+
+/**
+ * Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — the one
+ * shared renderer for a standalone `role="alert"` error message that is
+ * NOT wrapped in `FormField` (a form's own top-level submission error,
+ * e.g. `{state.error && <p role="alert" className="text-danger text-sm">
+ * {state.error}</p>}`). Every one of those call sites was safe while
+ * Light's --danger was a dedicated red; it is now literal black, the
+ * same color as an ordinary heading or typed input value, so the
+ * message needs the same non-color cue `FormField`'s own per-field
+ * error already carries: a leading icon plus bold weight. `className`
+ * is for the caller's own pre-existing spacing/size classes only
+ * (`mt-1`, `mb-3`, `text-xs`, etc. — whatever it already had besides
+ * `text-danger`, which this component always owns itself).
+ */
+export function FormErrorMessage({
+  id,
+  className = "",
+  children,
+}: {
+  id?: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  return (
+    <p id={id} role="alert" className={`text-danger flex items-start gap-1 font-semibold ${className}`.trim()}>
+      <XCircleIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <span>{children}</span>
+    </p>
+  );
 }

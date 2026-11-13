@@ -3,7 +3,7 @@
 import { useActionState, useId, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
 import { CUSTOM_FIELD_LABEL_MAX_LENGTH, FIELD_TYPE_LABELS } from "@/lib/validation/custom-field";
 import { OptionManager, type OptionRow } from "./option-manager";
@@ -194,9 +194,9 @@ function EditDefinitionDialog({
         </p>
 
         {state.error && (
-          <p role="alert" className="text-danger text-sm">
+          <FormErrorMessage className="text-sm">
             {state.error}
-          </p>
+          </FormErrorMessage>
         )}
 
         <div className="flex justify-end gap-3 pt-2">
