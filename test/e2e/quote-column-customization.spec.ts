@@ -87,6 +87,38 @@ async function openColumnsPanel(page: Page): Promise<void> {
   await expect(panel).toBeVisible();
 }
 
+/**
+ * Polls until both target quotes' rows are actually rendered, then makes
+ * a single, non-retried check of their relative order -- a genuinely
+ * wrong order still fails immediately, never masked by a retry. The
+ * table (QuoteDesktopTable) is a Client Component inside this route's
+ * Suspense boundary (quotes/loading.tsx's own skeleton renders no
+ * row-shaped markup at all), so a one-shot read of page.getByRole("row")
+ * immediately after the Sort-by select reflects the URL's sort param can
+ * race a brief window where the select is already correct but the table
+ * hasn't finished its first paint -- directly reproduced locally under
+ * 6x CPU throttling. `rows.findIndex(...)` returning -1 for a genuinely
+ * missing row is asserted explicitly below, never allowed to silently
+ * satisfy the order comparison.
+ */
+async function expectRowBefore(page: Page, first: { number: string }, second: { number: string }): Promise<void> {
+  let rows: string[] = [];
+  await expect
+    .poll(
+      async () => {
+        rows = await page.getByRole("row").allTextContents();
+        return rows.some((t) => t.includes(first.number)) && rows.some((t) => t.includes(second.number));
+      },
+      { message: `expected rows for ${first.number} and ${second.number} to both render` },
+    )
+    .toBe(true);
+  const firstIndex = rows.findIndex((t) => t.includes(first.number));
+  const secondIndex = rows.findIndex((t) => t.includes(second.number));
+  expect(firstIndex, `row for ${first.number} must be present`).toBeGreaterThanOrEqual(0);
+  expect(secondIndex, `row for ${second.number} must be present`).toBeGreaterThanOrEqual(0);
+  expect(firstIndex, `row for ${first.number} must appear before ${second.number}`).toBeLessThan(secondIndex);
+}
+
 test.describe("Quote Column Customization (Tables Improvement Slice E3A)", () => {
   test.beforeAll(async () => {
     fixtures = await seedE2EFixtures();
@@ -193,10 +225,7 @@ test.describe("Quote Column Customization (Tables Improvement Slice E3A)", () =>
     await page.goto(`/quotes?q=E2E-COL-Q-SORT&sort=total:desc`);
 
     await expect(page.getByLabel("Sort by")).toHaveValue("total:desc");
-    const rowsBefore = await page.getByRole("row").allTextContents();
-    expect(rowsBefore.findIndex((t) => t.includes(large.number))).toBeLessThan(
-      rowsBefore.findIndex((t) => t.includes(small.number)),
-    );
+    await expectRowBefore(page, large, small);
 
     await openColumnsPanel(page);
     await page.getByRole("checkbox", { name: "Total", exact: true }).uncheck();
@@ -204,10 +233,7 @@ test.describe("Quote Column Customization (Tables Improvement Slice E3A)", () =>
     await expect(page.getByRole("columnheader", { name: "Total" })).toHaveCount(0);
     await expect(page).toHaveURL(/sort=total(%3A|:)desc/);
     await expect(page.getByLabel("Sort by")).toHaveValue("total:desc");
-    const rowsAfter = await page.getByRole("row").allTextContents();
-    expect(rowsAfter.findIndex((t) => t.includes(large.number))).toBeLessThan(
-      rowsAfter.findIndex((t) => t.includes(small.number)),
-    );
+    await expectRowBefore(page, large, small);
 
     await openColumnsPanel(page);
     await page.getByRole("button", { name: "Reset to default" }).click();
