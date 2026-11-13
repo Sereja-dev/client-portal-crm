@@ -38,6 +38,13 @@ import {
  *  - Only transitions that respect prefers-reduced-motion; no animation while
  *    dragging.
  *  - Fixed-position, so it can never create horizontal page overflow.
+ *  - Idle opacity (see OPACITY_VARIANT_CLASSES below): semi-transparent at
+ *    rest so it is less obtrusive over page content, full opacity on hover,
+ *    keyboard focus, press, drag and while open. This is a className on the
+ *    <button> only — the button and the panel are SIBLINGS under the outer
+ *    div below, not parent/child, so this never touches the panel's own
+ *    opacity. Do not move this class onto the outer wrapping div; that would
+ *    dim the panel too.
  */
 
 type TabKey = "support" | "bug";
@@ -47,6 +54,15 @@ type TabKey = "support" | "bug";
 // create/edit routes that hide that bar, the global footer's legal links.
 const DEFAULT_CLASSES = "right-4 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] md:bottom-8 sm:right-6";
 const SUPPRESS_CLICK_MS = 350;
+// Idle: semi-transparent so the button is less obtrusive over page content. The
+// hover/focus-visible/active variants restore full opacity on their own — never
+// reliant on hover alone, so a tap on a touch device (no hover) still reaches
+// full opacity the moment it is pressed, dragged, or opens the panel (below).
+// Deliberately no plain, unvariant "opacity-100" class is ever added alongside
+// this: two non-variant opacity utilities at the same specificity would leave
+// the winner up to Tailwind's internal CSS source order, not this condition —
+// the base opacity below is instead a single conditional choice (never both).
+const OPACITY_VARIANT_CLASSES = "hover:opacity-100 focus-visible:opacity-100 active:opacity-100";
 
 function readViewport(): Viewport {
   return { width: window.innerWidth, height: window.innerHeight };
@@ -269,9 +285,9 @@ export function FeedbackWidget({
         aria-controls={panelId}
         aria-describedby={hintId}
         style={buttonStyle}
-        className={`focus-visible:ring-focus-ring fixed z-40 flex h-12 w-12 touch-none items-center justify-center rounded-full bg-accent text-white shadow-[var(--aqenra-shadow-lg)] select-none hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 motion-safe:transition-colors ${
-          offset ? "" : DEFAULT_CLASSES
-        } ${dragging ? "cursor-grabbing" : "cursor-grab"} ${open ? "max-sm:hidden" : ""}`}
+        className={`focus-visible:ring-focus-ring fixed z-40 flex h-12 w-12 touch-none items-center justify-center rounded-full bg-accent text-white shadow-[var(--aqenra-shadow-lg)] select-none hover:bg-accent-hover focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 motion-safe:transition-[background-color,opacity] ${OPACITY_VARIANT_CLASSES} ${
+          open || dragging ? "opacity-100" : "opacity-60"
+        } ${offset ? "" : DEFAULT_CLASSES} ${dragging ? "cursor-grabbing" : "cursor-grab"} ${open ? "max-sm:hidden" : ""}`}
       >
         <SupportIcon className="h-6 w-6" />
       </button>
