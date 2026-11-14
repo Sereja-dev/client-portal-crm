@@ -3,6 +3,7 @@
 import { useState, useTransition, type ChangeEvent } from "react";
 import { Select } from "@/components/ui/select";
 import type { MembershipActionState } from "@/types";
+import { FormErrorMessage } from "@/components/ui/form-field";
 
 export function RoleSelect({
   membershipId,
@@ -38,9 +39,9 @@ export function RoleSelect({
         <option value="ADMIN">Admin</option>
       </Select>
       {error && (
-        <p role="alert" className="text-danger mt-1 text-xs">
+        <FormErrorMessage className="mt-1 text-xs">
           {error}
-        </p>
+        </FormErrorMessage>
       )}
     </div>
   );

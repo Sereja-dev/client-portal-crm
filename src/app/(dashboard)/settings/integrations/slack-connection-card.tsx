@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ui/confirm-dialog";
@@ -169,9 +169,9 @@ export function SlackConnectionCard({ connection }: { connection: IntegrationCon
           </p>
 
           {saveState.error && (
-            <p role="alert" className="text-danger text-sm">
+            <FormErrorMessage className="text-sm">
               {saveState.error}
-            </p>
+            </FormErrorMessage>
           )}
 
           <div className="flex gap-3">

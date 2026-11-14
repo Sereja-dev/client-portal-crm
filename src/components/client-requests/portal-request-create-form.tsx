@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import { formatStatusLabel } from "@/lib/format";
 import { callActionWithStaleRecovery } from "@/lib/action-error";
 import {
@@ -91,9 +91,9 @@ export function PortalRequestCreateForm({
       </FormField>
 
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
 
       <Button type="submit" loading={pending}>

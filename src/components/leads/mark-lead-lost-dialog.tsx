@@ -3,6 +3,7 @@
 import { useId, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { FormLabel } from "@/components/ui/form-field";
+import { Button } from "@/components/ui/button";
 import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
 import { LEAD_LOST_REASON_MAX_LENGTH } from "@/lib/validation/lead";
 
@@ -72,16 +73,26 @@ export function MarkLeadLostDialog({
         >
           Cancel
         </button>
-        <button
+        {/*
+          Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — this
+          was a hand-rolled literal bg-red-600/hover:bg-red-700 button,
+          never migrated to the shared Button `danger` variant the way
+          ConfirmDialog's own destructive confirm already was (see that
+          component's own comment). Fixed now: the shared variant is
+          grayscale in Light (its own leading AlertTriangleIcon is the
+          non-color cue that keeps it distinguishable from an ordinary
+          action), and nothing here needed its own one-off color.
+        */}
+        <Button
           type="button"
+          variant="danger"
           onClick={() => {
             dialogRef.current?.close();
             onConfirm(reason);
           }}
-          className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-red-600 focus-visible:ring-offset-2"
         >
           Mark lost
-        </button>
+        </Button>
       </div>
     </dialog>
   );

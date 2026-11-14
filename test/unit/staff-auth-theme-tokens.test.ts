@@ -91,8 +91,10 @@ describe("Pre-Auth Redesign Slice A — fixed-dark shell theme-token migration",
       expect(match, "expected to find AqenraMarkIcon").not.toBeNull();
       const body = match![0];
       expect(body).toMatch(/aria-hidden="true"/);
-      expect(body).toMatch(/#2E2A6B/);
-      expect(body).toMatch(/#6C65C9/);
+      // Sky-Blue/Grayscale Theme Redesign V1 — both squares now reuse
+      // Dark's own --accent-active/--accent (was the purple pair).
+      expect(body).toMatch(/#075A94/);
+      expect(body).toMatch(/#0369A1/);
     });
   });
 
@@ -268,7 +270,12 @@ describe("Pre-Auth Redesign Slice A — fixed-dark shell theme-token migration",
     });
 
     it("accept-invitation-form's error text uses the semantic danger token", () => {
-      expect(ACCEPT_INVITATION_FORM).toMatch(/text-danger/);
+      // Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — the
+      // error text now renders through the shared FormErrorMessage
+      // component (form-field.tsx), which owns the literal "text-danger"
+      // class itself; this call site no longer spells it out directly.
+      expect(ACCEPT_INVITATION_FORM).toMatch(/import\s*\{\s*FormErrorMessage\s*\}\s*from\s*"@\/components\/ui\/form-field"/);
+      expect(ACCEPT_INVITATION_FORM).toMatch(/<FormErrorMessage[\s\S]*?\{state\.error\}/);
       expect(stripDocComments(ACCEPT_INVITATION_FORM)).not.toMatch(LITERAL_COLOR_CLASS);
     });
 

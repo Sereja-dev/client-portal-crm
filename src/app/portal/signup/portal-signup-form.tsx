@@ -5,7 +5,7 @@ import Link from "next/link";
 import { portalSignup } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FormLabel } from "@/components/ui/form-field";
+import { FormLabel, FormErrorMessage } from "@/components/ui/form-field";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import type { ValidPortalSignupInvitation } from "@/lib/invitations/resolve-portal-signup-invitation";
 import type { AuthActionState } from "@/types";
@@ -86,9 +86,9 @@ export function PortalSignupForm({
       </div>
 
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
 
       {state.message && (

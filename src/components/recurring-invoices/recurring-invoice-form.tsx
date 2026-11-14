@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { FormField, FormLabel, describedByIds } from "@/components/ui/form-field";
+import { FormField, FormLabel, describedByIds, FormErrorMessage } from "@/components/ui/form-field";
 import { ChevronDownIcon } from "@/components/ui/icons";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { CurrencySelect } from "@/components/invoices/currency-select";
@@ -604,9 +604,9 @@ export function RecurringInvoiceForm({
         <div>
           <FormLabel htmlFor="lineItems-list">Line items</FormLabel>
           {fieldErrors.lineItems && (
-            <p id="lineItems-error" role="alert" className="text-danger mt-1 text-sm">
+            <FormErrorMessage id="lineItems-error" className="mt-1 text-sm">
               {fieldErrors.lineItems}
-            </p>
+            </FormErrorMessage>
           )}
           <div id="lineItems-list" className="mt-2 space-y-3">
             {lineItems.map((item, index) => (
@@ -791,9 +791,9 @@ export function RecurringInvoiceForm({
       </details>
 
       {state.error && errorsVisible && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
 
       {/*

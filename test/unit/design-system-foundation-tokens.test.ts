@@ -61,11 +61,11 @@ const LIGHT_TOKEN_NAMES = new Set(
 );
 
 describe("design system foundation tokens — src/app/globals.css", () => {
-  it("keeps the existing legacy tokens byte-identical (Phase 1 must not restyle the brand)", () => {
+  it("keeps background/foreground byte-identical, and Light's accent at its Sky-Blue/Grayscale Theme Redesign V1 black value", () => {
     expect(declaredValue("background")).toBe("#ffffff");
     expect(declaredValue("foreground")).toBe("#171717");
-    expect(declaredValue("accent")).toBe("#2E2A6B");
-    expect(declaredValue("accent-hover")).toBe("#221E52");
+    expect(declaredValue("accent")).toBe("#000000");
+    expect(declaredValue("accent-hover")).toBe("#262626");
   });
 
   it("declares every required semantic surface/text/border/brand/focus/semantic token", () => {

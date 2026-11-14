@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { CurrencySelect } from "@/components/invoices/currency-select";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { ConfirmDialog, type ConfirmDialogHandle } from "@/components/ui/confirm-dialog";
 import { callActionWithStaleRecovery } from "@/lib/action-error";
@@ -603,9 +603,9 @@ function CompanyProfileFormFields({
       </fieldset>
 
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
       {state.message && (
         <p role="status" className="text-success text-sm">

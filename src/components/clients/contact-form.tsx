@@ -3,7 +3,7 @@
 import { useActionState, useId } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import {
   CONTACT_NAME_MAX_LENGTH,
   CONTACT_EMAIL_MAX_LENGTH,
@@ -165,9 +165,9 @@ export function ContactForm({
       )}
 
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
 
       <div className="flex justify-end gap-3 pt-2">

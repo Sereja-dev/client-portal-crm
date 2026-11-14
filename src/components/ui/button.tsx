@@ -1,5 +1,5 @@
 import { ButtonHTMLAttributes } from "react";
-import { SpinnerIcon } from "@/components/ui/icons";
+import { AlertTriangleIcon, SpinnerIcon } from "@/components/ui/icons";
 
 /**
  * Two mutually exclusive, non-overlapping class sets — never combined with
@@ -39,6 +39,18 @@ const VARIANT_CLASSES = {
   // surfaces (see globals.css's own Dark SEMANTIC comment). hover uses
   // danger-subtle, the token's own designed "wash over an opaque surface"
   // pairing (the same pattern StatusBadge already relies on).
+  //
+  // Sky-Blue/Grayscale Theme Redesign V1 — Light's --danger is now
+  // literal black (globals.css), the same value --text-primary already
+  // resolves to for all practical purposes, and this variant shares its
+  // own border/background with `secondary` (border-border-strong,
+  // bg-surface) — organization-suspension-controls.tsx renders a
+  // `secondary` Cancel next to a `dangerOutline` confirm in the same
+  // dialog, which would otherwise be two visually near-identical
+  // bordered buttons. The leading AlertTriangleIcon rendered below (see
+  // this component's own render function) is the non-color cue that
+  // keeps this distinguishable, on top of each call site's own specific
+  // wording ("Terminate", "Suspend organization", never "Confirm").
   dangerOutline: "border border-border-strong bg-surface text-danger hover:bg-danger-subtle",
   // Visual Design Improvement V1 — low-emphasis action: no resting
   // background/border at all (a true "ghost"), text-text-secondary
@@ -61,8 +73,24 @@ const VARIANT_CLASSES = {
   // themes. text-inverse (not a literal white) is the same "text on a
   // vivid solid fill" role globals.css's own Dark SEMANTIC comment
   // already documents for primary's white text.
+  //
+  // Sky-Blue/Grayscale Theme Redesign V1 — Light's --danger-button is
+  // now literal black too (globals.css), the exact same value as
+  // `primary`'s own bg-accent, so this is no longer distinguishable from
+  // an ordinary primary action by color at all. The leading
+  // AlertTriangleIcon rendered below is the non-color cue that keeps it
+  // distinguishable, together with each call site's own specific
+  // wording (this variant's only current consumer, ConfirmDialog, always
+  // passes a destructive-specific confirmLabel such as "Delete").
   danger: "bg-danger-button text-text-inverse hover:bg-danger-button-hover",
 } as const;
+
+// Sky-Blue/Grayscale Theme Redesign V1 — variants whose Light rendering
+// is no longer distinguishable from an ordinary action by color alone
+// (see each variant's own comment above); these render an extra leading
+// icon from the shared render function below, never a className-level
+// concern.
+const DANGER_VARIANTS: ReadonlySet<ButtonVariant> = new Set(["danger", "dangerOutline"]);
 
 export type ButtonVariant = keyof typeof VARIANT_CLASSES;
 
@@ -82,6 +110,7 @@ export function Button({
       {...props}
     >
       {loading && <SpinnerIcon className="h-4 w-4" />}
+      {!loading && DANGER_VARIANTS.has(variant) && <AlertTriangleIcon className="h-4 w-4" />}
       {children}
     </button>
   );

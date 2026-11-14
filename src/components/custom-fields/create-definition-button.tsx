@@ -5,7 +5,7 @@ import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { FormField, FormLabel } from "@/components/ui/form-field";
+import { FormField, FormLabel, FormErrorMessage } from "@/components/ui/form-field";
 import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
 import { slugifyCustomFieldIdentifier } from "@/lib/custom-fields/slug";
 import { CUSTOM_FIELD_LABEL_MAX_LENGTH, FIELD_TYPE_LABELS } from "@/lib/validation/custom-field";
@@ -220,9 +220,9 @@ function CreateDefinitionDialog({
         )}
 
         {state.error && (
-          <p role="alert" className="text-danger text-sm">
+          <FormErrorMessage className="text-sm">
             {state.error}
-          </p>
+          </FormErrorMessage>
         )}
 
         <div className="flex justify-end gap-3 pt-2">
