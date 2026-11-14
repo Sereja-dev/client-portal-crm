@@ -222,10 +222,11 @@ test.describe("Design System Batch 7 — Shared uploads + simple Settings", () =
 
     const checkbox = page.locator('input[type="checkbox"]').first();
     await expect(checkbox).toBeVisible();
-    // Dark's --accent is rgb(108, 101, 201) — never the old literal black.
+    // Sky-Blue/Grayscale Theme Redesign V1 — Dark's --accent is now
+    // rgb(3, 105, 161) (#0369A1, was the purple rgb(108, 101, 201)).
     await expect
       .poll(() => checkbox.evaluate((el) => getComputedStyle(el).accentColor))
-      .toBe("rgb(108, 101, 201)");
+      .toBe("rgb(3, 105, 161)");
 
     expect(errors).toEqual([]);
   });

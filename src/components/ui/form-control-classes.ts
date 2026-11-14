@@ -40,11 +40,25 @@
  *    border-color swap stay gated on the same focus-visible: pseudo-
  *    class, in both the valid and invalid branches, so neither state
  *    ever mixes a focus: half with a focus-visible: half.
+ *
+ * Sky-Blue/Grayscale Theme Redesign V1 correction — Light's --danger and
+ * --accent are now both literal black, so the invalid branch's
+ * border/ring color is indistinguishable from the valid branch's once a
+ * field is focused (resting state still differs: --danger black vs
+ * --border-form-control gray, but that gray-vs-black distinction
+ * disappears the moment either field is focused, since both resolve to
+ * the same black ring/border). The border WIDTH is now also part of the
+ * invalid branch (border-2, vs the valid branch's plain 1px border) as a
+ * non-color structural cue that survives focus — resting AND focused, an
+ * invalid field's boundary is visibly heavier than a valid one's,
+ * independent of which theme/color is active. The focus-visible ring
+ * mechanism itself (ring-2/ring-offset-2, gated on focus-visible:) is
+ * unchanged.
  */
 export function formControlClasses(invalid: boolean): string {
-  return `mt-1 block w-full rounded-md border bg-surface px-3 py-2 text-sm text-text-primary shadow-sm placeholder:text-text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-[var(--disabled)] ${
+  return `mt-1 block w-full rounded-md bg-surface px-3 py-2 text-sm text-text-primary shadow-sm placeholder:text-text-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-surface-muted disabled:text-[var(--disabled)] ${
     invalid
-      ? "border-danger focus-visible:border-danger focus-visible:ring-danger"
-      : "border-border-form-control focus-visible:border-accent focus-visible:ring-accent"
+      ? "border-2 border-danger focus-visible:border-danger focus-visible:ring-danger"
+      : "border border-border-form-control focus-visible:border-accent focus-visible:ring-accent"
   }`;
 }

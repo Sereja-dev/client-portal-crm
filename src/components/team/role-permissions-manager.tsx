@@ -5,6 +5,7 @@ import { useToast } from "@/components/toast/toast-provider";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import type { Role } from "@/generated/prisma/enums";
 import type { PermissionCatalogEntry, PermissionGroup, PermissionKey } from "@/lib/permissions/catalog";
+import { FormErrorMessage } from "@/components/ui/form-field";
 
 export type RolePermissionsDraft = Record<"ADMIN" | "MEMBER", Record<PermissionKey, boolean>>;
 
@@ -78,9 +79,9 @@ export function RolePermissionsManager({
   return (
     <div className="mt-6">
       {error && (
-        <p role="alert" className="text-danger mb-4 text-sm">
+        <FormErrorMessage className="mb-4 text-sm">
           {error}
-        </p>
+        </FormErrorMessage>
       )}
 
       {/* Desktop/tablet — both role columns visible together. */}

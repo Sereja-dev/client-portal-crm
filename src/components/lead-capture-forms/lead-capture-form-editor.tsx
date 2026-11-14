@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import { FieldsConfigEditor } from "./fields-config-editor";
 import {
   LEAD_CAPTURE_FORM_NAME_MAX_LENGTH,
@@ -121,9 +121,9 @@ export function LeadCaptureFormEditor({
       </div>
 
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
 
       <div className="flex justify-end gap-3 pt-2">

@@ -86,16 +86,35 @@ function contrastRatio(a: Rgb, b: Rgb): number {
 const WCAG_NON_TEXT_CONTRAST = 3;
 
 describe("Accessibility Improvement A3 — --border-form-control contrast", () => {
-  it("Light --border-form-control resolves to the approved #7C8595", () => {
-    expect(declaredValueIn(LIGHT_BLOCK, "border-form-control")).toBe("#7C8595");
+  // Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — Light's
+  // former #7C8595 was itself cool-tinted (rgb 124,133,149 — R/G/B
+  // unequal), not a literal grayscale value; the owner's own direction
+  // requires equal R/G/B in Light. #858585 is the closest true-neutral
+  // replacement at essentially the same measured contrast margin (see
+  // globals.css's own updated comment on this token) — the dynamic
+  // "passes WCAG 1.4.11" test below re-derives the actual ratio from
+  // this same declared value, so it still fails on its own if a future
+  // change regresses the margin, independent of this exact-value check.
+  it("Light --border-form-control resolves to the approved true-neutral #858585", () => {
+    expect(declaredValueIn(LIGHT_BLOCK, "border-form-control")).toBe("#858585");
   });
 
   it("Dark --border-form-control resolves to the approved rgba(255, 255, 255, 0.40)", () => {
     expect(declaredValueIn(DARK_BLOCK, "border-form-control")).toBe("rgba(255, 255, 255, 0.40)");
   });
 
-  it("--border-strong is unchanged in both themes — this slice never becomes a global border redesign", () => {
-    expect(declaredValueIn(LIGHT_BLOCK, "border-strong")).toBe("#D1D5DB");
+  // Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — this test's
+  // own name describes Accessibility Improvement A3's ORIGINAL, narrower
+  // scope ("never becomes a global border redesign" — i.e. don't widen
+  // a form-control-specific contrast fix into restyling --border-strong's
+  // 60+ unrelated consumers). The owner's current, separate direction is
+  // broader: every chromatic Light token must become true-neutral,
+  // --border-strong included, independent of A3's own role/weight
+  // concern — the HUE changes, nothing about which 60+ consumers share
+  // the token or how prominent it reads. Dark's own value is untouched
+  // (Dark has no grayscale requirement).
+  it("--border-strong is now true-neutral in Light (hue-only correction, not a role/weight redesign); unchanged in Dark", () => {
+    expect(declaredValueIn(LIGHT_BLOCK, "border-strong")).toBe("#D4D4D4");
     expect(declaredValueIn(DARK_BLOCK, "border-strong")).toBe("rgba(255, 255, 255, 0.22)");
   });
 

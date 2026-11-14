@@ -64,7 +64,11 @@ describe("AttachmentUploadForm — adopts the shared FileInput component", () =>
     expect(source).toContain(
       'const ACCEPTED_EXTENSIONS =\n  ".pdf,.png,.jpg,.jpeg,.webp,.txt,.csv,.doc,.docx,.xls,.xlsx";',
     );
-    expect(source).toMatch(/role=["']alert["'][\s\S]*?\{state\.error\}/);
+    // Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — the
+    // standalone state.error alert now renders through the shared
+    // FormErrorMessage component (role="alert" lives there, not spelled
+    // out again at this call site — see form-field.tsx).
+    expect(source).toMatch(/<FormErrorMessage[\s\S]*?\{state\.error\}/);
     expect(source).toMatch(/disabled && disabledReason && !state\.error/);
     expect(source).toMatch(/formRef\.current\?\.reset\(\)/);
   });
@@ -106,7 +110,9 @@ describe("LogoUploadForm — adopts the shared FileInput component", () => {
   it("preserves the existing ACCEPTED_TYPES constant, live blob preview logic, state.error alert, and key-based remount-on-success behavior unchanged", () => {
     expect(source).toContain('const ACCEPTED_TYPES = "image/png,image/jpeg,image/webp";');
     expect(source).toMatch(/URL\.createObjectURL\(file\)/);
-    expect(source).toMatch(/role=["']alert["'][\s\S]*?\{state\.error\}/);
+    // Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — see the
+    // identical note on AttachmentUploadForm's own assertion above.
+    expect(source).toMatch(/<FormErrorMessage[\s\S]*?\{state\.error\}/);
     expect(source).toMatch(/key=\{currentLogoUrl \?\? "none"\}/);
   });
 

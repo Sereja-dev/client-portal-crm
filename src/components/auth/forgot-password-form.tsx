@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FormLabel } from "@/components/ui/form-field";
+import { FormLabel, FormErrorMessage } from "@/components/ui/form-field";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import type { AuthActionState } from "@/types";
 
@@ -54,9 +54,9 @@ export function ForgotPasswordForm({
       </div>
 
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
 
       <Button type="submit" loading={pending} className="w-full">

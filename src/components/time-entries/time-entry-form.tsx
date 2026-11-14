@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { FormField, FormLabel } from "@/components/ui/form-field";
+import { FormField, FormLabel, FormErrorMessage } from "@/components/ui/form-field";
 import { TIME_ENTRY_DESCRIPTION_MAX_LENGTH } from "@/lib/validation/time-entry";
 import { filterTasksByProject, isTaskValidForProject, type TimeEntryTaskOption } from "./filter-tasks-by-project";
 import type { TimeEntryFormState } from "@/types";
@@ -187,9 +187,9 @@ export function TimeEntryForm({
           </div>
         </div>
         {state.fieldErrors?.durationMinutes && (
-          <p role="alert" className="text-danger mt-1 text-sm">
+          <FormErrorMessage className="mt-1 text-sm">
             {state.fieldErrors.durationMinutes}
-          </p>
+          </FormErrorMessage>
         )}
       </div>
 
@@ -218,9 +218,9 @@ export function TimeEntryForm({
       </div>
 
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
 
       <div className="flex justify-end gap-3 pt-2">

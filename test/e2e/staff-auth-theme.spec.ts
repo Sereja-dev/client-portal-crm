@@ -223,7 +223,7 @@ test.describe("Staff Auth link focus — semantic focus ring", () => {
 
     expect(after).not.toBe("none");
     expect(after).not.toBe(before);
-    expect(after).toContain("155, 150, 232"); // --focus-ring (fixed) #9B96E8 — visible on a near-black surface
+    expect(after).toContain("126, 200, 242"); // --focus-ring (fixed) #7EC8F2 — Sky-Blue/Grayscale Theme Redesign V1, visible on a near-black surface
 
     await link.click();
     await expect(page).toHaveURL(/\/forgot-password/);
@@ -239,7 +239,9 @@ test.describe("Portal regression — entirely untouched by the Staff pre-auth re
 
     const main = page.locator("main").first();
     const mainBg = await main.evaluate((el) => getComputedStyle(el).backgroundColor);
-    expect(mainBg).toContain("245, 245, 247"); // --surface-recessed Light — Portal still theme-reactive, not fixed dark
+    // Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — was
+    // 245, 245, 247 (cool-tinted); now true-neutral (R=G=B).
+    expect(mainBg).toContain("245, 245, 245"); // --surface-recessed Light — Portal still theme-reactive, not fixed dark
     expect(mainBg).not.toContain("14, 16, 20"); // never the Staff shell's fixed --background
 
     // Portal's own shell never gained the Staff-only `.auth-shell` class.

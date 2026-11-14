@@ -5,7 +5,7 @@ import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
 import { slugifyCustomStatusIdentifier } from "@/lib/custom-statuses/slug";
 import { COLOR_OPTIONS } from "./color-options";
@@ -164,9 +164,9 @@ function CreateStatusDialog({
         )}
 
         {state.error && (
-          <p role="alert" className="text-danger text-sm">
+          <FormErrorMessage className="text-sm">
             {state.error}
-          </p>
+          </FormErrorMessage>
         )}
 
         <div className="flex justify-end gap-3 pt-2">

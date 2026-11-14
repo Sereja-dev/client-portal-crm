@@ -151,9 +151,10 @@ test.describe("Design System Batch 6 — Global Search", () => {
 
     const activeLink = option.locator("a");
     const activeBg = await activeLink.evaluate((el) => getComputedStyle(el).backgroundColor);
-    // Dark's --accent-subtle is rgba(114, 107, 203, 0.16) — never the old
-    // literal bg-gray-100, and never fully transparent.
-    expect(activeBg).toBe("rgba(114, 107, 203, 0.16)");
+    // Sky-Blue/Grayscale Theme Redesign V1 — Dark's --accent-subtle is now
+    // rgba(3, 105, 161, 0.16) (was the purple rgba(114, 107, 203, 0.16)) —
+    // never the old literal bg-gray-100, and never fully transparent.
+    expect(activeBg).toBe("rgba(3, 105, 161, 0.16)");
 
     const titleColor = await option.locator("p").first().evaluate((el) => getComputedStyle(el).color);
     expect(titleColor).toBe("rgb(236, 237, 238)");

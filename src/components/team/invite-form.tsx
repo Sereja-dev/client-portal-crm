@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import { formatStatusLabel } from "@/lib/format";
 import { INVITABLE_ROLES } from "@/lib/validation/invitation";
 import { CopyLinkButton } from "./copy-link-button";
@@ -57,9 +57,9 @@ export function InviteForm({
       </FormField>
 
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
 
       {state.token && (

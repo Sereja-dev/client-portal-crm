@@ -191,6 +191,29 @@ describe("Button — variant classes never overlap on the same color utility (co
     expect(danger).not.toMatch(/\btext-white\b/);
     expect(danger).not.toMatch(/focus-visible:ring-red-\d+\b/);
   });
+
+  // Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — Light's
+  // danger/dangerOutline are now the same literal black as primary/
+  // secondary (see the two tests above and globals.css), so the
+  // component itself must render a non-color cue; a source-contract
+  // check that the render function actually wires up an icon for
+  // exactly these two variants (not for primary/secondary/ghost, which
+  // never needed one and must stay visually unchanged).
+  it("renders a leading AlertTriangleIcon for danger/dangerOutline only, gated on !loading (never doubled up with the loading spinner)", () => {
+    expect(source).toMatch(/import\s*\{[^}]*\bAlertTriangleIcon\b[^}]*\}\s*from\s*"@\/components\/ui\/icons"/);
+    const dangerVariantsMatch = source.match(/DANGER_VARIANTS[^=]*=\s*new Set\(\[([^\]]*)\]\)/);
+    expect(dangerVariantsMatch).not.toBeNull();
+    const dangerVariantNames = dangerVariantsMatch![1];
+    expect(dangerVariantNames).toContain('"danger"');
+    expect(dangerVariantNames).toContain('"dangerOutline"');
+    expect(dangerVariantNames).not.toContain('"primary"');
+    expect(dangerVariantNames).not.toContain('"secondary"');
+    expect(dangerVariantNames).not.toContain('"ghost"');
+
+    const iconLine = source.match(/\{!loading[^}]*AlertTriangleIcon[^}]*\}/);
+    expect(iconLine).not.toBeNull();
+    expect(iconLine![0]).toContain("DANGER_VARIANTS.has(variant)");
+  });
 });
 
 /**
@@ -262,16 +285,29 @@ describe("danger-button tokens — WCAG AA contrast proof (Light and Dark, base 
     expect(contrastRatio(hex, WHITE)).toBeGreaterThanOrEqual(WCAG_AA_NORMAL_TEXT);
   });
 
-  // Dark's own base/hover values are the Light pair with roles swapped
-  // (documented in globals.css) — proven directly rather than just
-  // trusting the comment, so this fails if that relationship is ever
-  // silently broken.
-  it("Dark reuses the exact same two hex values as Light, with base/hover roles swapped", () => {
-    const lightBase = extractToken(lightBlock, "danger-button");
-    const lightHover = extractToken(lightBlock, "danger-button-hover");
-    const darkBase = extractToken(darkBlock, "danger-button");
-    const darkHover = extractToken(darkBlock, "danger-button-hover");
-    expect(darkBase).toBe(lightHover);
-    expect(darkHover).toBe(lightBase);
+  // Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — Light's
+  // --danger-button no longer shares a hue family with Dark's at all
+  // (the superseded "Dark reuses the Light pair, roles swapped"
+  // relationship this test previously proved no longer holds, and must
+  // not): the owner's direction is Light grayscale throughout, with no
+  // colored exception for destructive controls — not a scoped
+  // instruction to keep a red family consistent across themes. Light's
+  // pair must now equal --accent/--accent-hover's own black family
+  // exactly (the same non-color-cue reasoning as button.tsx's own
+  // `danger`/`dangerOutline` variant comments); Dark's pair is
+  // unaffected by this redesign (Dark's danger-button was never purple)
+  // and must still prove the exact pre-existing values, unchanged.
+  it("Light's danger-button pair equals --accent/--accent-hover's own black family, not a red one", () => {
+    const lightAccent = extractToken(lightBlock, "accent");
+    const lightAccentHover = extractToken(lightBlock, "accent-hover");
+    const lightDangerButton = extractToken(lightBlock, "danger-button");
+    const lightDangerButtonHover = extractToken(lightBlock, "danger-button-hover");
+    expect(lightDangerButton).toBe(lightAccent);
+    expect(lightDangerButtonHover).toBe(lightAccentHover);
+  });
+
+  it("Dark's danger-button pair is unchanged by this redesign (Dark's own red was never purple, so it is out of scope)", () => {
+    expect(extractToken(darkBlock, "danger-button")).toBe("#B91C1C");
+    expect(extractToken(darkBlock, "danger-button-hover")).toBe("#DC2626");
   });
 });

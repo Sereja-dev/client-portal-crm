@@ -1,6 +1,6 @@
 "use client";
 
-import { FormLabel } from "@/components/ui/form-field";
+import { FormLabel, FormErrorMessage } from "@/components/ui/form-field";
 import { Input } from "@/components/ui/input";
 import type { InvoiceLineItemFormValue } from "@/lib/invoices/line-items-form";
 import type { InvoiceLineItemFieldKey } from "@/types";
@@ -31,9 +31,9 @@ function RowField({
         aria-describedby={error ? `${id}-error` : undefined}
       />
       {error && (
-        <p id={`${id}-error`} role="alert" className="text-danger mt-1 text-sm">
+        <FormErrorMessage id={`${id}-error`} className="mt-1 text-sm">
           {error}
-        </p>
+        </FormErrorMessage>
       )}
     </div>
   );

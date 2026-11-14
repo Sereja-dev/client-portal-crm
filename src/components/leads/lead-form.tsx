@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import { formatStatusLabel } from "@/lib/format";
 import {
   LEAD_SOURCES,
@@ -198,9 +198,9 @@ export function LeadForm({
       <TagsFormSection options={tagOptions} selectedTagIds={selectedTagIds} archivedAssigned={archivedAssignedTags} />
 
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
 
       <div className="flex gap-3 pt-2">

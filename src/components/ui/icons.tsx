@@ -70,6 +70,72 @@ export function CheckIcon({ className = "h-4 w-4" }: IconProps) {
   );
 }
 
+// Sky-Blue/Grayscale Theme Redesign V1 — StatusBadge's own new per-tone
+// icons (see status-badge.tsx). Needed specifically because the Light
+// theme's success/warning/danger/info are now grayscale: the label text
+// already carries the meaning, but the owner's own instruction requires
+// an additional non-color cue too, so each tone gets a small, distinct
+// leading icon (rendered in both themes, for one consistent badge
+// appearance — never a Light-only branch). Same stroke-icon convention
+// as CheckIcon (already reused for "success") — viewBox 0 0 24 24,
+// stroke="currentColor", round caps/joins.
+export function InfoCircleIcon({ className = "h-3.5 w-3.5" }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11v5" />
+      <path d="M12 8h.01" />
+    </svg>
+  );
+}
+
+export function AlertTriangleIcon({ className = "h-3.5 w-3.5" }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <path d="M10.29 3.86 1.82 18a1.5 1.5 0 0 0 1.29 2.25h17.78A1.5 1.5 0 0 0 22.18 18L13.71 3.86a1.5 1.5 0 0 0-2.42 0Z" />
+      <path d="M12 9v4" />
+      <path d="M12 17h.01" />
+    </svg>
+  );
+}
+
+export function XCircleIcon({ className = "h-3.5 w-3.5" }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      <circle cx="12" cy="12" r="9" />
+      <path d="m9.5 9.5 5 5" />
+      <path d="m14.5 9.5-5 5" />
+    </svg>
+  );
+}
+
 export function InboxIcon({ className = "h-10 w-10" }: IconProps) {
   return (
     <svg
@@ -339,18 +405,26 @@ export function SignOutIcon({ className = "h-4 w-4" }: IconProps) {
 /**
  * Pre-Auth Redesign, Slice A — the first reusable in-UI brand mark; every
  * existing brand mention (Sidebar, the old AuthCard) was plain text only.
- * Byte-for-byte the same geometry as the already-approved favicon
- * (src/app/icon.svg: two overlapping rounded squares, viewBox 0 0 32 32)
- * — reused, not reinvented. Colors are the existing Light/Dark accent
- * pair (globals.css), never a new hex. Always decorative: every call
- * site pairs this with adjacent "Aqenra" text that already carries the
- * accessible name, so aria-hidden is correct here, not a gap.
+ * Byte-for-byte the same geometry as the favicon (src/app/icon.svg: two
+ * overlapping rounded squares, viewBox 0 0 32 32) — reused, not
+ * reinvented.
+ *
+ * Sky-Blue/Grayscale Theme Redesign — this mark's only call site
+ * (auth-shell.tsx) is the always-dark `.auth-shell` surface, never the
+ * Light surface, so both squares are drawn from Dark's own sky-blue
+ * accent family specifically (never "one square per theme", which would
+ * put a near-invisible black square on a near-black background) —
+ * --accent-active (back, darker) and --accent (front, lighter), the
+ * same two tokens globals.css's own Dark block defines, never a new
+ * hex. Always decorative: every call site pairs this with adjacent
+ * "Aqenra" text that already carries the accessible name, so aria-hidden
+ * is correct here, not a gap.
  */
 export function AqenraMarkIcon({ className = "h-7 w-7" }: IconProps) {
   return (
     <svg aria-hidden="true" viewBox="0 0 32 32" className={className}>
-      <rect x="4" y="4" width="18" height="18" rx="5" fill="#2E2A6B" />
-      <rect x="10" y="10" width="18" height="18" rx="5" fill="#6C65C9" />
+      <rect x="4" y="4" width="18" height="18" rx="5" fill="#075A94" />
+      <rect x="10" y="10" width="18" height="18" rx="5" fill="#0369A1" />
     </svg>
   );
 }

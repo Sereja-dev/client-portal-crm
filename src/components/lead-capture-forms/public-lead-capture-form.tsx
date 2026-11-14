@@ -4,7 +4,7 @@ import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import { submitLeadCaptureFormAction, type LeadCaptureSubmissionState } from "@/app/forms/[token]/actions";
 import type { PublicLeadCaptureFormField } from "@/lib/lead-capture-forms/fields";
 
@@ -28,7 +28,7 @@ export function PublicLeadCaptureForm({
 
   if (state.success) {
     return (
-      <p role="status" className="text-sm text-gray-700">
+      <p role="status" className="text-text-secondary text-sm">
         {successMessage ?? "Thanks — we've received your submission."}
       </p>
     );
@@ -36,11 +36,16 @@ export function PublicLeadCaptureForm({
 
   return (
     <form action={formAction} className="space-y-4">
-      {state.error && (
-        <p role="alert" className="text-sm text-red-600">
-          {state.error}
-        </p>
-      )}
+      {/*
+        Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — this
+        standalone top-level error was missed by the earlier
+        FormErrorMessage migration because it used a raw text-red-600
+        literal instead of the semantic text-danger token that migration
+        searched for. A live, uncorrected red on an otherwise grayscale
+        Light theme — fixed now to the same shared component every other
+        top-level form error already uses.
+      */}
+      {state.error && <FormErrorMessage className="text-sm">{state.error}</FormErrorMessage>}
 
       {fields.map((field) =>
         field.key === "message" ? (

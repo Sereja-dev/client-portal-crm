@@ -5,7 +5,7 @@ import { updatePaymentDetailsAction } from "./actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import type { PaymentDetailsFormState } from "@/types";
 import type { PaymentDetailsData } from "@/lib/organization-setup/payment-details";
@@ -73,9 +73,9 @@ export function PaymentDetailsForm({ details }: { details: PaymentDetailsData })
       </FormField>
 
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
       {state.message && (
         <p role="status" className="text-success text-sm">

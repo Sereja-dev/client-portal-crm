@@ -130,11 +130,14 @@ test.describe("Form controls — resting border resolves to --border-form-contro
     await expect(timezone).toBeVisible();
 
     const restingBorder = await timezone.evaluate((el) => getComputedStyle(el).borderColor);
-    // #7C8595 == rgb(124, 133, 149) — the approved Light --border-form-control
-    // value; the previous --border-strong (#D1D5DB == rgb(209, 213, 219))
-    // must be gone.
-    expect(restingBorder).toContain("124, 133, 149");
-    expect(restingBorder).not.toContain("209, 213, 219");
+    // Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — the
+    // approved Light --border-form-control value is now the true-neutral
+    // #858585 == rgb(133, 133, 133) (was the cool-tinted #7C8595); the
+    // Light --border-strong family (now #D4D4D4 == rgb(212, 212, 212),
+    // was #D1D5DB) must be gone from this specific control's own
+    // resting border.
+    expect(restingBorder).toContain("133, 133, 133");
+    expect(restingBorder).not.toContain("212, 212, 212");
 
     const beforeFocus = restingBorder;
     const beforeShadow = await timezone.evaluate((el) => getComputedStyle(el).boxShadow);
@@ -146,7 +149,7 @@ test.describe("Form controls — resting border resolves to --border-form-contro
     // only the ring (box-shadow) and the border-color swap-on-focus
     // change on :focus-visible, never the computed value this specific
     // assertion reads before that swap takes effect in the same tick.
-    expect(beforeFocus).toContain("124, 133, 149");
+    expect(beforeFocus).toContain("133, 133, 133");
   });
 
   test("plain <Input> (Display / company name): resting border is the new token's color, focus produces a wider/offset ring than the old 1px treatment", async ({
@@ -161,7 +164,7 @@ test.describe("Form controls — resting border resolves to --border-form-contro
     await expect(displayName).toBeVisible();
 
     const restingBorder = await displayName.evaluate((el) => getComputedStyle(el).borderColor);
-    expect(restingBorder).toContain("124, 133, 149");
+    expect(restingBorder).toContain("133, 133, 133");
 
     const beforeShadow = await displayName.evaluate((el) => getComputedStyle(el).boxShadow);
     await displayName.focus();
@@ -199,7 +202,7 @@ test.describe("Form controls — resting border resolves to --border-form-contro
     await expect(currency).toHaveAttribute("role", "combobox");
 
     const restingBorder = await currency.evaluate((el) => getComputedStyle(el).borderColor);
-    expect(restingBorder).toContain("124, 133, 149");
+    expect(restingBorder).toContain("133, 133, 133");
 
     const beforeShadow = await currency.evaluate((el) => getComputedStyle(el).boxShadow);
     await currency.focus();

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { FormField, FormLabel } from "@/components/ui/form-field";
+import { FormField, FormLabel, FormErrorMessage } from "@/components/ui/form-field";
 import { InvoiceLineItemRow } from "@/components/invoices/invoice-line-item-row";
 import { useToast } from "@/components/toast/toast-provider";
 import { withToast } from "@/lib/toast-url";
@@ -257,9 +257,9 @@ export function QuoteTemplateForm({
       <div>
         <FormLabel htmlFor="items-list">Line items</FormLabel>
         {fieldErrors.items && (
-          <p id="items-error" role="alert" className="text-danger mt-1 text-sm">
+          <FormErrorMessage id="items-error" className="mt-1 text-sm">
             {fieldErrors.items}
-          </p>
+          </FormErrorMessage>
         )}
         <div id="items-list" className="mt-2 space-y-3">
           {items.map((item, index) => (

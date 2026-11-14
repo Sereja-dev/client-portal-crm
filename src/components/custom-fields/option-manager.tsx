@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { CUSTOM_FIELD_LABEL_MAX_LENGTH } from "@/lib/validation/custom-field";
 import { callActionWithStaleRecovery, isStaleServerActionError, STALE_ACTION_MESSAGE } from "@/lib/action-error";
 import type { CustomFieldOptionFormState } from "@/types";
+import { FormErrorMessage } from "@/components/ui/form-field";
 
 export type OptionRow = {
   id: string;
@@ -243,9 +244,9 @@ function RenameOptionForm({ option, onDone }: { option: OptionRow; onDone: () =>
         Cancel
       </button>
       {state.fieldErrors?.label && (
-        <p role="alert" className="text-danger text-xs">
+        <FormErrorMessage className="text-xs">
           {state.fieldErrors.label}
-        </p>
+        </FormErrorMessage>
       )}
     </form>
   );
@@ -288,14 +289,14 @@ function AddOptionForm({
         Add
       </Button>
       {state.fieldErrors?.label && (
-        <p role="alert" className="text-danger text-xs">
+        <FormErrorMessage className="text-xs">
           {state.fieldErrors.label}
-        </p>
+        </FormErrorMessage>
       )}
       {state.error && (
-        <p role="alert" className="text-danger text-xs">
+        <FormErrorMessage className="text-xs">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
     </form>
   );

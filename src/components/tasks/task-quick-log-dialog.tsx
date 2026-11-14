@@ -4,7 +4,7 @@ import { useActionState, useImperativeHandle, useRef, type Ref } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import { DialogShell, DialogTitle, DialogActions } from "@/components/ui/dialog-shell";
 import { createTimeEntryAction } from "@/app/(dashboard)/time/actions";
 import type { TimeEntryFormState } from "@/types";
@@ -134,9 +134,9 @@ export function TaskQuickLogDialog({
          * FormField-attached rendering above, unduplicated here.
          */}
         {(state.error || state.fieldErrors?.taskId || state.fieldErrors?.projectId || state.fieldErrors?.userId) && (
-          <p role="alert" className="text-danger text-sm">
+          <FormErrorMessage className="text-sm">
             {state.error ?? state.fieldErrors?.taskId ?? state.fieldErrors?.projectId ?? state.fieldErrors?.userId}
-          </p>
+          </FormErrorMessage>
         )}
         </div>
 

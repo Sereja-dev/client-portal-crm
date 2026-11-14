@@ -1,4 +1,5 @@
 import { formatStatusLabel } from "@/lib/format";
+import { AlertTriangleIcon, CheckIcon, InfoCircleIcon, XCircleIcon } from "@/components/ui/icons";
 
 export type StatusTone = "neutral" | "info" | "warning" | "success" | "danger" | "muted";
 
@@ -13,13 +14,37 @@ export type StatusTone = "neutral" | "info" | "warning" | "success" | "danger" |
 // bg-gray-200/text-gray-500 did not; the two were already close — muted
 // is kept the quieter of the two via surface-recessed + text-muted vs.
 // neutral's surface-muted + text-secondary).
+//
+// Sky-Blue/Grayscale Theme Redesign V1 — danger additionally gets a
+// visible border and bolder weight (globals.css's own Light --danger is
+// now literal black, the theme's own "most prominent" ink), carrying
+// extra emphasis for the one state the owner's own instructions single
+// out ("do not make destructive actions indistinguishable"); the other
+// three tones are intentionally plain, since their own semantic
+// COLOR distinction is removed in a grayscale Light theme (see
+// TONE_ICONS below for the non-color cue that replaces it).
 const TONE_CLASSES: Record<StatusTone, string> = {
   neutral: "bg-surface-muted text-text-secondary",
   info: "bg-info-subtle text-info",
   warning: "bg-warning-subtle text-warning",
   success: "bg-success-subtle text-success",
-  danger: "bg-danger-subtle text-danger",
+  danger: "border border-border-strong bg-danger-subtle text-danger font-semibold",
   muted: "bg-surface-recessed text-text-muted",
+};
+
+// Sky-Blue/Grayscale Theme Redesign V1 — a small leading icon per
+// semantic tone, so meaning never depends on color alone (WCAG 1.4.1),
+// which matters specifically now that Light's success/warning/danger/
+// info all render in some shade of gray/black. Rendered in both themes
+// for one consistent badge appearance, not a Light-only branch.
+// neutral/muted intentionally have none — they represent "no particular
+// status", not a semantic state, exactly as this file's own TONE_CLASSES
+// comment above already distinguishes.
+const TONE_ICONS: Partial<Record<StatusTone, typeof CheckIcon>> = {
+  info: InfoCircleIcon,
+  warning: AlertTriangleIcon,
+  success: CheckIcon,
+  danger: XCircleIcon,
 };
 
 // Shared across ClientStatus, ProjectStatus, TaskStatus, TaskPriority,
@@ -194,10 +219,12 @@ export const STATUS_TONES: Record<string, StatusTone> = {
 // every pre-existing caller that only ever passed `status`/`label`.
 export function StatusBadge({ status, label, tone: toneOverride }: { status: string; label?: string; tone?: StatusTone }) {
   const tone = toneOverride ?? STATUS_TONES[status] ?? "neutral";
+  const ToneIcon = TONE_ICONS[tone];
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${TONE_CLASSES[tone]}`}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${TONE_CLASSES[tone]}`}
     >
+      {ToneIcon && <ToneIcon className="h-3 w-3 shrink-0" />}
       {label ?? formatStatusLabel(status)}
     </span>
   );

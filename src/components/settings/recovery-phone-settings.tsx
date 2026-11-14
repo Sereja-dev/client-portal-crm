@@ -6,7 +6,7 @@ import { PhoneVerificationControls } from "@/components/settings/phone-verificat
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { FormLabel } from "@/components/ui/form-field";
+import { FormLabel, FormErrorMessage } from "@/components/ui/form-field";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { CARD_SURFACE_CLASSES } from "@/components/ui/surface";
 import { formatPhoneNumberAsYouType, DEFAULT_PHONE_COUNTRY, type CountryCode, type PhoneCountryOption } from "@/lib/phone";
@@ -229,9 +229,9 @@ export function RecoveryPhoneSettings({
           </div>
 
           {state.error && (
-            <p id="recovery-phone-error" role="alert" className="text-danger text-sm">
+            <FormErrorMessage id="recovery-phone-error" className="text-sm">
               {state.error}
-            </p>
+            </FormErrorMessage>
           )}
           {!state.error && state.message && (
             <p role="status" className="text-success text-sm">

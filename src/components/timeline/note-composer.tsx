@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { FormLabel } from "@/components/ui/form-field";
+import { FormLabel, FormErrorMessage } from "@/components/ui/form-field";
 import { COMMENT_BODY_MAX_LENGTH } from "@/lib/comments/validate-body";
 import { callActionWithStaleRecovery } from "@/lib/action-error";
 import type { TimelineNoteActionState } from "@/types";
@@ -98,9 +98,9 @@ export function NoteComposer({
       </p>
 
       {state.error && (
-        <p id={`${bodyFieldId}-error`} role="alert" className="text-danger text-sm">
+        <FormErrorMessage id={`${bodyFieldId}-error`} className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
 
       <div className="flex items-center gap-3">

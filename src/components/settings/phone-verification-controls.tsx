@@ -8,7 +8,7 @@ import {
 } from "@/app/(dashboard)/settings/account/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FormLabel } from "@/components/ui/form-field";
+import { FormLabel, FormErrorMessage } from "@/components/ui/form-field";
 
 const initialState: RecoveryPhoneFormState = { error: null };
 const RESEND_COOLDOWN_SECONDS = 30;
@@ -99,9 +99,9 @@ export function PhoneVerificationControls({ verificationAvailable }: { verificat
             {sendPending ? "Sending…" : "Send verification code"}
           </Button>
           {sendState.error && (
-            <p role="alert" className="text-danger mt-2 text-sm">
+            <FormErrorMessage className="mt-2 text-sm">
               {sendState.error}
-            </p>
+            </FormErrorMessage>
           )}
         </form>
       ) : (
@@ -134,9 +134,9 @@ export function PhoneVerificationControls({ verificationAvailable }: { verificat
           </form>
 
           {verifyState.error && (
-            <p id="recovery-phone-verify-error" role="alert" className="text-danger text-sm">
+            <FormErrorMessage id="recovery-phone-verify-error" className="text-sm">
               {verifyState.error}
-            </p>
+            </FormErrorMessage>
           )}
 
           <form action={sendAction}>
@@ -151,9 +151,9 @@ export function PhoneVerificationControls({ verificationAvailable }: { verificat
             </Button>
           </form>
           {sendState.error && (
-            <p role="alert" className="text-danger text-sm">
+            <FormErrorMessage className="text-sm">
               {sendState.error}
-            </p>
+            </FormErrorMessage>
           )}
         </div>
       )}

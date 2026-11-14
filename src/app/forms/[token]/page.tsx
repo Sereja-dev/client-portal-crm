@@ -18,10 +18,21 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+/**
+ * Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — this page
+ * never adopted the shared semantic tokens (globals.css), instead
+ * hand-rolling Tailwind's cool-tinted "gray" scale directly
+ * (bg-gray-50/border-gray-200/bg-white/text-gray-900/text-gray-600) —
+ * found during the owner's own "inventory ALL app-owned light-theme...
+ * hardcoded styles" audit. This page renders inside the normal root
+ * layout (unlike global-error.tsx, which replaces it and deliberately
+ * stays dependency-free), so it has the same access to the token system
+ * every other page already uses — now migrated to it.
+ */
 function FormCard({ children }: { children: React.ReactNode }) {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-gray-50 px-4 py-12">
-      <div className="w-full max-w-md rounded-lg border border-gray-200 bg-white p-8 shadow-sm">{children}</div>
+    <main className="bg-surface-recessed flex min-h-screen items-center justify-center px-4 py-12">
+      <div className="border-border-default bg-surface w-full max-w-md rounded-lg border p-8 shadow-sm">{children}</div>
     </main>
   );
 }
@@ -33,16 +44,16 @@ export default async function PublicLeadCaptureFormPage({ params }: { params: Pr
   if (!form) {
     return (
       <FormCard>
-        <h1 className="mb-2 text-xl font-semibold tracking-tight text-gray-900">Form not found</h1>
-        <p className="text-sm text-gray-600">This form is not available.</p>
+        <h1 className="text-text-primary mb-2 text-xl font-semibold tracking-tight">Form not found</h1>
+        <p className="text-text-secondary text-sm">This form is not available.</p>
       </FormCard>
     );
   }
 
   return (
     <FormCard>
-      <h1 className="mb-2 text-xl font-semibold tracking-tight text-gray-900">{form.title}</h1>
-      {form.description && <p className="mb-6 text-sm text-gray-600">{form.description}</p>}
+      <h1 className="text-text-primary mb-2 text-xl font-semibold tracking-tight">{form.title}</h1>
+      {form.description && <p className="text-text-secondary mb-6 text-sm">{form.description}</p>}
       <PublicLeadCaptureForm token={token} fields={form.fields} successMessage={form.successMessage} />
     </FormCard>
   );

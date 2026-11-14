@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import { PortalCopyLinkButton } from "./portal-copy-link-button";
 import type { PortalInvitationFormState } from "@/types";
 
@@ -38,9 +38,9 @@ export function PortalInviteForm({
       </FormField>
 
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
 
       {state.token && (

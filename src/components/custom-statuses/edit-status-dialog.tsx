@@ -4,7 +4,7 @@ import { useActionState, useId, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
 import { COLOR_OPTIONS } from "./color-options";
 import { SetDefaultButton } from "./status-row-actions";
@@ -178,9 +178,9 @@ function EditStatusDialog({
         </FormField>
 
         {state.error && (
-          <p role="alert" className="text-danger text-sm">
+          <FormErrorMessage className="text-sm">
             {state.error}
-          </p>
+          </FormErrorMessage>
         )}
 
         <div className="flex items-center justify-between gap-3 pt-2">

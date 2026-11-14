@@ -112,9 +112,16 @@ describe("Accessibility Improvement A2 — dark-mode --text-muted contrast", () 
     expect(disabled.toLowerCase() < muted.toLowerCase()).toBe(true);
   });
 
-  it("light-mode --text-muted is unchanged and still passes WCAG AA on its own real backgrounds", () => {
+  // Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — the former
+  // #6B7280 was cool-tinted (rgb 107,114,128 — R/G/B unequal), not the
+  // literal grayscale the owner's own direction requires in Light;
+  // #737373 is the true-neutral (R=G=B) replacement at the matching
+  // Tailwind lightness step. The two contrast assertions below re-derive
+  // the actual ratio from this same declared value, so they still fail
+  // on their own if a future change regresses below WCAG AA.
+  it("light-mode --text-muted is now true-neutral (R=G=B) and still passes WCAG AA on its own real backgrounds", () => {
     const textMuted = declaredValueIn(LIGHT_BLOCK, "text-muted")!;
-    expect(textMuted).toBe("#6B7280");
+    expect(textMuted).toBe("#737373");
 
     const background = declaredValueIn(LIGHT_BLOCK, "background")!;
     const surfaceMuted = declaredValueIn(LIGHT_BLOCK, "surface-muted")!;

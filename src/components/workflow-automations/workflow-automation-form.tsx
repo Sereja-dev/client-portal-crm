@@ -4,7 +4,7 @@ import { useActionState, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import { callActionWithStaleRecovery } from "@/lib/action-error";
 import type { WorkflowAutomationFormState } from "@/types";
 
@@ -389,9 +389,9 @@ export function WorkflowAutomationForm({
       </fieldset>
 
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
 
       <div className="flex gap-3 pt-2">

@@ -50,20 +50,24 @@ test("sidebar shows the product wordmark from the central branding config, not a
 });
 
 /**
- * Aqenra brand PR 2 — real, browser-computed proof that the active nav
- * item renders the approved Aqenra Indigo accent (#2E2A6B = rgb(46, 42,
- * 107)) rather than the old bg-black. A computed-style assertion, not a
- * class-name/snapshot check — genuinely fails if the accent token ever
- * silently resolves to the wrong color or reverts to black.
+ * Aqenra brand PR 2, updated by the Sky-Blue/Grayscale Theme Redesign
+ * V1 — real, browser-computed proof that the active nav item renders
+ * the current Light --accent token specifically (literal black, by this
+ * redesign's own owner-approved direction), not some other hardcoded
+ * color. A computed-style assertion, not a class-name/snapshot check —
+ * genuinely fails if the accent token ever silently resolves to the
+ * wrong color.
  */
-test("sidebar active navigation item uses the Aqenra accent color, not the old black", async ({ page }) => {
+test("sidebar active navigation item uses the Light --accent token color", async ({ page }) => {
   await page.goto("/dashboard");
   const nav = page.getByRole("navigation", { name: "Primary" });
   // Sidebar Information Architecture — /dashboard's own single-destination
   // group renders labeled "Home" (the approved top-level group name), not
   // "Dashboard" (the underlying route's own former link label).
   const activeLink = nav.getByRole("link", { name: "Home" });
-  await expect(activeLink).toHaveCSS("background-color", "rgb(46, 42, 107)");
+  // Sky-Blue/Grayscale Theme Redesign V1 — Light's --accent is now
+  // literal black (was the purple rgb(46, 42, 107)).
+  await expect(activeLink).toHaveCSS("background-color", "rgb(0, 0, 0)");
 });
 
 test("sidebar navigation reaches every staff section", async ({ page }) => {

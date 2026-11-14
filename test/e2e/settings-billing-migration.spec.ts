@@ -123,11 +123,12 @@ test.describe("Design System Batch 8 — Settings Billing", () => {
     const currentBadge = plansSection.locator("span").filter({ hasText: "Current plan" });
     await expect(currentBadge).toHaveCount(1);
     await expect(currentBadge).toBeVisible();
-    // Dark's --accent is rgb(108, 101, 201) — never the old literal
-    // bg-gray-900/border-gray-900.
+    // Sky-Blue/Grayscale Theme Redesign V1 — Dark's --accent is now
+    // rgb(3, 105, 161) (#0369A1, was the purple rgb(108, 101, 201)) —
+    // never the old literal bg-gray-900/border-gray-900.
     await expect
       .poll(() => currentBadge.evaluate((el) => getComputedStyle(el).backgroundColor))
-      .toBe("rgb(108, 101, 201)");
+      .toBe("rgb(3, 105, 161)");
 
     const allCards = plansSection.locator("div.rounded-lg");
     const cardCount = await allCards.count();
@@ -136,11 +137,11 @@ test.describe("Design System Batch 8 — Settings Billing", () => {
     const currentCard = allCards.filter({ hasText: "Current plan" }).first();
     await expect
       .poll(() => currentCard.evaluate((el) => getComputedStyle(el).borderColor))
-      .toBe("rgb(108, 101, 201)");
+      .toBe("rgb(3, 105, 161)");
 
     const otherCard = allCards.filter({ hasNotText: "Current plan" }).first();
     const otherBorder = await otherCard.evaluate((el) => getComputedStyle(el).borderColor);
-    expect(otherBorder).not.toBe("rgb(108, 101, 201)");
+    expect(otherBorder).not.toBe("rgb(3, 105, 161)");
   });
 
   test("Dark: usage bar fill reflects status — NORMAL is accent, EXCEEDED is danger", async ({ page }) => {
@@ -162,8 +163,9 @@ test.describe("Design System Batch 8 — Settings Billing", () => {
     const clientsFill = clientsRow.locator('[role="progressbar"] > div');
     await expect
       .poll(() => clientsFill.evaluate((el) => getComputedStyle(el).backgroundColor))
-      // Dark's --accent (rgb(108, 101, 201)) for NORMAL usage.
-      .toBe("rgb(108, 101, 201)");
+      // Sky-Blue/Grayscale Theme Redesign V1 — Dark's --accent (now
+      // rgb(3, 105, 161) / #0369A1) for NORMAL usage.
+      .toBe("rgb(3, 105, 161)");
 
     // Push Clients past the STARTER limit to reach EXCEEDED.
     const extraClients = Array.from({ length: 10 }, (_, i) => ({

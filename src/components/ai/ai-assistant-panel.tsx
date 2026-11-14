@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { CloseIcon, CheckIcon } from "@/components/ui/icons";
 import { askAiAssistant, getAiAssistantErrorCopy } from "@/lib/ai/client";
+import { FormErrorMessage } from "@/components/ui/form-field";
 
 export type AiAssistantPanelHandle = {
   open: () => void;
@@ -293,9 +294,9 @@ export function AiAssistantPanel({ ref }: { ref?: Ref<AiAssistantPanelHandle> })
             )}
 
             {phase === "error" && errorMessage && (
-              <p id={errorId} role="alert" className="text-danger text-sm">
+              <FormErrorMessage id={errorId} className="text-sm">
                 {errorMessage}
-              </p>
+              </FormErrorMessage>
             )}
 
             {phase === "success" && (

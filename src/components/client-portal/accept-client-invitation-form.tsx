@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import type { InviteAcceptState } from "@/types";
+import { FormErrorMessage } from "@/components/ui/form-field";
 
 const initialState: InviteAcceptState = { error: null };
 
@@ -17,9 +18,9 @@ export function AcceptClientInvitationForm({
   return (
     <form action={formAction}>
       {state.error && (
-        <p role="alert" className="text-danger mb-3 text-sm">
+        <FormErrorMessage className="mb-3 text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
       <Button type="submit" loading={pending} className="w-full">
         {pending ? "Joining…" : "Accept invitation"}

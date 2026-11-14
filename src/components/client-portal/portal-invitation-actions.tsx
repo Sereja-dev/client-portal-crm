@@ -6,6 +6,7 @@ import { useToast } from "@/components/toast/toast-provider";
 import { ACTION_LINK_CLASSES } from "@/components/ui/action-link-classes";
 import { PortalCopyLinkButton } from "./portal-copy-link-button";
 import type { PortalInvitationFormState } from "@/types";
+import { FormErrorMessage } from "@/components/ui/form-field";
 
 const initialState: PortalInvitationFormState = { error: null };
 
@@ -39,9 +40,9 @@ export function ResendPortalInvitationForm({
         </form>
       </div>
       {state.error && (
-        <p role="alert" className="text-danger text-xs">
+        <FormErrorMessage className="text-xs">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
       {state.message && !state.error && (
         <p

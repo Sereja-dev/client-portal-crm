@@ -3,7 +3,7 @@
 import { useId, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { FormField } from "@/components/ui/form-field";
+import { FormField, FormErrorMessage } from "@/components/ui/form-field";
 import type { CustomFieldType } from "@/generated/prisma/enums";
 
 /**
@@ -112,9 +112,9 @@ function CustomFieldControl({
           </label>
         </div>
         {error && (
-          <p id={`${fieldId}-error`} role="alert" className="text-danger mt-1 text-sm">
+          <FormErrorMessage id={`${fieldId}-error`} className="mt-1 text-sm">
             {error}
-          </p>
+          </FormErrorMessage>
         )}
       </div>
     );

@@ -3,7 +3,7 @@
 import { useActionState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { FormLabel } from "@/components/ui/form-field";
+import { FormLabel, FormErrorMessage } from "@/components/ui/form-field";
 import type { AuthActionState } from "@/types";
 
 const initialState: AuthActionState = { error: null };
@@ -67,9 +67,9 @@ export function ResetPasswordForm({
       </div>
 
       {state.error && (
-        <p role="alert" className="text-danger text-sm">
+        <FormErrorMessage className="text-sm">
           {state.error}
-        </p>
+        </FormErrorMessage>
       )}
 
       <Button type="submit" loading={pending} className="w-full">

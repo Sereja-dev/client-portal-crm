@@ -60,6 +60,12 @@ const INVALID_LINK_MESSAGE = "This checkout link is invalid or has expired. Plea
 const MISSING_TOKEN_MESSAGE = "Billing isn't fully configured yet — a client-side checkout token is missing. Please contact support.";
 const OPEN_FAILED_MESSAGE = "Couldn't start checkout. Please go back and try again.";
 
+// Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — this bridge's
+// own brief fallback/error copy had never adopted the shared semantic
+// tokens, instead hand-rolling Tailwind's cool-tinted "gray" scale
+// directly — found during the owner's own "inventory ALL app-owned
+// light-theme... hardcoded styles" audit. The actual checkout UI itself
+// is Paddle's own third-party overlay, untouched and out of scope.
 function CenteredMessage({ children }: { children: React.ReactNode }) {
   return (
     <div className="mx-auto flex min-h-screen max-w-md flex-col items-center justify-center px-4 py-16 text-center">
@@ -134,9 +140,9 @@ function CheckoutBridge() {
   if (errorMessage) {
     return (
       <CenteredMessage>
-        <h1 className="text-xl font-semibold tracking-tight text-gray-900">Checkout unavailable</h1>
-        <p className="mt-2 text-sm text-gray-500">{errorMessage}</p>
-        <Link href="/settings/billing" className="mt-6 text-sm font-medium text-gray-900 underline hover:text-gray-700">
+        <h1 className="text-text-primary text-xl font-semibold tracking-tight">Checkout unavailable</h1>
+        <p className="text-text-muted mt-2 text-sm">{errorMessage}</p>
+        <Link href="/settings/billing" className="text-text-primary hover:text-text-secondary mt-6 text-sm font-medium underline">
           Back to Billing
         </Link>
       </CenteredMessage>
@@ -145,7 +151,7 @@ function CheckoutBridge() {
 
   return (
     <CenteredMessage>
-      <p className="text-sm text-gray-500">Redirecting to secure checkout…</p>
+      <p className="text-text-muted text-sm">Redirecting to secure checkout…</p>
     </CenteredMessage>
   );
 }
@@ -155,7 +161,7 @@ export default function CheckoutBridgePage() {
     <Suspense
       fallback={
         <CenteredMessage>
-          <p className="text-sm text-gray-500">Loading…</p>
+          <p className="text-text-muted text-sm">Loading…</p>
         </CenteredMessage>
       }
     >

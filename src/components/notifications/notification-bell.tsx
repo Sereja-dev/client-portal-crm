@@ -61,18 +61,27 @@ export function NotificationBell({
         {initialUnreadCount > 0 && (
           // Deliberately NOT --danger: that token is calibrated as a text/
           // outline color (see button.tsx's own doc comment on why it must
-          // never be a solid white-on-fill background) — this fixed,
-          // always-legible red is the one intentional theme-invariant
-          // exception in this batch, matching the conventional "count
-          // badge is always red" pattern most apps use regardless of
-          // theme. border-surface (not the old hardcoded border-white)
-          // is the real fix here — it now matches whichever surface the
-          // bell itself sits on (Header's own bg-surface) in both themes,
-          // instead of a Light-only white notch that would look foreign
-          // in Dark.
+          // never be a solid white-on-fill background) — this needs a
+          // solid white-on-fill badge color, the same role --danger-button
+          // already fills for Button's own `danger` variant.
+          //
+          // Sky-Blue/Grayscale Theme Redesign V1 (correction pass) — this
+          // was previously a hardcoded, always-red bg-red-600, justified at
+          // the time as "the one intentional theme-invariant exception in
+          // this batch". That reasoning predates the owner's explicit
+          // direction that Light has no colored exceptions without
+          // instruction: bg-danger-button now reuses the shared token
+          // (literal black in Light, unchanged red in Dark — Dark's own
+          // red was never purple, so it is outside this redesign's Dark
+          // scope and is left as-is). No information is lost by going
+          // grayscale in Light: this span is aria-hidden, and the actual
+          // unread count already reaches assistive tech through the
+          // <summary>'s own aria-label text above, independent of this
+          // badge's color or even its presence. border-surface matches
+          // whichever surface the bell itself sits on in both themes.
           <span
             aria-hidden="true"
-            className="border-surface absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full border bg-red-600 px-1 text-[10px] leading-none font-semibold text-white"
+            className="border-surface absolute -top-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full border bg-danger-button px-1 text-[10px] leading-none font-semibold text-white"
           >
             {badgeLabel}
           </span>
