@@ -35,12 +35,23 @@ export function SidebarAccountMenu({ name, email }: { name: string; email: strin
         <button
           type="button"
           {...triggerProps}
-          className="focus-visible:ring-focus-ring flex w-full items-center gap-2 rounded-md p-2 text-left transition-colors hover:bg-[var(--hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+          // group/muted (named, consistent with organization-switcher.tsx
+          // and mention-combobox.tsx's own identical fix — see their
+          // comments for why a plain, unnamed `group` risks matching an
+          // unrelated hovered ancestor instead of this exact button).
+          className="group/muted focus-visible:ring-focus-ring flex w-full items-center gap-2 rounded-md p-2 text-left transition-colors hover:bg-[var(--hover)] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
         >
           <Avatar name={name} />
           <span className="min-w-0 flex-1">
             <span className="text-text-primary block truncate text-sm font-medium">{name}</span>
-            <span className="text-text-muted block truncate text-xs" title={email}>
+            {/* Pre-push review — same pure-CSS hover:bg-[var(--hover)]
+                vs. --text-muted contrast gap as organization-switcher.tsx
+                (see its own comment): group-hover promotes to
+                --muted-on-hover, unchanged in Dark. */}
+            <span
+              className="text-text-muted group-hover/muted:text-[var(--muted-on-hover)] block truncate text-xs"
+              title={email}
+            >
               {email}
             </span>
           </span>

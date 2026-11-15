@@ -864,6 +864,71 @@ test.describe("Company Profile — timezone persistence diagnostic", () => {
       await responsePromise;
     });
 
+    // Pre-push review — a disabled native <button> is not excluded from
+    // :hover matching by the browser on its own; the real, disabled
+    // "Discard changes" secondary Button above (reached through the
+    // same delayed-route pending window, never a forced attribute)
+    // previously still painted the stronger hover background while
+    // disabled. Button's own VARIANT_CLASSES now add a
+    // disabled:hover:bg-{resting} override per variant (see button.tsx's
+    // own comment) — this is the real computed-style proof, not a
+    // source-string assertion.
+    for (const themeMode of ["LIGHT", "DARK"] as const) {
+      test(`disabled hover: the real pending Discard button's background never changes on hover (${themeMode})`, async ({
+        page,
+        context,
+        baseURL,
+      }) => {
+        await dbQuery("user", "update", { where: { id: fixtures.owner.id }, data: { themeMode } });
+        await injectTestSession(context, fixtures.owner, baseURL!);
+        await page.goto(COMPANY_PROFILE_PATH);
+
+        const discardButton = page.getByRole("button", { name: "Discard changes" });
+
+        // Enabled baseline first — the fix must never dampen a real
+        // enabled button's own hover.
+        await page.getByLabel("Legal company name").fill("Hover Baseline Edit");
+        await expect(discardButton).toBeVisible();
+        await expect(discardButton).toBeEnabled();
+        const enabledRestingBg = await discardButton.evaluate((el) => getComputedStyle(el).backgroundColor);
+        await discardButton.hover();
+        await page.waitForTimeout(400);
+        const enabledHoverBg = await discardButton.evaluate((el) => getComputedStyle(el).backgroundColor);
+        expect(enabledHoverBg).not.toBe(enabledRestingBg);
+        await page.mouse.move(0, 0);
+
+        // A longer, deliberately generous delay than the sibling
+        // "pending" test above (which only needs the attribute to flip
+        // for an instant check) — this test also settles a
+        // transition-colors transition and performs a forced hover
+        // before the real response is allowed to resolve and the form
+        // returns to pristine (unmounting this button).
+        await page.route(`**${COMPANY_PROFILE_PATH}`, async (route) => {
+          if (route.request().method() === "POST") {
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+          }
+          await route.continue();
+        });
+        const responsePromise = page.waitForResponse(
+          (r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST",
+        );
+        await page.getByRole("button", { name: "Save company profile" }).click();
+        await expect(discardButton).toBeDisabled();
+
+        await page.waitForTimeout(400);
+        const disabledRestingBg = await discardButton.evaluate((el) => getComputedStyle(el).backgroundColor);
+        await discardButton.hover({ force: true });
+        await page.waitForTimeout(400);
+        const disabledHoverBg = await discardButton.evaluate((el) => getComputedStyle(el).backgroundColor);
+        expect(disabledHoverBg).toBe(disabledRestingBg);
+        // Disabled semantics/indication are untouched by this fix.
+        await expect(discardButton).toHaveCSS("cursor", "not-allowed");
+        await expect(discardButton).toHaveCSS("opacity", "0.6");
+
+        await responsePromise;
+      });
+    }
+
     test("Logo boundary: uploading a logo alone never makes the profile Discard button appear", async ({
       page,
       context,

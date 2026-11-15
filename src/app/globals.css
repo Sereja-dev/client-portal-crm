@@ -219,6 +219,22 @@
      unchanged (copied byte-for-byte from --hover above) — Dark was
      never reported as an issue. */
   --sidebar-hover: #D4D4D4;
+  /* Pre-push review of the --hover broadening above — muted text
+     (--text-muted, #737373) rendered directly on a --hover-highlighted
+     background (not merely nearby, inside the SAME element's own
+     resting-vs-hover background swap) drops to ~3.2:1 against the new
+     #D4D4D4, below WCAG AA's 4.5:1 normal-text floor (it cleared 4.74:1
+     against the old, barely-visible #FAFAFA). Confirmed live on three
+     real, pure-CSS hover consumers with no JS state override: the
+     account-menu trigger's own email line, the organization switcher's
+     per-item slug, and the mention-teammate option's own email —
+     each applies this token only on :hover/:focus-visible via
+     group-hover:text-[var(--muted-on-hover)] (see each file's own
+     comment), never changing the RESTING muted color anywhere else.
+     --text-secondary (#525252) is reused rather than inventing a new
+     color — already this app's own next-darker step, 5.27:1 against the
+     new hover. */
+  --muted-on-hover: var(--text-secondary);
 
   /*
    * Typography foundation — sizes/weights only, matching this app's own
@@ -457,6 +473,12 @@
      the Light :root block's own comment on --sidebar-hover for why this
      is a dedicated token rather than a change to --hover itself. */
   --sidebar-hover: rgba(255, 255, 255, 0.06);
+  /* Pre-push review — Dark was never reported as an issue, so this is
+     byte-identical to --text-muted above, not a new value: the three
+     group-hover:text-[var(--muted-on-hover)] consumers (see the Light
+     :root block's own comment) render pixel-identically to before in
+     Dark. */
+  --muted-on-hover: var(--text-muted);
 
   /* Shadows barely register on a dark surface (the whole reason
      elevation is communicated by lighter surfaces above instead) —
@@ -549,6 +571,10 @@
   --selected: var(--accent-subtle);
   --hover: rgba(255, 255, 255, 0.06);
   --disabled: #5C626B;
+  /* Defined for completeness (this block mirrors Dark's full token set
+     byte-for-byte) — no pre-auth surface currently renders any of the
+     three group-hover:text-[var(--muted-on-hover)] consumers. */
+  --muted-on-hover: var(--text-muted);
 
   --aqenra-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --aqenra-shadow-md:

@@ -77,7 +77,18 @@ export function OrganizationSwitcher({
             type="button"
             disabled={isPending}
             onClick={() => handleSelect(org.organizationId)}
-            className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-60"
+            // group/muted (a NAMED group, not plain `group`) — this
+            // button sits inside the outer <details className="group
+            // relative"> above, which already owns the unnamed `group`
+            // marker for its own purposes; a second, unnamed `group`
+            // here would make group-hover:* match whenever EITHER
+            // ancestor is hovered (confirmed directly: the muted slug
+            // below rendered as hovered even at rest, because the
+            // mouse was still over the <summary> that opened this
+            // panel, and the outer <details> was still technically
+            // `:hover`). Naming this one scopes group-hover/muted:*
+            // strictly to this exact row.
+            className="group/muted flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm transition-colors hover:bg-[var(--hover)] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent"
           >
             <span className="min-w-0">
               <span className="text-text-primary flex items-center gap-1.5 truncate font-medium">
@@ -88,7 +99,19 @@ export function OrganizationSwitcher({
                 )}
                 <span className="truncate">{org.name}</span>
               </span>
-              <span className="text-text-muted block truncate text-xs">{org.slug}</span>
+              {/* Pre-push review — this item's own hover:bg-[var(--hover)]
+                  above is a plain CSS :hover with no JS override, unlike
+                  SearchableSelect/search-result-item's state-driven
+                  highlight; --text-muted (#737373) against the broadened
+                  --hover (#D4D4D4) measures ~3.2:1, below WCAG AA's 4.5:1
+                  for this normal-size text. group-hover promotes to
+                  --muted-on-hover (globals.css), which is --text-secondary
+                  in Light (5.27:1) and byte-identical to --text-muted in
+                  Dark (no change there — Dark's hover barely alters the
+                  background at all). */}
+              <span className="text-text-muted group-hover/muted:text-[var(--muted-on-hover)] block truncate text-xs">
+                {org.slug}
+              </span>
             </span>
             <span className="shrink-0">
               <StatusBadge status={org.role} />
