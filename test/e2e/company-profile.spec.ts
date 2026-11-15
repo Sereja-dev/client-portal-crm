@@ -252,15 +252,24 @@ test.describe("Company Profile — timezone persistence diagnostic", () => {
       await field.fill("Mid-flight success name");
 
       // A real local save can complete before this test's own
-      // `toBeDisabled()` assertion ever polls -- the same race the
-      // neighboring "validation-failure path" test below already holds
-      // deterministic for its own POST. Reusing that exact mechanism
-      // here: hold the real in-flight request briefly so the pending
-      // window is always observable, not a sleep/retry added to this
-      // test's own assertions.
+      // `toBeDisabled()` assertion ever polls. A fixed delay on the
+      // route (e.g. a setTimeout before route.continue()) does NOT fix
+      // this -- it only shrinks the race to "faster than the delay,"
+      // which is still a race under slow scheduling. This instead holds
+      // the real in-flight POST on an explicit gate this test itself
+      // controls: the request does not resume until the test has
+      // actually confirmed the field is disabled (or, on an assertion
+      // failure, the `finally` below releases it anyway -- the hold can
+      // never outlive this test, so it cannot deadlock). The route
+      // handler awaits a Promise rather than a timer, so release is
+      // synchronized to a real assertion result, not a guessed duration.
+      let releaseHold!: () => void;
+      const holdGate = new Promise<void>((resolve) => {
+        releaseHold = resolve;
+      });
       const holdPost = async (route: import("@playwright/test").Route) => {
         if (route.request().method() !== "POST") return route.fallback();
-        await new Promise((resolve) => setTimeout(resolve, 600));
+        await holdGate;
         return route.continue();
       };
       await page.route((url) => url.pathname === COMPANY_PROFILE_PATH, holdPost);
@@ -270,12 +279,21 @@ test.describe("Company Profile — timezone persistence diagnostic", () => {
       );
       await page.getByRole("button", { name: "Save company profile" }).click();
 
-      // The editable field itself -- not just the Save button -- is
-      // genuinely disabled (native semantics) while the request is in
-      // flight. A disabled control cannot receive focus or input, so
-      // this is proof that no mid-flight edit can occur at all, not
-      // merely that one happens not to have been attempted.
-      await expect(field).toBeDisabled();
+      try {
+        // The editable field itself -- not just the Save button -- is
+        // genuinely disabled (native semantics) while the request is in
+        // flight. A disabled control cannot receive focus or input, so
+        // this is proof that no mid-flight edit can occur at all, not
+        // merely that one happens not to have been attempted. The POST
+        // is still held at this point (see holdGate above), so this is
+        // checking the real in-flight save, not a state that happened
+        // to be true before or after it.
+        await expect(field).toBeDisabled();
+      } finally {
+        // Always release, whether the assertion above passed or
+        // threw -- the real request must never be left hanging.
+        releaseHold();
+      }
 
       await responsePromise;
       await page.unroute((url) => url.pathname === COMPANY_PROFILE_PATH, holdPost);
