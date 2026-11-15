@@ -193,6 +193,20 @@
      (R=G=B) at the matching Tailwind lightness step (was cool-gray). */
   --hover: #FAFAFA; /* matches the dominant existing ad hoc hover wash */
   --disabled: #A3A3A3; /* matches the dominant existing ad hoc disabled/muted text color */
+  /* Sidebar hover visibility fix — the shared --hover above (#FAFAFA) is
+     LIGHTER than the Sidebar's own --surface-recessed background
+     (#F5F5F5), so a hovered, non-selected Sidebar row was barely
+     distinguishable from the resting sidebar in Light (reported by the
+     owner on Clients/Finance/Invoices). Deliberately a dedicated token,
+     not a change to --hover itself: --hover is shared by 70+ unrelated
+     consumers (dialogs, tables, tabs, pagination, menus...) and changing
+     it would restyle all of them, far beyond this one reported row.
+     --border-strong's own existing value (a true-neutral, already-
+     approved-elsewhere gray) gives a clear, visible step down from
+     #F5F5F5 without introducing a new color or touching the resting/
+     selected treatment. Dark's own value is unchanged (copied byte-for-
+     byte from --hover above) — Dark was never reported as an issue. */
+  --sidebar-hover: #D4D4D4;
 
   /*
    * Typography foundation — sizes/weights only, matching this app's own
@@ -426,6 +440,11 @@
   --selected: var(--accent-subtle);
   --hover: rgba(255, 255, 255, 0.06);
   --disabled: #5C626B;
+  /* Sidebar hover visibility fix — Dark was never reported as an issue,
+     so this is byte-identical to --hover above, not a new value. See
+     the Light :root block's own comment on --sidebar-hover for why this
+     is a dedicated token rather than a change to --hover itself. */
+  --sidebar-hover: rgba(255, 255, 255, 0.06);
 
   /* Shadows barely register on a dark surface (the whole reason
      elevation is communicated by lighter surfaces above instead) —
