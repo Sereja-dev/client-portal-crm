@@ -257,18 +257,22 @@ test.describe("Company Profile — timezone persistence diagnostic", () => {
       // this -- it only shrinks the race to "faster than the delay,"
       // which is still a race under slow scheduling. This instead holds
       // the real in-flight POST on an explicit gate this test itself
-      // controls: the request does not resume until the test has
-      // actually confirmed the field is disabled (or, on an assertion
-      // failure, the `finally` below releases it anyway -- the hold can
-      // never outlive this test, so it cannot deadlock). The route
-      // handler awaits a Promise rather than a timer, so release is
-      // synchronized to a real assertion result, not a guessed duration.
+      // controls, with a second signal proving the real request has
+      // actually reached the route handler (not merely that it was
+      // clicked) before the disabled assertion ever runs -- removing
+      // the ordering ambiguity between "the click dispatched the
+      // request" and "the assertion observed it."
       let releaseHold!: () => void;
       const holdGate = new Promise<void>((resolve) => {
         releaseHold = resolve;
       });
+      let signalIntercepted!: () => void;
+      const intercepted = new Promise<void>((resolve) => {
+        signalIntercepted = resolve;
+      });
       const holdPost = async (route: import("@playwright/test").Route) => {
         if (route.request().method() !== "POST") return route.fallback();
+        signalIntercepted();
         await holdGate;
         return route.continue();
       };
@@ -277,26 +281,51 @@ test.describe("Company Profile — timezone persistence diagnostic", () => {
       const responsePromise = page.waitForResponse(
         (r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST",
       );
-      await page.getByRole("button", { name: "Save company profile" }).click();
 
+      // Everything that depends on the held request -- the click that
+      // triggers it, waiting for interception, and the disabled
+      // assertion itself -- lives inside this try, so release and
+      // unroute in the `finally` run on EVERY failure path: a bad
+      // click (detached/strict-mode element, unexpected navigation), a
+      // request that's never intercepted (bounded below, not an
+      // indefinite hang), or a failed disabled assertion. The request
+      // can never outlive this one test, and the route handler is
+      // never left registered past it either.
       try {
+        await page.getByRole("button", { name: "Save company profile" }).click();
+
+        // Bounded failure detection -- if the real POST is somehow
+        // never intercepted (a genuine defect, not scheduling
+        // slowness), this rejects with a clear message instead of
+        // hanging forever; it is not a sleep added to mask the
+        // original race, since the normal path resolves immediately
+        // once holdPost signals.
+        await Promise.race([
+          intercepted,
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("Save POST was never intercepted by holdPost within 5000ms")), 5000),
+          ),
+        ]);
+
         // The editable field itself -- not just the Save button -- is
         // genuinely disabled (native semantics) while the request is in
         // flight. A disabled control cannot receive focus or input, so
         // this is proof that no mid-flight edit can occur at all, not
-        // merely that one happens not to have been attempted. The POST
-        // is still held at this point (see holdGate above), so this is
-        // checking the real in-flight save, not a state that happened
-        // to be true before or after it.
+        // merely that one happens not to have been attempted. The real
+        // POST is confirmed intercepted and still held at this exact
+        // point (awaited above), so this checks the actual in-flight
+        // save, not a state that merely happened to be true before or
+        // after it.
         await expect(field).toBeDisabled();
       } finally {
-        // Always release, whether the assertion above passed or
-        // threw -- the real request must never be left hanging.
+        // Always release and unroute, whether the click, the
+        // interception wait, or the assertion above threw -- the real
+        // request and the route handler must never outlive this test.
         releaseHold();
+        await page.unroute((url) => url.pathname === COMPANY_PROFILE_PATH, holdPost);
       }
 
       await responsePromise;
-      await page.unroute((url) => url.pathname === COMPANY_PROFILE_PATH, holdPost);
       await expect(page.getByText("Company profile saved.")).toBeVisible();
 
       // Re-enabled, and showing exactly what was submitted.
