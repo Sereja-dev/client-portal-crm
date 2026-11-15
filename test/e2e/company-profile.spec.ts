@@ -251,6 +251,20 @@ test.describe("Company Profile — timezone persistence diagnostic", () => {
       const field = page.getByLabel("Legal company name");
       await field.fill("Mid-flight success name");
 
+      // A real local save can complete before this test's own
+      // `toBeDisabled()` assertion ever polls -- the same race the
+      // neighboring "validation-failure path" test below already holds
+      // deterministic for its own POST. Reusing that exact mechanism
+      // here: hold the real in-flight request briefly so the pending
+      // window is always observable, not a sleep/retry added to this
+      // test's own assertions.
+      const holdPost = async (route: import("@playwright/test").Route) => {
+        if (route.request().method() !== "POST") return route.fallback();
+        await new Promise((resolve) => setTimeout(resolve, 600));
+        return route.continue();
+      };
+      await page.route((url) => url.pathname === COMPANY_PROFILE_PATH, holdPost);
+
       const responsePromise = page.waitForResponse(
         (r) => r.url().includes(COMPANY_PROFILE_PATH) && r.request().method() === "POST",
       );
@@ -264,6 +278,7 @@ test.describe("Company Profile — timezone persistence diagnostic", () => {
       await expect(field).toBeDisabled();
 
       await responsePromise;
+      await page.unroute((url) => url.pathname === COMPANY_PROFILE_PATH, holdPost);
       await expect(page.getByText("Company profile saved.")).toBeVisible();
 
       // Re-enabled, and showing exactly what was submitted.
