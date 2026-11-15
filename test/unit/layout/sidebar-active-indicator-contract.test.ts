@@ -27,8 +27,11 @@ describe("activeLinkClasses — the actual destination row's own active treatmen
     expect(body).toMatch(/active\s*\?\s*"[^"]*border-l-2[^"]*border-text-inverse[^"]*bg-accent[^"]*text-white[^"]*"/);
   });
 
-  it("inactive branch preserves the existing text-text-secondary/hover wash, with a transparent (not absent) border-l-2 — so the 2px border never shifts row content width between active and inactive", () => {
-    expect(body).toMatch(/:\s*"border-l-2 border-transparent text-text-secondary hover:bg-\[var\(--hover\)\]"/);
+  it("inactive branch preserves the existing text-text-secondary wash, with a transparent (not absent) border-l-2 — so the 2px border never shifts row content width between active and inactive", () => {
+    // Sidebar hover visibility fix — the hover background is now the
+    // dedicated --sidebar-hover token, not the shared --hover (see
+    // activeLinkClasses's own updated header comment and globals.css).
+    expect(body).toMatch(/:\s*"border-l-2 border-transparent text-text-secondary hover:bg-\[var\(--sidebar-hover\)\]"/);
   });
 
   it("the active bar uses the semantic text-inverse token (white in both Light and Dark), never a literal white/black or the --accent token itself (which would be invisible against its own identical bg-accent fill)", () => {
@@ -41,8 +44,11 @@ describe("activeLinkClasses — the actual destination row's own active treatmen
 
 describe("Group/parent summary — untouched, never receives the new destination-only indicator", () => {
   it("the group summary's own active className expression is a separate literal, never calling activeLinkClasses", () => {
+    // Sidebar hover visibility fix — same --sidebar-hover token swap as
+    // activeLinkClasses's own inactive branch (e.g. hovering Finance
+    // while it is not the active group).
     const summaryMatch = source.match(
-      /groupActive\s*\?\s*"bg-\[var\(--selected\)\] text-accent"\s*:\s*"text-text-secondary hover:bg-\[var\(--hover\)\]"/,
+      /groupActive\s*\?\s*"bg-\[var\(--selected\)\] text-accent"\s*:\s*"text-text-secondary hover:bg-\[var\(--sidebar-hover\)\]"/,
     );
     expect(summaryMatch).not.toBeNull();
   });

@@ -257,11 +257,23 @@ const CHILD_ROW_BASE =
  * would be invisible against its own identical background. The existing
  * background/text/aria-current active treatment is completely
  * unchanged — this is purely an additional cue, never the only one.
+ *
+ * Sidebar hover visibility fix — the inactive branch's hover background
+ * is the dedicated --sidebar-hover token (globals.css), not the shared
+ * --hover every other hover-able control in the app uses: in Light,
+ * --hover (#FAFAFA) is lighter than this Sidebar's own background
+ * (--surface-recessed, #F5F5F5), so a hovered row was barely
+ * distinguishable from the resting sidebar — reported by the owner on
+ * Clients, and on Finance/Invoices (the group summary below shares the
+ * same fix). --sidebar-hover is a visibly darker neutral gray in Light,
+ * scoped to this one component so the 70+ other --hover consumers
+ * elsewhere in the app are untouched; in Dark it is byte-identical to
+ * --hover (Dark was never reported as an issue).
  */
 function activeLinkClasses(active: boolean): string {
   return active
     ? "border-l-2 border-text-inverse bg-accent text-white"
-    : "border-l-2 border-transparent text-text-secondary hover:bg-[var(--hover)]";
+    : "border-l-2 border-transparent text-text-secondary hover:bg-[var(--sidebar-hover)]";
 }
 
 export function Sidebar({
@@ -364,9 +376,14 @@ export function Sidebar({
               layout on desktop.
             */}
             <details open={groupActive} className="group flex flex-row items-center gap-0.5 md:block">
+              {/* Sidebar hover visibility fix — see activeLinkClasses's own
+                  header comment: the inactive branch here uses the same
+                  dedicated --sidebar-hover token (globals.css), not the
+                  shared --hover, for the same reason (e.g. hovering
+                  Finance while it is not the active group). */}
               <summary
                 className={`${TOP_LEVEL_ROW_BASE} cursor-pointer list-none whitespace-nowrap [&::-webkit-details-marker]:hidden ${
-                  groupActive ? "bg-[var(--selected)] text-accent" : "text-text-secondary hover:bg-[var(--hover)]"
+                  groupActive ? "bg-[var(--selected)] text-accent" : "text-text-secondary hover:bg-[var(--sidebar-hover)]"
                 }`}
               >
                 <Icon className="h-4 w-4 shrink-0" />
