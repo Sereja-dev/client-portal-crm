@@ -14,6 +14,14 @@ export default async function PortalSignupPage({
   const resolvedSearchParams = await searchParams;
   const redirectTo = sanitizePortalRedirectPath(parseSearchParam(resolvedSearchParams.redirectTo));
 
+  // Signup-confirmation feedback fix — set only by /auth/confirm's own
+  // type=portal_signup branch when the token is missing, invalid,
+  // expired, or already used (src/app/auth/confirm/route.ts's
+  // handlePortalSignupConfirm), never by an ordinary visit to this page,
+  // so a plain "/portal/signup" never shows this message — same
+  // convention as /portal/login's own `sessionExpired`.
+  const invalidConfirmationLink = parseSearchParam(resolvedSearchParams.invalid) === "1";
+
   // Portal signup-confirmation defect fix. A display-only lookup —
   // re-validated independently (and authoritatively) inside
   // portalSignup() itself before anything is ever created; a forged/
@@ -43,6 +51,11 @@ export default async function PortalSignupPage({
         <h1 className="text-text-primary mb-6 text-2xl font-semibold tracking-tight">
           Create your Client Portal account
         </h1>
+        {invalidConfirmationLink && (
+          <p className="border-warning bg-warning-subtle text-warning mb-4 rounded-md border px-3 py-2 text-sm">
+            That confirmation link is invalid or has expired. You can create your account again below.
+          </p>
+        )}
         <PortalSignupForm redirectTo={redirectTo} invitation={invitation} />
       </div>
     </main>

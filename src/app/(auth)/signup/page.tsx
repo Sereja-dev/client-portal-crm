@@ -14,6 +14,14 @@ export default async function SignupPage({
   const resolvedSearchParams = await searchParams;
   const redirectTo = sanitizeRedirectPath(parseSearchParam(resolvedSearchParams.redirectTo));
 
+  // Signup-confirmation feedback fix — set only by /auth/confirm's own
+  // type=signup branch when the token is missing, invalid, expired, or
+  // already used (src/app/auth/confirm/route.ts's handleSignupConfirm),
+  // never by an ordinary visit to this page, so a plain "/signup" never
+  // shows this message — same convention as this page's own sibling
+  // /login page's `sessionExpired`.
+  const invalidConfirmationLink = parseSearchParam(resolvedSearchParams.invalid) === "1";
+
   // Invited-signup defect fix. A display-only lookup — re-validated
   // independently (and authoritatively) inside signup() itself before
   // anything is ever created; a forged/expired/wrong token here simply
@@ -44,6 +52,12 @@ export default async function SignupPage({
       <h1 className="mb-6 text-3xl font-semibold tracking-tight text-text-primary sm:text-4xl">
         Create an account
       </h1>
+      {invalidConfirmationLink && (
+        <p className="border-warning bg-warning-subtle text-warning mb-4 rounded-md border px-3 py-2 text-sm">
+          That confirmation link is invalid or has expired. You can create your account again below, or contact
+          Support if you need help.
+        </p>
+      )}
       <SignupForm redirectTo={redirectTo} invitation={invitation} />
     </AuthShell>
   );
