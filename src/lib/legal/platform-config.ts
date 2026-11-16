@@ -200,14 +200,13 @@ export function getPlatformLegalConfig(): PlatformLegalConfig {
 
 /**
  * The copyright line shown in every footer — one place, so the app footer and
- * the pre-auth footer cannot drift. Distinguishes the brand from its operator
- * ("© 2026 Aqenra · Operated by Umerenko Sergei"); when an operator configures
- * a legal name equal to the brand name, it collapses to "© 2026 Aqenra".
+ * the pre-auth footer cannot drift. Brand only ("© 2026 Aqenra"); the
+ * operator's legal identity is disclosed in the Privacy Policy and Terms of
+ * Service (via operatorDescription above), not repeated in the public footer.
  */
 export function getPlatformCopyrightLine(year: number): string {
-  const { legalName } = getPlatformLegalConfig();
   const brandName = getPlatformBranding().name;
-  return legalName === brandName ? `© ${year} ${brandName}` : `© ${year} ${brandName} · Operated by ${legalName}`;
+  return `© ${year} ${brandName}`;
 }
 
 /**
