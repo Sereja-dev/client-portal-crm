@@ -81,23 +81,27 @@ test.describe("Operator identity (Public Beta legal alignment)", () => {
     await expect(page.getByRole("main")).toContainText("currently offered free of charge as a public beta");
   });
 
-  test("the global footer and the pre-auth footer identify the operator", async ({ page }) => {
+  test("the global footer and the pre-auth footer show the brand copyright line, with no personal name", async ({ page }) => {
     await page.goto("/privacy");
-    await expect(page.locator("footer").filter({ hasText: "Operated by Umerenko Sergei" }).first()).toBeVisible();
+    const year = new Date().getFullYear();
+    await expect(page.locator("footer").filter({ hasText: `© ${year}` }).first()).toBeVisible();
+    await expect(page.locator("footer")).not.toContainText("Umerenko Sergei");
     await page.goto("/login");
-    // The brand text before "Operated by" is deployment-configurable (the E2E server sets PLATFORM_NAME); the operator is not.
-    await expect(page.locator("footer.auth-shell-footer")).toContainText(`© ${new Date().getFullYear()}`);
-    await expect(page.locator("footer.auth-shell-footer")).toContainText("Operated by Umerenko Sergei");
+    // The brand text is deployment-configurable (the E2E server sets PLATFORM_NAME).
+    await expect(page.locator("footer.auth-shell-footer")).toContainText(`© ${year}`);
+    await expect(page.locator("footer.auth-shell-footer")).not.toContainText("Umerenko Sergei");
   });
 
-  test("legal pages are public: no redirect to login, and the footer identity is readable at 320px", async ({ page }) => {
+  test("legal pages are public: no redirect to login, and the footer is readable at 320px with no personal name", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 640 });
     for (const route of ["/privacy", "/terms", "/cookies"]) {
       const response = await page.goto(route);
       expect(response?.status()).toBe(200);
       await expect(page).toHaveURL(new RegExp(`${route}$`));
     }
-    await expect(page.locator("footer").filter({ hasText: "Operated by Umerenko Sergei" }).first()).toBeVisible();
+    const year = new Date().getFullYear();
+    await expect(page.locator("footer").filter({ hasText: `© ${year}` }).first()).toBeVisible();
+    await expect(page.locator("footer")).not.toContainText("Umerenko Sergei");
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(overflow).toBeLessThanOrEqual(0);
   });

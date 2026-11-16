@@ -149,19 +149,19 @@ describe("getPlatformLegalConfig", () => {
 });
 
 describe("getPlatformCopyrightLine", () => {
-  it("distinguishes the brand from its operator", () => {
-    expect(getPlatformCopyrightLine(2026)).toBe("© 2026 Aqenra · Operated by Umerenko Sergei");
-  });
-
-  it("collapses to the brand alone when the configured legal name equals the brand name", () => {
-    process.env.PLATFORM_LEGAL_NAME = "Aqenra";
-
+  it("shows the brand only, never the operator's legal name", () => {
     expect(getPlatformCopyrightLine(2026)).toBe("© 2026 Aqenra");
   });
 
-  it("uses a configured legal name as the operator", () => {
+  it("stays brand-only even when a configured legal name differs from the brand name", () => {
     process.env.PLATFORM_LEGAL_NAME = "Acme Legal Co";
 
-    expect(getPlatformCopyrightLine(2027)).toBe("© 2027 Aqenra · Operated by Acme Legal Co");
+    expect(getPlatformCopyrightLine(2027)).toBe("© 2027 Aqenra");
+  });
+
+  it("uses the configured PLATFORM_NAME as the brand", () => {
+    process.env.PLATFORM_NAME = "Acme Portal";
+
+    expect(getPlatformCopyrightLine(2026)).toBe("© 2026 Acme Portal");
   });
 });
