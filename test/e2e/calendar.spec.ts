@@ -161,6 +161,15 @@ test.describe("Calendar V1", () => {
       await page.getByRole("link", { name: "Next month" }).click();
       await expect(page.getByText(expectedMonthLabel(2026, 7))).toBeVisible();
       await page.getByRole("link", { name: "Previous month" }).click();
+      // Each "Previous month" link's href is computed server-side from
+      // the current URL's month (see the calendar page's monthHref/prev),
+      // so firing the second click before this one's client transition
+      // commits can hit the still-stale link -- re-landing on June
+      // instead of advancing to May. Waiting for June first (the same
+      // "wait for the resulting state before the next click" convention
+      // already used for the Next-month and Today clicks below) makes
+      // the second click target the href the June render actually produced.
+      await expect(page.getByText(expectedMonthLabel(2026, 6))).toBeVisible();
       await page.getByRole("link", { name: "Previous month" }).click();
       await expect(page.getByText(expectedMonthLabel(2026, 5))).toBeVisible();
       await page.getByRole("link", { name: "Today" }).click();
