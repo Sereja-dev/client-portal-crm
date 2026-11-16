@@ -311,3 +311,40 @@ describe("danger-button tokens — WCAG AA contrast proof (Light and Dark, base 
     expect(extractToken(darkBlock, "danger-button-hover")).toBe("#DC2626");
   });
 });
+
+/**
+ * Pre-push review — a disabled native <button> is not excluded from
+ * :hover matching by the browser on its own (confirmed directly: a real
+ * disabled secondary Button still painted its hover background on a
+ * forced pointer-move — see test/e2e/company-profile.spec.ts's own
+ * "disabled hover" tests for the real computed-style proof). Every
+ * variant now adds its own disabled:hover:bg-{its own resting value}
+ * override, mapped here explicitly so a future variant can't silently
+ * skip it. Deliberately NOT disabled:pointer-events-none on the shared
+ * base class — that would also remove the element from hit-testing
+ * entirely, losing the disabled:cursor-not-allowed cursor this same
+ * button relies on (cursor resolution follows hit-testing, same as
+ * :hover does).
+ */
+describe("Every variant neutralizes its OWN hover background while disabled, back to its own resting value", () => {
+  const RESTING_BG_BY_VARIANT: Record<Variant, string> = {
+    primary: "bg-accent",
+    secondary: "bg-surface",
+    dangerOutline: "bg-surface",
+    ghost: "bg-transparent",
+    danger: "bg-danger-button",
+  };
+
+  it.each(ALL_VARIANTS)("%s declares disabled:hover:%s", (variant) => {
+    const classValue = extractClassValue(variant);
+    expect(classValue).toContain(`disabled:hover:${RESTING_BG_BY_VARIANT[variant]}`);
+  });
+
+  it("the shared base className never adds disabled:pointer-events-none (would silently drop the disabled cursor)", () => {
+    const baseClassMatch = source.match(/className=\{`([^`]*)\$\{VARIANT_CLASSES/);
+    expect(baseClassMatch, "expected to find the base className template").not.toBeNull();
+    expect(baseClassMatch![1]).not.toContain("pointer-events-none");
+    expect(baseClassMatch![1]).toContain("disabled:cursor-not-allowed");
+    expect(baseClassMatch![1]).toContain("disabled:opacity-60");
+  });
+});

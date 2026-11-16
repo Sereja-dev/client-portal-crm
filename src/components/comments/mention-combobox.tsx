@@ -79,10 +79,29 @@ export function MentionCombobox({
                   onSelect(candidate);
                   close();
                 }}
-                className="text-text-primary block w-full truncate px-3 py-1.5 text-left text-sm hover:bg-[var(--hover)] focus:outline-none focus-visible:bg-[var(--hover)]"
+                // group/muted (named, not plain `group`) — this button
+                // sits inside the outer <details className="group
+                // relative ..."> above, which already owns the unnamed
+                // `group` marker; reusing it here would make
+                // group-hover:* match whenever the whole disclosure is
+                // hovered (e.g. the mouse still resting over <summary>
+                // right after opening it), not just this one option —
+                // the exact cross-contamination confirmed directly on
+                // organization-switcher.tsx's own identical <details>
+                // pattern (see that file's own comment).
+                className="group/muted text-text-primary block w-full truncate px-3 py-1.5 text-left text-sm hover:bg-[var(--hover)] focus:outline-none focus-visible:bg-[var(--hover)]"
               >
                 {candidate.name}
-                <span className="text-text-muted ml-1.5">{candidate.email}</span>
+                {/* Pre-push review — same pure-CSS hover (and
+                    focus-visible, which shares the identical
+                    background) vs. --text-muted contrast gap as
+                    organization-switcher.tsx/sidebar-account-menu.tsx
+                    (see their own comments): group-hover/muted AND
+                    group-focus-visible/muted both promote to
+                    --muted-on-hover, unchanged in Dark. */}
+                <span className="text-text-muted group-hover/muted:text-[var(--muted-on-hover)] group-focus-visible/muted:text-[var(--muted-on-hover)] ml-1.5">
+                  {candidate.email}
+                </span>
               </button>
             </li>
           ))}

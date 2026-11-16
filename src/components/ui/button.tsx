@@ -19,12 +19,29 @@ import { AlertTriangleIcon, SpinnerIcon } from "@/components/ui/icons";
  * Default (`primary`) is byte-identical to this component's previous sole
  * appearance, so no existing caller's rendered output changes.
  */
+// Pre-push review — a disabled native <button> is NOT excluded from
+// :hover matching by the browser on its own (confirmed directly: a real
+// disabled secondary Button still painted its hover background on a
+// forced pointer-move), so every variant's own hover:bg-* below would
+// otherwise make a disabled button still look interactive on hover.
+// Each variant adds its OWN disabled:hover:bg-{its own resting value}
+// override (not a shared pointer-events-none on the base class): a
+// pseudo-class pair (:disabled:hover) is higher-specificity than :hover
+// alone regardless of generated-stylesheet order, so this reliably wins
+// without needing pointer-events at all — which matters because
+// pointer-events: none would ALSO remove the element from hit-testing
+// entirely, silently losing the disabled:cursor-not-allowed cursor this
+// same button already relies on for its disabled *indication* (cursor
+// resolution follows hit-testing, same as :hover does). This fix only
+// ever touches the disabled+hover intersection; the enabled hover, the
+// opacity/cursor disabled indication, and every other state are
+// byte-identical to before, in both themes.
 const VARIANT_CLASSES = {
   // Aqenra brand PR 2 — bg-black/hover:bg-gray-800 replaced with the
   // approved Aqenra Indigo accent tokens (globals.css). Everything else
   // about this variant (white text, sizing, disabled/loading behavior,
   // the shared focus-visible ring below) is unchanged.
-  primary: "bg-accent text-white hover:bg-accent-hover",
+  primary: "bg-accent text-white hover:bg-accent-hover disabled:hover:bg-accent",
   // Design System Phase 2 — border-gray-300/bg-white/text-gray-900 replaced
   // with semantic tokens so this variant renders correctly on Dark's own
   // surface (border-strong/bg-surface preserve the exact same relative
@@ -32,7 +49,7 @@ const VARIANT_CLASSES = {
   // — not a Tailwind bg-hover utility — matches the established
   // Appearance selector convention (--hover is deliberately not mirrored
   // into @theme inline; see globals.css).
-  secondary: "border border-border-strong bg-surface text-text-primary hover:bg-[var(--hover)]",
+  secondary: "border border-border-strong bg-surface text-text-primary hover:bg-[var(--hover)] disabled:hover:bg-surface",
   // text-danger (not a literal red) is safe here: it's a TEXT color, not
   // a solid white-on-fill button background — --danger is specifically
   // calibrated to stay legible as text/an outline on both Light and Dark
@@ -51,7 +68,7 @@ const VARIANT_CLASSES = {
   // this component's own render function) is the non-color cue that
   // keeps this distinguishable, on top of each call site's own specific
   // wording ("Terminate", "Suspend organization", never "Confirm").
-  dangerOutline: "border border-border-strong bg-surface text-danger hover:bg-danger-subtle",
+  dangerOutline: "border border-border-strong bg-surface text-danger hover:bg-danger-subtle disabled:hover:bg-surface",
   // Visual Design Improvement V1 — low-emphasis action: no resting
   // background/border at all (a true "ghost"), text-text-secondary
   // matching the same resting weight Sidebar's own inactive links
@@ -60,7 +77,7 @@ const VARIANT_CLASSES = {
   // hover token. The shared focus-visible ring and disabled treatment
   // below (common to every variant) are untouched, so this needs nothing
   // variant-specific for either.
-  ghost: "text-text-secondary hover:bg-[var(--hover)]",
+  ghost: "text-text-secondary hover:bg-[var(--hover)] disabled:hover:bg-transparent",
   // Visual Design Improvement V1 — a SOLID destructive action (the
   // ConfirmDialog migration below is this variant's first consumer).
   // Deliberately NOT --danger/--danger-subtle: those are calibrated as a
@@ -82,7 +99,7 @@ const VARIANT_CLASSES = {
   // distinguishable, together with each call site's own specific
   // wording (this variant's only current consumer, ConfirmDialog, always
   // passes a destructive-specific confirmLabel such as "Delete").
-  danger: "bg-danger-button text-text-inverse hover:bg-danger-button-hover",
+  danger: "bg-danger-button text-text-inverse hover:bg-danger-button-hover disabled:hover:bg-danger-button",
 } as const;
 
 // Sky-Blue/Grayscale Theme Redesign V1 — variants whose Light rendering

@@ -72,8 +72,8 @@ describe("Light — --sidebar-hover is now visibly darker than the sidebar's own
     expect(relativeLuminance(sidebarHover)).toBeLessThan(relativeLuminance(sidebarBg));
   });
 
-  it("is a distinctly different value from the shared --hover token (not reusing the too-subtle one)", () => {
-    expect(sidebarHover.toLowerCase()).not.toBe(sharedHover.toLowerCase());
+  it("now intentionally equals the shared --hover token — that token's own Light value was broadened to the same visible gray in a later, separate fix, for one consistent hover language across Light; --sidebar-hover itself was deliberately left as its own token rather than re-pointing sidebar.tsx at the now-equal shared one (see globals.css's own comment)", () => {
+    expect(sidebarHover.toLowerCase()).toBe(sharedHover.toLowerCase());
   });
 
   it("the resulting step is a real, perceptible jump, not a few-unit rounding difference (at least a 3:1 ratio against the sidebar's own background, the same bar WCAG 1.4.11 uses for non-text UI boundaries)", () => {
