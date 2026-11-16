@@ -53,9 +53,16 @@ export default async function SignupPage({
         Create an account
       </h1>
       {invalidConfirmationLink && (
+        // Recovery-guidance correction: leads with Support (a verified
+        // path — this exact widget, opened from this exact page,
+        // completes a real submission in test/e2e/pre-auth-redesign.spec.ts's
+        // own "a fully valid submission succeeds..." case) rather than
+        // asserting that resubmitting the form below will itself succeed,
+        // which was never verified against Supabase's real retry
+        // behavior for an existing, still-unconfirmed signup.
         <p className="border-warning bg-warning-subtle text-warning mb-4 rounded-md border px-3 py-2 text-sm">
-          That confirmation link is invalid or has expired. You can create your account again below, or contact
-          Support if you need help.
+          That confirmation link is invalid or has expired. Contact Support for help, or you can try signing up
+          again below.
         </p>
       )}
       <SignupForm redirectTo={redirectTo} invitation={invitation} />

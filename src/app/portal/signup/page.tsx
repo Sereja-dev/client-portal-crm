@@ -52,8 +52,19 @@ export default async function PortalSignupPage({
           Create your Client Portal account
         </h1>
         {invalidConfirmationLink && (
+          // Recovery-guidance correction: the only real path into this
+          // page is a real invitation link from /portal/invite/[token]
+          // (confirmed: no other UI anywhere links to /portal/signup
+          // without an invitationToken) — so the inviting company, not
+          // Aqenra, is the verified party who can issue a fresh
+          // invitation. This never claims Aqenra will resend anything,
+          // and no longer asserts that resubmitting the form below will
+          // itself succeed, which was never verified against Supabase's
+          // real retry behavior for an existing, still-unconfirmed
+          // signup.
           <p className="border-warning bg-warning-subtle text-warning mb-4 rounded-md border px-3 py-2 text-sm">
-            That confirmation link is invalid or has expired. You can create your account again below.
+            That confirmation link is invalid or has expired. Contact the company that invited you to request a
+            new invitation, or you can try again below.
           </p>
         )}
         <PortalSignupForm redirectTo={redirectTo} invitation={invitation} />
