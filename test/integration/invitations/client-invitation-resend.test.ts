@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { RateLimitCheck, RateLimitConfig } from "@/lib/rate-limit";
 
 const sendEmailViaResend = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/email/resend-client", async () => {
@@ -19,11 +20,7 @@ vi.mock("@/lib/email/resend-client", async () => {
 // override takes precedence for this file only, and is restored to the
 // same always-allow default after each test, so no other test in this
 // file (or process) is affected by it.
-const checkRateLimit = vi.hoisted(() =>
-  vi.fn((_config: { scope: string }, _identifier: string): { limited: true; message: string } | { limited: false } => ({
-    limited: false,
-  })),
-);
+const checkRateLimit = vi.hoisted(() => vi.fn<(config: RateLimitConfig, identifier: string) => RateLimitCheck>(() => ({ limited: false })));
 vi.mock("@/lib/rate-limit", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/rate-limit")>();
   return { ...actual, checkRateLimit };
