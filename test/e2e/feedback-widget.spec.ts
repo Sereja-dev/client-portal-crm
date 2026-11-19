@@ -38,6 +38,10 @@ async function box(locator: Locator) {
   return b;
 }
 
+function isInsideViewport(b: { x: number; y: number; width: number; height: number }, vp: { width: number; height: number }): boolean {
+  return b.x >= 0 && b.y >= 0 && b.x + b.width <= vp.width + 0.5 && b.y + b.height <= vp.height + 0.5;
+}
+
 async function expectInsideViewport(page: Page, locator: Locator) {
   const b = await box(locator);
   const vp = page.viewportSize()!;
@@ -45,6 +49,21 @@ async function expectInsideViewport(page: Page, locator: Locator) {
   expect(b.y).toBeGreaterThanOrEqual(0);
   expect(b.x + b.width).toBeLessThanOrEqual(vp.width + 0.5);
   expect(b.y + b.height).toBeLessThanOrEqual(vp.height + 0.5);
+}
+
+// Same reasoning as the existing expect.poll before the bare assertion in
+// "shrinking the window keeps a dragged button inside the viewport" below:
+// right after setViewportSize() on an already-mounted, already-dragged
+// button, the resize-driven re-clamp is one more render/paint away, not
+// guaranteed to have landed yet. Polling first waits for that settling;
+// the plain expectInsideViewport() call after it still gives the original,
+// specific per-edge failure message if the button is genuinely stuck
+// outside the viewport once the poll itself times out.
+async function expectInsideViewportEventually(page: Page, locator: Locator) {
+  await expect
+    .poll(async () => isInsideViewport(await box(locator), page.viewportSize()!))
+    .toBe(true);
+  await expectInsideViewport(page, locator);
 }
 
 async function expectNoHorizontalOverflow(page: Page) {
@@ -295,7 +314,7 @@ test.describe("Staff feedback widget", () => {
     await dragBy(page, trigger(page), -700, -400);
     const wide = await box(trigger(page));
     await page.setViewportSize({ width: 390, height: 700 });
-    await expectInsideViewport(page, trigger(page));
+    await expectInsideViewportEventually(page, trigger(page));
     expect(JSON.parse((await storedPosition(page))!).right).toBeGreaterThan(300);
     await page.reload();
     await expectInsideViewport(page, trigger(page));
