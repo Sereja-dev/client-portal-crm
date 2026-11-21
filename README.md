@@ -349,7 +349,7 @@ Both are intended to be green before merging a pull request.
 
 Ideas for future iterations — not required for the product to work today:
 
-- **Custom domain verification.** Settings → Domain lets an organization save a custom domain, but real DNS verification isn't implemented yet — a saved domain stays in a "pending" state indefinitely. This is intentional and disclosed in the UI itself, not a bug.
+- **Custom domain verification.** Corrected 2026-11-18: Settings → Domain no longer offers a way to save a custom domain — that input/save UI and its read-only status display were removed (`src/app/(dashboard)/settings/domain/page.tsx`'s own "Unfinished Features Cleanup (Block 17)" comment), because no DNS verification or routing of any kind exists anywhere in the app and a saved domain would otherwise sit at "Pending" forever. The page now only shows the organization's always-current, auto-generated subdomain. The underlying data model (`OrganizationDomainSettings`, `upsertDomainSettings()`) and Platform Admin's own read-only visibility into it are unchanged — only the Staff-facing UI was removed. Building real DNS verification remains a future iteration, not required for the product to work today.
 - **Trial-ending reminders / billing reconciliation.** See [Billing](#billing) below — both are optional, defense-in-depth additions, not required for correctness.
 
 ## Billing
