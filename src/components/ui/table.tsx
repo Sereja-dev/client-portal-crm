@@ -40,6 +40,7 @@ export function TableHeaderCell({
   align = "left",
   className = "",
   ariaSort,
+  dense = false,
 }: {
   children: ReactNode;
   align?: "left" | "right";
@@ -64,12 +65,22 @@ export function TableHeaderCell({
    * that aren't sortable, rather than asserting "none").
    */
   ariaSort?: "ascending" | "descending" | "none";
+  /**
+   * Additive, optional, defaults to `false` — every existing call site
+   * renders byte-identically. Trims horizontal padding from `px-4` to
+   * `px-3` for a table whose own column count has grown past what `px-4`
+   * everywhere leaves real breakpoint margin for (see the Tasks list's
+   * own usage and responsive-list-tables-breakpoint.spec.ts's header
+   * comment) — a column-count problem, not a reason to change the
+   * default density of every other table in the app.
+   */
+  dense?: boolean;
 }) {
   return (
     <th
       scope="col"
       aria-sort={ariaSort}
-      className={`text-text-muted px-4 py-3 font-medium ${
+      className={`text-text-muted ${dense ? "px-3" : "px-4"} py-3 font-medium ${
         align === "right" ? "text-right" : "text-left"
       } ${className}`}
     >
@@ -91,16 +102,19 @@ export function TableCell({
   align = "left",
   emphasis = false,
   className = "",
+  dense = false,
 }: {
   children: ReactNode;
   align?: "left" | "right";
   emphasis?: boolean;
   /** Same additive, optional responsive-visibility escape hatch as TableHeaderCell's own — see its doc comment. Must match whichever cell(s) hide the corresponding TableHeaderCell, or a row's columns will misalign. */
   className?: string;
+  /** Same additive, optional `px-4`→`px-3` escape hatch as TableHeaderCell's own `dense` — see its doc comment. Must match the corresponding TableHeaderCell's own `dense` value, or a column's header and body won't share the same width. */
+  dense?: boolean;
 }) {
   return (
     <td
-      className={`px-4 py-3 align-middle ${
+      className={`${dense ? "px-3" : "px-4"} py-3 align-middle ${
         align === "right" ? "text-right" : "text-left"
       } ${emphasis ? "text-text-primary font-medium" : "text-text-secondary"} ${className}`}
     >

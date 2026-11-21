@@ -85,8 +85,10 @@ export function TaskListWithSelection({
                   by hand); keeping it out preserves the one-trailing-
                   Actions-header convention responsive-list-tables-
                   adoption-contract.test.ts already asserts on every other
-                  list page in this app. */}
-              <th scope="col" className="text-text-muted px-4 py-3 text-left font-medium">
+                  list page in this app. Padding matches TableHeaderCell's
+                  own `dense` below — see this table's own `dense` usage
+                  comment on the first real column header. */}
+              <th scope="col" className="text-text-muted px-3 py-3 text-left font-medium">
                 <input
                   type="checkbox"
                   aria-label="Select all tasks"
@@ -94,16 +96,24 @@ export function TaskListWithSelection({
                   onChange={toggleAll}
                 />
               </th>
-              <TableHeaderCell>Title</TableHeaderCell>
-              <TableHeaderCell>Project</TableHeaderCell>
-              <TableHeaderCell>Client</TableHeaderCell>
-              <TableHeaderCell>Assignee</TableHeaderCell>
-              <TableHeaderCell>Status</TableHeaderCell>
-              <TableHeaderCell>Priority</TableHeaderCell>
-              <TableHeaderCell>Due date</TableHeaderCell>
-              <TableHeaderCell>Completed</TableHeaderCell>
-              <TableHeaderCell>Created</TableHeaderCell>
-              <TableHeaderCell align="right">Actions</TableHeaderCell>
+              {/* `dense` (px-4 → px-3) on every header/cell in this table only —
+                  see TableHeaderCell/TableCell's own doc comments. The Tasks
+                  table has grown to 11 header cells since this `xl`/1280px
+                  breakpoint was sized, leaving close to zero real margin at
+                  the default content width (see responsive-list-tables-
+                  breakpoint.spec.ts's own header comment); this is the
+                  narrowly-scoped, measured recovery of some of that margin,
+                  not a density change applied to any other table. */}
+              <TableHeaderCell dense>Title</TableHeaderCell>
+              <TableHeaderCell dense>Project</TableHeaderCell>
+              <TableHeaderCell dense>Client</TableHeaderCell>
+              <TableHeaderCell dense>Assignee</TableHeaderCell>
+              <TableHeaderCell dense>Status</TableHeaderCell>
+              <TableHeaderCell dense>Priority</TableHeaderCell>
+              <TableHeaderCell dense>Due date</TableHeaderCell>
+              <TableHeaderCell dense>Completed</TableHeaderCell>
+              <TableHeaderCell dense>Created</TableHeaderCell>
+              <TableHeaderCell dense align="right">Actions</TableHeaderCell>
             </tr>
           </TableHead>
           <TableBody>
@@ -111,7 +121,7 @@ export function TaskListWithSelection({
               const overdue = isTaskOverdue(task, now);
               return (
                 <TableRow key={task.id}>
-                  <TableCell>
+                  <TableCell dense>
                     <input
                       type="checkbox"
                       aria-label={`Select ${task.title}`}
@@ -119,28 +129,32 @@ export function TaskListWithSelection({
                       onChange={() => toggle(task.id)}
                     />
                   </TableCell>
-                  <TableCell emphasis>{task.title}</TableCell>
-                  <TableCell>{task.project.name}</TableCell>
-                  <TableCell>{task.project.client.name}</TableCell>
-                  <TableCell>{task.assignee?.name ?? "—"}</TableCell>
-                  <TableCell>
+                  <TableCell dense emphasis>{task.title}</TableCell>
+                  <TableCell dense>{task.project.name}</TableCell>
+                  <TableCell dense>{task.project.client.name}</TableCell>
+                  <TableCell dense>{task.assignee?.name ?? "—"}</TableCell>
+                  <TableCell dense>
                     <StatusBadge status={task.status} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell dense>
                     <StatusBadge status={task.priority} />
                   </TableCell>
-                  <TableCell>
+                  <TableCell dense>
                     <span className={overdue ? "text-danger font-medium" : undefined}>
                       {task.dueDate ? formatDateOnlyForDisplay(task.dueDate) : "—"}
                       {overdue ? " · Overdue" : ""}
                     </span>
                   </TableCell>
-                  <TableCell>
+                  <TableCell dense>
                     {task.completedAt ? task.completedAt.toLocaleDateString() : "—"}
                   </TableCell>
-                  <TableCell>{task.createdAt.toLocaleDateString()}</TableCell>
-                  <TableCell align="right">
-                    <div className="flex items-center justify-end gap-4">
+                  <TableCell dense>{task.createdAt.toLocaleDateString()}</TableCell>
+                  <TableCell dense align="right">
+                    {/* gap-4 → gap-3: matches this table's own `dense` padding
+                        reduction above — a few px less space between the
+                        three Actions controls, not a change to their own
+                        size or labels. */}
+                    <div className="flex items-center justify-end gap-3">
                       <TaskQuickLogButton
                         taskId={task.id}
                         taskTitle={task.title}
