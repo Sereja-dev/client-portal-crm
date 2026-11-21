@@ -121,6 +121,14 @@ test.describe("Project Column Customization (Tables Improvement Slice E3C)", () 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/projects");
 
+    // The route has its own loading.tsx (a Suspense streaming fallback
+    // with no columnheader markup at all) — reading column headers
+    // immediately after goto() raced that fallback intermittently in CI
+    // (both observed failures returned an empty array). Waiting for the
+    // first real columnheader to be visible is an auto-retrying check
+    // grounded in the actual rendered page, not an arbitrary delay.
+    await expect(page.getByRole("columnheader").first()).toBeVisible();
+
     const headerNames = await page.getByRole("columnheader").allTextContents();
     expect(headerNames.map((t) => t.trim())).toEqual([
       "Name",
