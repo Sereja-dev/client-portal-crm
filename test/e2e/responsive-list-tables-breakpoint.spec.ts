@@ -25,15 +25,13 @@ import { injectTestSession } from "../support/e2e-session";
  *   Clients:             626px  → fits from viewport ≥  898px
  *   Team Invitations:   632px  → fits from viewport ≥  904px
  *   Invoices:            695px  → fits from viewport ≥  967px
- *   Tasks (widest, 9 columns): 779px → fits from viewport ≥ 1051px
  *
  * `xl` (1280px) is Tailwind's own next built-in breakpoint step above
- * `lg` (1024px, itself proven insufficient — Tasks still needs 1051)
- * that clears every one of the six measured requirements with real
- * margin (229px+ for Tasks, more for the rest) — chosen over a bespoke
- * arbitrary-value breakpoint precisely so a modest future increase in
- * real content width (a longer Invoice number, a longer status label)
- * doesn't reopen this same gap with zero headroom.
+ * `lg` (1024px) that clears every one of these five measured
+ * requirements with real margin — chosen over a bespoke arbitrary-value
+ * breakpoint precisely so a modest future increase in real content width
+ * (a longer Invoice number, a longer status label) doesn't reopen this
+ * same gap with zero headroom.
  *
  * This file asserts the underlying geometric invariant directly — "a
  * visible table must never need more horizontal space than its own
@@ -41,6 +39,20 @@ import { injectTestSession } from "../support/e2e-session";
  * value, so it would keep failing correctly even if a future change
  * quietly reintroduced this exact class of bug at a different pixel
  * value.
+ *
+ * Tasks — a separate note, added by a later correction. The table grew
+ * from the 9 columns measured above to 11 (a selection checkbox column
+ * and an Assignee column were added, and the Actions cell gained a third
+ * control) well after that original measurement, eroding its margin back
+ * to effectively zero at 1280px for ordinary content — on one real CI
+ * run (Linux Chromium), the table's own `scrollWidth` measured 3px more
+ * than its wrapper's `clientWidth`, while the identical fixture content
+ * measured with zero margin (not over) on macOS Chromium. That specific
+ * 3px gap was never root-caused to a single factor, and no exact pixel
+ * margin is guaranteed to hold identically across every browser/OS/font-
+ * rendering combination — what this correction restores is real,
+ * measured headroom (see task-list-with-selection.tsx's own `dense`
+ * table-cell usage) rather than a number asserted here as a promise.
  */
 
 let fixtures: TestFixtures;
@@ -252,6 +264,14 @@ test.describe("Tasks — Actions column and Edit/Delete controls fully contained
     const actionsHeader = table.getByRole("columnheader", { name: "Actions" });
     await expect(actionsHeader).toBeVisible();
 
+    // Every intended column header is present and visible, not merely
+    // Actions — this table's own `dense` cell padding (see table.tsx and
+    // this component's own usage) must not have hidden or clipped any of
+    // them off-screen.
+    for (const name of ["Title", "Project", "Client", "Assignee", "Status", "Priority", "Due date", "Completed", "Created", "Actions"]) {
+      await expect(table.getByRole("columnheader", { name }), `header "${name}" must remain visible`).toBeVisible();
+    }
+
     const row = page.getByRole("row", { name: new RegExp(fixtures.task.title) });
     // Stale-test correction — Mobile Improvement Slice B3 already shipped
     // relocating Tasks' own Delete out of the row and behind the shared
@@ -282,6 +302,51 @@ test.describe("Tasks — Actions column and Edit/Delete controls fully contained
       expect(box, "expected a real bounding box").not.toBeNull();
       expect(box!.x + box!.width, "control's right edge must not exceed the viewport width").toBeLessThanOrEqual(viewportSize.width);
       expect(box!.x, "control's left edge must not be negative (clipped off the left)").toBeGreaterThanOrEqual(0);
+    }
+
+    // The Actions cell's own internal spacing was tightened (gap-4 → gap-3)
+    // as part of restoring breakpoint margin — confirm its controls are
+    // still independently reachable and keyboard-focusable, not merged
+    // into one unfocusable cluster.
+    await menuTrigger.focus();
+    await expect(menuTrigger).toBeFocused();
+    await expect.poll(() => menuTrigger.evaluate((el) => getComputedStyle(el).boxShadow)).not.toBe("none");
+  });
+
+  test("at 1280px with realistic long content: Title/Project/Client wrap or scroll, but no action control is hidden and the page itself never scrolls horizontally", async ({
+    page,
+  }) => {
+    const longTitle = "Reconcile Q4 marketing budget rollup with finance before the client review";
+    const longTask = await dbQuery<{ id: string }>("task", "create", {
+      data: {
+        title: longTitle,
+        projectId: fixtures.project.id,
+        organizationId: fixtures.orgA.id,
+        status: "IN_REVIEW",
+        priority: "URGENT",
+      },
+    });
+    try {
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.goto("/tasks");
+
+      const row = page.getByRole("row", { name: new RegExp(longTitle) });
+      await expect(row).toBeVisible();
+      await expect(row.getByRole("button", { name: "Log time" })).toBeVisible();
+      await expect(row.getByRole("link", { name: /Edit/ })).toBeVisible();
+      await expect(row.getByRole("button", { name: `More actions for task ${longTitle}` })).toBeVisible();
+
+      // The table's own wrapper may still scroll internally (overflow-x-auto)
+      // for content this long — that is the existing, intended mechanism for
+      // reaching an overflowing table, not a regression. The outer page must
+      // never gain its own horizontal scrollbar because of it.
+      const { scrollWidth, clientWidth } = await page.evaluate(() => ({
+        scrollWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      }));
+      expect(scrollWidth, "the page itself must not scroll horizontally").toBeLessThanOrEqual(clientWidth);
+    } finally {
+      await dbQuery("task", "delete", { where: { id: longTask.id } });
     }
   });
 
