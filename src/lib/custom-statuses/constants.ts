@@ -78,6 +78,12 @@ export const SYSTEM_STATUS_DEFINITIONS: Record<CustomStatusEntityType, readonly 
  * checks against it directly rather than trusting isDefault on the NEW
  * row alone (Section C: enforce at the domain boundary, not just by
  * hiding UI).
+ *
+ * PROJECT_COMPLETED/PROJECT_CANCELLED added for the Free plan's
+ * active-project limit (src/lib/custom-statuses/semantics.ts's own
+ * resolveProjectCountsTowardActiveLimit) — the limit excludes exactly
+ * these two system statuses, by identity, the same way every other gate
+ * in this object already works.
  */
 export const SYSTEM_STATUS_KEYS = {
   CLIENT_ACTIVE: "active",
@@ -85,4 +91,6 @@ export const SYSTEM_STATUS_KEYS = {
   LEAD_WON: "won",
   LEAD_LOST: "lost",
   PROJECT_IN_PROGRESS: "in_progress",
+  PROJECT_COMPLETED: "completed",
+  PROJECT_CANCELLED: "cancelled",
 } as const;

@@ -19,6 +19,8 @@ import {
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
 import { resolveStatusForSave } from "@/lib/custom-statuses/entity-form";
+import { resolveProjectCountsTowardActiveLimit } from "@/lib/custom-statuses/semantics";
+import { assertCanIncreaseActiveProjects, BillingLimitError } from "@/lib/billing/enforcement";
 import type { ProjectStatusValue } from "@/lib/validation/project";
 import type { ProjectFormState } from "@/types";
 
@@ -71,104 +73,134 @@ export async function updateProjectAction(
 
   // Update and its Activity row(s) are one atomic unit — if any Activity
   // insert fails, the whole update rolls back with it.
-  const outcome = await prisma.$transaction(async (tx) => {
-    // Scoped by id + organizationId together — a foreign org's project id
-    // simply doesn't match, indistinguishable from a nonexistent one. Also
-    // doubles as the "before" snapshot for change-detection below.
-    const existing = await tx.project.findFirst({
-      where: { id: projectId, organizationId },
-      include: { client: { select: { name: true } } },
-    });
+  let outcome: "not_found" | "status_not_found" | "status_archived" | "updated";
+  try {
+    outcome = await prisma.$transaction(async (tx) => {
+      // Scoped by id + organizationId together — a foreign org's project id
+      // simply doesn't match, indistinguishable from a nonexistent one. Also
+      // doubles as the "before" snapshot for change-detection below.
+      const existing = await tx.project.findFirst({
+        where: { id: projectId, organizationId },
+        include: { client: { select: { name: true } }, statusDefinition: { select: { isSystem: true, key: true } } },
+      });
 
-    if (!existing) {
-      return "not_found" as const;
-    }
+      if (!existing) {
+        return "not_found" as const;
+      }
 
-    // Custom Statuses Phase 2B (Section O/R) — see updateClientAction's
-    // own identical comment.
-    const statusResult = await resolveStatusForSave(
-      organizationId,
-      "PROJECT",
-      values.statusDefinitionId,
-      existing.statusDefinitionId,
-      tx,
-    );
-    if (!statusResult.ok) {
-      return statusResult.reason === "ARCHIVED" ? ("status_archived" as const) : ("status_not_found" as const);
-    }
-    const legacyStatus: ProjectStatusValue | undefined = statusResult.isSystem
-      ? (statusResult.key.toUpperCase() as ProjectStatusValue)
-      : undefined;
-
-    const result = await tx.project.updateMany({
-      where: { id: projectId, organizationId },
-      data: {
-        name: values.name,
-        status: legacyStatus,
-        statusDefinitionId: statusResult.definitionId,
-        startDate: values.startDate,
-        endDate: values.endDate,
-        clientId: values.clientId,
-      },
-    });
-
-    if (result.count === 0) {
-      return "not_found" as const;
-    }
-
-    await persistCustomFieldValuesInTransaction(tx, {
-      organizationId,
-      entityType: "PROJECT",
-      entityId: projectId,
-      definitions: customFieldDefinitions,
-      rawValues: rawCustomFieldValues,
-      decisions: customFieldValidation.decisions,
-    });
-
-    // A pure resubmit of identical values creates no Activity at all.
-    // "status" is always split out into its own STATUS_CHANGED event, so
-    // it's never listed in an UPDATED event's changedFields even when both
-    // fire together. `values.status` from parseProjectForm is never real
-    // anymore (the form no longer submits a `status` field — see this
-    // file's own comment above) — substituted with the actual computed
-    // legacy value (falling back to the row's own existing value for a
-    // CUSTOM target, whose legacy column was left untouched), so the
-    // diff and Activity metadata both describe what genuinely changed.
-    const valuesForActivity = { ...values, status: legacyStatus ?? existing.status };
-    const changedFields = diffProjectFields(existing, valuesForActivity);
-    const statusChanged = changedFields.includes("status");
-    const otherChangedFields = changedFields.filter((field) => field !== "status");
-
-    if (statusChanged) {
-      await createActivity(tx, {
+      // Custom Statuses Phase 2B (Section O/R) — see updateClientAction's
+      // own identical comment.
+      const statusResult = await resolveStatusForSave(
         organizationId,
-        actorId: user.id,
+        "PROJECT",
+        values.statusDefinitionId,
+        existing.statusDefinitionId,
+        tx,
+      );
+      if (!statusResult.ok) {
+        return statusResult.reason === "ARCHIVED" ? ("status_archived" as const) : ("status_not_found" as const);
+      }
+      const legacyStatus: ProjectStatusValue | undefined = statusResult.isSystem
+        ? (statusResult.key.toUpperCase() as ProjectStatusValue)
+        : undefined;
+
+      // Aqenra Free plan — only check the active-project limit when this
+      // edit would actually INCREASE the active count: the project wasn't
+      // already counted before (e.g. it was Completed/Cancelled) and its
+      // newly resolved status now counts. Reactivating-to-reactivating,
+      // active-to-inactive, and inactive-to-inactive all leave the active
+      // count unchanged or lower, and never need this check. Re-checked
+      // from inside this same transaction, immediately before the write —
+      // same race handling as assertCanCreateProject elsewhere.
+      const wasActive = resolveProjectCountsTowardActiveLimit({
+        status: existing.status,
+        statusDefinition: existing.statusDefinition
+          ? { ...existing.statusDefinition, entityType: "PROJECT" as const }
+          : null,
+      });
+      const willBeActive = resolveProjectCountsTowardActiveLimit({
+        status: legacyStatus ?? existing.status,
+        statusDefinition: { isSystem: statusResult.isSystem, entityType: "PROJECT", key: statusResult.key },
+      });
+      if (!wasActive && willBeActive) {
+        await assertCanIncreaseActiveProjects(organizationId, tx);
+      }
+
+      const result = await tx.project.updateMany({
+        where: { id: projectId, organizationId },
+        data: {
+          name: values.name,
+          status: legacyStatus,
+          statusDefinitionId: statusResult.definitionId,
+          startDate: values.startDate,
+          endDate: values.endDate,
+          clientId: values.clientId,
+        },
+      });
+
+      if (result.count === 0) {
+        return "not_found" as const;
+      }
+
+      await persistCustomFieldValuesInTransaction(tx, {
+        organizationId,
         entityType: "PROJECT",
         entityId: projectId,
-        action: "STATUS_CHANGED",
-        metadata: buildProjectStatusChangedMetadata(
-          valuesForActivity,
-          client.name,
-          existing.status,
-          valuesForActivity.status,
-          user.name,
-        ),
+        definitions: customFieldDefinitions,
+        rawValues: rawCustomFieldValues,
+        decisions: customFieldValidation.decisions,
       });
-    }
 
-    if (otherChangedFields.length > 0) {
-      await createActivity(tx, {
-        organizationId,
-        actorId: user.id,
-        entityType: "PROJECT",
-        entityId: projectId,
-        action: "UPDATED",
-        metadata: buildProjectUpdatedMetadata(valuesForActivity, client.name, otherChangedFields, user.name),
-      });
-    }
+      // A pure resubmit of identical values creates no Activity at all.
+      // "status" is always split out into its own STATUS_CHANGED event, so
+      // it's never listed in an UPDATED event's changedFields even when both
+      // fire together. `values.status` from parseProjectForm is never real
+      // anymore (the form no longer submits a `status` field — see this
+      // file's own comment above) — substituted with the actual computed
+      // legacy value (falling back to the row's own existing value for a
+      // CUSTOM target, whose legacy column was left untouched), so the
+      // diff and Activity metadata both describe what genuinely changed.
+      const valuesForActivity = { ...values, status: legacyStatus ?? existing.status };
+      const changedFields = diffProjectFields(existing, valuesForActivity);
+      const statusChanged = changedFields.includes("status");
+      const otherChangedFields = changedFields.filter((field) => field !== "status");
 
-    return "updated" as const;
-  });
+      if (statusChanged) {
+        await createActivity(tx, {
+          organizationId,
+          actorId: user.id,
+          entityType: "PROJECT",
+          entityId: projectId,
+          action: "STATUS_CHANGED",
+          metadata: buildProjectStatusChangedMetadata(
+            valuesForActivity,
+            client.name,
+            existing.status,
+            valuesForActivity.status,
+            user.name,
+          ),
+        });
+      }
+
+      if (otherChangedFields.length > 0) {
+        await createActivity(tx, {
+          organizationId,
+          actorId: user.id,
+          entityType: "PROJECT",
+          entityId: projectId,
+          action: "UPDATED",
+          metadata: buildProjectUpdatedMetadata(valuesForActivity, client.name, otherChangedFields, user.name),
+        });
+      }
+
+      return "updated" as const;
+    });
+  } catch (err) {
+    if (err instanceof BillingLimitError) {
+      return { error: err.message };
+    }
+    throw err;
+  }
 
   if (outcome === "not_found") {
     return { error: "This project could not be found." };

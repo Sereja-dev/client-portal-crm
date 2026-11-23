@@ -7,6 +7,7 @@ import {
   resolveLeadIsLost,
   resolveClientIsActive,
   resolveProjectIsInProgress,
+  resolveProjectCountsTowardActiveLimit,
 } from "@/lib/custom-statuses/semantics";
 
 /**
@@ -97,5 +98,51 @@ describe("Custom Statuses Phase 2A — Project IN_PROGRESS (Section J, test item
   it("Section D fallback for Project", () => {
     expect(resolveProjectIsInProgress({ status: "IN_PROGRESS", statusDefinition: null })).toBe(true);
     expect(resolveProjectIsInProgress({ status: "PLANNING", statusDefinition: null })).toBe(false);
+  });
+});
+
+describe("Aqenra Free plan — resolveProjectCountsTowardActiveLimit", () => {
+  const systemPlanning = { isSystem: true, entityType: "PROJECT" as const, key: "planning" };
+  const systemInProgress = { isSystem: true, entityType: "PROJECT" as const, key: "in_progress" };
+  const systemOnHold = { isSystem: true, entityType: "PROJECT" as const, key: "on_hold" };
+  const systemCompleted = { isSystem: true, entityType: "PROJECT" as const, key: "completed" };
+  const systemCancelled = { isSystem: true, entityType: "PROJECT" as const, key: "cancelled" };
+  const customStatus = { isSystem: false, entityType: "PROJECT" as const, key: "backlog" };
+
+  it("system PLANNING/IN_PROGRESS/ON_HOLD all count toward the limit", () => {
+    expect(resolveProjectCountsTowardActiveLimit({ status: "PLANNING", statusDefinition: systemPlanning })).toBe(true);
+    expect(resolveProjectCountsTowardActiveLimit({ status: "IN_PROGRESS", statusDefinition: systemInProgress })).toBe(
+      true,
+    );
+    expect(resolveProjectCountsTowardActiveLimit({ status: "ON_HOLD", statusDefinition: systemOnHold })).toBe(true);
+  });
+
+  it("system COMPLETED/CANCELLED never count toward the limit", () => {
+    expect(resolveProjectCountsTowardActiveLimit({ status: "COMPLETED", statusDefinition: systemCompleted })).toBe(
+      false,
+    );
+    expect(resolveProjectCountsTowardActiveLimit({ status: "CANCELLED", statusDefinition: systemCancelled })).toBe(
+      false,
+    );
+  });
+
+  it("a CUSTOM status defaults to counting as active, even one whose legacy compatibility value is COMPLETED — the deliberate anti-bypass default", () => {
+    expect(resolveProjectCountsTowardActiveLimit({ status: "COMPLETED", statusDefinition: customStatus })).toBe(true);
+    expect(resolveProjectCountsTowardActiveLimit({ status: "PLANNING", statusDefinition: customStatus })).toBe(true);
+  });
+
+  it("a null statusDefinition (legacy/unbackfilled row) falls back to the legacy enum under the identical rule", () => {
+    expect(resolveProjectCountsTowardActiveLimit({ status: "PLANNING", statusDefinition: null })).toBe(true);
+    expect(resolveProjectCountsTowardActiveLimit({ status: "IN_PROGRESS", statusDefinition: null })).toBe(true);
+    expect(resolveProjectCountsTowardActiveLimit({ status: "ON_HOLD", statusDefinition: null })).toBe(true);
+    expect(resolveProjectCountsTowardActiveLimit({ status: "COMPLETED", statusDefinition: null })).toBe(false);
+    expect(resolveProjectCountsTowardActiveLimit({ status: "CANCELLED", statusDefinition: null })).toBe(false);
+  });
+
+  it("is independent of resolveProjectIsInProgress — PLANNING/ON_HOLD count toward the Free-plan limit despite not being 'in progress'", () => {
+    expect(resolveProjectIsInProgress({ status: "PLANNING", statusDefinition: systemPlanning })).toBe(false);
+    expect(resolveProjectCountsTowardActiveLimit({ status: "PLANNING", statusDefinition: systemPlanning })).toBe(
+      true,
+    );
   });
 });

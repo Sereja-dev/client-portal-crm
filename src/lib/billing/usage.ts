@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
+import { SYSTEM_STATUS_KEYS } from "@/lib/custom-statuses/constants";
+import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 
 export type PrismaClientOrTx = typeof prisma | Prisma.TransactionClient;
 
@@ -7,6 +9,8 @@ export type OrganizationUsage = {
   members: number;
   clients: number;
   projects: number;
+  /** Aqenra Free plan's own dimension — see countActiveProjects's own doc comment for exactly what counts. Always computed, even for plans with no active-project ceiling (maxActiveProjects: null) — one more cheap aggregate query, and it keeps this type's shape, and buildOrganizationEntitlements's own usage parameter, identical for every plan. */
+  activeProjects: number;
   storageBytes: number;
 };
 
@@ -40,10 +44,11 @@ export async function getOrganizationUsage(
   client: PrismaClientOrTx,
   organizationId: string,
 ): Promise<OrganizationUsage> {
-  const [members, clients, projects, storageAgg] = await Promise.all([
+  const [members, clients, projects, activeProjects, storageAgg] = await Promise.all([
     client.membership.count({ where: { organizationId } }),
     client.client.count({ where: { organizationId } }),
     client.project.count({ where: { organizationId } }),
+    countActiveProjects(client, organizationId),
     client.attachment.aggregate({
       where: { organizationId },
       _sum: { sizeBytes: true },
@@ -54,8 +59,49 @@ export async function getOrganizationUsage(
     members,
     clients,
     projects,
+    activeProjects,
     storageBytes: storageAgg._sum.sizeBytes ?? 0,
   };
+}
+
+/**
+ * Aqenra Free plan — the one, database-level counting rule for "active
+ * project" as the owner's limit means it: resolveProjectCountsTowardActiveLimit's
+ * (src/lib/custom-statuses/semantics.ts) own exact predicate, expressed as
+ * a `where` clause instead of a per-row loop, mirroring the dashboard
+ * KPI's own `activeProjectsWhere` pattern (src/app/(dashboard)/dashboard/
+ * query.ts) — resolve the org's system definitions once, filter by
+ * statusDefinitionId at the database level, never load full rows to
+ * decide this per-row (the same N+1/full-table-scan avoidance that
+ * pattern's own doc comment already established).
+ *
+ * Deliberately the inverse shape of the dashboard's own query: that one
+ * matches exactly one system definition (IN_PROGRESS); this one EXCLUDES
+ * exactly two (COMPLETED, CANCELLED) so a CUSTOM Project status — a real,
+ * reachable state via Settings → Custom Statuses — still counts as
+ * active by default (see resolveProjectCountsTowardActiveLimit's own doc
+ * comment for why that default is deliberate, not an oversight).
+ */
+export async function countActiveProjects(client: PrismaClientOrTx, organizationId: string): Promise<number> {
+  const [completedDefinition, cancelledDefinition] = await Promise.all([
+    resolveSystemStatusDefinition(organizationId, "PROJECT", SYSTEM_STATUS_KEYS.PROJECT_COMPLETED, client),
+    resolveSystemStatusDefinition(organizationId, "PROJECT", SYSTEM_STATUS_KEYS.PROJECT_CANCELLED, client),
+  ]);
+  const excludedDefinitionIds = [completedDefinition?.id, cancelledDefinition?.id].filter(
+    (id): id is string => id != null,
+  );
+
+  const where: Prisma.ProjectWhereInput = {
+    organizationId,
+    NOT: {
+      OR: [
+        ...(excludedDefinitionIds.length > 0 ? [{ statusDefinitionId: { in: excludedDefinitionIds } }] : []),
+        { statusDefinitionId: null, status: { in: ["COMPLETED", "CANCELLED"] as const } },
+      ],
+    },
+  };
+
+  return client.project.count({ where });
 }
 
 /**

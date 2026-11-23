@@ -5,11 +5,12 @@ import {
   assertCanInviteMember,
   assertCanCreateClient,
   assertCanCreateProject,
+  assertCanIncreaseActiveProjects,
   assertCanUploadAttachment,
   BillingLimitError,
 } from "@/lib/billing/enforcement";
 import { getOrganizationEntitlements } from "@/lib/billing/entitlements";
-import { countReservedPendingInvitations } from "@/lib/billing/usage";
+import { countReservedPendingInvitations, countActiveProjects } from "@/lib/billing/usage";
 import { testEmail, testSlug } from "../../support/run-id";
 
 async function createOrgWithSubscription(
@@ -247,6 +248,59 @@ describe("assertCanInviteMember", () => {
   });
 });
 
+describe("assertCanInviteMember — Aqenra Free plan's own 2-member seat limit", () => {
+  it("FREE (maxMembers 2): the owner alone leaves exactly one real seat free", async () => {
+    const { owner, org } = await createOrgWithSubscription("free-invite-headroom", { planKey: "FREE" });
+    await expect(assertCanInviteMember(org.id)).resolves.toBeUndefined();
+    await cleanup(org.id, owner.id);
+  });
+
+  it("FREE: owner + one accepted Membership fills both seats — a third invite is rejected", async () => {
+    const { owner, org } = await createOrgWithSubscription("free-invite-full", { planKey: "FREE" });
+    const secondStaff = await prisma.user.create({
+      data: { id: randomUUID(), email: testEmail("free-invite-second-staff", "test.local"), name: "Second Staff" },
+    });
+    await prisma.membership.create({ data: { userId: secondStaff.id, organizationId: org.id, role: "MEMBER" } });
+
+    await expect(assertCanInviteMember(org.id)).rejects.toMatchObject({ reasonCode: "MEMBER_LIMIT_REACHED" });
+
+    await prisma.membership.deleteMany({ where: { organizationId: org.id, userId: secondStaff.id } });
+    await prisma.user.delete({ where: { id: secondStaff.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("FREE: owner + one unexpired pending invitation already fills both seats (invitation reserves the second seat, exactly as for every other plan)", async () => {
+    const { owner, org } = await createOrgWithSubscription("free-invite-pending", { planKey: "FREE" });
+    await createInvitationRow(org.id, owner.id);
+
+    await expect(assertCanInviteMember(org.id)).rejects.toMatchObject({ reasonCode: "MEMBER_LIMIT_REACHED" });
+
+    await prisma.invitation.deleteMany({ where: { organizationId: org.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("FREE: a Client Portal identity never consumes a staff seat — the org stays under the 2-seat limit with any number of Portal users", async () => {
+    const { owner, org } = await createOrgWithSubscription("free-invite-portal", { planKey: "FREE" });
+    const client = await prisma.client.create({ data: { name: "Portal Client", userId: owner.id, organizationId: org.id } });
+    await prisma.portalUser.createMany({
+      data: Array.from({ length: 5 }, (_, i) => ({
+        id: randomUUID(),
+        clientId: client.id,
+        email: testEmail(`free-portal-user-${i}`, "test.local", randomUUID().slice(0, 6)),
+        name: `Portal User ${i}`,
+      })),
+    });
+
+    await expect(assertCanInviteMember(org.id)).resolves.toBeUndefined();
+    const entitlements = await getOrganizationEntitlements(org.id);
+    expect(entitlements.currentMembers).toBe(1); // owner only — Portal users never counted
+
+    await prisma.portalUser.deleteMany({ where: { clientId: client.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+    await cleanup(org.id, owner.id);
+  });
+});
+
 /**
  * Free Public Beta, Slice 1 — Member Limit Consistency. Exercises the
  * REAL, unmodified assertCanInviteMember() — the exact function
@@ -428,6 +482,133 @@ describe("assertCanCreateProject", () => {
   });
 });
 
+/**
+ * Aqenra Free plan — real-database coverage of countActiveProjects
+ * (src/lib/billing/usage.ts) against legacy-shaped rows (no
+ * statusDefinitionId, the same shape assertCanCreateProject's own test
+ * above already uses) — the org here is never bootstrapped with Custom
+ * Statuses definitions, so every row below falls back to the legacy
+ * `status` enum, which is exactly the fallback branch this function's
+ * own doc comment describes.
+ */
+describe("countActiveProjects", () => {
+  it("PLANNING/IN_PROGRESS/ON_HOLD all count; COMPLETED/CANCELLED never do", async () => {
+    const { owner, org } = await createOrgWithSubscription("active-projects-count", { planKey: "FREE" });
+    const client = await prisma.client.create({ data: { name: "Active Count Client", userId: owner.id, organizationId: org.id } });
+
+    await prisma.project.createMany({
+      data: (["PLANNING", "IN_PROGRESS", "ON_HOLD", "COMPLETED", "CANCELLED"] as const).map((status, i) => ({
+        name: `Active Count Project ${i}`,
+        clientId: client.id,
+        ownerId: owner.id,
+        organizationId: org.id,
+        status,
+      })),
+    });
+
+    await expect(countActiveProjects(prisma, org.id)).resolves.toBe(3);
+
+    await prisma.project.deleteMany({ where: { organizationId: org.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("organization scoping — a foreign org's projects never bleed into this org's active count", async () => {
+    const { owner: ownerA, org: orgA } = await createOrgWithSubscription("active-projects-scope-a", { planKey: "FREE" });
+    const { owner: ownerB, org: orgB } = await createOrgWithSubscription("active-projects-scope-b", { planKey: "FREE" });
+    const clientA = await prisma.client.create({ data: { name: "Scope A Client", userId: ownerA.id, organizationId: orgA.id } });
+    const clientB = await prisma.client.create({ data: { name: "Scope B Client", userId: ownerB.id, organizationId: orgB.id } });
+
+    await prisma.project.create({
+      data: { name: "Org A Active", clientId: clientA.id, ownerId: ownerA.id, organizationId: orgA.id, status: "IN_PROGRESS" },
+    });
+    await prisma.project.createMany({
+      data: Array.from({ length: 4 }, (_, i) => ({
+        name: `Org B Active ${i}`,
+        clientId: clientB.id,
+        ownerId: ownerB.id,
+        organizationId: orgB.id,
+        status: "IN_PROGRESS",
+      })),
+    });
+
+    await expect(countActiveProjects(prisma, orgA.id)).resolves.toBe(1);
+    await expect(countActiveProjects(prisma, orgB.id)).resolves.toBe(4);
+
+    await prisma.project.deleteMany({ where: { organizationId: { in: [orgA.id, orgB.id] } } });
+    await prisma.client.deleteMany({ where: { id: { in: [clientA.id, clientB.id] } } });
+    await cleanup(orgA.id, ownerA.id);
+    await cleanup(orgB.id, ownerB.id);
+  });
+});
+
+describe("assertCanIncreaseActiveProjects", () => {
+  it("under/at the limit (FREE: maxActiveProjects 5)", async () => {
+    const { owner, org } = await createOrgWithSubscription("active-project-limit", { planKey: "FREE" });
+    const client = await prisma.client.create({ data: { name: "Active Limit Client", userId: owner.id, organizationId: org.id } });
+
+    await expect(assertCanIncreaseActiveProjects(org.id)).resolves.toBeUndefined();
+
+    await prisma.project.createMany({
+      data: Array.from({ length: 5 }, (_, i) => ({
+        name: `Active Limit Project ${i}`,
+        clientId: client.id,
+        ownerId: owner.id,
+        organizationId: org.id,
+        status: "IN_PROGRESS",
+      })),
+    });
+    await expect(assertCanIncreaseActiveProjects(org.id)).rejects.toMatchObject({
+      reasonCode: "ACTIVE_PROJECT_LIMIT_REACHED",
+    });
+
+    await prisma.project.deleteMany({ where: { organizationId: org.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("finished (COMPLETED/CANCELLED) projects never count toward the limit, however many exist", async () => {
+    const { owner, org } = await createOrgWithSubscription("active-project-limit-finished", { planKey: "FREE" });
+    const client = await prisma.client.create({ data: { name: "Finished Client", userId: owner.id, organizationId: org.id } });
+
+    await prisma.project.createMany({
+      data: Array.from({ length: 50 }, (_, i) => ({
+        name: `Finished Project ${i}`,
+        clientId: client.id,
+        ownerId: owner.id,
+        organizationId: org.id,
+        status: i % 2 === 0 ? "COMPLETED" : "CANCELLED",
+      })),
+    });
+
+    await expect(assertCanIncreaseActiveProjects(org.id)).resolves.toBeUndefined();
+
+    await prisma.project.deleteMany({ where: { organizationId: org.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("a non-FREE plan (STARTER: maxActiveProjects null) is never blocked by this check, however many active projects exist", async () => {
+    const { owner, org } = await createOrgWithSubscription("active-project-limit-starter");
+    const client = await prisma.client.create({ data: { name: "Starter Unlimited Client", userId: owner.id, organizationId: org.id } });
+
+    await prisma.project.createMany({
+      data: Array.from({ length: 20 }, (_, i) => ({
+        name: `Starter Active Project ${i}`,
+        clientId: client.id,
+        ownerId: owner.id,
+        organizationId: org.id,
+        status: "IN_PROGRESS",
+      })),
+    });
+    await expect(assertCanIncreaseActiveProjects(org.id)).resolves.toBeUndefined();
+
+    await prisma.project.deleteMany({ where: { organizationId: org.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+    await cleanup(org.id, owner.id);
+  });
+});
+
 describe("assertCanUploadAttachment", () => {
   it("under the storage limit: resolves", async () => {
     const { owner, org } = await createOrgWithSubscription("upload-under"); // STARTER: 500MB
@@ -453,6 +634,29 @@ describe("assertCanUploadAttachment", () => {
 
     await expect(assertCanUploadAttachment(org.id, 50)).resolves.toBeUndefined(); // fits
     await expect(assertCanUploadAttachment(org.id, 200)).rejects.toMatchObject({ reasonCode: "STORAGE_LIMIT_REACHED" }); // would cross
+
+    await prisma.attachment.deleteMany({ where: { organizationId: org.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("FREE plan: 1 GiB ceiling, not the real STARTER/PRO/beta numbers", async () => {
+    const { owner, org } = await createOrgWithSubscription("free-upload-boundary", { planKey: "FREE" });
+    const maxBytes = 1 * 1024 * 1024 * 1024;
+    await prisma.attachment.create({
+      data: {
+        organizationId: org.id,
+        entityType: "CLIENT",
+        entityId: randomUUID(),
+        storageBucket: "attachments",
+        storagePath: `test/${randomUUID()}`,
+        originalName: "big.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: maxBytes - 100,
+      },
+    });
+
+    await expect(assertCanUploadAttachment(org.id, 50)).resolves.toBeUndefined();
+    await expect(assertCanUploadAttachment(org.id, 200)).rejects.toMatchObject({ reasonCode: "STORAGE_LIMIT_REACHED" });
 
     await prisma.attachment.deleteMany({ where: { organizationId: org.id } });
     await cleanup(org.id, owner.id);

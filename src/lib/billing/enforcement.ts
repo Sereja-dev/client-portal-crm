@@ -31,6 +31,8 @@ export const REASON_MESSAGES: Readonly<Record<EntitlementReasonCode, string>> = 
   MEMBER_LIMIT_REACHED: "Your plan's member limit has been reached.",
   CLIENT_LIMIT_REACHED: "Your plan's client limit has been reached.",
   PROJECT_LIMIT_REACHED: "Your plan's project limit has been reached.",
+  ACTIVE_PROJECT_LIMIT_REACHED:
+    "Your plan's active-project limit has been reached. Complete or cancel an existing active project before activating another.",
   STORAGE_LIMIT_REACHED: "Your storage limit has been reached.",
   READ_ONLY_ACCESS: "Your subscription currently allows read-only access.",
 } as const;
@@ -102,6 +104,42 @@ export async function assertCanCreateProject(
   if (entitlements.canCreateProject) return;
   throw new BillingLimitError(
     entitlements.accessMode !== "FULL_ACCESS" ? "READ_ONLY_ACCESS" : "PROJECT_LIMIT_REACHED",
+  );
+}
+
+/**
+ * Aqenra Free plan's own active-project dimension — distinct from
+ * assertCanCreateProject above, which only ever guards the (plan-wide,
+ * currently unused by FREE) total-project ceiling. A caller must call
+ * this ONLY when the write it guards would actually increase the active
+ * count — i.e. the project's resolved target status counts toward the
+ * limit (resolveProjectCountsTowardActiveLimit /
+ * resolveProjectCountsTowardActiveLimit-equivalent check at the call
+ * site) AND, for an update, its *previous* status did not already count.
+ * Creating or editing a project into a COMPLETED/CANCELLED status, or
+ * between two already-active statuses, never needs this check — see
+ * src/app/(dashboard)/projects/new/actions.ts and
+ * src/app/(dashboard)/projects/[id]/edit/actions.ts for the exact call
+ * sites and their own before/after reasoning.
+ *
+ * Concurrency: same atomic-re-check/residual-race reasoning as
+ * assertCanCreateProject and assertCanInviteMember above — called from
+ * inside the caller's own transaction, re-read immediately before the
+ * write. Two near-simultaneous reactivations at exactly the limit can
+ * still both pass a read taken before either transaction opened; the
+ * worst outcome is the same small, temporary oversubscription this
+ * codebase already documents and accepts for the identical class of
+ * check (docs/billing-architecture.md §7) — never a claim of a harder
+ * invariant than that.
+ */
+export async function assertCanIncreaseActiveProjects(
+  organizationId: string,
+  client: PrismaClientOrTx = prisma,
+): Promise<void> {
+  const entitlements = await getOrganizationEntitlements(organizationId, { client });
+  if (entitlements.canIncreaseActiveProjects) return;
+  throw new BillingLimitError(
+    entitlements.accessMode !== "FULL_ACCESS" ? "READ_ONLY_ACCESS" : "ACTIVE_PROJECT_LIMIT_REACHED",
   );
 }
 

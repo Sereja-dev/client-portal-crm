@@ -19,6 +19,7 @@ export type EntitlementReasonCode =
   | "MEMBER_LIMIT_REACHED"
   | "CLIENT_LIMIT_REACHED"
   | "PROJECT_LIMIT_REACHED"
+  | "ACTIVE_PROJECT_LIMIT_REACHED"
   | "STORAGE_LIMIT_REACHED"
   | "READ_ONLY_ACCESS";
 
@@ -59,16 +60,22 @@ export type OrganizationEntitlements = {
   maxMembers: number;
   maxClients: number | null;
   maxProjects: number | null;
+  /** `null` for every plan but FREE — see PlanLimits.maxActiveProjects's own doc comment in plans.ts. */
+  maxActiveProjects: number | null;
   maxStorageBytes: number;
 
   currentMembers: number;
   currentClients: number;
   currentProjects: number;
+  /** Counted by resolveProjectCountsTowardActiveLimit's own rule (src/lib/custom-statuses/semantics.ts), via usage.ts's countActiveProjects — always populated, even when maxActiveProjects is null. */
+  currentActiveProjects: number;
   currentStorageBytes: number;
 
   canInviteMember: boolean;
   canCreateClient: boolean;
   canCreateProject: boolean;
+  /** Distinct from canCreateProject above: this is the Free plan's own active-project dimension (null-safe — always true when maxActiveProjects is null). A caller creating or reactivating a project whose resolved status would count as active must check this separately, since a new/updated project is not always active (see src/lib/billing/enforcement.ts's assertCanIncreaseActiveProjects). */
+  canIncreaseActiveProjects: boolean;
   canUploadBytes: (size: number) => boolean;
 
   trialEndsAt: Date | null;
@@ -196,8 +203,20 @@ export function buildOrganizationEntitlements({
    * `plans.ts`'s own PLAN_CATALOG values are completely untouched by
    * this — each plan's real allowance is exactly what's restored the
    * moment `freeBetaMode` is false again.
+   *
+   * Aqenra Free plan correction: excludes `planKey === "FREE"` —
+   * without this, every brand-new organization (now provisioned
+   * directly onto FREE) would get the beta's own 3 GiB override instead
+   * of the owner-approved 1 GiB Free-plan ceiling, since the override
+   * above is otherwise unconditional on plan. An organization NOT on
+   * FREE (every existing organization today, since nothing is backfilled
+   * onto FREE) keeps the exact same beta behavior as before — this
+   * exclusion can only ever change behavior for an organization whose
+   * `planKey` is literally `"FREE"`, which did not exist before this
+   * feature shipped.
    */
-  const effectiveMaxStorageBytes = freeBetaMode ? FREE_BETA_MAX_STORAGE_BYTES : plan.limits.maxStorageBytes;
+  const effectiveMaxStorageBytes =
+    freeBetaMode && planKey !== "FREE" ? FREE_BETA_MAX_STORAGE_BYTES : plan.limits.maxStorageBytes;
 
   /**
    * Free Public Beta, Slice 1 (Member Limit Consistency). The one,
@@ -217,13 +236,21 @@ export function buildOrganizationEntitlements({
    * separate, pre-existing, out-of-scope calendar-expired-but-PENDING
    * invitation behavior) is completely unchanged by this — only the
    * ceiling being compared against moves.
+   *
+   * Aqenra Free plan correction: excludes `planKey === "FREE"` — same
+   * reasoning as effectiveMaxStorageBytes's own identical exclusion
+   * immediately above (a new Free-plan organization must get the
+   * owner-approved 2-seat ceiling, not the beta's 5-seat override; every
+   * other organization's beta behavior is completely unchanged).
    */
-  const effectiveMaxMembers = freeBetaMode ? FREE_BETA_MAX_MEMBERS : plan.limits.maxMembers;
+  const effectiveMaxMembers = freeBetaMode && planKey !== "FREE" ? FREE_BETA_MAX_MEMBERS : plan.limits.maxMembers;
 
   const membersForLimitCheck = usage.members + usage.pendingInvitations;
   const underMemberLimit = membersForLimitCheck < effectiveMaxMembers;
   const underClientLimit = plan.limits.maxClients === null || usage.clients < plan.limits.maxClients;
   const underProjectLimit = plan.limits.maxProjects === null || usage.projects < plan.limits.maxProjects;
+  const underActiveProjectLimit =
+    plan.limits.maxActiveProjects === null || usage.activeProjects < plan.limits.maxActiveProjects;
   const underStorageLimit = usage.storageBytes < effectiveMaxStorageBytes;
 
   const blockedReasons: EntitlementReasonCode[] = [];
@@ -231,6 +258,7 @@ export function buildOrganizationEntitlements({
   if (!underMemberLimit) blockedReasons.push("MEMBER_LIMIT_REACHED");
   if (!underClientLimit) blockedReasons.push("CLIENT_LIMIT_REACHED");
   if (!underProjectLimit) blockedReasons.push("PROJECT_LIMIT_REACHED");
+  if (!underActiveProjectLimit) blockedReasons.push("ACTIVE_PROJECT_LIMIT_REACHED");
   if (!underStorageLimit) blockedReasons.push("STORAGE_LIMIT_REACHED");
 
   return {
@@ -241,16 +269,19 @@ export function buildOrganizationEntitlements({
     maxMembers: effectiveMaxMembers,
     maxClients: plan.limits.maxClients,
     maxProjects: plan.limits.maxProjects,
+    maxActiveProjects: plan.limits.maxActiveProjects,
     maxStorageBytes: effectiveMaxStorageBytes,
 
     currentMembers: usage.members,
     currentClients: usage.clients,
     currentProjects: usage.projects,
+    currentActiveProjects: usage.activeProjects,
     currentStorageBytes: usage.storageBytes,
 
     canInviteMember: canCreateNewResources && underMemberLimit,
     canCreateClient: canCreateNewResources && underClientLimit,
     canCreateProject: canCreateNewResources && underProjectLimit,
+    canIncreaseActiveProjects: canCreateNewResources && underActiveProjectLimit,
     canUploadBytes: (size: number) =>
       canCreateNewResources && usage.storageBytes + Math.max(size, 0) <= effectiveMaxStorageBytes,
 

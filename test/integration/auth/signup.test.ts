@@ -68,7 +68,7 @@ describe("signup — SaaS Signup Foundation (Stage 6.1) + signup-confirmation de
   });
 
   describe("immediate session (email confirmation disabled)", () => {
-    it("creates an isolated Organization (named from the form), an OWNER Membership, and a trial Subscription — atomically, and redirects into /dashboard", async () => {
+    it("creates an isolated Organization (named from the form), an OWNER Membership, and a Free-plan Subscription — atomically, and redirects into /dashboard", async () => {
       const userId = randomUUID();
       const email = testEmail("signup-owner", "test.local");
       const organizationName = `Acme Signup Co ${userId.slice(0, 8)}`;
@@ -103,7 +103,10 @@ describe("signup — SaaS Signup Foundation (Stage 6.1) + signup-confirmation de
       expect(organization?.isDemo).toBe(false);
 
       const subscription = await prisma.subscription.findUnique({ where: { organizationId: membership!.organizationId } });
-      expect(subscription?.status).toBe("TRIALING");
+      // Aqenra Free plan (owner-approved): brand-new signups are
+      // provisioned directly onto FREE/ACTIVE, not TRIAL/TRIALING.
+      expect(subscription?.planKey).toBe("FREE");
+      expect(subscription?.status).toBe("ACTIVE");
 
       await cleanupUserAndOrg(userId, membership!.organizationId);
     });

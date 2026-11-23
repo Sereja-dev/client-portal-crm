@@ -39,6 +39,11 @@ function fakeClient(subscriptionRow: unknown): PrismaClientOrTx {
     membership: { count: vi.fn().mockResolvedValue(0) },
     client: { count: vi.fn().mockResolvedValue(0) },
     project: { count: vi.fn().mockResolvedValue(0) },
+    // Aqenra Free plan — countActiveProjects (src/lib/billing/usage.ts)
+    // resolves the org's COMPLETED/CANCELLED system status definitions
+    // before counting; no org here has any, so both resolve to null and
+    // the count query below runs with no excluded definition ids.
+    customStatusDefinition: { findFirst: vi.fn().mockResolvedValue(null) },
     attachment: { aggregate: vi.fn().mockResolvedValue({ _sum: { sizeBytes: null } }) },
   } as unknown as PrismaClientOrTx;
 }
