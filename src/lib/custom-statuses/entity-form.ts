@@ -75,7 +75,14 @@ export async function buildStatusSelectOptions(
 }
 
 export type ResolveStatusForSaveResult =
-  | { ok: true; definitionId: string; isSystem: boolean; key: string }
+  | {
+      ok: true;
+      definitionId: string;
+      isSystem: boolean;
+      key: string;
+      /** Aqenra Free plan — null for CLIENT/LEAD; a concrete boolean for PROJECT (CustomStatusDefinition.countsAsActiveProject's own schema comment). */
+      countsAsActiveProject: boolean | null;
+    }
   | { ok: false; reason: "NOT_FOUND" | "ARCHIVED" };
 
 /**
@@ -105,5 +112,11 @@ export async function resolveStatusForSave(
   if (definition.archivedAt !== null && requestedDefinitionId !== currentDefinitionId) {
     return { ok: false, reason: "ARCHIVED" };
   }
-  return { ok: true, definitionId: definition.id, isSystem: definition.isSystem, key: definition.key };
+  return {
+    ok: true,
+    definitionId: definition.id,
+    isSystem: definition.isSystem,
+    key: definition.key,
+    countsAsActiveProject: definition.countsAsActiveProject,
+  };
 }

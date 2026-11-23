@@ -120,34 +120,27 @@ export function resolveProjectIsInProgress(project: {
  * resolveProjectIsInProgress above: that one is the dashboard/Portal KPI's
  * narrower "in progress only" meaning, approved separately and left
  * untouched by this rule; this one is the broader billing meaning the
- * owner approved — a project counts toward the limit unless it is
- * identifiably COMPLETED or CANCELLED. The two must stay independent;
- * redefining resolveProjectIsInProgress to match this one would silently
- * change the KPI's own long-established meaning.
- *
- * System PLANNING/IN_PROGRESS/ON_HOLD all count (true); system COMPLETED/
- * CANCELLED never do (false). A CUSTOM status — reachable today via
- * Settings → Custom Statuses, then selectable on the ordinary Project
- * create/edit form — defaults to counting (true): this app has no way to
- * know a custom status means "finished," and defaulting it to NOT
- * counting would let an organization invent a custom status purely to
- * bypass the limit. A legacy, unbackfilled row with no statusDefinition
- * at all falls back to the legacy `status` enum under the identical rule.
+ * owner approved — every Project status definition (system or custom)
+ * carries an explicit `countsAsActiveProject` classification
+ * (CustomStatusDefinition's own schema comment), and this is the one
+ * place that classification is read for billing purposes. System
+ * PLANNING/IN_PROGRESS/ON_HOLD are seeded `true`; system COMPLETED/
+ * CANCELLED are seeded `false` — both by migration/bootstrap, never
+ * re-derived from `key` here anymore, so a Settings-side reclassification
+ * of a CUSTOM status (src/app/(dashboard)/settings/custom-statuses/
+ * actions.ts) is picked up with zero change to this function. A legacy
+ * row with no statusDefinition at all (or one somehow missing the
+ * classification — defensive only, every real PROJECT row is backfilled)
+ * falls back to the legacy `status` enum under the identical COMPLETED/
+ * CANCELLED exclusion rule.
  */
 export function resolveProjectCountsTowardActiveLimit(project: {
   status: ProjectStatus;
-  statusDefinition?: StatusDefinitionIdentity | null;
+  statusDefinition?: { countsAsActiveProject: boolean | null } | null;
 }): boolean {
-  if (project.statusDefinition?.isSystem && project.statusDefinition.entityType === "PROJECT") {
-    return (
-      project.statusDefinition.key !== SYSTEM_STATUS_KEYS.PROJECT_COMPLETED &&
-      project.statusDefinition.key !== SYSTEM_STATUS_KEYS.PROJECT_CANCELLED
-    );
-  }
-  if (project.statusDefinition) {
-    // CUSTOM definition — see this function's own header comment for why
-    // this defaults to counting as active.
-    return true;
+  const classification = project.statusDefinition?.countsAsActiveProject;
+  if (classification !== null && classification !== undefined) {
+    return classification;
   }
   return project.status !== "COMPLETED" && project.status !== "CANCELLED";
 }

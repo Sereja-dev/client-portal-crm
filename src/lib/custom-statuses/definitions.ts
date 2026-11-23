@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import type { PrismaClientOrTx } from "./types";
 import { slugifyCustomStatusIdentifier } from "./slug";
 import { SYSTEM_STATUS_KEYS } from "./constants";
+import { getOrganizationEntitlements } from "@/lib/billing/entitlements";
 
 /**
  * Custom Statuses Phase 1 — Definition domain layer (Section F/K/L/S/U).
@@ -109,7 +110,21 @@ async function deriveUniqueCustomStatusKey(
 export async function createCustomStatusDefinition(
   organizationId: string,
   entityType: CustomStatusEntityType,
-  input: { label: string; color?: CustomStatusColor | null },
+  input: {
+    label: string;
+    color?: CustomStatusColor | null;
+    /**
+     * Aqenra Free plan — only meaningful for entityType "PROJECT"; the
+     * Server Action layer (settings/custom-statuses/actions.ts) always
+     * supplies this explicitly for a PROJECT status, since the person
+     * creating it must choose. Defaults to `true` (counts as active) if
+     * genuinely omitted for a PROJECT status — the same anti-bypass
+     * default this app already applied before the choice was exposed —
+     * rather than failing the create. Ignored (always stored as `null`)
+     * for CLIENT/LEAD, where it does not apply.
+     */
+    countsAsActiveProject?: boolean;
+  },
   client: PrismaClientOrTx = prisma,
 ): Promise<
   | { ok: true; definition: CustomStatusDefinition }
@@ -119,6 +134,8 @@ export async function createCustomStatusDefinition(
   if (!label) {
     return { ok: false, reason: "INVALID_LABEL" };
   }
+
+  const countsAsActiveProject = entityType === "PROJECT" ? (input.countsAsActiveProject ?? true) : null;
 
   const key = await deriveUniqueCustomStatusKey(organizationId, entityType, label, client);
 
@@ -140,6 +157,7 @@ export async function createCustomStatusDefinition(
         position,
         isDefault: false,
         isSystem: false,
+        countsAsActiveProject,
       },
     });
   };
@@ -156,21 +174,48 @@ export async function createCustomStatusDefinition(
 }
 
 /**
- * Updates a CUSTOM definition's label and/or color. System definitions
- * are deliberately never editable through this function (Section L: "do
- * not allow archive... if core semantics depend on them" — extended here
- * to label/color too, the same conservative Phase 1 rule: a system
+ * Updates a CUSTOM definition's label, color, and/or (PROJECT only)
+ * active-project classification. System definitions are deliberately
+ * never editable through this function (Section L: "do not allow
+ * archive... if core semantics depend on them" — extended here to label/
+ * color/classification too, the same conservative Phase 1 rule: a system
  * definition's label is meant to keep matching the legacy enum value it
- * mirrors, and nothing in this phase reviews or displays a changed
- * label anywhere yet). `key` is never accepted as input at all (Section
+ * mirrors, and its classification is fixed by migration/bootstrap, never
+ * Settings-editable). `key` is never accepted as input at all (Section
  * S: label rename never changes key).
+ *
+ * Aqenra Free plan — reclassifying a PROJECT status from "doesn't count"
+ * to "counts as active" can retroactively push every project already
+ * assigned to it into the active count at once (unlike a single
+ * project's own reactivation, which this app already gates one at a
+ * time — src/lib/billing/enforcement.ts's assertCanIncreaseActiveProjects).
+ * This function re-checks that bulk effect before applying the change:
+ * if the organization's plan has a real active-project ceiling and
+ * applying the new classification to every project currently assigned to
+ * this definition would exceed it, the edit itself is rejected —
+ * `ACTIVE_PROJECT_LIMIT_WOULD_BE_EXCEEDED` — nothing is changed, no
+ * project is touched, deleted, or hidden. Concurrency: the affected-count
+ * read, the entitlements read, and the update below are not wrapped in a
+ * single transaction (reclassifying a status is a rare, Settings-only
+ * operation, not a per-request hot path) — a genuinely concurrent project
+ * creation/reactivation or a second reclassification between the check
+ * and the write could still land both, the same small, accepted residual
+ * race this codebase already documents for assertCanCreateProject and
+ * friends, never a claim of a harder invariant than that.
+ *
+ * The reverse direction (active -> doesn't count) only ever frees
+ * capacity and is never blocked.
  */
 export async function updateCustomStatusDefinition(
   organizationId: string,
   definitionId: string,
-  input: { label?: string; color?: CustomStatusColor | null },
+  input: { label?: string; color?: CustomStatusColor | null; countsAsActiveProject?: boolean },
   client: PrismaClientOrTx = prisma,
-): Promise<CustomStatusDefinitionMutationResult | { ok: false; reason: "INVALID_LABEL" | "SYSTEM_DEFINITION" }> {
+): Promise<
+  | CustomStatusDefinitionMutationResult
+  | { ok: false; reason: "INVALID_LABEL" | "SYSTEM_DEFINITION" }
+  | { ok: false; reason: "ACTIVE_PROJECT_LIMIT_WOULD_BE_EXCEEDED"; affectedCount: number }
+> {
   const existing = await client.customStatusDefinition.findFirst({ where: { id: definitionId, organizationId } });
   if (!existing) {
     return { ok: false, reason: "DEFINITION_NOT_FOUND" };
@@ -187,11 +232,32 @@ export async function updateCustomStatusDefinition(
     }
   }
 
+  const isReclassifyingToActive =
+    existing.entityType === "PROJECT" &&
+    input.countsAsActiveProject === true &&
+    existing.countsAsActiveProject !== true;
+
+  if (isReclassifyingToActive) {
+    const affectedCount = await client.project.count({ where: { organizationId, statusDefinitionId: definitionId } });
+    if (affectedCount > 0) {
+      const entitlements = await getOrganizationEntitlements(organizationId, { client });
+      if (
+        entitlements.maxActiveProjects !== null &&
+        entitlements.currentActiveProjects + affectedCount > entitlements.maxActiveProjects
+      ) {
+        return { ok: false, reason: "ACTIVE_PROJECT_LIMIT_WOULD_BE_EXCEEDED", affectedCount };
+      }
+    }
+  }
+
   const definition = await client.customStatusDefinition.update({
     where: { id: definitionId },
     data: {
       ...(label !== undefined ? { label } : {}),
       ...(input.color !== undefined ? { color: input.color } : {}),
+      ...(existing.entityType === "PROJECT" && input.countsAsActiveProject !== undefined
+        ? { countsAsActiveProject: input.countsAsActiveProject }
+        : {}),
     },
   });
 

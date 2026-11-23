@@ -78,7 +78,11 @@ export async function uploadOrganizationLogo({
   try {
     await prisma.organizationProfile.update({
       where: { organizationId },
-      data: { logoUrl: uploadResult.publicUrl },
+      // Aqenra Free plan — organization storage accounting
+      // (src/lib/billing/usage.ts). `file.size` is already validated
+      // above (validateLogoFile) — recorded here, alongside the new
+      // logoUrl itself, so the two always change together.
+      data: { logoUrl: uploadResult.publicUrl, logoSizeBytes: file.size },
     });
   } catch {
     // Compensate for the already-uploaded object — the DB write is what

@@ -462,6 +462,8 @@ export async function archiveLegacyInvoice(
         documentVersion: invoice.documentVersion,
         storagePath: path,
         status: "PENDING_UPLOAD",
+        // Aqenra Free plan — see issue-invoice.ts's own identical comment.
+        sizeBytes: pdfBuffer.length,
       },
     });
   } catch {

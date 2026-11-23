@@ -1,7 +1,5 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@/generated/prisma/client";
-import { SYSTEM_STATUS_KEYS } from "@/lib/custom-statuses/constants";
-import { resolveSystemStatusDefinition } from "@/lib/custom-statuses/resolution";
 
 export type PrismaClientOrTx = typeof prisma | Prisma.TransactionClient;
 
@@ -16,18 +14,21 @@ export type OrganizationUsage = {
 
 /**
  * Billing & Subscriptions Stage 2 (docs/billing-architecture.md §7/§10).
- * One bounded, org-scoped read per call — four independent aggregate
- * queries run concurrently (Promise.all), never N+1, never a full-table
- * scan. Accepts a Prisma client explicitly (matching this codebase's own
+ * One bounded, org-scoped read per call — independent aggregate queries
+ * run concurrently (Promise.all), never N+1, never a full-table scan.
+ * Accepts a Prisma client explicitly (matching this codebase's own
  * `createActivity(tx, input)` convention) so a caller enforcing a limit
  * atomically alongside a write (src/lib/billing/enforcement.ts) can pass
  * its own transaction client and get a consistent snapshot from inside
  * that same transaction, not a separately-committed read.
  *
- * Deliberately excludes Tasks/Invoices/Comments — not limited dimensions
- * for v1 (docs/billing-architecture.md §3's own "not Tasks/Invoices" rule)
- * — and PortalUsers, which are never seat-limited (§8's explicit "Invite
- * Client Portal user" row: deliberately unlimited in v1).
+ * Deliberately excludes Tasks/Comments — not limited dimensions for v1
+ * (docs/billing-architecture.md §3's own "not Tasks/Invoices" rule) — and
+ * PortalUsers, which are never seat-limited (§8's explicit "Invite Client
+ * Portal user" row: deliberately unlimited in v1). Invoices themselves are
+ * likewise never limited, but their archived PDF storage IS counted (see
+ * `storageBytes`'s own comment below) — a storage-byte concern, not a
+ * count-of-invoices one.
  *
  * `members` counts real Membership rows only — PENDING Invitation rows are
  * a deliberately separate concern, added in by the entitlements layer
@@ -39,12 +40,38 @@ export type OrganizationUsage = {
  * Client/Project/Attachment rows in this schema have no soft-delete
  * concept (no `deletedAt` column — unlike Comment) — every existing row is
  * already a "live" one, so no extra status filtering is needed here.
+ *
+ * `storageBytes` — Aqenra Free plan storage accounting, corrected after
+ * the pre-push review found this previously summed only Attachment rows.
+ * Sums exactly three real, organization-scoped Storage object types this
+ * application actually writes:
+ *   1. Attachment.sizeBytes (CLIENT/PROJECT/INVOICE attachments) — always
+ *      recorded at upload time, unchanged.
+ *   2. InvoicePdfArchiveObject.sizeBytes, for rows whose `status` is
+ *      REFERENCED (a confirmed, live archived PDF) or CLEANUP_PENDING (a
+ *      compensating removal may still be in flight — counted
+ *      conservatively, never assumed already gone). PENDING_UPLOAD and
+ *      CLEANED rows are excluded (never finalized, or confirmed removed).
+ *      `sizeBytes` is `null` for every row created before this column
+ *      existed — a `null` contributes 0, a known, documented gap for
+ *      pre-existing Invoices (see this column's own migration comment);
+ *      it does not affect any brand-new Free-plan organization, which has
+ *      no pre-existing Invoices by construction.
+ *   3. OrganizationProfile.logoSizeBytes — the one real, non-Attachment,
+ *      non-Invoice Storage write this application has (uploadLogoObject,
+ *      a dedicated public bucket). `null` (contributes 0) for a logo
+ *      uploaded before this column existed, for the identical reason.
+ * User.avatarUrl is deliberately NOT counted: nothing in this application
+ * writes to it today (confirmed by inspection — it is read only, in one
+ * Platform Admin query) — there is no real upload path to account for.
+ * Quote/Contract PDFs are generated on demand and are not persisted to
+ * Storage at all, so there is nothing to count there either.
  */
 export async function getOrganizationUsage(
   client: PrismaClientOrTx,
   organizationId: string,
 ): Promise<OrganizationUsage> {
-  const [members, clients, projects, activeProjects, storageAgg] = await Promise.all([
+  const [members, clients, projects, activeProjects, attachmentAgg, invoicePdfAgg, logoAgg] = await Promise.all([
     client.membership.count({ where: { organizationId } }),
     client.client.count({ where: { organizationId } }),
     client.project.count({ where: { organizationId } }),
@@ -53,14 +80,25 @@ export async function getOrganizationUsage(
       where: { organizationId },
       _sum: { sizeBytes: true },
     }),
+    client.invoicePdfArchiveObject.aggregate({
+      where: { organizationId, status: { in: ["REFERENCED", "CLEANUP_PENDING"] } },
+      _sum: { sizeBytes: true },
+    }),
+    client.organizationProfile.aggregate({
+      where: { organizationId },
+      _sum: { logoSizeBytes: true },
+    }),
   ]);
+
+  const storageBytes =
+    (attachmentAgg._sum.sizeBytes ?? 0) + (invoicePdfAgg._sum.sizeBytes ?? 0) + (logoAgg._sum.logoSizeBytes ?? 0);
 
   return {
     members,
     clients,
     projects,
     activeProjects,
-    storageBytes: storageAgg._sum.sizeBytes ?? 0,
+    storageBytes,
   };
 }
 
@@ -68,37 +106,25 @@ export async function getOrganizationUsage(
  * Aqenra Free plan — the one, database-level counting rule for "active
  * project" as the owner's limit means it: resolveProjectCountsTowardActiveLimit's
  * (src/lib/custom-statuses/semantics.ts) own exact predicate, expressed as
- * a `where` clause instead of a per-row loop, mirroring the dashboard
- * KPI's own `activeProjectsWhere` pattern (src/app/(dashboard)/dashboard/
- * query.ts) — resolve the org's system definitions once, filter by
- * statusDefinitionId at the database level, never load full rows to
- * decide this per-row (the same N+1/full-table-scan avoidance that
- * pattern's own doc comment already established).
- *
- * Deliberately the inverse shape of the dashboard's own query: that one
- * matches exactly one system definition (IN_PROGRESS); this one EXCLUDES
- * exactly two (COMPLETED, CANCELLED) so a CUSTOM Project status — a real,
- * reachable state via Settings → Custom Statuses — still counts as
- * active by default (see resolveProjectCountsTowardActiveLimit's own doc
- * comment for why that default is deliberate, not an oversight).
+ * a `where` clause instead of a per-row loop. Reads the one explicit
+ * `countsAsActiveProject` column every Project status definition carries
+ * (CustomStatusDefinition's own schema comment) directly via a relation
+ * filter — never re-derives it from `key`/`isSystem` here, so a
+ * Settings-side reclassification of a CUSTOM status
+ * (src/app/(dashboard)/settings/custom-statuses/actions.ts) is reflected
+ * the moment it's saved, with no change needed in this function. A
+ * legacy row with no statusDefinition at all falls back to the legacy
+ * `status` enum, matching resolveProjectCountsTowardActiveLimit's own
+ * identical fallback exactly (COMPLETED/CANCELLED excluded, everything
+ * else counted).
  */
 export async function countActiveProjects(client: PrismaClientOrTx, organizationId: string): Promise<number> {
-  const [completedDefinition, cancelledDefinition] = await Promise.all([
-    resolveSystemStatusDefinition(organizationId, "PROJECT", SYSTEM_STATUS_KEYS.PROJECT_COMPLETED, client),
-    resolveSystemStatusDefinition(organizationId, "PROJECT", SYSTEM_STATUS_KEYS.PROJECT_CANCELLED, client),
-  ]);
-  const excludedDefinitionIds = [completedDefinition?.id, cancelledDefinition?.id].filter(
-    (id): id is string => id != null,
-  );
-
   const where: Prisma.ProjectWhereInput = {
     organizationId,
-    NOT: {
-      OR: [
-        ...(excludedDefinitionIds.length > 0 ? [{ statusDefinitionId: { in: excludedDefinitionIds } }] : []),
-        { statusDefinitionId: null, status: { in: ["COMPLETED", "CANCELLED"] as const } },
-      ],
-    },
+    OR: [
+      { statusDefinition: { countsAsActiveProject: true } },
+      { statusDefinitionId: null, status: { notIn: ["COMPLETED", "CANCELLED"] } },
+    ],
   };
 
   return client.project.count({ where });

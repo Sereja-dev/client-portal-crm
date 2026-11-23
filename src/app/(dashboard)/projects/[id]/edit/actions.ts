@@ -81,7 +81,7 @@ export async function updateProjectAction(
       // doubles as the "before" snapshot for change-detection below.
       const existing = await tx.project.findFirst({
         where: { id: projectId, organizationId },
-        include: { client: { select: { name: true } }, statusDefinition: { select: { isSystem: true, key: true } } },
+        include: { client: { select: { name: true } }, statusDefinition: { select: { countsAsActiveProject: true } } },
       });
 
       if (!existing) {
@@ -114,13 +114,11 @@ export async function updateProjectAction(
       // same race handling as assertCanCreateProject elsewhere.
       const wasActive = resolveProjectCountsTowardActiveLimit({
         status: existing.status,
-        statusDefinition: existing.statusDefinition
-          ? { ...existing.statusDefinition, entityType: "PROJECT" as const }
-          : null,
+        statusDefinition: existing.statusDefinition,
       });
       const willBeActive = resolveProjectCountsTowardActiveLimit({
         status: legacyStatus ?? existing.status,
-        statusDefinition: { isSystem: statusResult.isSystem, entityType: "PROJECT", key: statusResult.key },
+        statusDefinition: { countsAsActiveProject: statusResult.countsAsActiveProject },
       });
       if (!wasActive && willBeActive) {
         await assertCanIncreaseActiveProjects(organizationId, tx);

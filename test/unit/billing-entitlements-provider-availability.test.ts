@@ -38,12 +38,18 @@ function fakeClient(subscriptionRow: unknown): PrismaClientOrTx {
     invitation: { count: vi.fn().mockResolvedValue(0) },
     membership: { count: vi.fn().mockResolvedValue(0) },
     client: { count: vi.fn().mockResolvedValue(0) },
-    project: { count: vi.fn().mockResolvedValue(0) },
     // Aqenra Free plan — countActiveProjects (src/lib/billing/usage.ts)
-    // resolves the org's COMPLETED/CANCELLED system status definitions
-    // before counting; no org here has any, so both resolve to null and
-    // the count query below runs with no excluded definition ids.
-    customStatusDefinition: { findFirst: vi.fn().mockResolvedValue(null) },
+    // now reads countsAsActiveProject via a relation filter rather than
+    // resolving any CustomStatusDefinition row directly, so a single
+    // project.count() mock covers both the plain total-project count and
+    // the active-project count.
+    project: { count: vi.fn().mockResolvedValue(0) },
+    // Aqenra Free plan — storage accounting now also sums
+    // InvoicePdfArchiveObject and OrganizationProfile.logoSizeBytes
+    // alongside Attachment (src/lib/billing/usage.ts) — no org here has
+    // any of either, so both aggregate to null/0.
+    invoicePdfArchiveObject: { aggregate: vi.fn().mockResolvedValue({ _sum: { sizeBytes: null } }) },
+    organizationProfile: { aggregate: vi.fn().mockResolvedValue({ _sum: { logoSizeBytes: null } }) },
     attachment: { aggregate: vi.fn().mockResolvedValue({ _sum: { sizeBytes: null } }) },
   } as unknown as PrismaClientOrTx;
 }

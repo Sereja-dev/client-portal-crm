@@ -393,6 +393,15 @@ export async function issueInvoice(
         documentVersion: invoice.documentVersion,
         storagePath: path,
         status: "PENDING_UPLOAD",
+        // Aqenra Free plan — organization storage accounting
+        // (src/lib/billing/usage.ts). The exact byte length of the
+        // buffer about to be uploaded, already fully rendered and held in
+        // memory at this point — recorded here, before upload, rather
+        // than only after a successful REFERENCED transition, so the
+        // size is never lost even if this specific ledger row later ends
+        // up CLEANUP_PENDING (usage.ts counts that status too, for
+        // exactly this reason).
+        sizeBytes: pdfBuffer.length,
       },
     });
   } catch {

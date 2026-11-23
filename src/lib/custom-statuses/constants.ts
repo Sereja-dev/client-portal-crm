@@ -37,6 +37,15 @@ export type SystemStatusDefinitionSeed = {
   color: CustomStatusColor;
   position: number;
   isDefault: boolean;
+  /**
+   * Aqenra Free plan — only meaningful for PROJECT entries; `undefined`
+   * for CLIENT/LEAD (bootstrap.ts writes `null` for those). Seeds the
+   * same column a CUSTOM Project status's creator/editor later chooses
+   * explicitly (CustomStatusDefinition.countsAsActiveProject's own schema
+   * comment) — PLANNING/IN_PROGRESS/ON_HOLD seed `true`, COMPLETED/
+   * CANCELLED seed `false`.
+   */
+  countsAsActiveProject?: boolean;
 };
 
 export const SYSTEM_STATUS_DEFINITIONS: Record<CustomStatusEntityType, readonly SystemStatusDefinitionSeed[]> = {
@@ -55,20 +64,22 @@ export const SYSTEM_STATUS_DEFINITIONS: Record<CustomStatusEntityType, readonly 
     { key: "lost", label: "Lost", color: "DANGER", position: 5, isDefault: false },
   ],
   PROJECT: [
-    { key: "planning", label: "Planning", color: "NEUTRAL", position: 0, isDefault: true },
-    { key: "in_progress", label: "In Progress", color: "INFO", position: 1, isDefault: false },
-    { key: "on_hold", label: "On Hold", color: "WARNING", position: 2, isDefault: false },
-    { key: "completed", label: "Completed", color: "SUCCESS", position: 3, isDefault: false },
-    { key: "cancelled", label: "Cancelled", color: "DANGER", position: 4, isDefault: false },
+    { key: "planning", label: "Planning", color: "NEUTRAL", position: 0, isDefault: true, countsAsActiveProject: true },
+    { key: "in_progress", label: "In Progress", color: "INFO", position: 1, isDefault: false, countsAsActiveProject: true },
+    { key: "on_hold", label: "On Hold", color: "WARNING", position: 2, isDefault: false, countsAsActiveProject: true },
+    { key: "completed", label: "Completed", color: "SUCCESS", position: 3, isDefault: false, countsAsActiveProject: false },
+    { key: "cancelled", label: "Cancelled", color: "DANGER", position: 4, isDefault: false, countsAsActiveProject: false },
   ],
 };
 
 /**
  * The stable, immutable keys real business logic may check against
  * (Section G: "system semantic identity tied to key, not label"). Only
- * the five keys that actually gate something in this app today —
- * everything else in SYSTEM_STATUS_DEFINITIONS above is display/filter
- * only, with no code path that needs to resolve it by identity.
+ * the three keys that actually gate something in this app today by
+ * identity — everything else in SYSTEM_STATUS_DEFINITIONS above is
+ * display/filter only (PROJECT's own Aqenra Free plan classification
+ * reads the countsAsActiveProject column directly, seeded from this
+ * file's PROJECT array above, never re-derived from `key` at read time).
  *
  * LEAD_NEW added in the Phase 2B Completion Pass (Section B/C) — Lead
  * creation always starts at system NEW (a pre-existing, stronger
@@ -78,12 +89,6 @@ export const SYSTEM_STATUS_DEFINITIONS: Record<CustomStatusEntityType, readonly 
  * checks against it directly rather than trusting isDefault on the NEW
  * row alone (Section C: enforce at the domain boundary, not just by
  * hiding UI).
- *
- * PROJECT_COMPLETED/PROJECT_CANCELLED added for the Free plan's
- * active-project limit (src/lib/custom-statuses/semantics.ts's own
- * resolveProjectCountsTowardActiveLimit) — the limit excludes exactly
- * these two system statuses, by identity, the same way every other gate
- * in this object already works.
  */
 export const SYSTEM_STATUS_KEYS = {
   CLIENT_ACTIVE: "active",
@@ -91,6 +96,4 @@ export const SYSTEM_STATUS_KEYS = {
   LEAD_WON: "won",
   LEAD_LOST: "lost",
   PROJECT_IN_PROGRESS: "in_progress",
-  PROJECT_COMPLETED: "completed",
-  PROJECT_CANCELLED: "cancelled",
 } as const;

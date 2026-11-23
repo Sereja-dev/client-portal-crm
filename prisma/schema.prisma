@@ -933,6 +933,17 @@ model OrganizationProfile {
   // anywhere, which a private bucket's short-lived signed URLs can't give.
   logoUrl String?
 
+  // Aqenra Free plan — organization storage accounting (src/lib/billing/
+  // usage.ts). The exact byte size of the currently-stored logo object,
+  // set alongside `logoUrl` by uploadOrganizationLogo() (which already
+  // validates and holds `file.size` before uploading) and cleared back to
+  // null whenever `logoUrl` itself is cleared or replaced (the previous
+  // object is removed from Storage at that same point). `null` for every
+  // logo uploaded before this column existed — not safely backfillable
+  // without reading the object back from Storage (deliberately not
+  // attempted here) — until that organization next replaces its logo.
+  logoSizeBytes Int?
+
   // Hex color, e.g. "#0F172A" — validated server-side against
   // /^#[0-9a-f]{6}$/i by whichever later PR adds the write path; this
   // migration only reserves the column.
@@ -1586,6 +1597,22 @@ model CustomStatusDefinition {
 
   archivedAt DateTime?
 
+  // Aqenra Free plan — the one, explicit classification every Project
+  // status definition carries (system or custom): does a project in this
+  // status count toward the Free plan's 5-active-project limit? `null`
+  // for CLIENT/LEAD definitions (not applicable to them at all). For
+  // PROJECT, always a concrete boolean once backfilled — see this
+  // column's own migration for exactly how system PLANNING/IN_PROGRESS/
+  // ON_HOLD (true), system COMPLETED/CANCELLED (false), and every
+  // pre-existing CUSTOM Project status (true — the safer, anti-bypass
+  // default already in effect before this column existed) were set.
+  // The person creating or editing a CUSTOM Project status chooses this
+  // explicitly going forward (src/app/(dashboard)/settings/custom-
+  // statuses/actions.ts) — never silently inferred from the label.
+  // src/lib/custom-statuses/semantics.ts's resolveProjectCountsTowardActiveLimit
+  // is the one place this value is read for billing purposes.
+  countsAsActiveProject Boolean?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1963,6 +1990,20 @@ model InvoicePdfArchiveObject {
   storagePath String @unique
 
   status InvoicePdfArchiveObjectStatus @default(PENDING_UPLOAD)
+
+  // Aqenra Free plan — organization storage accounting (src/lib/billing/
+  // usage.ts). The exact byte length of the uploaded PDF buffer, recorded
+  // at ledger-creation time (src/lib/invoices/pdf/issue-invoice.ts /
+  // legacy-archive-invoice.ts — both already hold the full buffer in
+  // memory before upload). `null` for every row created before this
+  // column existed: that historical size genuinely cannot be measured
+  // without reading the object back from Storage, which this change
+  // deliberately does not attempt (see this column's own migration
+  // comment) — a `null` row contributes 0 bytes to the storage total
+  // until its Invoice is next re-issued (a new documentVersion creates a
+  // new, sized row). This is a known, documented gap for pre-existing
+  // Invoices, not a defect in new accounting.
+  sizeBytes Int?
 
   // Stamped with the Issue operation's own single injected/current
   // timestamp, in the same short transaction that flips status to

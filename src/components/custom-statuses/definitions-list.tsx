@@ -22,7 +22,7 @@ import {
   UnarchiveCustomStatusButton,
   MoveCustomStatusButtons,
 } from "./status-row-actions";
-import type { CustomStatusColor } from "@/generated/prisma/enums";
+import type { CustomStatusColor, CustomStatusEntityType } from "@/generated/prisma/enums";
 import type { CustomStatusDefinitionFormState } from "@/types";
 
 export type StatusDefinitionRow = {
@@ -33,6 +33,8 @@ export type StatusDefinitionRow = {
   isSystem: boolean;
   isDefault: boolean;
   archivedAt: Date | null;
+  /** Aqenra Free plan — null for CLIENT/LEAD (not applicable); a concrete boolean for PROJECT. */
+  countsAsActiveProject: boolean | null;
   editAction: (
     prevState: CustomStatusDefinitionFormState,
     formData: FormData,
@@ -61,6 +63,7 @@ export type StatusDefinitionRow = {
 export function DefinitionsList({
   definitions,
   createAction,
+  entityType,
   entityLabel,
   canSetDefault,
 }: {
@@ -69,6 +72,8 @@ export function DefinitionsList({
     prevState: CustomStatusDefinitionFormState,
     formData: FormData,
   ) => Promise<CustomStatusDefinitionFormState>;
+  /** Aqenra Free plan — only "PROJECT" ever renders the active-project classification control/badge below. */
+  entityType: CustomStatusEntityType;
   entityLabel: string;
   /** Phase 2B Completion Pass (Section B/C) — false only for LEAD: its default is permanently locked to the system NEW definition, so no row (system or custom) ever offers "Set default" here, and the create dialog never renders the "make default" checkbox. */
   canSetDefault: boolean;
@@ -94,7 +99,7 @@ export function DefinitionsList({
           )}
         </div>
         {activeDefinitions.length > 0 && !showArchived && (
-          <CreateStatusButton action={createAction} entityLabel={entityLabel} canSetDefault={canSetDefault} />
+          <CreateStatusButton action={createAction} entityType={entityType} entityLabel={entityLabel} canSetDefault={canSetDefault} />
         )}
       </div>
 
@@ -105,7 +110,15 @@ export function DefinitionsList({
           <EmptyState
             title="No statuses yet"
             description={`Add custom statuses for ${entityLabel.toLowerCase()} alongside the built-in ones.`}
-            action={<CreateStatusButton action={createAction} entityLabel={entityLabel} canSetDefault={canSetDefault} variant="primary" />}
+            action={
+              <CreateStatusButton
+                action={createAction}
+                entityType={entityType}
+                entityLabel={entityLabel}
+                canSetDefault={canSetDefault}
+                variant="primary"
+              />
+            }
           />
         )
       ) : (
@@ -129,6 +142,11 @@ export function DefinitionsList({
                     {definition.isSystem && <SystemBadge />}
                     {definition.isDefault && <DefaultBadge />}
                     {definition.archivedAt !== null && <ArchivedBadge />}
+                    {entityType === "PROJECT" && definition.countsAsActiveProject !== null && (
+                      <span className="text-text-muted text-xs">
+                        {definition.countsAsActiveProject ? "Counts as active" : "Doesn't count as active"}
+                      </span>
+                    )}
                   </div>
                 </TableCell>
                 <TableCell className="hidden sm:table-cell">
@@ -154,10 +172,12 @@ export function DefinitionsList({
                           <EditStatusButton
                             label={definition.label}
                             color={definition.color}
+                            entityType={entityType}
                             entityLabel={entityLabel}
                             entityKey={definition.key}
                             isDefault={definition.isDefault}
                             canSetDefault={canSetDefault}
+                            countsAsActiveProject={definition.countsAsActiveProject}
                             action={definition.editAction}
                             setDefaultAction={definition.setDefaultAction}
                           />

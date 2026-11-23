@@ -96,7 +96,7 @@ export async function createProjectAction(
       if (
         resolveProjectCountsTowardActiveLimit({
           status: legacyStatus,
-          statusDefinition: { isSystem: statusResult.isSystem, entityType: "PROJECT", key: statusResult.key },
+          statusDefinition: { countsAsActiveProject: statusResult.countsAsActiveProject },
         })
       ) {
         await assertCanIncreaseActiveProjects(organizationId, tx);

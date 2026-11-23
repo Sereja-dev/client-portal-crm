@@ -61,6 +61,10 @@ export async function bootstrapOrganizationStatusDefinitions(
       position: seed.position,
       isDefault: seed.isDefault,
       isSystem: true,
+      // Aqenra Free plan — only PROJECT seeds carry this; CLIENT/LEAD
+      // seeds leave it `undefined`, which Prisma writes as NULL (not
+      // applicable to those entity types at all).
+      countsAsActiveProject: seed.countsAsActiveProject ?? null,
     })),
   );
 
