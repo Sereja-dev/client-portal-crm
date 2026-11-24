@@ -11,7 +11,8 @@ import {
 import { uploadAttachmentObject, removeAttachmentObject } from "@/lib/storage/attachments-storage";
 import { ATTACHMENTS_BUCKET, MAX_ATTACHMENTS_PER_ENTITY } from "@/lib/storage/attachments-config";
 import { checkRateLimit, ATTACHMENT_UPLOAD_LIMIT } from "@/lib/rate-limit";
-import { assertCanUploadAttachment, BillingLimitError } from "@/lib/billing/enforcement";
+import { reserveStorageBytes, releaseStorageReservation } from "@/lib/billing/storage-reservation";
+import { REASON_MESSAGES } from "@/lib/billing/enforcement";
 import type { AttachmentEntityType } from "@/generated/prisma/enums";
 import type { AttachmentUploadState } from "@/types";
 
@@ -77,21 +78,32 @@ export async function uploadAttachmentForEntity({
     return { error: VALIDATION_ERROR_MESSAGES[validation.error] };
   }
 
-  // Billing & Subscriptions Stage 2 — checked before the Storage upload
-  // (never after) so a rejected upload never wastes a real Storage write.
-  // Deliberately a plain read here, not inside a transaction: this
-  // function's own pre-existing per-entity count check just above already
-  // follows the same "read now, upload happens outside any transaction
-  // anyway" shape (Storage isn't transactional with Postgres), so this
-  // adds no new residual race beyond what already exists — see
-  // assertCanUploadAttachment's own doc comment for the exact trade-off.
+  // Aqenra Free plan — concurrency correction. Reserves this upload's
+  // bytes under a per-organization lock BEFORE the real Storage write
+  // below, closing the confirmed race where two near-simultaneous uploads
+  // that each individually fit could previously both pass a plain,
+  // unlocked check and both land (see reserveStorageBytes's own doc
+  // comment in src/lib/billing/storage-reservation.ts). The reservation
+  // is released — successfully or not — at every exit point below; see
+  // each release call site's own comment for exactly why.
+  //
+  // Wrapped in try/catch — unlike the pure-read check this replaces,
+  // reserveStorageBytes performs a real write (the reservation row
+  // itself), which can fail on an unexpected DB error (e.g. a foreign-key
+  // violation on a genuinely nonexistent organizationId) rather than
+  // returning its normal typed `{ok: false}` result. Caught here and
+  // turned into the same clean, generic failure this function already
+  // returns for the later Attachment-row write failing — never an
+  // unhandled exception escaping to the caller, and never a wasted
+  // Storage upload for a request that was already going to fail.
+  let reservation: Awaited<ReturnType<typeof reserveStorageBytes>>;
   try {
-    await assertCanUploadAttachment(organizationId, file.size);
-  } catch (err) {
-    if (err instanceof BillingLimitError) {
-      return { error: err.message };
-    }
-    throw err;
+    reservation = await reserveStorageBytes(organizationId, file.size);
+  } catch {
+    return { error: "Failed to save the uploaded file. Please try again." };
+  }
+  if (!reservation.ok) {
+    return { error: REASON_MESSAGES[reservation.reason] };
   }
 
   // The sanitized name is used everywhere from here on — as the stored
@@ -113,6 +125,10 @@ export async function uploadAttachmentForEntity({
     contentType: validation.mimeType,
   });
   if (!uploadResult.ok) {
+    // The reservation is released immediately — this upload never
+    // consumed any real capacity, so nothing should keep counting
+    // against the organization's quota for it.
+    await releaseStorageReservation(reservation.reservationId);
     return { error: "Failed to upload the file. Please try again." };
   }
 
@@ -150,8 +166,19 @@ export async function uploadAttachmentForEntity({
     // object is invisible and harmless; leaving it is strictly safer than
     // retrying the DB write here.
     await removeAttachmentObject({ path: storagePath });
+    // The reservation is released here too: the Attachment row that would
+    // have made these bytes "real" usage never committed, so nothing
+    // should keep counting against the quota for this failed attempt.
+    await releaseStorageReservation(reservation.reservationId);
     return { error: "Failed to save the uploaded file. Please try again." };
   }
+
+  // The Attachment row above has now committed — its own `sizeBytes` is
+  // picked up by getOrganizationUsage's real, committed-usage sum, so the
+  // reservation that held this upload's place until now is released; it
+  // would otherwise double-count the same bytes once as a reservation and
+  // once as the real, committed Attachment row.
+  await releaseStorageReservation(reservation.reservationId);
 
   return { error: null };
 }

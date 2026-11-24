@@ -7,6 +7,7 @@ import type { PrismaClientOrTx } from "./types";
 import { slugifyCustomStatusIdentifier } from "./slug";
 import { SYSTEM_STATUS_KEYS } from "./constants";
 import { getOrganizationEntitlements } from "@/lib/billing/entitlements";
+import { lockOrganizationActiveProjectsForReclassification } from "@/lib/billing/enforcement";
 
 /**
  * Custom Statuses Phase 1 — Definition domain layer (Section F/K/L/S/U).
@@ -194,17 +195,31 @@ export async function createCustomStatusDefinition(
  * applying the new classification to every project currently assigned to
  * this definition would exceed it, the edit itself is rejected —
  * `ACTIVE_PROJECT_LIMIT_WOULD_BE_EXCEEDED` — nothing is changed, no
- * project is touched, deleted, or hidden. Concurrency: the affected-count
- * read, the entitlements read, and the update below are not wrapped in a
- * single transaction (reclassifying a status is a rare, Settings-only
- * operation, not a per-request hot path) — a genuinely concurrent project
- * creation/reactivation or a second reclassification between the check
- * and the write could still land both, the same small, accepted residual
- * race this codebase already documents for assertCanCreateProject and
- * friends, never a claim of a harder invariant than that.
+ * project is touched, deleted, or hidden.
+ *
+ * Concurrency correction (confirmed race — see test/integration/billing/
+ * free-plan-concurrency-corrections.test.ts): an EARLIER revision of this
+ * function ran the affected-count read, the entitlements read, and the
+ * write as three separate, unlocked statements, dismissed as an
+ * "accepted residual race." That characterization understated the real
+ * risk, for two reasons: (1) under ordinary Postgres read-committed
+ * isolation, a plain count-then-write has no protection at all against
+ * two genuinely concurrent callers both observing "fits" and both
+ * committing — not a narrow edge case; and (2) this function's own check
+ * was never actually serialized against assertCanIncreaseActiveProjects's
+ * own identical check for a concurrent project reactivation, even though
+ * both compete for the exact same active-project slots. The fix: the
+ * whole reclassify-to-active path now runs inside one `prisma.$transaction`
+ * that acquires the SAME "active-projects" advisory lock
+ * assertCanIncreaseActiveProjects itself takes (via
+ * lockOrganizationActiveProjectsForReclassification — see that function's
+ * own doc comment in src/lib/billing/enforcement.ts), so this
+ * reclassification and a concurrent reactivation now serialize against
+ * each other, not just against repeats of themselves.
  *
  * The reverse direction (active -> doesn't count) only ever frees
- * capacity and is never blocked.
+ * capacity, is never blocked, and needs no lock — it is handled by the
+ * plain update path below, identical to every other label/color edit.
  */
 export async function updateCustomStatusDefinition(
   organizationId: string,
@@ -232,33 +247,42 @@ export async function updateCustomStatusDefinition(
     }
   }
 
+  const updateData = {
+    ...(label !== undefined ? { label } : {}),
+    ...(input.color !== undefined ? { color: input.color } : {}),
+    ...(existing.entityType === "PROJECT" && input.countsAsActiveProject !== undefined
+      ? { countsAsActiveProject: input.countsAsActiveProject }
+      : {}),
+  };
+
   const isReclassifyingToActive =
     existing.entityType === "PROJECT" &&
     input.countsAsActiveProject === true &&
     existing.countsAsActiveProject !== true;
 
   if (isReclassifyingToActive) {
-    const affectedCount = await client.project.count({ where: { organizationId, statusDefinitionId: definitionId } });
-    if (affectedCount > 0) {
-      const entitlements = await getOrganizationEntitlements(organizationId, { client });
-      if (
-        entitlements.maxActiveProjects !== null &&
-        entitlements.currentActiveProjects + affectedCount > entitlements.maxActiveProjects
-      ) {
-        return { ok: false, reason: "ACTIVE_PROJECT_LIMIT_WOULD_BE_EXCEEDED", affectedCount };
+    return prisma.$transaction(async (tx) => {
+      await lockOrganizationActiveProjectsForReclassification(tx, organizationId);
+
+      const affectedCount = await tx.project.count({ where: { organizationId, statusDefinitionId: definitionId } });
+      if (affectedCount > 0) {
+        const entitlements = await getOrganizationEntitlements(organizationId, { client: tx });
+        if (
+          entitlements.maxActiveProjects !== null &&
+          entitlements.currentActiveProjects + affectedCount > entitlements.maxActiveProjects
+        ) {
+          return { ok: false, reason: "ACTIVE_PROJECT_LIMIT_WOULD_BE_EXCEEDED", affectedCount };
+        }
       }
-    }
+
+      const definition = await tx.customStatusDefinition.update({ where: { id: definitionId }, data: updateData });
+      return { ok: true, definition };
+    });
   }
 
   const definition = await client.customStatusDefinition.update({
     where: { id: definitionId },
-    data: {
-      ...(label !== undefined ? { label } : {}),
-      ...(input.color !== undefined ? { color: input.color } : {}),
-      ...(existing.entityType === "PROJECT" && input.countsAsActiveProject !== undefined
-        ? { countsAsActiveProject: input.countsAsActiveProject }
-        : {}),
-    },
+    data: updateData,
   });
 
   return { ok: true, definition };

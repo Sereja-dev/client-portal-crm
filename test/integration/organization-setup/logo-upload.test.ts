@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
 import { prisma } from "@/lib/prisma";
 import { uploadCompanyLogoAction } from "@/app/(dashboard)/settings/company/actions";
@@ -191,5 +192,147 @@ describe("Company logo upload — Sale-Ready Phase A.1 (Business Identity), PR4"
 
     await uploadCompanyLogoAction({ error: null }, makeLogoFormData());
     expect(removedLogoUrls).toHaveLength(0);
+  });
+});
+
+/**
+ * Aqenra Free plan — concurrency correction. The logo upload path
+ * previously had NO storage-limit check at all (confirmed by inspection:
+ * no assertCanUploadAttachment-equivalent call existed anywhere in its
+ * call chain) — a logo could be written regardless of how far over the
+ * organization's quota it would push the total. This describe block
+ * proves the new gate (reserveStorageBytes, shared with the Attachment
+ * upload path) actually applies here too, and that its reservation is
+ * correctly released on every real outcome. A dedicated FREE-plan
+ * organization (never the shared LEGACY-plan fixtures above, whose
+ * effectively unlimited storage ceiling could never exercise this gate
+ * at a realistic size).
+ */
+describe("Company logo upload — Aqenra Free plan storage reservation lifecycle", () => {
+  async function createFreePlanOrgWithProfile(label: string) {
+    const owner = await prisma.user.create({
+      data: { id: randomUUID(), email: `logo-res-${label}-${randomUUID().slice(0, 8)}@test.local`, name: `Logo Reservation ${label}` },
+    });
+    const org = await prisma.organization.create({
+      data: { name: `Logo Reservation Org ${label}`, slug: `logo-res-${label}-${randomUUID().slice(0, 8)}` },
+    });
+    await prisma.membership.create({ data: { userId: owner.id, organizationId: org.id, role: "OWNER" } });
+    const now = new Date();
+    await prisma.subscription.create({
+      data: { organizationId: org.id, planKey: "FREE", status: "ACTIVE", trialStartedAt: now, trialEndsAt: now },
+    });
+    await seedProfile(org.id);
+    return { owner, org };
+  }
+
+  async function cleanup(org: { id: string }, owner: { id: string }) {
+    await prisma.organizationProfile.deleteMany({ where: { organizationId: org.id } });
+    await prisma.storageReservation.deleteMany({ where: { organizationId: org.id } });
+    await prisma.organization.delete({ where: { id: org.id } });
+    await prisma.user.delete({ where: { id: owner.id } });
+  }
+
+  afterEach(() => {
+    resetAuthMock();
+    resetLogoStorageMock();
+  });
+
+  it("a successful upload leaves no reservation behind — only the real, committed logoSizeBytes accounts for the bytes", async () => {
+    const { owner, org } = await createFreePlanOrgWithProfile(`success-${randomUUID().slice(0, 6)}`);
+    try {
+      actAs(owner, org.id);
+      const result = await uploadCompanyLogoAction({ error: null }, makeLogoFormData("logo.png", "image/png", 2048));
+      expect(result.error).toBeNull();
+
+      const reservationCount = await prisma.storageReservation.count({ where: { organizationId: org.id } });
+      expect(reservationCount).toBe(0);
+      const profile = await prisma.organizationProfile.findUniqueOrThrow({ where: { organizationId: org.id } });
+      expect(profile.logoSizeBytes).toBe(2048);
+    } finally {
+      await cleanup(org, owner);
+    }
+  });
+
+  it("a Storage upload failure releases the reservation", async () => {
+    const { owner, org } = await createFreePlanOrgWithProfile(`storage-fail-${randomUUID().slice(0, 6)}`);
+    try {
+      actAs(owner, org.id);
+      setLogoUploadShouldFail(true);
+      const result = await uploadCompanyLogoAction({ error: null }, makeLogoFormData());
+      expect(result.error).toBe("Failed to upload the logo. Please try again.");
+
+      const reservationCount = await prisma.storageReservation.count({ where: { organizationId: org.id } });
+      expect(reservationCount).toBe(0);
+    } finally {
+      await cleanup(org, owner);
+    }
+  });
+
+  it("a logo upload that would push the organization over its 1 GiB FREE-plan ceiling is blocked, through the real reservation check", async () => {
+    const { owner, org } = await createFreePlanOrgWithProfile(`over-limit-${randomUUID().slice(0, 6)}`);
+    try {
+      // Simulate pre-existing usage already at the ceiling via an Attachment
+      // row (a real, counted object type) — a fresh logo upload for this
+      // organization must still be blocked regardless of which object
+      // type consumed the quota.
+      await prisma.attachment.create({
+        data: {
+          organizationId: org.id,
+          entityType: "CLIENT",
+          entityId: randomUUID(),
+          storageBucket: "attachments",
+          storagePath: `test/${randomUUID()}`,
+          originalName: "existing.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: 1 * 1024 * 1024 * 1024,
+        },
+      });
+
+      actAs(owner, org.id);
+      const result = await uploadCompanyLogoAction({ error: null }, makeLogoFormData());
+      expect(result.error).toBe("Your storage limit has been reached.");
+
+      expect(removedLogoUrls).toHaveLength(0); // never reached Storage at all
+      const profile = await prisma.organizationProfile.findUniqueOrThrow({ where: { organizationId: org.id } });
+      expect(profile.logoUrl).toBeNull();
+      const reservationCount = await prisma.storageReservation.count({ where: { organizationId: org.id } });
+      expect(reservationCount).toBe(0);
+
+      await prisma.attachment.deleteMany({ where: { organizationId: org.id } });
+    } finally {
+      await cleanup(org, owner);
+    }
+  });
+
+  it("replacing a logo with a much smaller file while already recorded at the ceiling still succeeds — a net-negative change is never blocked", async () => {
+    const { owner, org } = await createFreePlanOrgWithProfile(`replace-at-limit-${randomUUID().slice(0, 6)}`);
+    try {
+      actAs(owner, org.id);
+      // The 2 MB per-logo-file limit makes a literal 1 GiB logo file
+      // impossible to submit through validateLogoFile — instead, seed the
+      // "already recorded at the ceiling" state directly via
+      // logoSizeBytes (exactly what a real prior upload would have left
+      // behind), then replace it with a real, small logo, proving the
+      // net-delta math — not the new file's own absolute size — is what
+      // actually gets checked.
+      await prisma.organizationProfile.update({
+        where: { organizationId: org.id },
+        data: {
+          logoUrl: "https://mock.supabase.test/storage/v1/object/public/logos/pre-existing.png",
+          logoSizeBytes: 1 * 1024 * 1024 * 1024,
+        },
+      });
+
+      const result = await uploadCompanyLogoAction({ error: null }, makeLogoFormData("logo.png", "image/png", 2048));
+      // The new file (2048 bytes) is far SMALLER than the recorded
+      // previous logoSizeBytes (1 GiB) — netAdditionalBytes is deeply
+      // negative, always a no-op success regardless of current usage.
+      expect(result.error).toBeNull();
+
+      const profile = await prisma.organizationProfile.findUniqueOrThrow({ where: { organizationId: org.id } });
+      expect(profile.logoSizeBytes).toBe(2048);
+    } finally {
+      await cleanup(org, owner);
+    }
   });
 });

@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { validateLogoFile, buildLogoStoragePath } from "@/lib/storage/logo-files";
 import { uploadLogoObject, removeLogoObject } from "@/lib/storage/logo-storage";
 import { checkRateLimit, LOGO_UPLOAD_LIMIT } from "@/lib/rate-limit";
+import { reserveStorageBytes, releaseStorageReservation } from "@/lib/billing/storage-reservation";
+import { REASON_MESSAGES } from "@/lib/billing/enforcement";
 import type { LogoUploadState } from "@/types";
 
 const VALIDATION_ERROR_MESSAGES: Record<string, string> = {
@@ -42,7 +44,7 @@ export async function uploadOrganizationLogo({
 
   const profile = await prisma.organizationProfile.findUnique({
     where: { organizationId },
-    select: { logoUrl: true },
+    select: { logoUrl: true, logoSizeBytes: true },
   });
   if (!profile) {
     return { error: "Save your business details before uploading a logo." };
@@ -58,6 +60,34 @@ export async function uploadOrganizationLogo({
     return { error: VALIDATION_ERROR_MESSAGES[validation.error] };
   }
 
+  // Aqenra Free plan — the logo upload path previously had NO storage-
+  // limit check at all: a logo could be written regardless of how far
+  // over the organization's quota it would push the total. Gated now,
+  // the same way uploadAttachmentForEntity already is. `netAdditionalBytes`
+  // — not the new file's full size — is what gets reserved/checked: a
+  // replacement REPLACES logoSizeBytes rather than adding to it (one logo
+  // per organization, never cumulative), so reserving the full new size
+  // on top of the old one still being counted would wrongly reject even
+  // a same-size replacement when the organization is already near its
+  // ceiling. A same-size-or-smaller replacement is always a no-op here
+  // (reserveStorageBytes treats a non-positive amount as an automatic
+  // success) — it can only ever reduce total usage.
+  const previousLogoSizeBytes = profile.logoSizeBytes ?? 0;
+  const netAdditionalBytes = file.size - previousLogoSizeBytes;
+  // Wrapped in try/catch for the same reason as
+  // uploadAttachmentForEntity's own identical call: reserveStorageBytes
+  // performs a real write and can fail on an unexpected DB error, not
+  // just return its normal typed `{ok: false}` result.
+  let reservation: Awaited<ReturnType<typeof reserveStorageBytes>>;
+  try {
+    reservation = await reserveStorageBytes(organizationId, netAdditionalBytes);
+  } catch {
+    return { error: "Failed to save the uploaded logo. Please try again." };
+  }
+  if (!reservation.ok) {
+    return { error: REASON_MESSAGES[reservation.reason] };
+  }
+
   const storagePath = buildLogoStoragePath({
     organizationId,
     uuid: randomUUID(),
@@ -70,6 +100,7 @@ export async function uploadOrganizationLogo({
     contentType: validation.mimeType,
   });
   if (!uploadResult.ok) {
+    await releaseStorageReservation(reservation.reservationId);
     return { error: "Failed to upload the logo. Please try again." };
   }
 
@@ -89,8 +120,15 @@ export async function uploadOrganizationLogo({
     // failed here, not the upload, the same reasoning
     // uploadAttachmentForEntity's own compensation path already follows.
     await removeLogoObject({ publicUrl: uploadResult.publicUrl });
+    await releaseStorageReservation(reservation.reservationId);
     return { error: "Failed to save the uploaded logo. Please try again." };
   }
+
+  // The OrganizationProfile row above has now committed its new
+  // logoSizeBytes — the real, committed-usage sum reflects these bytes
+  // directly now, so the reservation that held this upload's place until
+  // now is released.
+  await releaseStorageReservation(reservation.reservationId);
 
   // Best-effort cleanup of the previous logo object, deliberately after
   // the DB write has already committed: a Storage failure here must never
