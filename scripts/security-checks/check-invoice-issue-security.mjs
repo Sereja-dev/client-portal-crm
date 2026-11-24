@@ -63,21 +63,39 @@ if (existsSync(serviceFile)) {
     "",
   ) && ok;
 
-  // 6. No PDF Storage call (upload/remove) appears textually inside the
-  // final prisma.$transaction(...) callback — a deliberately blunt,
-  // line-range proxy: everything between "prisma.$transaction(async (tx)"
-  // and its own closing "});" must not mention deps.upload/deps.remove.
-  const txStart = serviceContent.indexOf("prisma.$transaction(async (tx)");
-  if (txStart === -1) {
+  // 6. No PDF Storage call (upload/remove) appears textually inside any
+  // prisma.$transaction(...) callback — a deliberately blunt, line-range
+  // proxy: everything between each "prisma.$transaction(async (tx)" and
+  // its OWN nearest following "} catch (" must not mention deps.upload/
+  // deps.remove. Aqenra Free plan's "archive_deferred" branch
+  // (storage-full issuance) added a SECOND, earlier $transaction call to
+  // this file, nested one indentation level deeper than the original —
+  // this loop finds every occurrence (not just the first) and matches
+  // each one's own catch block with a whitespace-tolerant pattern
+  // (`} catch (` at ANY indentation), rather than a single hardcoded
+  // "\n  } catch (err) {", so neither transaction's own boundary can
+  // ever accidentally swallow the other's.
+  const txStartPattern = /prisma\.\$transaction\(async \(tx\)/g;
+  const txStarts = [...serviceContent.matchAll(txStartPattern)].map((m) => m.index);
+  if (txStarts.length === 0) {
     ok = report(`${serviceFile} contains a prisma.$transaction(...) call`, false, "") && ok;
   } else {
-    const txEnd = serviceContent.indexOf("\n  } catch (err) {", txStart);
-    const txBody = txEnd === -1 ? serviceContent.slice(txStart) : serviceContent.slice(txStart, txEnd);
-    const storageCallInTx = /deps\.(upload|remove)\(/.test(txBody);
+    const catchPattern = /\n\s*\} catch \(/g;
+    const violations = [];
+    for (const txStart of txStarts) {
+      catchPattern.lastIndex = txStart;
+      const catchMatch = catchPattern.exec(serviceContent);
+      const txBody = catchMatch ? serviceContent.slice(txStart, catchMatch.index) : serviceContent.slice(txStart);
+      if (/deps\.(upload|remove)\(/.test(txBody)) {
+        violations.push(txStart);
+      }
+    }
     ok = report(
-      "no Storage operation (deps.upload/deps.remove) occurs inside the final DB transaction",
-      !storageCallInTx,
-      storageCallInTx ? "Found deps.upload(...)/deps.remove(...) between the transaction's opening and its catch block." : "",
+      "no Storage operation (deps.upload/deps.remove) occurs inside any DB transaction",
+      violations.length === 0,
+      violations.length > 0
+        ? `Found deps.upload(...)/deps.remove(...) inside the transaction starting at offset ${violations.join(", ")}.`
+        : "",
     ) && ok;
   }
 } else {

@@ -49,7 +49,19 @@ export function InvoiceIssueControls({
       }
 
       if (result.ok) {
-        showToast("Invoice issued");
+        // Aqenra Free plan — the organization's storage was full at the
+        // moment of issuance, so this invoice's PDF was not archived yet.
+        // The invoice itself still issued successfully (never implying
+        // otherwise) — its PDF is generated automatically whenever it's
+        // viewed or sent, going forward; archiving stops being deferred
+        // once storage is freed up.
+        if (result.archiveDeferred) {
+          showToast(
+            "Invoice issued. Your storage is full, so its PDF wasn't archived — it will be generated whenever it's viewed. Remove unnecessary files to archive it.",
+          );
+        } else {
+          showToast("Invoice issued");
+        }
         router.refresh();
         return;
       }

@@ -130,7 +130,7 @@ describe("issueInvoice — Invoice System Official Slice 3, sub-PR 3b", () => {
       { now: () => fixedNow },
     );
 
-    expect(result).toEqual({ ok: true, invoiceId: invoice.id, finalizedAt: fixedNow });
+    expect(result).toEqual({ ok: true, invoiceId: invoice.id, finalizedAt: fixedNow, archiveDeferred: false });
 
     const after = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
     expect(after.status).toBe("SENT");
@@ -1109,7 +1109,10 @@ describe("issueInvoiceAction — full-stack wiring (Server Action -> service)", 
     resetAuthMock();
 
     expect(result.ok).toBe(true);
-    expect(Object.keys(result)).toEqual(["ok", "finalizedAt"]);
+    // Aqenra Free plan — archiveDeferred is a new, deliberate, equally
+    // public field (never a private path/id of any kind) — see
+    // IssueInvoiceSuccess's own doc comment in lifecycle.ts.
+    expect(Object.keys(result)).toEqual(["ok", "finalizedAt", "archiveDeferred"]);
 
     const after = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
     expect(after.status).toBe("SENT");

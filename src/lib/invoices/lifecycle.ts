@@ -116,6 +116,17 @@ export type IssueInvoiceSuccess = {
   ok: true;
   invoiceId: string;
   finalizedAt: Date;
+  /**
+   * Aqenra Free plan — true when the organization's storage allowance
+   * was full (or it was otherwise not currently FULL_ACCESS) at the
+   * moment of issuance, so this invoice's PDF was never written to
+   * Storage — the invoice itself still issued successfully, exactly as
+   * `ok: true` always means. See classifyInvoiceArchival()'s own
+   * "archive_deferred" kind and render-deferred.ts for how such an
+   * invoice's PDF is still served, regenerated on demand, on every
+   * later access.
+   */
+  archiveDeferred: boolean;
 };
 
 export type IssueInvoiceErrorCode =

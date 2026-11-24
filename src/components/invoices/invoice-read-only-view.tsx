@@ -25,17 +25,22 @@ export type InvoiceReadOnlyLineItem = { description: string; quantity: MoneyValu
  * email control. Duplicate (via InvoiceLifecycleControls, §3.2) is
  * available only for a terminal CANCELLED invoice, never for
  * SENT/PAID/OVERDUE. As of Invoice System Official Slice 3, sub-PR 3c, a
- * genuinely archived invoice (`hasArchivedPdf`, computed server-side by
+ * genuinely accessible invoice (`hasArchivedPdf`, computed server-side by
  * the caller via classifyInvoiceArchival() — never derived here, and
  * never backed by pdfStoragePath/a ledger id/a snapshot/a signed URL
  * crossing into this component's own props) renders one plain
- * "Download PDF" link. As of Invoice System Official Slice 3, Legacy
+ * "Download PDF" link. `hasArchivedPdf` is true for both the `archived`
+ * kind and (Aqenra Free plan) the `archive_deferred` kind — the link
+ * itself is identical either way; `isPdfArchivePending` (true only for
+ * `archive_deferred`) adds one small, honest note next to it, since that
+ * download is regenerated on demand rather than streamed from an
+ * already-archived file. As of Invoice System Official Slice 3, Legacy
  * Archive, a `legacy_eligible` invoice (also computed server-side by the
  * caller, never derived here) instead renders the OWNER-only "Archive
- * Legacy Invoice" control — the two are always mutually exclusive, since
- * a row can never be both `archived` and `legacy_eligible` at once. DRAFT
- * never reaches this component at all; every `invariant_violation` reason
- * renders neither control.
+ * Legacy Invoice" control — mutually exclusive with `hasArchivedPdf`,
+ * since a row can never be both archived/archive_deferred and
+ * legacy_eligible at once. DRAFT never reaches this component at all;
+ * every `invariant_violation` reason renders neither control.
  */
 export function InvoiceReadOnlyView({
   invoiceId,
@@ -53,6 +58,7 @@ export function InvoiceReadOnlyView({
   notes,
   internalNotes,
   hasArchivedPdf,
+  isPdfArchivePending,
   canArchiveLegacy,
   canSendEmail,
   emailAttempts,
@@ -74,6 +80,8 @@ export function InvoiceReadOnlyView({
   notes: string | null;
   internalNotes: string | null;
   hasArchivedPdf: boolean;
+  /** Aqenra Free plan — true only when hasArchivedPdf is true via the "archive_deferred" kind (storage was full at issuance; see render-deferred.ts). */
+  isPdfArchivePending: boolean;
   canArchiveLegacy: boolean;
   canSendEmail: boolean;
   emailAttempts: InvoiceEmailAttemptSummary[];
@@ -181,9 +189,16 @@ export function InvoiceReadOnlyView({
       <InvoiceInternalNotesForm invoiceId={invoiceId} initialValue={internalNotes ?? ""} />
 
       {hasArchivedPdf && (
-        <a href={`/api/invoices/${invoiceId}/pdf`} className={`inline-block ${ACTION_LINK_CLASSES}`}>
-          Download PDF
-        </a>
+        <div className="flex flex-col items-start gap-1">
+          <a href={`/api/invoices/${invoiceId}/pdf`} className={`inline-block ${ACTION_LINK_CLASSES}`}>
+            Download PDF
+          </a>
+          {isPdfArchivePending && (
+            <p className="text-text-muted text-xs">
+              Storage was full when this invoice was issued, so its PDF is generated each time it&apos;s downloaded.
+            </p>
+          )}
+        </div>
       )}
 
       {canArchiveLegacy && (

@@ -20,7 +20,7 @@ import type { IssueInvoiceErrorCode } from "@/lib/invoices/lifecycle";
  * neither layer relies on the other alone.
  */
 export type IssueInvoiceActionResult =
-  | { ok: true; finalizedAt: Date }
+  | { ok: true; finalizedAt: Date; archiveDeferred: boolean }
   | { ok: false; error: IssueInvoiceErrorCode };
 
 function isCanonicalIso(raw: string): boolean {
@@ -58,7 +58,7 @@ export async function issueInvoiceAction(
     revalidatePath(`/invoices/${invoiceId}/edit`);
     revalidatePath("/invoices");
     revalidatePath("/dashboard");
-    return { ok: true, finalizedAt: result.finalizedAt };
+    return { ok: true, finalizedAt: result.finalizedAt, archiveDeferred: result.archiveDeferred };
   }
 
   return { ok: false, error: result.error };

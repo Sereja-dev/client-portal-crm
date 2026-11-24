@@ -344,12 +344,19 @@ export async function getPortalInvoice(
 
   if (!invoice) return null;
 
+  // Aqenra Free plan — "archive_deferred" (storage was full at issuance;
+  // see render-deferred.ts) is just as genuinely downloadable to a
+  // Portal client as "archived" — the Portal PDF route regenerates it on
+  // demand transparently. Portal never shows any "storage full"/quota
+  // wording of any kind — that distinction is staff-only.
+  const archivalKind = classifyInvoiceArchival(invoice).kind;
+
   return {
     ...toInvoiceSummary(invoice),
     paidAt: invoice.paidAt,
     clientName: invoice.client.name,
     organizationId,
-    hasArchivedPdf: classifyInvoiceArchival(invoice).kind === "archived",
+    hasArchivedPdf: archivalKind === "archived" || archivalKind === "archive_deferred",
   };
 }
 
