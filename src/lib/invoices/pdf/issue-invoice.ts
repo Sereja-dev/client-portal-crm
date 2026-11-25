@@ -37,6 +37,7 @@ import {
 import { resolveInvoiceLogo, type ResolvedInvoiceLogo } from "./logo";
 import { compensateArchiveUpload } from "./archive-compensation";
 import { logInvoiceIssueFailure, type InvoiceIssueFailureStage } from "./issue-diagnostics";
+import { reserveStorageBytes, releaseStorageReservation } from "@/lib/billing/storage-reservation";
 
 /**
  * Invoice System Official Slice 3, sub-PR 3b — the authoritative, OWNER-only
@@ -370,6 +371,30 @@ export async function issueInvoice(
   // No ledger row and no Storage object exist for this attempt at this
   // point — both are created only from here on.
 
+  // --- C0. Reserve storage for this archival attempt ----------------------
+  // Owner-approved resolution of the invoice-PDF storage question:
+  // invoice archival competes for the exact same organization-wide 1 GiB
+  // allowance as Attachment/Logo writes (never a second, separate
+  // quota — src/lib/billing/storage-reservation.ts's own reserveStorageBytes,
+  // already used by both of those). The reservation is taken AFTER the
+  // real PDF buffer has been fully rendered and validated above, so the
+  // quota decision is always made against the exact byte length that
+  // would actually be archived — never an estimate. If there is no room,
+  // this invoice is NOT issued at all: no ledger row, no Storage write,
+  // no email, no Activity, no status change — the row stays exactly as
+  // DRAFT, so a failed attempt can never be mistaken for a successful
+  // one and a retry (once space is freed) starts from a clean slate.
+  // `requireFullAccess: false` — see that function's own doc comment for
+  // why this check is deliberately storage-only, never also gated on
+  // billing accessMode (a pre-existing, unrelated restriction invoice
+  // issuance has never had).
+  const reservation = await reserveStorageBytes(actor.organizationId, pdfBuffer.length, prisma, {
+    requireFullAccess: false,
+  });
+  if (!reservation.ok) {
+    return fail("STORAGE_LIMIT_REACHED");
+  }
+
   // --- C. Ledger before upload ------------------------------------------
   let identity: InvoicePdfObjectIdentity;
   let path: string;
@@ -381,6 +406,7 @@ export async function issueInvoice(
     // A malformed generated archive identity (or a path-construction
     // failure derived from it) is caught before any DB write or upload is
     // ever attempted — no partial ledger row, no partial Storage object.
+    await releaseStorageReservation(reservation.reservationId);
     return fail("FINALIZATION_FAILED", "identity_build_failed");
   }
 
@@ -406,6 +432,7 @@ export async function issueInvoice(
     });
   } catch {
     // Ledger creation itself failed — no upload is ever attempted.
+    await releaseStorageReservation(reservation.reservationId);
     return fail("FINALIZATION_FAILED", "ledger_create_failed");
   }
 
@@ -431,9 +458,13 @@ export async function issueInvoice(
     // No compensation is needed (upload was never attempted); the
     // PENDING_UPLOAD ledger row this same call already created remains
     // exactly as-is, durable evidence for a later reconciliation run.
+    await releaseStorageReservation(reservation.reservationId);
     return fail("FINALIZATION_FAILED", "ledger_ownership_check_failed");
   }
-  if (!stillOwned) return fail("FINALIZATION_FAILED", "ledger_ownership_lost");
+  if (!stillOwned) {
+    await releaseStorageReservation(reservation.reservationId);
+    return fail("FINALIZATION_FAILED", "ledger_ownership_lost");
+  }
 
   let uploadResult: InvoicePdfUploadResult;
   try {
@@ -450,6 +481,7 @@ export async function issueInvoice(
     // completed server-side) — always attempt compensation rather than
     // assuming nothing was written.
     await compensateArchiveUpload(deps, identity.archiveId, identity, deps.now());
+    await releaseStorageReservation(reservation.reservationId);
     const notConfigured = uploadResult.reason === "storage_not_configured";
     return fail(notConfigured ? "STORAGE_NOT_CONFIGURED" : "UPLOAD_FAILED", notConfigured ? "storage_not_configured" : "upload_failed");
   }
@@ -457,7 +489,13 @@ export async function issueInvoice(
   // Internal-only crash-simulation boundary (see IssueInvoiceDeps's own
   // doc comment) — deliberately NOT wrapped in try/catch. Production's
   // default is a no-op; a throw here from an injected test override
-  // propagates out of this function entirely uncaught.
+  // propagates out of this function entirely uncaught. The reservation is
+  // deliberately left un-released on this exact path, for the identical
+  // reason the attachment/logo upload paths accept this: a genuine
+  // process crash here means neither this function's own compensation nor
+  // a release call ever runs — exactly the scenario the reservation's own
+  // TTL (not a cron job) self-heals, see storage-reservation.ts's own doc
+  // comment.
   await deps.afterUploadBeforeFinalize();
 
   // --- E. Final short transaction ------------------------------------------
@@ -549,8 +587,17 @@ export async function issueInvoice(
     // No Storage operation runs inside the transaction above — compensation
     // always happens out here, after it has already failed/rolled back.
     await compensateArchiveUpload(deps, identity.archiveId, identity, deps.now());
+    await releaseStorageReservation(reservation.reservationId);
     return fail(commitOutcome.error);
   }
+
+  // The Invoice/ledger rows above have now committed — the ledger row's
+  // own `sizeBytes` (REFERENCED) is picked up by getOrganizationUsage's
+  // real, committed-usage sum, so the reservation that held this
+  // archival's place until now is released; it would otherwise
+  // double-count the same bytes once as a reservation and once as the
+  // real, committed ledger row.
+  await releaseStorageReservation(reservation.reservationId);
 
   // --- G. Post-commit delivery ----------------------------------------------
   // The real deliverNotificationEmails() is documented to never throw (see

@@ -81,6 +81,12 @@ export function InvoiceSendControls({
         router.refresh();
       } else if (result.error === "ARCHIVE_NOT_AVAILABLE") {
         showToast("The archived invoice PDF is unavailable — contact support.", "error");
+      } else if (result.error === "STORAGE_LIMIT_REACHED") {
+        // Aqenra Free plan — distinct from ARCHIVE_NOT_AVAILABLE above:
+        // this invoice was never issued at all (it stays DRAFT), because
+        // there was no room for its PDF — not a corrupted/missing
+        // archive on an already-issued invoice.
+        showToast("Your storage limit has been reached. Delete unnecessary files, then try issuing this invoice again.", "error");
       } else {
         showToast("Could not send this invoice — try again.", "error");
       }

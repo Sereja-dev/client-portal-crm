@@ -125,6 +125,16 @@ export type IssueInvoiceErrorCode =
   | "STALE_VERSION"
   | "SNAPSHOT_INVALID"
   | "STORAGE_NOT_CONFIGURED"
+  /**
+   * Aqenra Free plan — the organization's shared 1 GiB storage allowance
+   * has no room left for this invoice's PDF. The invoice is NEVER
+   * finalized on this path — it stays exactly as DRAFT, with no ledger
+   * row, no Storage write, no email, no Activity, no notification. The
+   * owner-approved resolution deliberately does not substitute a
+   * no-logo/regenerated PDF or defer archival — see reserveStorageBytes's
+   * own call site in issue-invoice.ts.
+   */
+  | "STORAGE_LIMIT_REACHED"
   | "RENDER_FAILED"
   | "PDF_TOO_LARGE"
   | "UPLOAD_FAILED"
@@ -185,6 +195,8 @@ export type LegacyArchiveErrorCode =
   | "SNAPSHOT_INVALID"
   | "STALE_VERSION"
   | "STORAGE_NOT_CONFIGURED"
+  /** Aqenra Free plan — same shared 1 GiB allowance as Issue; see IssueInvoiceErrorCode's own identical doc comment. */
+  | "STORAGE_LIMIT_REACHED"
   | "RENDER_FAILED"
   | "PDF_TOO_LARGE"
   | "UPLOAD_FAILED"

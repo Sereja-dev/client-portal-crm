@@ -88,6 +88,13 @@ export function InvoiceLegacyArchiveControls({
         return;
       }
 
+      // Aqenra Free plan — see InvoiceIssueControls's own identical
+      // branch for the full reasoning.
+      if (result.error === "STORAGE_LIMIT_REACHED") {
+        showToast("Your storage limit has been reached. Delete unnecessary files, then try archiving this invoice again.", "error");
+        return;
+      }
+
       showToast("Could not archive this invoice — try again.", "error");
     });
   }

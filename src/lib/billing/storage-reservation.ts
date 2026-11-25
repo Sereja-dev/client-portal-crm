@@ -73,21 +73,36 @@ export type ReserveStorageBytesResult =
  * billing/free-plan-concurrency-corrections.test.ts drive this function
  * against an isolated, genuinely multi-connection database instead of the
  * shared single-connection test harness.
+ *
+ * `options.requireFullAccess` (default `true`, matching every pre-
+ * existing call site — Attachments, Logos) gates this reservation on the
+ * organization's billing `accessMode`, the same system-wide "no new
+ * resources while read-only" rule `assertCanCreateClient`/
+ * `assertCanInviteMember`/etc. already enforce. Invoice issuance passes
+ * `false` here deliberately: this task is scoped to the STORAGE quota
+ * only, and invoice issuance has never been gated by billing accessMode
+ * at all (docs/billing-architecture.md's own "Invoices... never a
+ * limited dimension" note) — silently adding that gate as a side effect
+ * of this storage check would tighten an existing organization's
+ * conditions in a way nothing in this task asked for. Only the storage
+ * ceiling itself is ever enforced for that caller.
  */
 export async function reserveStorageBytes(
   organizationId: string,
   netAdditionalBytes: number,
   prismaClient: PrismaClient = prisma,
+  options?: { requireFullAccess?: boolean },
 ): Promise<ReserveStorageBytesResult> {
   if (netAdditionalBytes <= 0) {
     return { ok: true, reservationId: "" };
   }
+  const requireFullAccess = options?.requireFullAccess ?? true;
 
   return prismaClient.$transaction(async (tx) => {
     await lockOrganizationForStorageReservation(tx, organizationId);
 
     const entitlements = await getOrganizationEntitlements(organizationId, { client: tx });
-    if (entitlements.accessMode !== "FULL_ACCESS") {
+    if (requireFullAccess && entitlements.accessMode !== "FULL_ACCESS") {
       return { ok: false, reason: "READ_ONLY_ACCESS" };
     }
 
