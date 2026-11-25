@@ -3,13 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { getCurrentUserOrganization } from "@/lib/current-user";
 import { checkRateLimit, INVOICE_PDF_DOWNLOAD_LIMIT } from "@/lib/rate-limit";
 import { classifyInvoiceArchival } from "@/lib/invoices/pdf/classify-archival";
-import { buildInvoicePdfStoragePath, buildInvoicePdfDownloadFilename, createInvoicePdfSignedUrl, type InvoicePdfObjectIdentity } from "@/lib/invoices/pdf/storage";
+import { buildInvoicePdfStoragePath, createInvoicePdfSignedUrl, type InvoicePdfObjectIdentity } from "@/lib/invoices/pdf/storage";
 import { logInvoicePdfLedgerMismatch } from "@/lib/invoices/pdf/issue-diagnostics";
-import { renderDeferredInvoicePdf } from "@/lib/invoices/pdf/render-deferred";
 
 const NOT_FOUND_MESSAGE = "Not found";
 const SIGNING_FAILURE_MESSAGE = "Unable to generate a download link.";
-const RENDER_FAILURE_MESSAGE = "Unable to generate this PDF.";
 
 /**
  * Invoice System Official Slice 3, sub-PR 3c — staff signed PDF
@@ -67,21 +65,6 @@ export async function GET(
       issuerSnapshot: true,
       recipientSnapshot: true,
       documentVersion: true,
-      // Aqenra Free plan — needed only for the "archive_deferred"
-      // on-demand render branch below; harmless to always select.
-      issueDate: true,
-      dueDate: true,
-      currency: true,
-      amount: true,
-      subtotal: true,
-      discountAmount: true,
-      taxAmount: true,
-      discountType: true,
-      discountValue: true,
-      taxRatePercent: true,
-      taxLabel: true,
-      notes: true,
-      lineItems: { orderBy: { position: "asc" }, select: { description: true, quantity: true, unitPrice: true } },
     },
   });
 
@@ -91,46 +74,6 @@ export async function GET(
 
   // 6. The single canonical classifier call for this route.
   const classification = classifyInvoiceArchival(invoice);
-
-  // Aqenra Free plan — "archive_deferred": this invoice was issued
-  // successfully but its PDF was never archived to Storage (the
-  // organization's storage allowance was full at that moment). Rendered
-  // fresh, on demand, from the invoice's own frozen snapshot — never a
-  // redirect to a signed Storage URL, since no Storage object exists.
-  if (classification.kind === "archive_deferred") {
-    const rendered = await renderDeferredInvoicePdf({
-      status: invoice.status as "SENT" | "PAID" | "OVERDUE" | "CANCELLED",
-      invoiceNumber: invoice.invoiceNumber,
-      issueDate: invoice.issueDate,
-      dueDate: invoice.dueDate,
-      currency: invoice.currency,
-      amount: invoice.amount,
-      subtotal: invoice.subtotal,
-      discountAmount: invoice.discountAmount,
-      taxAmount: invoice.taxAmount,
-      discountType: invoice.discountType,
-      discountValue: invoice.discountValue,
-      taxRatePercent: invoice.taxRatePercent,
-      taxLabel: invoice.taxLabel,
-      notes: invoice.notes,
-      issuerSnapshot: invoice.issuerSnapshot,
-      recipientSnapshot: invoice.recipientSnapshot,
-      lineItems: invoice.lineItems,
-    });
-    if (!rendered.ok) {
-      return new NextResponse(RENDER_FAILURE_MESSAGE, { status: 502 });
-    }
-    const filename = buildInvoicePdfDownloadFilename(invoice.invoiceNumber);
-    return new NextResponse(new Uint8Array(rendered.buffer), {
-      status: 200,
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename="${filename}"`,
-        "Content-Length": String(rendered.buffer.byteLength),
-        "Cache-Control": "private, no-store",
-      },
-    });
-  }
 
   // 5. draft / legacy_eligible / invariant_violation (any reason) — same
   // generic 404 as nonexistent/cross-org above.

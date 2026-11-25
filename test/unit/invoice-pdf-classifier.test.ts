@@ -62,23 +62,12 @@ function fieldsForBitmask(bitmask: number): ArchiveFieldValues {
   return result;
 }
 
-function expectedKindForBitmask(
-  status: string,
-  bitmask: number,
-): "draft" | "legacy_eligible" | "archived" | "archive_deferred" | "invariant_violation" {
+function expectedKindForBitmask(status: string, bitmask: number): "draft" | "legacy_eligible" | "archived" | "invariant_violation" {
   const allNull = bitmask === 0;
   const allPresent = bitmask === 0b11111;
-  // finalizedAt (bit 0) + issuerSnapshot (bit 3) + recipientSnapshot (bit
-  // 4) set, pdfStoragePath (bit 1) and pdfGeneratedAt (bit 2) both null —
-  // Aqenra Free plan's "archive_deferred" shape (bitmask 11001 = 25):
-  // issued successfully, but its PDF was never written to Storage
-  // because the organization's storage allowance was full at that
-  // moment. See classify-archival.ts's own doc comment on this kind.
-  const isDeferredShape = (bitmask & 0b11001) === 0b11001 && (bitmask & 0b00110) === 0;
 
   if (status === "DRAFT") return allNull ? "draft" : "invariant_violation";
   if (allNull) return "legacy_eligible";
-  if (isDeferredShape) return "archive_deferred";
   if (!allPresent) return "invariant_violation";
   return "archived"; // all present, valid snapshots (this table uses valid snapshots throughout)
 }
@@ -154,44 +143,6 @@ describe("classifyInvoiceArchival — snapshot validity for the all-present case
       issuerSnapshot: { ...VALID_ISSUER_SNAPSHOT, schemaVersion: 2 },
     });
     expect(result).toEqual({ kind: "invariant_violation", reason: "snapshot_unparseable" });
-  });
-});
-
-const DEFERRED_FIELDS = {
-  finalizedAt: FULL_ARCHIVE_FIELDS.finalizedAt,
-  pdfStoragePath: null,
-  pdfGeneratedAt: null,
-  issuerSnapshot: VALID_ISSUER_SNAPSHOT,
-  recipientSnapshot: VALID_RECIPIENT_SNAPSHOT,
-};
-
-describe("classifyInvoiceArchival — Aqenra Free plan's 'archive_deferred' shape", () => {
-  it("classifies as archive_deferred when finalizedAt/both snapshots are set but pdfStoragePath/pdfGeneratedAt are both null, and both snapshots strictly parse", () => {
-    const result = classifyInvoiceArchival({ status: "SENT", ...DEFERRED_FIELDS });
-    expect(result).toEqual({ kind: "archive_deferred" });
-  });
-
-  it("classifies as invariant_violation/snapshot_unparseable when the issuer snapshot is malformed, even in the deferred shape", () => {
-    const result = classifyInvoiceArchival({ status: "SENT", ...DEFERRED_FIELDS, issuerSnapshot: MALFORMED_SNAPSHOT });
-    expect(result).toEqual({ kind: "invariant_violation", reason: "snapshot_unparseable" });
-  });
-
-  it("classifies as invariant_violation/snapshot_unparseable when the recipient snapshot is malformed, even in the deferred shape", () => {
-    const result = classifyInvoiceArchival({ status: "SENT", ...DEFERRED_FIELDS, recipientSnapshot: MALFORMED_SNAPSHOT });
-    expect(result).toEqual({ kind: "invariant_violation", reason: "snapshot_unparseable" });
-  });
-
-  it("PAID/OVERDUE/CANCELLED behave identically to SENT for the deferred shape", () => {
-    for (const status of ["PAID", "OVERDUE", "CANCELLED"]) {
-      expect(classifyInvoiceArchival({ status, ...DEFERRED_FIELDS })).toEqual({ kind: "archive_deferred" });
-    }
-  });
-
-  it("the archive_deferred result has no issuer/recipient field of any kind", () => {
-    const result = classifyInvoiceArchival({ status: "SENT", ...DEFERRED_FIELDS });
-    expect(Object.keys(result)).toEqual(["kind"]);
-    expect(JSON.stringify(result)).not.toContain("Acme Corp");
-    expect(JSON.stringify(result)).not.toContain("Jane Doe");
   });
 });
 

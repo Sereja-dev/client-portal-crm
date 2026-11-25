@@ -68,16 +68,9 @@ export default async function EditInvoicePage({
   // visibility only, never enforcement; archiveLegacyInvoiceAction() and
   // archiveLegacyInvoice() both independently re-check OWNER access.
   const archivalClassification = classifyInvoiceArchival(invoice);
-  // Aqenra Free plan — "archive_deferred" (storage was full at issuance;
-  // see render-deferred.ts) is just as genuinely downloadable/sendable as
-  // "archived" — its PDF is regenerated on demand rather than streamed
-  // from an already-archived Storage object, but the invoice itself is
-  // never less accessible for it.
-  const hasAccessiblePdf =
-    archivalClassification.kind === "archived" || archivalClassification.kind === "archive_deferred";
-  const isPdfArchivePending = archivalClassification.kind === "archive_deferred";
+  const hasArchivedPdf = archivalClassification.kind === "archived";
   const canArchiveLegacy = archivalClassification.kind === "legacy_eligible" && canIssue;
-  const canSendEmail = hasAccessiblePdf && canIssue;
+  const canSendEmail = hasArchivedPdf && canIssue;
   const actor = { organizationId, userId: user.id, userName: user.name, role: membership.role };
   const emailAttempts = canSendEmail ? await loadInvoiceEmailAttempts(actor, invoice.id) : [];
 
@@ -180,8 +173,7 @@ export default async function EditInvoicePage({
               }))}
               notes={invoice.notes}
               internalNotes={invoice.internalNotes}
-              hasArchivedPdf={hasAccessiblePdf}
-              isPdfArchivePending={isPdfArchivePending}
+              hasArchivedPdf={hasArchivedPdf}
               canArchiveLegacy={canArchiveLegacy}
               canSendEmail={canSendEmail}
               emailAttempts={emailAttempts}

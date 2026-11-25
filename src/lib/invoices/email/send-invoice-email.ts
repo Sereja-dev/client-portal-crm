@@ -6,7 +6,6 @@ import { issueInvoice, type IssueInvoiceDeps } from "@/lib/invoices/pdf/issue-in
 import type { TrustedInvoiceActor } from "@/lib/invoices/lifecycle";
 import { classifyInvoiceArchival } from "@/lib/invoices/pdf/classify-archival";
 import { parseIssuerSnapshot, parseRecipientSnapshot } from "@/lib/invoices/pdf/snapshot-types";
-import { renderDeferredInvoicePdf } from "@/lib/invoices/pdf/render-deferred";
 import {
   buildInvoicePdfDownloadFilename,
   buildInvoicePdfStoragePath,
@@ -121,18 +120,6 @@ const invoiceSelect = {
   issuerSnapshot: true,
   recipientSnapshot: true,
   documentVersion: true,
-  // Aqenra Free plan — needed only for the "archive_deferred" on-demand
-  // render branch below; harmless to always select.
-  issueDate: true,
-  subtotal: true,
-  discountAmount: true,
-  taxAmount: true,
-  discountType: true,
-  discountValue: true,
-  taxRatePercent: true,
-  taxLabel: true,
-  notes: true,
-  lineItems: { orderBy: { position: "asc" }, select: { description: true, quantity: true, unitPrice: true } },
   client: { select: { email: true, portalUsers: { take: 1, select: { id: true } } } },
 } as const;
 
@@ -311,68 +298,36 @@ export async function sendInvoiceEmail(
   const recipient = validateRecipient(invoice.client.email);
   if (!recipient.ok) return postIssueFailure(finalizedAt, recipient.error);
 
-  const archivalKind = classifyInvoiceArchival(invoice).kind;
-  if (archivalKind !== "archived" && archivalKind !== "archive_deferred") {
-    return postIssueFailure(finalizedAt, "ARCHIVE_NOT_AVAILABLE");
-  }
+  if (classifyInvoiceArchival(invoice).kind !== "archived") return postIssueFailure(finalizedAt, "ARCHIVE_NOT_AVAILABLE");
   const issuer = parseIssuerSnapshot(invoice.issuerSnapshot);
   const frozenRecipient = parseRecipientSnapshot(invoice.recipientSnapshot);
   if (!issuer.ok || !frozenRecipient.ok) return postIssueFailure(finalizedAt, "ARCHIVE_NOT_AVAILABLE");
 
-  let pdf: { ok: true; bytes: Buffer; contentType: string } | { ok: false };
-
-  // Aqenra Free plan — "archive_deferred": no Storage object exists for
-  // this invoice (storage was full at issuance) — render it fresh, on
-  // demand, from the exact same frozen snapshot/totals a real archived
-  // invoice's PDF was itself rendered from. See render-deferred.ts's own
-  // header comment for why this never embeds a logo.
-  if (archivalKind === "archive_deferred") {
-    const rendered = await renderDeferredInvoicePdf({
-      status: invoice.status as "SENT" | "PAID" | "OVERDUE" | "CANCELLED",
-      invoiceNumber: invoice.invoiceNumber,
-      issueDate: invoice.issueDate,
-      dueDate: invoice.dueDate,
-      currency: invoice.currency,
-      amount: invoice.amount,
-      subtotal: invoice.subtotal,
-      discountAmount: invoice.discountAmount,
-      taxAmount: invoice.taxAmount,
-      discountType: invoice.discountType,
-      discountValue: invoice.discountValue,
-      taxRatePercent: invoice.taxRatePercent,
-      taxLabel: invoice.taxLabel,
-      notes: invoice.notes,
-      issuerSnapshot: invoice.issuerSnapshot,
-      recipientSnapshot: invoice.recipientSnapshot,
-      lineItems: invoice.lineItems,
+  let identity: InvoicePdfObjectIdentity;
+  try {
+    const ledger = await prisma.invoicePdfArchiveObject.findFirst({
+      where: {
+        organizationId: actor.organizationId,
+        invoiceId,
+        storagePath: invoice.pdfStoragePath!,
+        documentVersion: invoice.documentVersion,
+        status: "REFERENCED",
+        referencedAt: { not: null },
+      },
+      select: { id: true, organizationId: true, invoiceId: true, documentVersion: true },
     });
-    pdf = rendered.ok ? { ok: true, bytes: rendered.buffer, contentType: "application/pdf" } : { ok: false };
-  } else {
-    let identity: InvoicePdfObjectIdentity;
-    try {
-      const ledger = await prisma.invoicePdfArchiveObject.findFirst({
-        where: {
-          organizationId: actor.organizationId,
-          invoiceId,
-          storagePath: invoice.pdfStoragePath!,
-          documentVersion: invoice.documentVersion,
-          status: "REFERENCED",
-          referencedAt: { not: null },
-        },
-        select: { id: true, organizationId: true, invoiceId: true, documentVersion: true },
-      });
-      if (!ledger?.invoiceId) return postIssueFailure(finalizedAt, "ARCHIVE_NOT_AVAILABLE");
-      identity = { organizationId: ledger.organizationId, invoiceId: ledger.invoiceId, documentVersion: ledger.documentVersion, archiveId: ledger.id };
-      if (buildInvoicePdfStoragePath(identity) !== invoice.pdfStoragePath) return postIssueFailure(finalizedAt, "ARCHIVE_NOT_AVAILABLE");
-    } catch {
-      return postIssueFailure(finalizedAt, "ARCHIVE_NOT_AVAILABLE");
-    }
+    if (!ledger?.invoiceId) return postIssueFailure(finalizedAt, "ARCHIVE_NOT_AVAILABLE");
+    identity = { organizationId: ledger.organizationId, invoiceId: ledger.invoiceId, documentVersion: ledger.documentVersion, archiveId: ledger.id };
+    if (buildInvoicePdfStoragePath(identity) !== invoice.pdfStoragePath) return postIssueFailure(finalizedAt, "ARCHIVE_NOT_AVAILABLE");
+  } catch {
+    return postIssueFailure(finalizedAt, "ARCHIVE_NOT_AVAILABLE");
+  }
 
-    try {
-      pdf = await deps.downloadPdf({ identity });
-    } catch {
-      return postIssueFailure(finalizedAt, "ARCHIVE_NOT_AVAILABLE");
-    }
+  let pdf;
+  try {
+    pdf = await deps.downloadPdf({ identity });
+  } catch {
+    return postIssueFailure(finalizedAt, "ARCHIVE_NOT_AVAILABLE");
   }
   if (!pdf.ok) return postIssueFailure(finalizedAt, "ARCHIVE_NOT_AVAILABLE");
 

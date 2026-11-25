@@ -37,7 +37,6 @@ import {
 import { resolveInvoiceLogo, type ResolvedInvoiceLogo } from "./logo";
 import { compensateArchiveUpload } from "./archive-compensation";
 import { logInvoiceIssueFailure, type InvoiceIssueFailureStage } from "./issue-diagnostics";
-import { reserveStorageBytes, releaseStorageReservation } from "@/lib/billing/storage-reservation";
 
 /**
  * Invoice System Official Slice 3, sub-PR 3b — the authoritative, OWNER-only
@@ -369,132 +368,7 @@ export async function issueInvoice(
   if (!parsedIssuerForPersistence.ok) return fail("SNAPSHOT_INVALID", "snapshot_invalid");
 
   // No ledger row and no Storage object exist for this attempt at this
-  // point — both are created only from here on, and only if a storage
-  // reservation is actually obtained.
-
-  // --- C0. Reserve storage for this archival attempt (may defer) ----------
-  // Aqenra Free plan — owner-approved requirement: "Issuing an invoice
-  // must remain possible when the organization's 1 GiB storage allowance
-  // is full." reserveStorageBytes is attempted here, BEFORE any ledger
-  // row or Storage write exists — if it fails (storage genuinely full, or
-  // the organization's accessMode is not currently FULL_ACCESS for an
-  // unrelated billing reason), archival for this specific invoice is
-  // deliberately skipped entirely, never retried inline and never
-  // allowed to fail the Issue operation itself. The DRAFT -> SENT
-  // transition below still proceeds exactly as it would on the happy
-  // path — same finalizedAt/issuerSnapshot/recipientSnapshot/totals —
-  // leaving only pdfStoragePath/pdfGeneratedAt both null, the exact shape
-  // classifyInvoiceArchival() recognizes as "archive_deferred". See
-  // render-deferred.ts for how such an invoice's PDF is still served on
-  // every later access, and src/lib/billing/storage-reservation.ts for
-  // why this is a real, race-safe reservation rather than a plain,
-  // unlocked check.
-  const reservation = await reserveStorageBytes(actor.organizationId, pdfBuffer.length);
-
-  const now = deps.now();
-  const nextUpdatedAt = new Date(Math.max(now.getTime(), expectedDate.getTime() + 1));
-
-  type CommitOutcome =
-    | {
-        ok: true;
-        finalizedAt: Date;
-        notificationIds: string[];
-        integrationDeliveryId: string | null;
-        archiveDeferred: boolean;
-      }
-    | { ok: false; error: "CONFLICT" | "FINALIZATION_FAILED" };
-
-  if (!reservation.ok) {
-    // --- Deferred path: finalize the invoice with NO archival attempt. ---
-    let deferredOutcome: CommitOutcome;
-    try {
-      deferredOutcome = await prisma.$transaction(async (tx) => {
-        const updateResult = await tx.invoice.updateMany({
-          where: {
-            id: invoice.id,
-            organizationId: actor.organizationId,
-            client: { organizationId: actor.organizationId },
-            status: "DRAFT",
-            updatedAt: expectedDate,
-          },
-          data: {
-            status: "SENT",
-            finalizedAt: now,
-            // Deliberately left null — no PDF object exists in Storage
-            // for this invoice. classifyInvoiceArchival() reads exactly
-            // this combination (finalizedAt + both snapshots set,
-            // pdfStoragePath/pdfGeneratedAt both null) as "archive_deferred".
-            pdfGeneratedAt: null,
-            pdfStoragePath: null,
-            issuerSnapshot: parsedIssuerForPersistence.snapshot as unknown as Prisma.InputJsonValue,
-            recipientSnapshot: parsedRecipient.snapshot as unknown as Prisma.InputJsonValue,
-            subtotal: calculation.subtotal,
-            discountAmount: calculation.discountAmount,
-            taxAmount: calculation.taxAmount,
-            amount: calculation.total,
-            updatedAt: nextUpdatedAt,
-          },
-        });
-        if (updateResult.count === 0) throw new InvoiceUpdateConflictError();
-
-        const activity = await createActivity(tx, {
-          organizationId: actor.organizationId,
-          actorId: actor.userId,
-          entityType: "INVOICE",
-          entityId: invoice.id,
-          action: "STATUS_CHANGED",
-          metadata: buildInvoiceStatusChangedMetadata(
-            { invoiceNumber: invoice.invoiceNumber },
-            draftInvoice.project?.name ?? null,
-            "DRAFT",
-            "SENT",
-            actor.userName,
-          ),
-        });
-
-        const enqueued = await enqueueIntegrationDelivery(tx, {
-          organizationId: actor.organizationId,
-          activity,
-        });
-
-        return {
-          ok: true,
-          finalizedAt: now,
-          notificationIds: activity.notificationIds,
-          integrationDeliveryId: enqueued?.deliveryId ?? null,
-          archiveDeferred: true,
-        };
-      });
-    } catch (err) {
-      if (err instanceof InvoiceUpdateConflictError) {
-        deferredOutcome = { ok: false, error: "CONFLICT" };
-      } else {
-        logInvoiceIssueFailure("transaction_failed");
-        deferredOutcome = { ok: false, error: "FINALIZATION_FAILED" };
-      }
-    }
-
-    // Nothing was ever reserved (reservation.ok is false) — there is
-    // nothing to release on this branch, on any outcome.
-
-    if (!deferredOutcome.ok) return fail(deferredOutcome.error);
-
-    try {
-      await deps.deliverEmails(deferredOutcome.notificationIds);
-    } catch {
-      // Best-effort — swallowed, same as the archived path below.
-    }
-    if (deferredOutcome.integrationDeliveryId) {
-      await deliverIntegrationEventBestEffort(deferredOutcome.integrationDeliveryId);
-    }
-
-    return {
-      ok: true,
-      invoiceId: invoice.id,
-      finalizedAt: deferredOutcome.finalizedAt,
-      archiveDeferred: true,
-    };
-  }
+  // point — both are created only from here on.
 
   // --- C. Ledger before upload ------------------------------------------
   let identity: InvoicePdfObjectIdentity;
@@ -507,7 +381,6 @@ export async function issueInvoice(
     // A malformed generated archive identity (or a path-construction
     // failure derived from it) is caught before any DB write or upload is
     // ever attempted — no partial ledger row, no partial Storage object.
-    await releaseStorageReservation(reservation.reservationId);
     return fail("FINALIZATION_FAILED", "identity_build_failed");
   }
 
@@ -533,7 +406,6 @@ export async function issueInvoice(
     });
   } catch {
     // Ledger creation itself failed — no upload is ever attempted.
-    await releaseStorageReservation(reservation.reservationId);
     return fail("FINALIZATION_FAILED", "ledger_create_failed");
   }
 
@@ -559,13 +431,9 @@ export async function issueInvoice(
     // No compensation is needed (upload was never attempted); the
     // PENDING_UPLOAD ledger row this same call already created remains
     // exactly as-is, durable evidence for a later reconciliation run.
-    await releaseStorageReservation(reservation.reservationId);
     return fail("FINALIZATION_FAILED", "ledger_ownership_check_failed");
   }
-  if (!stillOwned) {
-    await releaseStorageReservation(reservation.reservationId);
-    return fail("FINALIZATION_FAILED", "ledger_ownership_lost");
-  }
+  if (!stillOwned) return fail("FINALIZATION_FAILED", "ledger_ownership_lost");
 
   let uploadResult: InvoicePdfUploadResult;
   try {
@@ -582,7 +450,6 @@ export async function issueInvoice(
     // completed server-side) — always attempt compensation rather than
     // assuming nothing was written.
     await compensateArchiveUpload(deps, identity.archiveId, identity, deps.now());
-    await releaseStorageReservation(reservation.reservationId);
     const notConfigured = uploadResult.reason === "storage_not_configured";
     return fail(notConfigured ? "STORAGE_NOT_CONFIGURED" : "UPLOAD_FAILED", notConfigured ? "storage_not_configured" : "upload_failed");
   }
@@ -590,15 +457,16 @@ export async function issueInvoice(
   // Internal-only crash-simulation boundary (see IssueInvoiceDeps's own
   // doc comment) — deliberately NOT wrapped in try/catch. Production's
   // default is a no-op; a throw here from an injected test override
-  // propagates out of this function entirely uncaught. The reservation is
-  // deliberately left un-released on this exact path: a genuine process
-  // crash here means neither this function's own compensation nor its
-  // release call ever runs — exactly the scenario the reservation's own
-  // TTL (not a cron job) is what self-heals (see storage-reservation.ts's
-  // own doc comment).
+  // propagates out of this function entirely uncaught.
   await deps.afterUploadBeforeFinalize();
 
   // --- E. Final short transaction ------------------------------------------
+  const now = deps.now();
+  const nextUpdatedAt = new Date(Math.max(now.getTime(), expectedDate.getTime() + 1));
+
+  type CommitOutcome =
+    | { ok: true; finalizedAt: Date; notificationIds: string[]; integrationDeliveryId: string | null }
+    | { ok: false; error: "CONFLICT" | "FINALIZATION_FAILED" };
 
   let commitOutcome: CommitOutcome;
   try {
@@ -663,13 +531,7 @@ export async function issueInvoice(
         activity,
       });
 
-      return {
-        ok: true,
-        finalizedAt: now,
-        notificationIds: activity.notificationIds,
-        integrationDeliveryId: enqueued?.deliveryId ?? null,
-        archiveDeferred: false,
-      };
+      return { ok: true, finalizedAt: now, notificationIds: activity.notificationIds, integrationDeliveryId: enqueued?.deliveryId ?? null };
     });
   } catch (err) {
     if (err instanceof InvoiceUpdateConflictError) {
@@ -687,17 +549,8 @@ export async function issueInvoice(
     // No Storage operation runs inside the transaction above — compensation
     // always happens out here, after it has already failed/rolled back.
     await compensateArchiveUpload(deps, identity.archiveId, identity, deps.now());
-    await releaseStorageReservation(reservation.reservationId);
     return fail(commitOutcome.error);
   }
-
-  // The Invoice/ledger rows above have now committed — the ledger row's
-  // own `sizeBytes` (REFERENCED) is picked up by getOrganizationUsage's
-  // real, committed-usage sum, so the reservation that held this
-  // archival's place until now is released; it would otherwise
-  // double-count the same bytes once as a reservation and once as the
-  // real, committed ledger row.
-  await releaseStorageReservation(reservation.reservationId);
 
   // --- G. Post-commit delivery ----------------------------------------------
   // The real deliverNotificationEmails() is documented to never throw (see
@@ -719,5 +572,5 @@ export async function issueInvoice(
     await deliverIntegrationEventBestEffort(commitOutcome.integrationDeliveryId);
   }
 
-  return { ok: true, invoiceId: invoice.id, finalizedAt: commitOutcome.finalizedAt, archiveDeferred: false };
+  return { ok: true, invoiceId: invoice.id, finalizedAt: commitOutcome.finalizedAt };
 }
