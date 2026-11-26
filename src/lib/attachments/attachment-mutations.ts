@@ -11,7 +11,12 @@ import {
 import { uploadAttachmentObject, removeAttachmentObject } from "@/lib/storage/attachments-storage";
 import { ATTACHMENTS_BUCKET, MAX_ATTACHMENTS_PER_ENTITY } from "@/lib/storage/attachments-config";
 import { checkRateLimit, ATTACHMENT_UPLOAD_LIMIT } from "@/lib/rate-limit";
-import { reserveStorageBytes, releaseStorageReservation } from "@/lib/billing/storage-reservation";
+import {
+  reserveStorageBytes,
+  releaseStorageReservation,
+  consumeStorageReservation,
+  StorageReservationExpiredError,
+} from "@/lib/billing/storage-reservation";
 import { REASON_MESSAGES } from "@/lib/billing/enforcement";
 import type { AttachmentEntityType } from "@/generated/prisma/enums";
 import type { AttachmentUploadState } from "@/types";
@@ -136,6 +141,15 @@ export async function uploadAttachmentForEntity({
     // Attachment row and its Activity entry are one atomic unit — a failed
     // Activity insert rolls the Attachment create back too.
     await prisma.$transaction(async (tx) => {
+      // Closes the confirmed reservation-expiry race (see
+      // consumeStorageReservation's own doc comment in
+      // src/lib/billing/storage-reservation.ts): this upload's reservation
+      // must still be alive AND is consumed (deleted) right here,
+      // atomically with the Attachment row below — never separately,
+      // after the fact.
+      const reservationConsumed = await consumeStorageReservation(tx, reservation.reservationId, new Date());
+      if (!reservationConsumed.ok) throw new StorageReservationExpiredError();
+
       await tx.attachment.create({
         data: {
           id: attachmentId,
@@ -160,7 +174,7 @@ export async function uploadAttachmentForEntity({
         metadata: buildAttachmentActivityMetadata(safeFileName, entityType, parentEntityLabel, actorName),
       });
     });
-  } catch {
+  } catch (err) {
     // Compensate for the already-uploaded object — best-effort, since the
     // DB transaction is what failed, not this cleanup. An orphaned Storage
     // object is invisible and harmless; leaving it is strictly safer than
@@ -169,16 +183,18 @@ export async function uploadAttachmentForEntity({
     // The reservation is released here too: the Attachment row that would
     // have made these bytes "real" usage never committed, so nothing
     // should keep counting against the quota for this failed attempt.
+    // (Already expired-and-gone in the StorageReservationExpiredError
+    // case — this call is then a harmless no-op.)
     await releaseStorageReservation(reservation.reservationId);
+    if (err instanceof StorageReservationExpiredError) {
+      return { error: REASON_MESSAGES.STORAGE_LIMIT_REACHED };
+    }
     return { error: "Failed to save the uploaded file. Please try again." };
   }
 
-  // The Attachment row above has now committed — its own `sizeBytes` is
-  // picked up by getOrganizationUsage's real, committed-usage sum, so the
-  // reservation that held this upload's place until now is released; it
-  // would otherwise double-count the same bytes once as a reservation and
-  // once as the real, committed Attachment row.
-  await releaseStorageReservation(reservation.reservationId);
+  // The Attachment row above has now committed, and the reservation that
+  // held this upload's place was already consumed (deleted), atomically,
+  // inside that same transaction above — not here, and not separately.
 
   return { error: null };
 }

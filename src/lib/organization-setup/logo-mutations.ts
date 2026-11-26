@@ -3,7 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { validateLogoFile, buildLogoStoragePath } from "@/lib/storage/logo-files";
 import { uploadLogoObject, removeLogoObject } from "@/lib/storage/logo-storage";
 import { checkRateLimit, LOGO_UPLOAD_LIMIT } from "@/lib/rate-limit";
-import { reserveStorageBytes, releaseStorageReservation } from "@/lib/billing/storage-reservation";
+import {
+  reserveStorageBytes,
+  releaseStorageReservation,
+  consumeStorageReservation,
+  StorageReservationExpiredError,
+} from "@/lib/billing/storage-reservation";
 import { REASON_MESSAGES } from "@/lib/billing/enforcement";
 import type { LogoUploadState } from "@/types";
 
@@ -107,28 +112,40 @@ export async function uploadOrganizationLogo({
   const previousLogoUrl = profile.logoUrl;
 
   try {
-    await prisma.organizationProfile.update({
-      where: { organizationId },
-      // Aqenra Free plan — organization storage accounting
-      // (src/lib/billing/usage.ts). `file.size` is already validated
-      // above (validateLogoFile) — recorded here, alongside the new
-      // logoUrl itself, so the two always change together.
-      data: { logoUrl: uploadResult.publicUrl, logoSizeBytes: file.size },
+    // Wrapped in a transaction (previously a bare single-statement
+    // update) so the reservation-expiry guard below and the real,
+    // quota-counting write commit atomically together — see
+    // consumeStorageReservation's own doc comment in
+    // src/lib/billing/storage-reservation.ts for the race this closes.
+    await prisma.$transaction(async (tx) => {
+      const reservationConsumed = await consumeStorageReservation(tx, reservation.reservationId, new Date());
+      if (!reservationConsumed.ok) throw new StorageReservationExpiredError();
+
+      await tx.organizationProfile.update({
+        where: { organizationId },
+        // Aqenra Free plan — organization storage accounting
+        // (src/lib/billing/usage.ts). `file.size` is already validated
+        // above (validateLogoFile) — recorded here, alongside the new
+        // logoUrl itself, so the two always change together.
+        data: { logoUrl: uploadResult.publicUrl, logoSizeBytes: file.size },
+      });
     });
-  } catch {
+  } catch (err) {
     // Compensate for the already-uploaded object — the DB write is what
     // failed here, not the upload, the same reasoning
     // uploadAttachmentForEntity's own compensation path already follows.
     await removeLogoObject({ publicUrl: uploadResult.publicUrl });
     await releaseStorageReservation(reservation.reservationId);
+    if (err instanceof StorageReservationExpiredError) {
+      return { error: REASON_MESSAGES.STORAGE_LIMIT_REACHED };
+    }
     return { error: "Failed to save the uploaded logo. Please try again." };
   }
 
   // The OrganizationProfile row above has now committed its new
-  // logoSizeBytes — the real, committed-usage sum reflects these bytes
-  // directly now, so the reservation that held this upload's place until
-  // now is released.
-  await releaseStorageReservation(reservation.reservationId);
+  // logoSizeBytes, and the reservation that held this upload's place was
+  // already consumed (deleted), atomically, inside that same transaction
+  // above — not here, and not separately.
 
   // Best-effort cleanup of the previous logo object, deliberately after
   // the DB write has already committed: a Storage failure here must never

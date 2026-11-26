@@ -677,4 +677,172 @@ describe("Aqenra Free plan — concurrency corrections (real multi-connection, d
     const remainingReservations = await prisma.storageReservation.count({ where: { organizationId: orgId } });
     expect(remainingReservations).toBe(0);
   }, 30_000);
+
+  // ---------------------------------------------------------------------
+  // Reservation-expiry race — the gap between reserveStorageBytes (run
+  // once, before the slow write) and the real write that actually makes
+  // usage count. consumeStorageReservation (src/lib/billing/storage-
+  // reservation.ts) closes it by re-verifying and consuming the
+  // reservation atomically, inside the SAME transaction as that real
+  // write — see that function's own doc comment for the full race
+  // description. Both tests below drive the real primitives
+  // (reserveStorageBytes, consumeStorageReservation, releaseStorageReservation)
+  // against this file's own real, independent, multi-connection Postgres
+  // instance — never the shared single-connection integration harness.
+  // ---------------------------------------------------------------------
+
+  it("NEGATIVE CONTROL: a caller that never re-verifies its reservation before committing its real write can genuinely exceed the ceiling once that reservation has expired", async () => {
+    const prisma = await openIsolatedPrisma();
+    const { orgId } = await setupIsolatedFreePlanOrg(prisma, "ttl-negative");
+
+    const { reserveStorageBytes, releaseStorageReservation } = await import("@/lib/billing/storage-reservation");
+    const maxBytes = 1024 * 1024 * 1024;
+    const almostFull = Math.round(0.9 * maxBytes);
+    const headroom = maxBytes - almostFull;
+    await prisma.attachment.create({
+      data: {
+        organizationId: orgId,
+        entityType: "CLIENT",
+        entityId: randomUUID(),
+        storageBucket: "attachments",
+        storagePath: `test/${randomUUID()}`,
+        originalName: "existing.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: almostFull,
+      },
+    });
+
+    // Op A reserves the remaining headroom for a hypothetical slow
+    // write, then its reservation is forced to already be expired —
+    // simulating real wall-clock time having passed beyond the real
+    // 10-minute TTL while Op A was still "in flight".
+    const opA = await reserveStorageBytes(orgId, headroom, prisma);
+    expect(opA.ok).toBe(true);
+    if (!opA.ok) throw new Error("unreachable");
+    await prisma.storageReservation.update({ where: { id: opA.reservationId }, data: { expiresAt: new Date(Date.now() - 1000) } });
+
+    // Op B, genuinely independent, now sees that headroom as free,
+    // reserves it, and commits a real write using it.
+    const opB = await reserveStorageBytes(orgId, headroom, prisma);
+    expect(opB.ok).toBe(true);
+    if (!opB.ok) throw new Error("unreachable");
+    await prisma.attachment.create({
+      data: {
+        organizationId: orgId,
+        entityType: "CLIENT",
+        entityId: randomUUID(),
+        storageBucket: "attachments",
+        storagePath: `test/${randomUUID()}`,
+        originalName: "op-b.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: headroom,
+      },
+    });
+    await releaseStorageReservation(opB.reservationId, prisma);
+
+    // Op A, UNAWARE its own reservation is gone, and deliberately
+    // WITHOUT calling consumeStorageReservation first (the exact
+    // pre-correction code shape every real call site had), finishes
+    // anyway and commits its own real write too.
+    await prisma.attachment.create({
+      data: {
+        organizationId: orgId,
+        entityType: "CLIENT",
+        entityId: randomUUID(),
+        storageBucket: "attachments",
+        storagePath: `test/${randomUUID()}`,
+        originalName: "op-a.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: headroom,
+      },
+    });
+    await releaseStorageReservation(opA.reservationId, prisma);
+
+    const totalBytes = await prisma.attachment.aggregate({ where: { organizationId: orgId }, _sum: { sizeBytes: true } });
+    expect(totalBytes._sum.sizeBytes).toBeGreaterThan(maxBytes); // the ceiling was genuinely overshot
+  }, 30_000);
+
+  it("FIXED: consumeStorageReservation blocks an operation whose reservation already expired from committing its real write — the ceiling is never exceeded", async () => {
+    const prisma = await openIsolatedPrisma();
+    const { orgId } = await setupIsolatedFreePlanOrg(prisma, "ttl-fixed");
+
+    const { reserveStorageBytes, releaseStorageReservation, consumeStorageReservation } = await import(
+      "@/lib/billing/storage-reservation"
+    );
+    const maxBytes = 1024 * 1024 * 1024;
+    const almostFull = Math.round(0.9 * maxBytes);
+    const headroom = maxBytes - almostFull;
+    await prisma.attachment.create({
+      data: {
+        organizationId: orgId,
+        entityType: "CLIENT",
+        entityId: randomUUID(),
+        storageBucket: "attachments",
+        storagePath: `test/${randomUUID()}`,
+        originalName: "existing.pdf",
+        mimeType: "application/pdf",
+        sizeBytes: almostFull,
+      },
+    });
+
+    const opA = await reserveStorageBytes(orgId, headroom, prisma);
+    expect(opA.ok).toBe(true);
+    if (!opA.ok) throw new Error("unreachable");
+    await prisma.storageReservation.update({ where: { id: opA.reservationId }, data: { expiresAt: new Date(Date.now() - 1000) } });
+
+    // Op B claims the same, now-freed headroom for real — exactly the
+    // real pipeline's own sequence: reserve, consume atomically with the
+    // real write, inside one transaction.
+    const opB = await reserveStorageBytes(orgId, headroom, prisma);
+    expect(opB.ok).toBe(true);
+    if (!opB.ok) throw new Error("unreachable");
+    await prisma.$transaction(async (tx) => {
+      const consumed = await consumeStorageReservation(tx, opB.reservationId, new Date());
+      expect(consumed.ok).toBe(true);
+      await tx.attachment.create({
+        data: {
+          organizationId: orgId,
+          entityType: "CLIENT",
+          entityId: randomUUID(),
+          storageBucket: "attachments",
+          storagePath: `test/${randomUUID()}`,
+          originalName: "op-b.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: headroom,
+        },
+      });
+    });
+
+    // Op A now tries to finalize, exactly mirroring the real pipeline's
+    // own Step E guard: consumeStorageReservation correctly detects the
+    // reservation is gone and the whole transaction is aborted — the
+    // real write never happens.
+    let opACommitted = false;
+    await expect(
+      prisma.$transaction(async (tx) => {
+        const consumed = await consumeStorageReservation(tx, opA.reservationId, new Date());
+        if (!consumed.ok) throw new Error("StorageReservationExpiredError (simulated)");
+        await tx.attachment.create({
+          data: {
+            organizationId: orgId,
+            entityType: "CLIENT",
+            entityId: randomUUID(),
+            storageBucket: "attachments",
+            storagePath: `test/${randomUUID()}`,
+            originalName: "op-a.pdf",
+            mimeType: "application/pdf",
+            sizeBytes: headroom,
+          },
+        });
+        opACommitted = true;
+      }),
+    ).rejects.toThrow();
+    await releaseStorageReservation(opA.reservationId, prisma);
+
+    expect(opACommitted).toBe(false);
+    const totalBytes = await prisma.attachment.aggregate({ where: { organizationId: orgId }, _sum: { sizeBytes: true } });
+    expect(totalBytes._sum.sizeBytes).toBe(almostFull + headroom); // exactly at the ceiling, never over
+    const remainingReservations = await prisma.storageReservation.count({ where: { organizationId: orgId } });
+    expect(remainingReservations).toBe(0);
+  }, 30_000);
 });

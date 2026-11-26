@@ -203,9 +203,16 @@ const clientEntitlementOk =
 // to reserveStorageBytes / storage-reservation.ts by name, and checked
 // for real ordering (guard strictly before the write it guards), not
 // just presence anywhere in the file.
+// logo-mutations.ts's own write moved from a bare `prisma.organizationProfile.update(`
+// to `tx.organizationProfile.update(` when it was wrapped in a transaction
+// (Aqenra Free plan reservation-expiry correction) so the new
+// consumeStorageReservation guard (src/lib/billing/storage-reservation.ts)
+// commits atomically with it — the write marker below follows that same
+// rename; the ordering check's intent (guard strictly before the write it
+// guards) is unchanged.
 const STORAGE_RESERVATION_CALL_SITES = [
   { file: "src/lib/attachments/attachment-mutations.ts", writeMarker: "tx.attachment.create(" },
-  { file: "src/lib/organization-setup/logo-mutations.ts", writeMarker: "prisma.organizationProfile.update(" },
+  { file: "src/lib/organization-setup/logo-mutations.ts", writeMarker: "tx.organizationProfile.update(" },
 ];
 const missingStorageReservation = STORAGE_RESERVATION_CALL_SITES.filter(({ file, writeMarker }) => {
   if (!existsSync(file)) return true;
@@ -227,6 +234,44 @@ ok = report(
   "entitlement checks are present in every approved Stage 2 mutation path (Clients via the reviewed createClientCore indirection; Attachments/Logo via the reviewed reserveStorageBytes indirection)",
   missingEnforcement.length === 0,
   missingEnforcement.map((m) => m.file).join(", "),
+) && ok;
+
+// 6b. Aqenra Free plan reservation-expiry correction — a confirmed race
+// found that reserveStorageBytes alone only runs ONCE, before the slow
+// external Storage call, and is never consulted again afterward: a
+// reservation that outlives its own TTL while that slow call is still in
+// flight could let the real, quota-counting write land anyway, after
+// another operation had already claimed the same capacity. The fix
+// (consumeStorageReservation, src/lib/billing/storage-reservation.ts)
+// re-verifies and consumes the reservation atomically, as the FIRST
+// statement inside the exact same transaction as the real write it
+// guards — every one of the four real call sites that write a quota-
+// counted row must do this, in this order, or the race reopens silently.
+// Same "reviewed indirection" discipline as the checks above: tied
+// specifically to consumeStorageReservation by name, checked for real
+// ordering (guard strictly before the write it guards, inside the one
+// transaction that contains both), never just presence anywhere in the
+// file.
+const CONSUME_RESERVATION_CALL_SITES = [
+  { file: "src/lib/invoices/pdf/issue-invoice.ts", writeMarker: "tx.invoice.updateMany(" },
+  { file: "src/lib/invoices/pdf/legacy-archive-invoice.ts", writeMarker: "tx.invoice.updateMany(" },
+  { file: "src/lib/attachments/attachment-mutations.ts", writeMarker: "tx.attachment.create(" },
+  { file: "src/lib/organization-setup/logo-mutations.ts", writeMarker: "tx.organizationProfile.update(" },
+];
+const missingConsumeReservation = CONSUME_RESERVATION_CALL_SITES.filter(({ file, writeMarker }) => {
+  if (!existsSync(file)) return true;
+  const content = readFileSync(file, "utf8");
+  const importsConsume =
+    content.includes("@/lib/billing/storage-reservation") && content.includes("consumeStorageReservation");
+  const consumeIndex = content.indexOf("consumeStorageReservation(");
+  const writeIndex = content.indexOf(writeMarker);
+  const consumesBeforeWrite = consumeIndex !== -1 && writeIndex !== -1 && consumeIndex < writeIndex;
+  return !importsConsume || !consumesBeforeWrite;
+});
+ok = report(
+  "consumeStorageReservation re-verifies and consumes the reservation, strictly before the real write, in every storage-quota-counted mutation path (Issue, Legacy Archive, Attachments, Logo)",
+  missingConsumeReservation.length === 0,
+  missingConsumeReservation.map((m) => m.file).join(", "),
 ) && ok;
 
 // 7. WebhookEvent never gains a raw/summary payload column — Stage 2's own

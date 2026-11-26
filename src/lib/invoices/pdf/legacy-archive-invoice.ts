@@ -39,7 +39,7 @@ import {
 } from "./storage";
 import { resolveInvoiceLogo, type ResolvedInvoiceLogo } from "./logo";
 import { compensateArchiveUpload } from "./archive-compensation";
-import { reserveStorageBytes, releaseStorageReservation } from "@/lib/billing/storage-reservation";
+import { reserveStorageBytes, releaseStorageReservation, consumeStorageReservation, StorageReservationExpiredError } from "@/lib/billing/storage-reservation";
 
 /**
  * Invoice System Official Slice 3, Legacy Archive — the retroactive,
@@ -556,11 +556,20 @@ export async function archiveLegacyInvoice(
   const now = deps.now();
   const nextUpdatedAt = new Date(Math.max(now.getTime(), expectedDate.getTime() + 1));
 
-  type CommitOutcome = { ok: true; finalizedAt: Date } | { ok: false; error: "CONFLICT" | "ARCHIVE_FAILED" };
+  type CommitOutcome =
+    | { ok: true; finalizedAt: Date }
+    | { ok: false; error: "CONFLICT" | "ARCHIVE_FAILED" | "STORAGE_LIMIT_REACHED" };
 
   let commitOutcome: CommitOutcome;
   try {
     commitOutcome = await prisma.$transaction(async (tx) => {
+      // Closes the confirmed reservation-expiry race — see
+      // issue-invoice.ts's own identical guard and
+      // consumeStorageReservation's own doc comment in
+      // src/lib/billing/storage-reservation.ts.
+      const reservationConsumed = await consumeStorageReservation(tx, reservation.reservationId, now);
+      if (!reservationConsumed.ok) throw new StorageReservationExpiredError();
+
       const updateResult = await tx.invoice.updateMany({
         where: {
           id: invoice.id,
@@ -639,7 +648,13 @@ export async function archiveLegacyInvoice(
       return { ok: true, finalizedAt: now };
     });
   } catch (err) {
-    commitOutcome = err instanceof LegacyArchiveConflictError ? { ok: false, error: "CONFLICT" } : { ok: false, error: "ARCHIVE_FAILED" };
+    if (err instanceof LegacyArchiveConflictError) {
+      commitOutcome = { ok: false, error: "CONFLICT" };
+    } else if (err instanceof StorageReservationExpiredError) {
+      commitOutcome = { ok: false, error: "STORAGE_LIMIT_REACHED" };
+    } else {
+      commitOutcome = { ok: false, error: "ARCHIVE_FAILED" };
+    }
   }
 
   if (!commitOutcome.ok) {
@@ -650,11 +665,10 @@ export async function archiveLegacyInvoice(
     return fail(commitOutcome.error);
   }
 
-  // The ledger row above has now committed (REFERENCED) — its own
-  // `sizeBytes` is picked up by getOrganizationUsage's real, committed-
-  // usage sum, so the reservation that held this archival's place until
-  // now is released; see issue-invoice.ts's own identical comment.
-  await releaseStorageReservation(reservation.reservationId);
+  // The ledger row above has now committed (REFERENCED), and the
+  // reservation that held this archival's place was already consumed
+  // atomically inside that same transaction above — see
+  // issue-invoice.ts's own identical comment.
 
   // No post-commit delivery step exists for this action — unlike Issue,
   // Legacy Archive never sends email and never has a deliverEmails

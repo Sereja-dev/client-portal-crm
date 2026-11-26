@@ -47,7 +47,16 @@ export type InvoiceIssueFailureStage =
   | "ledger_ownership_lost"
   | "upload_failed"
   | "storage_not_configured"
-  | "transaction_failed";
+  | "transaction_failed"
+  /**
+   * Aqenra Free plan — the storage reservation this attempt took back in
+   * step C0 was already expired by the time the final transaction ran
+   * (consumeStorageReservation's own check, src/lib/billing/storage-
+   * reservation.ts). Distinct from an ordinary up-front STORAGE_LIMIT_REACHED
+   * rejection (never logged) — this one is logged because it signals a
+   * pipeline run that took unusually long, worth operational visibility.
+   */
+  | "storage_reservation_lost";
 
 /**
  * Logs exactly one fixed message plus the one allowlisted `stage` field —

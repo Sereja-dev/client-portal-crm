@@ -129,4 +129,40 @@ describe("archiveLegacyInvoice — Aqenra Free plan shared storage allowance", (
       await cleanupOrg(org, owner, client);
     }
   });
+
+  it("FIXED: a reservation that has already expired by the time the final transaction runs blocks finalization — mirrors issueInvoice()'s own identical guard", async () => {
+    const { owner, org, client } = await createFreePlanOrgWithClient(`expire-${randomUUID().slice(0, 6)}`);
+    try {
+      const invoice = await seedLegacyInvoice(org, client, "expire");
+
+      // Same technique as issue-storage-limit.test.ts's own identical
+      // test: a far-future injected `now` makes this archival's own
+      // reservation — created with a REAL, wall-clock expiresAt in step
+      // C0 — appear already expired by the time Step E's final
+      // transaction runs, deterministically, without a real wait.
+      const farFuture = new Date(Date.now() + 20 * 60 * 1000);
+      const result = await archiveLegacyInvoice(
+        {
+          actor: { organizationId: org.id, userId: owner.id, userName: owner.name, role: "OWNER" },
+          invoiceId: invoice.id,
+          expectedUpdatedAt: invoice.updatedAt.toISOString(),
+        },
+        { now: () => farFuture },
+      );
+
+      expect(result).toEqual({ ok: false, error: "STORAGE_LIMIT_REACHED" });
+
+      const after = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
+      expect(after.pdfStoragePath).toBeNull();
+      expect(after.finalizedAt).toBeNull();
+
+      const ledger = await prisma.invoicePdfArchiveObject.findFirstOrThrow({ where: { invoiceId: invoice.id } });
+      expect(ledger.status).toBe("CLEANED");
+
+      const reservationCount = await prisma.storageReservation.count({ where: { organizationId: org.id } });
+      expect(reservationCount).toBe(0);
+    } finally {
+      await cleanupOrg(org, owner, client);
+    }
+  });
 });

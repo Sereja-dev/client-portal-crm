@@ -410,7 +410,7 @@ describe("issueInvoice — Aqenra Free plan shared storage allowance", () => {
     }
   });
 
-  it("a reservation that outlives its own TTL stops counting — a documented, accepted limitation, not silently claimed as solved", async () => {
+  it("NEGATIVE CONTROL: a caller that skips consumeStorageReservation and writes its real row directly can still exceed the ceiling — proves the mechanism-level race this correction closes was real", async () => {
     const { owner, org, client } = await createFreePlanOrgWithClient(`ttl-${randomUUID().slice(0, 6)}`);
     try {
       const { reserveStorageBytes, releaseStorageReservation } = await import("@/lib/billing/storage-reservation");
@@ -453,10 +453,11 @@ describe("issueInvoice — Aqenra Free plan shared storage allowance", () => {
       });
       await releaseStorageReservation(r2.reservationId);
 
-      // R1's own "slow" operation now finally finalizes — nothing in the
-      // real pipeline stops it, since the reservation was only ever
-      // consulted once, up front. It commits its full real ledger row
-      // exactly as issueInvoice()'s own success path does.
+      // R1's own "slow" operation now finally finalizes — writing its
+      // real ledger row DIRECTLY, deliberately bypassing
+      // consumeStorageReservation (never re-verifying R1 is still
+      // alive first) — exactly what every real call site did before
+      // this correction.
       await prisma.invoicePdfArchiveObject.create({
         data: {
           id: randomUUID(),
@@ -477,14 +478,165 @@ describe("issueInvoice — Aqenra Free plan shared storage allowance", () => {
         _sum: { sizeBytes: true },
       });
       const totalUsage = (attachmentUsage._sum.sizeBytes ?? 0) + (invoiceUsage._sum.sizeBytes ?? 0);
-      // Demonstrates the real, accepted limitation named in this task:
-      // once a reservation outlives its own TTL, the operation it was
-      // guarding can still land later, so two operations that should
-      // have been mutually exclusive both committed — together
-      // exceeding the 1 GiB ceiling. This is not asserted as acceptable
-      // or unacceptable here — only that it is real and reproducible,
-      // not silently assumed away by the TTL's own existence.
+      // Proves the race this correction closes was genuinely real: once
+      // a reservation outlives its own TTL, a caller that never
+      // re-verifies it before committing its real write can land
+      // alongside another operation that already claimed the same
+      // capacity — together exceeding the 1 GiB ceiling. The real
+      // issueInvoice()/archiveLegacyInvoice() pipelines no longer skip
+      // this re-verification (see the FIXED test immediately below) —
+      // this test exists specifically to prove the guard they now both
+      // have is actually necessary, not incidentally passing.
       expect(totalUsage).toBeGreaterThan(GIB);
+    } finally {
+      await cleanupOrg(org, owner, client);
+    }
+  });
+
+  it("FIXED: a reservation that has already expired by the time the final transaction runs blocks finalization — the real pipeline never double-counts", async () => {
+    const { owner, org, client } = await createFreePlanOrgWithClient(`expire-${randomUUID().slice(0, 6)}`);
+    try {
+      const invoice = await seedDraftInvoice(org, client, "expire");
+
+      // A far-future injected `now` makes this archival's own
+      // reservation — created with a REAL, wall-clock expiresAt back in
+      // step C0, before `now` is ever consulted — appear already
+      // expired by the time Step E's final transaction runs. This
+      // deterministically simulates a render/upload pipeline that took
+      // far longer than the reservation's 10-minute TTL, without an
+      // actual 10+ minute wait, using issueInvoice()'s own existing,
+      // legitimate `now` dependency-injection seam (already used
+      // elsewhere in this suite for finalizedAt/pdfGeneratedAt).
+      const farFuture = new Date(Date.now() + 20 * 60 * 1000);
+      const result = await issueInvoice(
+        {
+          actor: { organizationId: org.id, userId: owner.id, userName: owner.name, role: "OWNER" },
+          invoiceId: invoice.id,
+          expectedUpdatedAt: invoice.updatedAt.toISOString(),
+        },
+        { now: () => farFuture },
+      );
+
+      expect(result).toEqual({ ok: false, error: "STORAGE_LIMIT_REACHED" });
+
+      // The invoice is left in the correct pre-issuance state — not
+      // falsely marked as issued.
+      const after = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
+      expect(after.status).toBe("DRAFT");
+      expect(after.pdfStoragePath).toBeNull();
+      expect(after.finalizedAt).toBeNull();
+
+      // The ledger row this attempt created was compensated, never left
+      // REFERENCED — the uploaded Storage object was removed with it.
+      const ledger = await prisma.invoicePdfArchiveObject.findFirstOrThrow({ where: { invoiceId: invoice.id } });
+      expect(ledger.status).toBe("CLEANED");
+      const { testStorageRead } = await import("@/lib/storage/test-storage");
+      expect(testStorageRead("attachments", ledger.storagePath)).toBeNull();
+
+      // The reservation itself is gone too — released on the failure
+      // path, never left stranded.
+      const reservationCount = await prisma.storageReservation.count({ where: { organizationId: org.id } });
+      expect(reservationCount).toBe(0);
+    } finally {
+      await cleanupOrg(org, owner, client);
+    }
+  });
+
+  it("FIXED: real competing capacity — once another operation has claimed the headroom a reservation lost, this invoice's attempt correctly fails and the ceiling is never exceeded", async () => {
+    const { owner, org, client } = await createFreePlanOrgWithClient(`expire-shared-${randomUUID().slice(0, 6)}`);
+    try {
+      const invoice = await seedDraftInvoice(org, client, "exps");
+
+      // Learn the real PDF's exact byte size the same way the other
+      // boundary tests in this file do, then set up: almost-full
+      // storage, leaving exactly enough headroom for this one PDF.
+      const probe = await issueInvoice({
+        actor: { organizationId: org.id, userId: owner.id, userName: owner.name, role: "OWNER" },
+        invoiceId: invoice.id,
+        expectedUpdatedAt: invoice.updatedAt.toISOString(),
+      });
+      expect(probe.ok).toBe(true);
+      const probedInvoice = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
+      const pdfSize = (await prisma.invoicePdfArchiveObject.findFirstOrThrow({ where: { invoiceId: invoice.id } })).sizeBytes!;
+      await prisma.invoicePdfArchiveObject.deleteMany({ where: { invoiceId: invoice.id } });
+      await prisma.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          status: "DRAFT",
+          finalizedAt: null,
+          pdfGeneratedAt: null,
+          pdfStoragePath: null,
+          issuerSnapshot: Prisma.DbNull,
+          recipientSnapshot: Prisma.DbNull,
+          updatedAt: probedInvoice.updatedAt,
+        },
+      });
+      await fillStorage(org, client, GIB - pdfSize);
+
+      const fresh = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
+      const farFuture = new Date(Date.now() + 20 * 60 * 1000);
+      const { reserveStorageBytes, consumeStorageReservation } = await import("@/lib/billing/storage-reservation");
+
+      const result = await issueInvoice(
+        {
+          actor: { organizationId: org.id, userId: owner.id, userName: owner.name, role: "OWNER" },
+          invoiceId: invoice.id,
+          expectedUpdatedAt: fresh.updatedAt.toISOString(),
+        },
+        {
+          now: () => farFuture,
+          // This is this invoice's own real pipeline reaching exactly
+          // the point between a successful upload and Step E opening —
+          // the SAME real seam used elsewhere in this suite to simulate
+          // a process crash. Here it instead simulates real wall-clock
+          // time having passed well beyond this archival's own
+          // reservation TTL (step C0's reservation used the REAL clock
+          // for its own expiresAt, independent of the injected `now`
+          // above): force that real row into the past, exactly as if
+          // 10+ real minutes had elapsed, then let a genuinely
+          // independent operation claim that now-freed headroom for
+          // real, using the identical reserve -> consume -> commit
+          // sequence the real pipeline itself uses — not a shortcut.
+          afterUploadBeforeFinalize: async () => {
+            const mine = await prisma.storageReservation.findFirstOrThrow({ where: { organizationId: org.id } });
+            await prisma.storageReservation.update({ where: { id: mine.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+
+            const competing = await reserveStorageBytes(org.id, pdfSize);
+            expect(competing.ok).toBe(true);
+            if (competing.ok) {
+              await prisma.$transaction(async (tx) => {
+                const consumed = await consumeStorageReservation(tx, competing.reservationId, new Date());
+                expect(consumed.ok).toBe(true);
+                await tx.attachment.create({
+                  data: {
+                    organizationId: org.id,
+                    entityType: "CLIENT",
+                    entityId: client.id,
+                    storageBucket: "attachments",
+                    storagePath: `test/${randomUUID()}`,
+                    originalName: "competing.pdf",
+                    mimeType: "application/pdf",
+                    sizeBytes: pdfSize,
+                  },
+                });
+              });
+            }
+          },
+        },
+      );
+
+      expect(result).toEqual({ ok: false, error: "STORAGE_LIMIT_REACHED" });
+
+      const totalUsage = await prisma.attachment.aggregate({ where: { organizationId: org.id }, _sum: { sizeBytes: true } });
+      const invoiceUsage = await prisma.invoicePdfArchiveObject.aggregate({
+        where: { organizationId: org.id, status: "REFERENCED" },
+        _sum: { sizeBytes: true },
+      });
+      const total = (totalUsage._sum.sizeBytes ?? 0) + (invoiceUsage._sum.sizeBytes ?? 0);
+      // Exactly at the ceiling (the pre-fill plus the one competing
+      // attachment that actually won) — never over it. This invoice's
+      // own bytes were never double-counted on top.
+      expect(total).toBe(GIB);
     } finally {
       await cleanupOrg(org, owner, client);
     }

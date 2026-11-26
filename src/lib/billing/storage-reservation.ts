@@ -130,10 +130,87 @@ export async function reserveStorageBytes(
 }
 
 /**
- * Releases a reservation created by `reserveStorageBytes` — called
- * exactly once per non-empty reservation, on every outcome (the real
- * upload's own DB write committed, or any step after reservation failed)
- * so capacity is never stranded on a known failure path. A no-op,
+ * Thrown by a caller's own final transaction when the reservation it
+ * relied on no longer exists or has already expired by commit time — see
+ * `consumeStorageReservation`'s own doc comment for the exact race this
+ * closes. Each call site catches this and maps it to its own existing
+ * storage-limit error/message; it must never escape as a raw, unhandled
+ * exception.
+ */
+export class StorageReservationExpiredError extends Error {}
+
+/**
+ * The other half of the concurrency correction `reserveStorageBytes`
+ * only started: closes the confirmed race where
+ *
+ *   1. An operation reserves N bytes.
+ *   2. Its reservation's TTL elapses while the operation is still in
+ *      flight (a genuinely slow external Storage call, or any other
+ *      delay) — `reserveStorageBytes`'s own usage aggregate stops
+ *      counting an expired reservation the moment this happens, exactly
+ *      as designed (self-healing for an abandoned/crashed operation).
+ *   3. A second, independent operation now sees those bytes as free,
+ *      reserves and commits its own real write using them.
+ *   4. The first operation, unaware its own reservation is gone,
+ *      finishes anyway and commits its own real write too — together,
+ *      steps 3 and 4 can exceed the organization's storage ceiling.
+ *
+ * `reserveStorageBytes` alone cannot close this on its own: it only ever
+ * runs once, BEFORE the slow external Storage call, never consulted
+ * again afterward. `consumeStorageReservation` is the missing other
+ * half: called as the FIRST statement inside the exact same transaction
+ * that performs the real, quota-counting write (the Attachment/
+ * OrganizationProfile/InvoicePdfArchiveObject row), it re-verifies the
+ * reservation is still alive and deletes it, atomically, as part of that
+ * one commit. If the reservation already expired (or was otherwise
+ * removed) by this point, it returns `{ ok: false }`; the caller's own
+ * transaction must throw `StorageReservationExpiredError` immediately
+ * and never proceed to the quota-counting write — nothing commits, and
+ * the ordinary post-failure `releaseStorageReservation` call every
+ * existing call site already makes then tidies up the now-moot,
+ * already-expired row.
+ *
+ * A reservation that is still alive at this exact instant is thereby
+ * guaranteed to never be double-counted: this function performs, inside
+ * the SAME transaction as the write that makes its bytes "real" usage,
+ * exactly the delete every call site's post-commit `releaseStorageReservation`
+ * call already did — the fix is moving that consumption inside the
+ * transaction and gating it on `expiresAt` (never merely `id`), not a
+ * mechanically different operation.
+ *
+ * Takes `now` as an explicit parameter — never `new Date()` internally —
+ * so a caller with its own already-injected clock (issueInvoice()'s and
+ * archiveLegacyInvoice()'s own `deps.now()`) can drive this check
+ * deterministically too, which is what lets
+ * free-plan-concurrency-corrections.test.ts reproduce this exact race
+ * without a real 10-minute wait.
+ *
+ * The empty-string reservationId sentinel (nothing was ever reserved —
+ * `reserveStorageBytes`'s own zero/negative-bytes short circuit) always
+ * succeeds trivially, consistent with `releaseStorageReservation`
+ * accepting the same sentinel as a safe no-op.
+ */
+export async function consumeStorageReservation(
+  tx: PrismaClientOrTx,
+  reservationId: string,
+  now: Date,
+): Promise<{ ok: boolean }> {
+  if (!reservationId) return { ok: true };
+  const result = await tx.storageReservation.deleteMany({
+    where: { id: reservationId, expiresAt: { gt: now } },
+  });
+  return { ok: result.count > 0 };
+}
+
+/**
+ * Releases a reservation created by `reserveStorageBytes` — called on
+ * every FAILURE exit after a successful reserve (the real write never
+ * committed, for any reason, so capacity must never stay stranded on a
+ * known failure path). The success path no longer calls this: the
+ * reservation is instead consumed atomically, inside the same
+ * transaction as the real write, by `consumeStorageReservation` above —
+ * calling this afterward on success would be a redundant no-op (the row
+ * is already gone), so it is not called there at all. A no-op,
  * deliberately never throwing, for the empty string `reserveStorageBytes`
  * returns for a zero/negative request (nothing was ever reserved, so
  * `deleteMany` simply matches zero rows) — this lets every call site

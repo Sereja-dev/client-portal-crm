@@ -37,7 +37,7 @@ import {
 import { resolveInvoiceLogo, type ResolvedInvoiceLogo } from "./logo";
 import { compensateArchiveUpload } from "./archive-compensation";
 import { logInvoiceIssueFailure, type InvoiceIssueFailureStage } from "./issue-diagnostics";
-import { reserveStorageBytes, releaseStorageReservation } from "@/lib/billing/storage-reservation";
+import { reserveStorageBytes, releaseStorageReservation, consumeStorageReservation, StorageReservationExpiredError } from "@/lib/billing/storage-reservation";
 
 /**
  * Invoice System Official Slice 3, sub-PR 3b — the authoritative, OWNER-only
@@ -504,11 +504,22 @@ export async function issueInvoice(
 
   type CommitOutcome =
     | { ok: true; finalizedAt: Date; notificationIds: string[]; integrationDeliveryId: string | null }
-    | { ok: false; error: "CONFLICT" | "FINALIZATION_FAILED" };
+    | { ok: false; error: "CONFLICT" | "FINALIZATION_FAILED" | "STORAGE_LIMIT_REACHED" };
 
   let commitOutcome: CommitOutcome;
   try {
     commitOutcome = await prisma.$transaction(async (tx) => {
+      // Closes the confirmed reservation-expiry race (see
+      // consumeStorageReservation's own doc comment in
+      // src/lib/billing/storage-reservation.ts): this archival's
+      // reservation from step C0 must still be alive AND is consumed
+      // (deleted) right here, atomically with the Invoice/ledger writes
+      // below — never separately, after the fact. If it already
+      // expired, this invoice must not finalize at all, regardless of
+      // how far the render/upload pipeline above otherwise got.
+      const reservationConsumed = await consumeStorageReservation(tx, reservation.reservationId, now);
+      if (!reservationConsumed.ok) throw new StorageReservationExpiredError();
+
       const updateResult = await tx.invoice.updateMany({
         where: {
           id: invoice.id,
@@ -577,6 +588,9 @@ export async function issueInvoice(
       // concurrent edits, never logged (matches this codebase's own
       // established precedent of not diagnosing benign contention).
       commitOutcome = { ok: false, error: "CONFLICT" };
+    } else if (err instanceof StorageReservationExpiredError) {
+      logInvoiceIssueFailure("storage_reservation_lost");
+      commitOutcome = { ok: false, error: "STORAGE_LIMIT_REACHED" };
     } else {
       logInvoiceIssueFailure("transaction_failed");
       commitOutcome = { ok: false, error: "FINALIZATION_FAILED" };
@@ -591,13 +605,12 @@ export async function issueInvoice(
     return fail(commitOutcome.error);
   }
 
-  // The Invoice/ledger rows above have now committed — the ledger row's
-  // own `sizeBytes` (REFERENCED) is picked up by getOrganizationUsage's
-  // real, committed-usage sum, so the reservation that held this
-  // archival's place until now is released; it would otherwise
-  // double-count the same bytes once as a reservation and once as the
-  // real, committed ledger row.
-  await releaseStorageReservation(reservation.reservationId);
+  // The Invoice/ledger rows above have now committed — and the
+  // reservation that held this archival's place was already consumed
+  // (deleted), atomically, inside that same transaction above
+  // (consumeStorageReservation) — not here, and not separately. The
+  // ledger row's own `sizeBytes` (REFERENCED) is what getOrganizationUsage's
+  // real, committed-usage sum picks up from now on.
 
   // --- G. Post-commit delivery ----------------------------------------------
   // The real deliverNotificationEmails() is documented to never throw (see
