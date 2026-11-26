@@ -540,6 +540,65 @@ describe("countActiveProjects", () => {
     await cleanup(orgA.id, ownerA.id);
     await cleanup(orgB.id, ownerB.id);
   });
+
+  /**
+   * Known gap, confirmed by hands-on migration/rollout verification
+   * against a real isolated PostgreSQL instance (see the Free-plan
+   * release-readiness review): `countsAsActiveProject` is nullable with
+   * no default (migration 20261123000000_add_custom_status_counts_as_
+   * active_project), and this function's own `where` clause only ever
+   * counts a PROJECT-entityType CustomStatusDefinition row when that
+   * column is explicitly `true` — it does NOT fall back to the legacy
+   * `status` enum the way resolveProjectCountsTowardActiveLimit
+   * (src/lib/custom-statuses/semantics.ts) does for a row with no
+   * statusDefinition at all. A row that HAS a statusDefinitionId whose
+   * classification is NULL therefore silently never counts here, no
+   * matter its legacy `status` — this is exactly the shape of a custom
+   * status created through the pre-existing Settings → Custom statuses
+   * path by application code that predates this column (a real risk
+   * during a migrate-before-deploy rollout window, verified by directly
+   * creating such a row with the old application's own generated Prisma
+   * Client against an already-migrated database). This test documents
+   * the current, verified behavior — it is not a fix, and the
+   * `countActiveProjects` or backfill behavior needing correction is a
+   * separate, owner-approved decision.
+   */
+  it("a PROJECT custom status with no countsAsActiveProject classification (NULL) is NOT counted, even for an otherwise-active project — the migrate-before-deploy gap", async () => {
+    const { owner, org } = await createOrgWithSubscription("active-projects-null-classification", { planKey: "FREE" });
+    const client = await prisma.client.create({
+      data: { name: "Null Classification Client", userId: owner.id, organizationId: org.id },
+    });
+    const unclassifiedStatus = await prisma.customStatusDefinition.create({
+      data: {
+        organizationId: org.id,
+        entityType: "PROJECT",
+        key: "unclassified_mid_rollout",
+        label: "Unclassified (mid-rollout)",
+        position: 0,
+        isSystem: false,
+        // countsAsActiveProject intentionally omitted — simulates a row
+        // written by code that predates this column, never true/false.
+      },
+    });
+
+    const project = await prisma.project.create({
+      data: {
+        name: "Project under unclassified custom status",
+        status: "PLANNING",
+        statusDefinitionId: unclassifiedStatus.id,
+        clientId: client.id,
+        ownerId: owner.id,
+        organizationId: org.id,
+      },
+    });
+
+    await expect(countActiveProjects(prisma, org.id)).resolves.toBe(0);
+
+    await prisma.project.delete({ where: { id: project.id } });
+    await prisma.customStatusDefinition.delete({ where: { id: unclassifiedStatus.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+    await cleanup(org.id, owner.id);
+  });
 });
 
 describe("assertCanIncreaseActiveProjects", () => {
