@@ -41,6 +41,31 @@ async function lockOrganizationForStorageReservation(
   await client.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${organizationId} || ':storage-reservation', 0))`;
 }
 
+/**
+ * The one "does this many additional bytes still fit" computation —
+ * shared by `reserveStorageBytes`'s own authoritative check and
+ * `consumeStorageReservation`'s own best-effort, message-only re-check
+ * below, so the two can never silently drift apart into two different
+ * definitions of "fits". A plain read: never creates, updates, or deletes
+ * anything, and never itself claims any capacity — callers that need an
+ * actual, race-safe reservation must still go through
+ * `reserveStorageBytes`'s own locked transaction.
+ */
+async function fitsRightNow(
+  client: PrismaClientOrTx,
+  organizationId: string,
+  netAdditionalBytes: number,
+  now: Date,
+): Promise<boolean> {
+  const entitlements = await getOrganizationEntitlements(organizationId, { client });
+  const activeReservations = await client.storageReservation.aggregate({
+    where: { organizationId, expiresAt: { gt: now } },
+    _sum: { sizeBytes: true },
+  });
+  const alreadyReservedBytes = activeReservations._sum.sizeBytes ?? 0;
+  return entitlements.currentStorageBytes + alreadyReservedBytes + netAdditionalBytes <= entitlements.maxStorageBytes;
+}
+
 export type ReserveStorageBytesResult =
   | { ok: true; reservationId: string }
   | { ok: false; reason: "STORAGE_LIMIT_REACHED" | "READ_ONLY_ACCESS" };
@@ -106,14 +131,7 @@ export async function reserveStorageBytes(
       return { ok: false, reason: "READ_ONLY_ACCESS" };
     }
 
-    const activeReservations = await tx.storageReservation.aggregate({
-      where: { organizationId, expiresAt: { gt: new Date() } },
-      _sum: { sizeBytes: true },
-    });
-    const alreadyReservedBytes = activeReservations._sum.sizeBytes ?? 0;
-
-    const fits =
-      entitlements.currentStorageBytes + alreadyReservedBytes + netAdditionalBytes <= entitlements.maxStorageBytes;
+    const fits = await fitsRightNow(tx, organizationId, netAdditionalBytes, new Date());
     if (!fits) {
       return { ok: false, reason: "STORAGE_LIMIT_REACHED" };
     }
@@ -131,13 +149,33 @@ export async function reserveStorageBytes(
 
 /**
  * Thrown by a caller's own final transaction when the reservation it
- * relied on no longer exists or has already expired by commit time — see
+ * relied on is no longer valid by commit time — see
  * `consumeStorageReservation`'s own doc comment for the exact race this
- * closes. Each call site catches this and maps it to its own existing
- * storage-limit error/message; it must never escape as a raw, unhandled
- * exception.
+ * closes. `confirmedFull` is `consumeStorageReservation`'s own best-effort
+ * classification of WHY: `true` only when a fresh, same-transaction
+ * re-check finds the organization's real capacity genuinely exhausted
+ * right now; `false` whenever that re-check finds room (the reservation
+ * merely outlived its own TTL, with nothing to show it was ever actually
+ * needed for real pressure). A caller must map `true` to its existing,
+ * confirmed "storage limit reached" error/message, and `false` to a
+ * distinct, neutral "this took too long, try again" error/message that
+ * never asserts the organization is out of space — see each call site's
+ * own mapping. Either way this error must never escape as a raw,
+ * unhandled exception.
  */
-export class StorageReservationExpiredError extends Error {}
+export class StorageReservationLostError extends Error {
+  readonly confirmedFull: boolean;
+
+  constructor(confirmedFull: boolean) {
+    super("StorageReservationLostError");
+    this.name = "StorageReservationLostError";
+    this.confirmedFull = confirmedFull;
+  }
+}
+
+export type ConsumeStorageReservationResult =
+  | { ok: true }
+  | { ok: false; confirmedFull: boolean };
 
 /**
  * The other half of the concurrency correction `reserveStorageBytes`
@@ -163,12 +201,11 @@ export class StorageReservationExpiredError extends Error {}
  * OrganizationProfile/InvoicePdfArchiveObject row), it re-verifies the
  * reservation is still alive and deletes it, atomically, as part of that
  * one commit. If the reservation already expired (or was otherwise
- * removed) by this point, it returns `{ ok: false }`; the caller's own
- * transaction must throw `StorageReservationExpiredError` immediately
- * and never proceed to the quota-counting write — nothing commits, and
- * the ordinary post-failure `releaseStorageReservation` call every
- * existing call site already makes then tidies up the now-moot,
- * already-expired row.
+ * removed) by this point, nothing proceeds to the quota-counting write —
+ * nothing commits, and the ordinary post-failure `releaseStorageReservation`
+ * call every existing call site already makes then tidies up the
+ * now-moot, already-expired row. This safety property is unconditional
+ * and is never weakened by the message-classification work below.
  *
  * A reservation that is still alive at this exact instant is thereby
  * guaranteed to never be double-counted: this function performs, inside
@@ -177,6 +214,27 @@ export class StorageReservationExpiredError extends Error {}
  * call already did — the fix is moving that consumption inside the
  * transaction and gating it on `expiresAt` (never merely `id`), not a
  * mechanically different operation.
+ *
+ * On failure, this function does ONE more thing a bare "is my row still
+ * there" check cannot: a confirmed storage-reservation review (the
+ * reservation-expiry correction above was previously found to report
+ * "storage limit reached" unconditionally for ANY lost reservation, even
+ * one that outlived its TTL with the organization nowhere near full and
+ * nobody else ever claiming the space — a confirmed, reproducible,
+ * misleading message) asked for a reliable distinction here. `fitsRightNow`
+ * — the exact same "does this still fit" computation `reserveStorageBytes`
+ * itself uses — is re-run, inside this SAME transaction, against the
+ * CALLER-SUPPLIED `organizationId`/`netAdditionalBytes` (never re-derived
+ * from the now-possibly-gone reservation row, so this still works even
+ * when the row was deleted outright rather than merely expired). If it
+ * still fits, the only honest conclusion is that this reservation simply
+ * outlived its own TTL with no real pressure behind it — `confirmedFull:
+ * false`. If it genuinely does not fit, `confirmedFull: true`. This
+ * extra read is NEVER authoritative capacity enforcement by itself (that
+ * already happened, exactly once, in `reserveStorageBytes`'s own locked
+ * check) and never creates, renews, or substitutes for a reservation —
+ * it exists ONLY to choose the more accurate of two safe, non-committing
+ * messages; the write is refused either way.
  *
  * Takes `now` as an explicit parameter — never `new Date()` internally —
  * so a caller with its own already-injected clock (issueInvoice()'s and
@@ -192,14 +250,19 @@ export class StorageReservationExpiredError extends Error {}
  */
 export async function consumeStorageReservation(
   tx: PrismaClientOrTx,
+  organizationId: string,
   reservationId: string,
+  netAdditionalBytes: number,
   now: Date,
-): Promise<{ ok: boolean }> {
+): Promise<ConsumeStorageReservationResult> {
   if (!reservationId) return { ok: true };
   const result = await tx.storageReservation.deleteMany({
     where: { id: reservationId, expiresAt: { gt: now } },
   });
-  return { ok: result.count > 0 };
+  if (result.count > 0) return { ok: true };
+
+  const confirmedFull = !(await fitsRightNow(tx, organizationId, netAdditionalBytes, now));
+  return { ok: false, confirmedFull };
 }
 
 /**

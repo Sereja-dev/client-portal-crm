@@ -135,6 +135,20 @@ export type IssueInvoiceErrorCode =
    * own call site in issue-invoice.ts.
    */
   | "STORAGE_LIMIT_REACHED"
+  /**
+   * Aqenra Free plan — the storage reservation this attempt took is no
+   * longer valid by the time the final transaction ran (it outlived its
+   * own TTL, or was otherwise removed), AND a fresh re-check right there
+   * found the organization's real capacity is NOT actually exhausted —
+   * distinct from STORAGE_LIMIT_REACHED, which is reserved for a
+   * confirmed-full outcome only (either the up-front check, or this same
+   * re-check finding genuine exhaustion). This path means the operation
+   * simply took too long, not that storage is full — never tell the user
+   * to delete files for this code. The invoice is NEVER finalized on this
+   * path either, for the identical reasons STORAGE_LIMIT_REACHED's own
+   * doc comment gives.
+   */
+  | "STORAGE_RESERVATION_LOST"
   | "RENDER_FAILED"
   | "PDF_TOO_LARGE"
   | "UPLOAD_FAILED"
@@ -197,6 +211,8 @@ export type LegacyArchiveErrorCode =
   | "STORAGE_NOT_CONFIGURED"
   /** Aqenra Free plan — same shared 1 GiB allowance as Issue; see IssueInvoiceErrorCode's own identical doc comment. */
   | "STORAGE_LIMIT_REACHED"
+  /** See IssueInvoiceErrorCode's own identical STORAGE_RESERVATION_LOST doc comment — the reservation was lost, but a fresh re-check found the organization is not actually full. */
+  | "STORAGE_RESERVATION_LOST"
   | "RENDER_FAILED"
   | "PDF_TOO_LARGE"
   | "UPLOAD_FAILED"

@@ -797,7 +797,7 @@ describe("Aqenra Free plan — concurrency corrections (real multi-connection, d
     expect(opB.ok).toBe(true);
     if (!opB.ok) throw new Error("unreachable");
     await prisma.$transaction(async (tx) => {
-      const consumed = await consumeStorageReservation(tx, opB.reservationId, new Date());
+      const consumed = await consumeStorageReservation(tx, orgId, opB.reservationId, headroom, new Date());
       expect(consumed.ok).toBe(true);
       await tx.attachment.create({
         data: {
@@ -816,12 +816,18 @@ describe("Aqenra Free plan — concurrency corrections (real multi-connection, d
     // Op A now tries to finalize, exactly mirroring the real pipeline's
     // own Step E guard: consumeStorageReservation correctly detects the
     // reservation is gone and the whole transaction is aborted — the
-    // real write never happens.
+    // real write never happens. Op B just consumed every remaining byte,
+    // so the fresh re-check honestly finds the organization genuinely
+    // full — confirmedFull is correctly true here, not a guess.
     let opACommitted = false;
+    let opAConfirmedFull: boolean | undefined;
     await expect(
       prisma.$transaction(async (tx) => {
-        const consumed = await consumeStorageReservation(tx, opA.reservationId, new Date());
-        if (!consumed.ok) throw new Error("StorageReservationExpiredError (simulated)");
+        const consumed = await consumeStorageReservation(tx, orgId, opA.reservationId, headroom, new Date());
+        if (!consumed.ok) {
+          opAConfirmedFull = consumed.confirmedFull;
+          throw new Error("StorageReservationLostError (simulated)");
+        }
         await tx.attachment.create({
           data: {
             organizationId: orgId,
@@ -840,9 +846,55 @@ describe("Aqenra Free plan — concurrency corrections (real multi-connection, d
     await releaseStorageReservation(opA.reservationId, prisma);
 
     expect(opACommitted).toBe(false);
+    expect(opAConfirmedFull).toBe(true);
     const totalBytes = await prisma.attachment.aggregate({ where: { organizationId: orgId }, _sum: { sizeBytes: true } });
     expect(totalBytes._sum.sizeBytes).toBe(almostFull + headroom); // exactly at the ceiling, never over
     const remainingReservations = await prisma.storageReservation.count({ where: { organizationId: orgId } });
     expect(remainingReservations).toBe(0);
+  }, 30_000);
+
+  it("FIXED message accuracy: a reservation lost with AMPLE room still free and no competing operation is classified confirmedFull: false — never reported as storage-full", async () => {
+    const prisma = await openIsolatedPrisma();
+    const { orgId } = await setupIsolatedFreePlanOrg(prisma, "msg-accuracy");
+
+    const { reserveStorageBytes, releaseStorageReservation, consumeStorageReservation } = await import(
+      "@/lib/billing/storage-reservation"
+    );
+    const maxBytes = 1024 * 1024 * 1024;
+    // Nothing else in this organization ever consumes storage — it
+    // stays at effectively zero usage, nowhere near the ceiling,
+    // throughout this entire test.
+    const requestedBytes = Math.round(0.1 * maxBytes);
+
+    const opA = await reserveStorageBytes(orgId, requestedBytes, prisma);
+    expect(opA.ok).toBe(true);
+    if (!opA.ok) throw new Error("unreachable");
+    // Force the reservation to already be expired — simulating a slow
+    // operation that outlived the real 10-minute TTL, with nobody else
+    // ever claiming the space it held.
+    await prisma.storageReservation.update({ where: { id: opA.reservationId }, data: { expiresAt: new Date(Date.now() - 1000) } });
+
+    let opAConfirmedFull: boolean | undefined;
+    let opACommitted = false;
+    await expect(
+      prisma.$transaction(async (tx) => {
+        const consumed = await consumeStorageReservation(tx, orgId, opA.reservationId, requestedBytes, new Date());
+        if (!consumed.ok) {
+          opAConfirmedFull = consumed.confirmedFull;
+          throw new Error("StorageReservationLostError (simulated)");
+        }
+        opACommitted = true;
+      }),
+    ).rejects.toThrow();
+    await releaseStorageReservation(opA.reservationId, prisma);
+
+    // The write still correctly never commits (losing the reservation
+    // always blocks finalization, unconditionally) — but the
+    // classification must be honest: this organization was never full.
+    expect(opACommitted).toBe(false);
+    expect(opAConfirmedFull).toBe(false);
+
+    const totalBytes = await prisma.attachment.aggregate({ where: { organizationId: orgId }, _sum: { sizeBytes: true } });
+    expect(totalBytes._sum.sizeBytes ?? 0).toBe(0);
   }, 30_000);
 });

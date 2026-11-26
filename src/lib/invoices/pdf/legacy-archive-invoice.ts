@@ -39,7 +39,7 @@ import {
 } from "./storage";
 import { resolveInvoiceLogo, type ResolvedInvoiceLogo } from "./logo";
 import { compensateArchiveUpload } from "./archive-compensation";
-import { reserveStorageBytes, releaseStorageReservation, consumeStorageReservation, StorageReservationExpiredError } from "@/lib/billing/storage-reservation";
+import { reserveStorageBytes, releaseStorageReservation, consumeStorageReservation, StorageReservationLostError } from "@/lib/billing/storage-reservation";
 
 /**
  * Invoice System Official Slice 3, Legacy Archive — the retroactive,
@@ -558,7 +558,7 @@ export async function archiveLegacyInvoice(
 
   type CommitOutcome =
     | { ok: true; finalizedAt: Date }
-    | { ok: false; error: "CONFLICT" | "ARCHIVE_FAILED" | "STORAGE_LIMIT_REACHED" };
+    | { ok: false; error: "CONFLICT" | "ARCHIVE_FAILED" | "STORAGE_LIMIT_REACHED" | "STORAGE_RESERVATION_LOST" };
 
   let commitOutcome: CommitOutcome;
   try {
@@ -566,9 +566,18 @@ export async function archiveLegacyInvoice(
       // Closes the confirmed reservation-expiry race — see
       // issue-invoice.ts's own identical guard and
       // consumeStorageReservation's own doc comment in
-      // src/lib/billing/storage-reservation.ts.
-      const reservationConsumed = await consumeStorageReservation(tx, reservation.reservationId, now);
-      if (!reservationConsumed.ok) throw new StorageReservationExpiredError();
+      // src/lib/billing/storage-reservation.ts. Which error code this
+      // maps to depends on consumeStorageReservation's own fresh
+      // re-check (confirmedFull) — never asserted as "storage full" just
+      // because the reservation itself is gone.
+      const reservationConsumed = await consumeStorageReservation(
+        tx,
+        actor.organizationId,
+        reservation.reservationId,
+        pdfBuffer.length,
+        now,
+      );
+      if (!reservationConsumed.ok) throw new StorageReservationLostError(reservationConsumed.confirmedFull);
 
       const updateResult = await tx.invoice.updateMany({
         where: {
@@ -650,8 +659,8 @@ export async function archiveLegacyInvoice(
   } catch (err) {
     if (err instanceof LegacyArchiveConflictError) {
       commitOutcome = { ok: false, error: "CONFLICT" };
-    } else if (err instanceof StorageReservationExpiredError) {
-      commitOutcome = { ok: false, error: "STORAGE_LIMIT_REACHED" };
+    } else if (err instanceof StorageReservationLostError) {
+      commitOutcome = { ok: false, error: err.confirmedFull ? "STORAGE_LIMIT_REACHED" : "STORAGE_RESERVATION_LOST" };
     } else {
       commitOutcome = { ok: false, error: "ARCHIVE_FAILED" };
     }

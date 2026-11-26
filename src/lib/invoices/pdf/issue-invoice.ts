@@ -37,7 +37,7 @@ import {
 import { resolveInvoiceLogo, type ResolvedInvoiceLogo } from "./logo";
 import { compensateArchiveUpload } from "./archive-compensation";
 import { logInvoiceIssueFailure, type InvoiceIssueFailureStage } from "./issue-diagnostics";
-import { reserveStorageBytes, releaseStorageReservation, consumeStorageReservation, StorageReservationExpiredError } from "@/lib/billing/storage-reservation";
+import { reserveStorageBytes, releaseStorageReservation, consumeStorageReservation, StorageReservationLostError } from "@/lib/billing/storage-reservation";
 
 /**
  * Invoice System Official Slice 3, sub-PR 3b — the authoritative, OWNER-only
@@ -504,7 +504,7 @@ export async function issueInvoice(
 
   type CommitOutcome =
     | { ok: true; finalizedAt: Date; notificationIds: string[]; integrationDeliveryId: string | null }
-    | { ok: false; error: "CONFLICT" | "FINALIZATION_FAILED" | "STORAGE_LIMIT_REACHED" };
+    | { ok: false; error: "CONFLICT" | "FINALIZATION_FAILED" | "STORAGE_LIMIT_REACHED" | "STORAGE_RESERVATION_LOST" };
 
   let commitOutcome: CommitOutcome;
   try {
@@ -516,9 +516,18 @@ export async function issueInvoice(
       // (deleted) right here, atomically with the Invoice/ledger writes
       // below — never separately, after the fact. If it already
       // expired, this invoice must not finalize at all, regardless of
-      // how far the render/upload pipeline above otherwise got.
-      const reservationConsumed = await consumeStorageReservation(tx, reservation.reservationId, now);
-      if (!reservationConsumed.ok) throw new StorageReservationExpiredError();
+      // how far the render/upload pipeline above otherwise got — but
+      // WHICH error code this maps to depends on consumeStorageReservation's
+      // own fresh re-check (confirmedFull), never asserted as "storage
+      // full" just because the reservation itself is gone.
+      const reservationConsumed = await consumeStorageReservation(
+        tx,
+        actor.organizationId,
+        reservation.reservationId,
+        pdfBuffer.length,
+        now,
+      );
+      if (!reservationConsumed.ok) throw new StorageReservationLostError(reservationConsumed.confirmedFull);
 
       const updateResult = await tx.invoice.updateMany({
         where: {
@@ -588,9 +597,12 @@ export async function issueInvoice(
       // concurrent edits, never logged (matches this codebase's own
       // established precedent of not diagnosing benign contention).
       commitOutcome = { ok: false, error: "CONFLICT" };
-    } else if (err instanceof StorageReservationExpiredError) {
+    } else if (err instanceof StorageReservationLostError) {
+      // Logged either way — both outcomes mean the pipeline ran long
+      // enough to lose its own reservation, worth operational visibility
+      // regardless of which message the user ends up seeing.
       logInvoiceIssueFailure("storage_reservation_lost");
-      commitOutcome = { ok: false, error: "STORAGE_LIMIT_REACHED" };
+      commitOutcome = { ok: false, error: err.confirmedFull ? "STORAGE_LIMIT_REACHED" : "STORAGE_RESERVATION_LOST" };
     } else {
       logInvoiceIssueFailure("transaction_failed");
       commitOutcome = { ok: false, error: "FINALIZATION_FAILED" };

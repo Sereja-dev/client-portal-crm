@@ -87,6 +87,11 @@ export function InvoiceSendControls({
         // there was no room for its PDF — not a corrupted/missing
         // archive on an already-issued invoice.
         showToast("Your storage limit has been reached. Delete unnecessary files, then try issuing this invoice again.", "error");
+      } else if (result.error === "STORAGE_RESERVATION_LOST") {
+        // Distinct from STORAGE_LIMIT_REACHED above: the reservation was
+        // lost, but a fresh re-check found the organization is not
+        // actually full — this simply took too long.
+        showToast("This took longer than expected — try issuing this invoice again.", "error");
       } else {
         showToast("Could not send this invoice — try again.", "error");
       }

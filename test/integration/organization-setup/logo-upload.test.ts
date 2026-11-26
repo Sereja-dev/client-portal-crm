@@ -4,7 +4,12 @@ import { prisma } from "@/lib/prisma";
 import { uploadCompanyLogoAction } from "@/app/(dashboard)/settings/company/actions";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
 import { actAs, resetAuthMock } from "../../support/auth-mock";
-import { setLogoUploadShouldFail, resetLogoStorageMock, removedLogoUrls } from "../../support/logo-storage-mock";
+import {
+  setLogoUploadShouldFail,
+  resetLogoStorageMock,
+  removedLogoUrls,
+  setLogoUploadMidFlightHook,
+} from "../../support/logo-storage-mock";
 
 function makeLogoFormData(name = "logo.png", type = "image/png", size = 1024): FormData {
   const fd = new FormData();
@@ -332,6 +337,105 @@ describe("Company logo upload — Aqenra Free plan storage reservation lifecycle
       const profile = await prisma.organizationProfile.findUniqueOrThrow({ where: { organizationId: org.id } });
       expect(profile.logoSizeBytes).toBe(2048);
     } finally {
+      await cleanup(org, owner);
+    }
+  });
+
+  // -------------------------------------------------------------------
+  // Reservation-expiry message-accuracy correction — same real,
+  // timing-controlled technique as attachments/mutations.test.ts's own
+  // identical pair: setLogoUploadMidFlightHook pauses inside the mocked
+  // Storage call, the one real await point uploadOrganizationLogo has
+  // between reservation and consumption.
+  // -------------------------------------------------------------------
+
+  it("FIXED message accuracy: a reservation lost mid-upload with AMPLE room still free and no competitor is reported as a retry-oriented message, never storage-full", async () => {
+    const { owner, org } = await createFreePlanOrgWithProfile(`accuracy-ample-${randomUUID().slice(0, 6)}`);
+    try {
+      actAs(owner, org.id);
+      setLogoUploadMidFlightHook(async () => {
+        const mine = await prisma.storageReservation.findFirstOrThrow({ where: { organizationId: org.id } });
+        await prisma.storageReservation.update({ where: { id: mine.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+      });
+
+      const result = await uploadCompanyLogoAction({ error: null }, makeLogoFormData("logo.png", "image/png", 2048));
+
+      // Essentially 1 GiB of free room the entire time — reporting
+      // "storage limit reached" here would be false.
+      expect(result.error).toBe("This took longer than expected. Please try uploading the logo again.");
+
+      const profile = await prisma.organizationProfile.findUniqueOrThrow({ where: { organizationId: org.id } });
+      expect(profile.logoUrl).toBeNull();
+      const reservationCount = await prisma.storageReservation.count({ where: { organizationId: org.id } });
+      expect(reservationCount).toBe(0);
+      // The uploaded object was compensated — never left as an orphan.
+      expect(removedLogoUrls).toHaveLength(1);
+    } finally {
+      setLogoUploadMidFlightHook(null);
+      await cleanup(org, owner);
+    }
+  });
+
+  it("FIXED message accuracy: a reservation lost mid-upload to a real competing upload that genuinely filled the remaining room IS reported as storage-full", async () => {
+    const { owner, org } = await createFreePlanOrgWithProfile(`accuracy-full-${randomUUID().slice(0, 6)}`);
+    try {
+      actAs(owner, org.id);
+      const maxBytes = 1 * 1024 * 1024 * 1024;
+      const fileBytes = 2048;
+      await prisma.attachment.create({
+        data: {
+          organizationId: org.id,
+          entityType: "CLIENT",
+          entityId: randomUUID(),
+          storageBucket: "attachments",
+          storagePath: `test/${randomUUID()}`,
+          originalName: "existing.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: maxBytes - fileBytes,
+        },
+      });
+
+      setLogoUploadMidFlightHook(async () => {
+        const mine = await prisma.storageReservation.findFirstOrThrow({ where: { organizationId: org.id } });
+        await prisma.storageReservation.update({ where: { id: mine.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+
+        // A genuinely independent competing upload claims the exact
+        // same now-freed headroom for real.
+        const { reserveStorageBytes, consumeStorageReservation } = await import("@/lib/billing/storage-reservation");
+        const competing = await reserveStorageBytes(org.id, fileBytes);
+        expect(competing.ok).toBe(true);
+        if (competing.ok) {
+          await prisma.$transaction(async (tx) => {
+            const consumed = await consumeStorageReservation(tx, org.id, competing.reservationId, fileBytes, new Date());
+            expect(consumed.ok).toBe(true);
+            await tx.attachment.create({
+              data: {
+                organizationId: org.id,
+                entityType: "CLIENT",
+                entityId: randomUUID(),
+                storageBucket: "attachments",
+                storagePath: `test/${randomUUID()}`,
+                originalName: "competing.pdf",
+                mimeType: "application/pdf",
+                sizeBytes: fileBytes,
+              },
+            });
+          });
+        }
+      });
+
+      const result = await uploadCompanyLogoAction({ error: null }, makeLogoFormData("logo.png", "image/png", fileBytes));
+
+      // Correctly confirmed-full this time — a real competing upload
+      // genuinely consumed every remaining byte first.
+      expect(result.error).toBe("Your storage limit has been reached.");
+
+      const profile = await prisma.organizationProfile.findUniqueOrThrow({ where: { organizationId: org.id } });
+      expect(profile.logoUrl).toBeNull();
+
+      await prisma.attachment.deleteMany({ where: { organizationId: org.id } });
+    } finally {
+      setLogoUploadMidFlightHook(null);
       await cleanup(org, owner);
     }
   });

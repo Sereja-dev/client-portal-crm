@@ -8,7 +8,7 @@ import {
 } from "@/lib/attachments/attachment-mutations";
 import { verifyPortalAttachmentAccess } from "@/lib/client-portal/attachments";
 import { seedTestData, cleanupTestData, type TestFixtures } from "../../fixtures/seed";
-import { setUploadShouldFail, resetStorageMock, removedPaths } from "../../support/storage-mock";
+import { setUploadShouldFail, resetStorageMock, removedPaths, setUploadMidFlightHook } from "../../support/storage-mock";
 
 function makeFormData(name = "report.pdf", content = "hello"): FormData {
   const fd = new FormData();
@@ -372,6 +372,121 @@ describe("attachment mutations — Aqenra Free plan storage reservation lifecycl
       const reservationCount = await prisma.storageReservation.count({ where: { organizationId: org.id } });
       expect(reservationCount).toBe(0);
     } finally {
+      await cleanup(org, owner, client);
+    }
+  });
+
+  // -------------------------------------------------------------------
+  // Reservation-expiry message-accuracy correction — a genuine,
+  // timing-controlled reproduction through the REAL uploadAttachmentForEntity
+  // function itself, not just the underlying consumeStorageReservation
+  // primitive. setUploadMidFlightHook (test/support/storage-mock.ts) pauses
+  // inside the mocked Storage call — the one real await point this
+  // function has between reservation and consumption — giving these
+  // tests a genuine window to simulate "this upload stalled past its own
+  // reservation's TTL" without a real 10-minute wait.
+  // -------------------------------------------------------------------
+
+  it("FIXED message accuracy: a reservation lost mid-upload with AMPLE room still free and no competitor is reported as a retry-oriented message, never storage-full", async () => {
+    const { owner, org, client } = await createFreePlanOrg(`accuracy-ample-${randomUUID().slice(0, 6)}`);
+    try {
+      setUploadMidFlightHook(async () => {
+        const mine = await prisma.storageReservation.findFirstOrThrow({ where: { organizationId: org.id } });
+        await prisma.storageReservation.update({ where: { id: mine.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+      });
+
+      const result = await uploadAttachmentForEntity({
+        organizationId: org.id,
+        actorId: owner.id,
+        actorName: owner.name,
+        entityType: "CLIENT",
+        entityId: client.id,
+        parentEntityLabel: client.name,
+        formData: makeFormData("accuracy-ample.pdf"),
+      });
+
+      // This organization has essentially 1 GiB of free room the entire
+      // time — reporting "storage limit reached" here would be false.
+      expect(result.error).toBe("This took longer than expected. Please try uploading again.");
+
+      const attachmentCount = await prisma.attachment.count({ where: { organizationId: org.id } });
+      expect(attachmentCount).toBe(0);
+      const reservationCount = await prisma.storageReservation.count({ where: { organizationId: org.id } });
+      expect(reservationCount).toBe(0);
+      // The uploaded object was compensated — never left as an orphan.
+      expect(removedPaths).toHaveLength(1);
+    } finally {
+      setUploadMidFlightHook(null);
+      await cleanup(org, owner, client);
+    }
+  });
+
+  it("FIXED message accuracy: a reservation lost mid-upload to a real competing upload that genuinely filled the remaining room IS reported as storage-full", async () => {
+    const { owner, org, client } = await createFreePlanOrg(`accuracy-full-${randomUUID().slice(0, 6)}`);
+    try {
+      const maxBytes = 1 * 1024 * 1024 * 1024;
+      const fileBytes = Buffer.byteLength("hello"); // the real content makeFormData's default file uses
+      await prisma.attachment.create({
+        data: {
+          organizationId: org.id,
+          entityType: "CLIENT",
+          entityId: client.id,
+          storageBucket: "attachments",
+          storagePath: `test/${randomUUID()}`,
+          originalName: "existing.pdf",
+          mimeType: "application/pdf",
+          sizeBytes: maxBytes - fileBytes,
+        },
+      });
+
+      setUploadMidFlightHook(async () => {
+        const mine = await prisma.storageReservation.findFirstOrThrow({ where: { organizationId: org.id } });
+        await prisma.storageReservation.update({ where: { id: mine.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+
+        // A genuinely independent competing upload claims the exact
+        // same now-freed headroom for real, using the real reservation
+        // primitives directly (never a shortcut).
+        const { reserveStorageBytes, consumeStorageReservation } = await import("@/lib/billing/storage-reservation");
+        const competing = await reserveStorageBytes(org.id, fileBytes);
+        expect(competing.ok).toBe(true);
+        if (competing.ok) {
+          await prisma.$transaction(async (tx) => {
+            const consumed = await consumeStorageReservation(tx, org.id, competing.reservationId, fileBytes, new Date());
+            expect(consumed.ok).toBe(true);
+            await tx.attachment.create({
+              data: {
+                organizationId: org.id,
+                entityType: "CLIENT",
+                entityId: client.id,
+                storageBucket: "attachments",
+                storagePath: `test/${randomUUID()}`,
+                originalName: "competing.pdf",
+                mimeType: "application/pdf",
+                sizeBytes: fileBytes,
+              },
+            });
+          });
+        }
+      });
+
+      const result = await uploadAttachmentForEntity({
+        organizationId: org.id,
+        actorId: owner.id,
+        actorName: owner.name,
+        entityType: "CLIENT",
+        entityId: client.id,
+        parentEntityLabel: client.name,
+        formData: makeFormData("accuracy-full.pdf"),
+      });
+
+      // Correctly confirmed-full this time — a real competing upload
+      // genuinely consumed every remaining byte first.
+      expect(result.error).toBe("Your storage limit has been reached.");
+
+      const totalBytes = await prisma.attachment.aggregate({ where: { organizationId: org.id }, _sum: { sizeBytes: true } });
+      expect(totalBytes._sum.sizeBytes).toBe(maxBytes); // exactly at the ceiling, never over
+    } finally {
+      setUploadMidFlightHook(null);
       await cleanup(org, owner, client);
     }
   });

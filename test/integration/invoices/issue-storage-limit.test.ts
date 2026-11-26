@@ -493,7 +493,7 @@ describe("issueInvoice — Aqenra Free plan shared storage allowance", () => {
     }
   });
 
-  it("FIXED: a reservation that has already expired by the time the final transaction runs blocks finalization — the real pipeline never double-counts", async () => {
+  it("FIXED: a reservation that has already expired with AMPLE room still free and no competing operation never claims the organization is full", async () => {
     const { owner, org, client } = await createFreePlanOrgWithClient(`expire-${randomUUID().slice(0, 6)}`);
     try {
       const invoice = await seedDraftInvoice(org, client, "expire");
@@ -506,7 +506,9 @@ describe("issueInvoice — Aqenra Free plan shared storage allowance", () => {
       // far longer than the reservation's 10-minute TTL, without an
       // actual 10+ minute wait, using issueInvoice()'s own existing,
       // legitimate `now` dependency-injection seam (already used
-      // elsewhere in this suite for finalizedAt/pdfGeneratedAt).
+      // elsewhere in this suite for finalizedAt/pdfGeneratedAt). Nothing
+      // else in this organization ever touches storage — it stays at
+      // effectively zero usage throughout.
       const farFuture = new Date(Date.now() + 20 * 60 * 1000);
       const result = await issueInvoice(
         {
@@ -517,7 +519,13 @@ describe("issueInvoice — Aqenra Free plan shared storage allowance", () => {
         { now: () => farFuture },
       );
 
-      expect(result).toEqual({ ok: false, error: "STORAGE_LIMIT_REACHED" });
+      // This is the corrected classification: the reservation is gone,
+      // but a fresh re-check (consumeStorageReservation's own
+      // confirmedFull logic) finds the organization nowhere near full —
+      // STORAGE_RESERVATION_LOST, never STORAGE_LIMIT_REACHED. Reporting
+      // "storage limit reached" here would be false: this organization
+      // had essentially 1 GiB of free room the entire time.
+      expect(result).toEqual({ ok: false, error: "STORAGE_RESERVATION_LOST" });
 
       // The invoice is left in the correct pre-issuance state — not
       // falsely marked as issued.
@@ -537,6 +545,39 @@ describe("issueInvoice — Aqenra Free plan shared storage allowance", () => {
       // path, never left stranded.
       const reservationCount = await prisma.storageReservation.count({ where: { organizationId: org.id } });
       expect(reservationCount).toBe(0);
+    } finally {
+      await cleanupOrg(org, owner, client);
+    }
+  });
+
+  it("FIXED: a reservation row deleted outright (missing, not merely expired) is classified the identical way — never asserted as confirmed-full without a fresh re-check", async () => {
+    const { owner, org, client } = await createFreePlanOrgWithClient(`missing-${randomUUID().slice(0, 6)}`);
+    try {
+      const invoice = await seedDraftInvoice(org, client, "missing");
+
+      const result = await issueInvoice(
+        {
+          actor: { organizationId: org.id, userId: owner.id, userName: owner.name, role: "OWNER" },
+          invoiceId: invoice.id,
+          expectedUpdatedAt: invoice.updatedAt.toISOString(),
+        },
+        {
+          // Simulates a reservation vanishing for a reason OTHER than
+          // ordinary TTL expiry (e.g. some other process explicitly
+          // released it, or deleted it outright) — consumeStorageReservation
+          // must handle a genuinely MISSING row exactly like an expired
+          // one (its own deleteMany matches zero rows either way), never
+          // throwing and never silently treating "row gone" as
+          // "confirmed full" without the same fresh re-check.
+          afterUploadBeforeFinalize: async () => {
+            await prisma.storageReservation.deleteMany({ where: { organizationId: org.id } });
+          },
+        },
+      );
+
+      expect(result).toEqual({ ok: false, error: "STORAGE_RESERVATION_LOST" });
+      const after = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
+      expect(after.status).toBe("DRAFT");
     } finally {
       await cleanupOrg(org, owner, client);
     }
@@ -605,7 +646,7 @@ describe("issueInvoice — Aqenra Free plan shared storage allowance", () => {
             expect(competing.ok).toBe(true);
             if (competing.ok) {
               await prisma.$transaction(async (tx) => {
-                const consumed = await consumeStorageReservation(tx, competing.reservationId, new Date());
+                const consumed = await consumeStorageReservation(tx, org.id, competing.reservationId, pdfSize, new Date());
                 expect(consumed.ok).toBe(true);
                 await tx.attachment.create({
                   data: {
@@ -625,6 +666,12 @@ describe("issueInvoice — Aqenra Free plan shared storage allowance", () => {
         },
       );
 
+      // Unlike the "ample room still free" test above, this IS correctly
+      // classified STORAGE_LIMIT_REACHED: the competing attachment
+      // genuinely filled every remaining byte before this invoice's own
+      // fresh re-check ran, so confirmedFull is honestly true here —
+      // this is the one case where the message-accuracy correction and
+      // the original storage-full message agree.
       expect(result).toEqual({ ok: false, error: "STORAGE_LIMIT_REACHED" });
 
       const totalUsage = await prisma.attachment.aggregate({ where: { organizationId: org.id }, _sum: { sizeBytes: true } });

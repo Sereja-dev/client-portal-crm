@@ -76,6 +76,15 @@ export function InvoiceIssueControls({
         return;
       }
 
+      // Aqenra Free plan — distinct from the message above: the pipeline
+      // simply took longer than expected and lost its reservation, which
+      // a fresh re-check confirmed is NOT because storage is full. Never
+      // tell the user to delete files for this one.
+      if (result.error === "STORAGE_RESERVATION_LOST") {
+        showToast("This took longer than expected — try issuing this invoice again.", "error");
+        return;
+      }
+
       showToast("Could not issue this invoice — try again.", "error");
     });
   }

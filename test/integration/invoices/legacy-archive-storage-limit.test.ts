@@ -66,6 +66,21 @@ async function seedLegacyInvoice(org: { id: string }, client: { id: string }, la
   });
 }
 
+async function fillStorage(org: { id: string }, client: { id: string }, bytes: number) {
+  await prisma.attachment.create({
+    data: {
+      organizationId: org.id,
+      entityType: "CLIENT",
+      entityId: client.id,
+      storageBucket: "attachments",
+      storagePath: `test/${randomUUID()}`,
+      originalName: "existing.pdf",
+      mimeType: "application/pdf",
+      sizeBytes: bytes,
+    },
+  });
+}
+
 const GIB = 1024 * 1024 * 1024;
 
 describe("archiveLegacyInvoice — Aqenra Free plan shared storage allowance", () => {
@@ -130,7 +145,7 @@ describe("archiveLegacyInvoice — Aqenra Free plan shared storage allowance", (
     }
   });
 
-  it("FIXED: a reservation that has already expired by the time the final transaction runs blocks finalization — mirrors issueInvoice()'s own identical guard", async () => {
+  it("FIXED: a reservation that has already expired, with AMPLE room still free and no competing operation, blocks finalization WITHOUT claiming the organization is full — mirrors issueInvoice()'s own identical guard", async () => {
     const { owner, org, client } = await createFreePlanOrgWithClient(`expire-${randomUUID().slice(0, 6)}`);
     try {
       const invoice = await seedLegacyInvoice(org, client, "expire");
@@ -140,6 +155,8 @@ describe("archiveLegacyInvoice — Aqenra Free plan shared storage allowance", (
       // reservation — created with a REAL, wall-clock expiresAt in step
       // C0 — appear already expired by the time Step E's final
       // transaction runs, deterministically, without a real wait.
+      // Nothing else in this organization ever touches storage — it
+      // stays effectively empty throughout.
       const farFuture = new Date(Date.now() + 20 * 60 * 1000);
       const result = await archiveLegacyInvoice(
         {
@@ -150,7 +167,10 @@ describe("archiveLegacyInvoice — Aqenra Free plan shared storage allowance", (
         { now: () => farFuture },
       );
 
-      expect(result).toEqual({ ok: false, error: "STORAGE_LIMIT_REACHED" });
+      // Corrected classification: the reservation is gone, but a fresh
+      // re-check finds plenty of room — STORAGE_RESERVATION_LOST, never
+      // the confirmed-full message.
+      expect(result).toEqual({ ok: false, error: "STORAGE_RESERVATION_LOST" });
 
       const after = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
       expect(after.pdfStoragePath).toBeNull();
@@ -161,6 +181,86 @@ describe("archiveLegacyInvoice — Aqenra Free plan shared storage allowance", (
 
       const reservationCount = await prisma.storageReservation.count({ where: { organizationId: org.id } });
       expect(reservationCount).toBe(0);
+    } finally {
+      await cleanupOrg(org, owner, client);
+    }
+  });
+
+  it("FIXED: a reservation lost to a real competing operation that genuinely filled the remaining room IS correctly reported as confirmed-full", async () => {
+    const { owner, org, client } = await createFreePlanOrgWithClient(`expire-shared-${randomUUID().slice(0, 6)}`);
+    try {
+      const invoice = await seedLegacyInvoice(org, client, "exps");
+
+      // Learn the real PDF's exact byte size via a probe archive, then
+      // reset the row back to legacy_eligible and fill storage to leave
+      // exactly that much headroom — same technique as
+      // issue-storage-limit.test.ts's own identical test.
+      const probe = await archiveLegacyInvoice({
+        actor: { organizationId: org.id, userId: owner.id, userName: owner.name, role: "OWNER" },
+        invoiceId: invoice.id,
+        expectedUpdatedAt: invoice.updatedAt.toISOString(),
+      });
+      expect(probe.ok).toBe(true);
+      const probedInvoice = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
+      const pdfSize = (await prisma.invoicePdfArchiveObject.findFirstOrThrow({ where: { invoiceId: invoice.id } })).sizeBytes!;
+      await prisma.invoicePdfArchiveObject.deleteMany({ where: { invoiceId: invoice.id } });
+      const { Prisma } = await import("@/generated/prisma/client");
+      await prisma.invoice.update({
+        where: { id: invoice.id },
+        data: {
+          finalizedAt: null,
+          pdfGeneratedAt: null,
+          pdfStoragePath: null,
+          issuerSnapshot: Prisma.DbNull,
+          recipientSnapshot: Prisma.DbNull,
+          updatedAt: probedInvoice.updatedAt,
+        },
+      });
+      await fillStorage(org, client, GIB - pdfSize);
+
+      const fresh = await prisma.invoice.findUniqueOrThrow({ where: { id: invoice.id } });
+      const farFuture = new Date(Date.now() + 20 * 60 * 1000);
+      const { reserveStorageBytes, consumeStorageReservation } = await import("@/lib/billing/storage-reservation");
+
+      const result = await archiveLegacyInvoice(
+        {
+          actor: { organizationId: org.id, userId: owner.id, userName: owner.name, role: "OWNER" },
+          invoiceId: invoice.id,
+          expectedUpdatedAt: fresh.updatedAt.toISOString(),
+        },
+        {
+          now: () => farFuture,
+          afterUploadBeforeFinalize: async () => {
+            const mine = await prisma.storageReservation.findFirstOrThrow({ where: { organizationId: org.id } });
+            await prisma.storageReservation.update({ where: { id: mine.id }, data: { expiresAt: new Date(Date.now() - 1000) } });
+
+            const competing = await reserveStorageBytes(org.id, pdfSize);
+            expect(competing.ok).toBe(true);
+            if (competing.ok) {
+              await prisma.$transaction(async (tx) => {
+                const consumed = await consumeStorageReservation(tx, org.id, competing.reservationId, pdfSize, new Date());
+                expect(consumed.ok).toBe(true);
+                await tx.attachment.create({
+                  data: {
+                    organizationId: org.id,
+                    entityType: "CLIENT",
+                    entityId: client.id,
+                    storageBucket: "attachments",
+                    storagePath: `test/${randomUUID()}`,
+                    originalName: "competing.pdf",
+                    mimeType: "application/pdf",
+                    sizeBytes: pdfSize,
+                  },
+                });
+              });
+            }
+          },
+        },
+      );
+
+      // Correctly confirmed-full this time — a real operation genuinely
+      // consumed every remaining byte.
+      expect(result).toEqual({ ok: false, error: "STORAGE_LIMIT_REACHED" });
     } finally {
       await cleanupOrg(org, owner, client);
     }

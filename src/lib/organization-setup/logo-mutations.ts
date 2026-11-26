@@ -7,7 +7,7 @@ import {
   reserveStorageBytes,
   releaseStorageReservation,
   consumeStorageReservation,
-  StorageReservationExpiredError,
+  StorageReservationLostError,
 } from "@/lib/billing/storage-reservation";
 import { REASON_MESSAGES } from "@/lib/billing/enforcement";
 import type { LogoUploadState } from "@/types";
@@ -118,8 +118,8 @@ export async function uploadOrganizationLogo({
     // consumeStorageReservation's own doc comment in
     // src/lib/billing/storage-reservation.ts for the race this closes.
     await prisma.$transaction(async (tx) => {
-      const reservationConsumed = await consumeStorageReservation(tx, reservation.reservationId, new Date());
-      if (!reservationConsumed.ok) throw new StorageReservationExpiredError();
+      const reservationConsumed = await consumeStorageReservation(tx, organizationId, reservation.reservationId, netAdditionalBytes, new Date());
+      if (!reservationConsumed.ok) throw new StorageReservationLostError(reservationConsumed.confirmedFull);
 
       await tx.organizationProfile.update({
         where: { organizationId },
@@ -136,8 +136,12 @@ export async function uploadOrganizationLogo({
     // uploadAttachmentForEntity's own compensation path already follows.
     await removeLogoObject({ publicUrl: uploadResult.publicUrl });
     await releaseStorageReservation(reservation.reservationId);
-    if (err instanceof StorageReservationExpiredError) {
-      return { error: REASON_MESSAGES.STORAGE_LIMIT_REACHED };
+    if (err instanceof StorageReservationLostError) {
+      return {
+        error: err.confirmedFull
+          ? REASON_MESSAGES.STORAGE_LIMIT_REACHED
+          : "This took longer than expected. Please try uploading the logo again.",
+      };
     }
     return { error: "Failed to save the uploaded logo. Please try again." };
   }

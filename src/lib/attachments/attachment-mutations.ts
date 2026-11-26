@@ -15,7 +15,7 @@ import {
   reserveStorageBytes,
   releaseStorageReservation,
   consumeStorageReservation,
-  StorageReservationExpiredError,
+  StorageReservationLostError,
 } from "@/lib/billing/storage-reservation";
 import { REASON_MESSAGES } from "@/lib/billing/enforcement";
 import type { AttachmentEntityType } from "@/generated/prisma/enums";
@@ -147,8 +147,8 @@ export async function uploadAttachmentForEntity({
       // must still be alive AND is consumed (deleted) right here,
       // atomically with the Attachment row below — never separately,
       // after the fact.
-      const reservationConsumed = await consumeStorageReservation(tx, reservation.reservationId, new Date());
-      if (!reservationConsumed.ok) throw new StorageReservationExpiredError();
+      const reservationConsumed = await consumeStorageReservation(tx, organizationId, reservation.reservationId, file.size, new Date());
+      if (!reservationConsumed.ok) throw new StorageReservationLostError(reservationConsumed.confirmedFull);
 
       await tx.attachment.create({
         data: {
@@ -183,11 +183,21 @@ export async function uploadAttachmentForEntity({
     // The reservation is released here too: the Attachment row that would
     // have made these bytes "real" usage never committed, so nothing
     // should keep counting against the quota for this failed attempt.
-    // (Already expired-and-gone in the StorageReservationExpiredError
-    // case — this call is then a harmless no-op.)
+    // (Already expired-and-gone in the StorageReservationLostError case
+    // — this call is then a harmless no-op.)
     await releaseStorageReservation(reservation.reservationId);
-    if (err instanceof StorageReservationExpiredError) {
-      return { error: REASON_MESSAGES.STORAGE_LIMIT_REACHED };
+    if (err instanceof StorageReservationLostError) {
+      // confirmedFull: a fresh re-check (inside the same transaction)
+      // found the organization genuinely out of room — the existing,
+      // accurate "storage limit reached" message. Otherwise the
+      // reservation merely outlived its own TTL with no real pressure
+      // behind it — never tell the user to delete files for that; this
+      // simply took too long.
+      return {
+        error: err.confirmedFull
+          ? REASON_MESSAGES.STORAGE_LIMIT_REACHED
+          : "This took longer than expected. Please try uploading again.",
+      };
     }
     return { error: "Failed to save the uploaded file. Please try again." };
   }
