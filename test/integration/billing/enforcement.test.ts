@@ -11,6 +11,8 @@ import {
 } from "@/lib/billing/enforcement";
 import { getOrganizationEntitlements } from "@/lib/billing/entitlements";
 import { countReservedPendingInvitations, countActiveProjects } from "@/lib/billing/usage";
+import { resolveProjectCountsTowardActiveLimit } from "@/lib/custom-statuses/semantics";
+import { updateCustomStatusDefinition } from "@/lib/custom-statuses/definitions";
 import { testEmail, testSlug } from "../../support/run-id";
 
 async function createOrgWithSubscription(
@@ -542,28 +544,20 @@ describe("countActiveProjects", () => {
   });
 
   /**
-   * Known gap, confirmed by hands-on migration/rollout verification
-   * against a real isolated PostgreSQL instance (see the Free-plan
-   * release-readiness review): `countsAsActiveProject` is nullable with
-   * no default (migration 20261123000000_add_custom_status_counts_as_
-   * active_project), and this function's own `where` clause only ever
-   * counts a PROJECT-entityType CustomStatusDefinition row when that
-   * column is explicitly `true` — it does NOT fall back to the legacy
-   * `status` enum the way resolveProjectCountsTowardActiveLimit
-   * (src/lib/custom-statuses/semantics.ts) does for a row with no
-   * statusDefinition at all. A row that HAS a statusDefinitionId whose
-   * classification is NULL therefore silently never counts here, no
-   * matter its legacy `status` — this is exactly the shape of a custom
-   * status created through the pre-existing Settings → Custom statuses
-   * path by application code that predates this column (a real risk
-   * during a migrate-before-deploy rollout window, verified by directly
-   * creating such a row with the old application's own generated Prisma
-   * Client against an already-migrated database). This test documents
-   * the current, verified behavior — it is not a fix, and the
-   * `countActiveProjects` or backfill behavior needing correction is a
-   * separate, owner-approved decision.
+   * Correction (previously a documented gap; see git history for
+   * `b41dd7b` — this test used to assert the incorrect omission as
+   * current behavior). `countsAsActiveProject` is nullable with no
+   * default (migration 20261123000000_add_custom_status_counts_as_
+   * active_project), and a PROJECT custom status created by application
+   * code that predates this column — the pre-existing Settings → Custom
+   * statuses path, realistically during a migrate-before-deploy rollout
+   * window — can carry a `null` classification. countActiveProjects now
+   * falls back to the legacy `status` enum for a `null` classification,
+   * exactly like resolveProjectCountsTowardActiveLimit
+   * (src/lib/custom-statuses/semantics.ts) already did — an otherwise
+   * active project is counted, never silently dropped.
    */
-  it("a PROJECT custom status with no countsAsActiveProject classification (NULL) is NOT counted, even for an otherwise-active project — the migrate-before-deploy gap", async () => {
+  it("a PROJECT custom status with no countsAsActiveProject classification (NULL) falls back to the legacy status, agreeing with resolveProjectCountsTowardActiveLimit", async () => {
     const { owner, org } = await createOrgWithSubscription("active-projects-null-classification", { planKey: "FREE" });
     const client = await prisma.client.create({
       data: { name: "Null Classification Client", userId: owner.id, organizationId: org.id },
@@ -581,9 +575,190 @@ describe("countActiveProjects", () => {
       },
     });
 
+    const activeProject = await prisma.project.create({
+      data: {
+        name: "Project under unclassified custom status (PLANNING)",
+        status: "PLANNING",
+        statusDefinitionId: unclassifiedStatus.id,
+        clientId: client.id,
+        ownerId: owner.id,
+        organizationId: org.id,
+      },
+    });
+    const finishedProject = await prisma.project.create({
+      data: {
+        name: "Project under unclassified custom status (COMPLETED)",
+        status: "COMPLETED",
+        statusDefinitionId: unclassifiedStatus.id,
+        clientId: client.id,
+        ownerId: owner.id,
+        organizationId: org.id,
+      },
+    });
+
+    // Legacy-status fallback: PLANNING counts, COMPLETED does not — the
+    // identical rule resolveProjectCountsTowardActiveLimit applies for a
+    // null classification, never "unknown therefore finished".
+    await expect(countActiveProjects(prisma, org.id)).resolves.toBe(1);
+    expect(
+      resolveProjectCountsTowardActiveLimit({ status: "PLANNING", statusDefinition: { countsAsActiveProject: null } }),
+    ).toBe(true);
+    expect(
+      resolveProjectCountsTowardActiveLimit({ status: "COMPLETED", statusDefinition: { countsAsActiveProject: null } }),
+    ).toBe(false);
+
+    await prisma.project.deleteMany({ where: { id: { in: [activeProject.id, finishedProject.id] } } });
+    await prisma.customStatusDefinition.delete({ where: { id: unclassifiedStatus.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  /**
+   * Explicit agreement check between the two independent implementations
+   * (the SQL `where` clause here and the pure per-row resolver in
+   * semantics.ts) across every classification × legacy-status
+   * combination that matters — true/false/null crossed with an active
+   * and a finished legacy status. They cannot literally share one
+   * implementation (one is a Prisma filter object, the other a plain
+   * function), so this test is the explicit behavioral proof the task's
+   * own rules require instead.
+   */
+  it("countActiveProjects and resolveProjectCountsTowardActiveLimit agree for every classification × legacy-status combination", async () => {
+    const { owner, org } = await createOrgWithSubscription("active-projects-agreement", { planKey: "FREE" });
+    const client = await prisma.client.create({ data: { name: "Agreement Client", userId: owner.id, organizationId: org.id } });
+
+    const cases: { classification: boolean | null; legacyStatus: "PLANNING" | "COMPLETED" }[] = [
+      { classification: true, legacyStatus: "PLANNING" },
+      { classification: true, legacyStatus: "COMPLETED" },
+      { classification: false, legacyStatus: "PLANNING" },
+      { classification: false, legacyStatus: "COMPLETED" },
+      { classification: null, legacyStatus: "PLANNING" },
+      { classification: null, legacyStatus: "COMPLETED" },
+    ];
+
+    const createdStatusIds: string[] = [];
+    const createdProjectIds: string[] = [];
+    let expectedActiveCount = 0;
+
+    for (const [i, { classification, legacyStatus }] of cases.entries()) {
+      const status = await prisma.customStatusDefinition.create({
+        data: {
+          organizationId: org.id,
+          entityType: "PROJECT",
+          key: `agreement_case_${i}`,
+          label: `Agreement case ${i}`,
+          position: i,
+          isSystem: false,
+          countsAsActiveProject: classification ?? undefined,
+        },
+      });
+      createdStatusIds.push(status.id);
+
+      const project = await prisma.project.create({
+        data: {
+          name: `Agreement project ${i}`,
+          status: legacyStatus,
+          statusDefinitionId: status.id,
+          clientId: client.id,
+          ownerId: owner.id,
+          organizationId: org.id,
+        },
+      });
+      createdProjectIds.push(project.id);
+
+      const resolverResult = resolveProjectCountsTowardActiveLimit({
+        status: legacyStatus,
+        statusDefinition: { countsAsActiveProject: classification },
+      });
+      if (resolverResult) expectedActiveCount++;
+    }
+
+    await expect(countActiveProjects(prisma, org.id)).resolves.toBe(expectedActiveCount);
+
+    await prisma.project.deleteMany({ where: { id: { in: createdProjectIds } } });
+    await prisma.customStatusDefinition.deleteMany({ where: { id: { in: createdStatusIds } } });
+    await prisma.client.delete({ where: { id: client.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  /**
+   * Archived custom statuses are never specially excluded by either
+   * implementation — archiving only sets `archivedAt` on the definition
+   * itself (hides it from ordinary active lists) and never touches
+   * `countsAsActiveProject` or any project that still references it
+   * (archiveCustomStatusDefinition's own doc comment). A project's
+   * history, label, and relationship to an archived definition must
+   * remain fully intact and correctly counted.
+   */
+  it("an archived custom status's own classification still counts, and project history/labels/relationships remain intact", async () => {
+    const { owner, org } = await createOrgWithSubscription("active-projects-archived-status", { planKey: "FREE" });
+    const client = await prisma.client.create({ data: { name: "Archived Status Client", userId: owner.id, organizationId: org.id } });
+
+    const archivedActiveStatus = await prisma.customStatusDefinition.create({
+      data: {
+        organizationId: org.id,
+        entityType: "PROJECT",
+        key: "archived_but_active",
+        label: "Archived But Still Active",
+        position: 0,
+        isSystem: false,
+        countsAsActiveProject: true,
+        archivedAt: new Date(),
+      },
+    });
     const project = await prisma.project.create({
       data: {
-        name: "Project under unclassified custom status",
+        name: "Project under archived-but-active status",
+        status: "COMPLETED", // legacy column deliberately stale — statusDefinition is authoritative
+        statusDefinitionId: archivedActiveStatus.id,
+        clientId: client.id,
+        ownerId: owner.id,
+        organizationId: org.id,
+      },
+    });
+
+    await expect(countActiveProjects(prisma, org.id)).resolves.toBe(1);
+
+    const reloaded = await prisma.project.findUniqueOrThrow({
+      where: { id: project.id },
+      include: { statusDefinition: true },
+    });
+    expect(reloaded.statusDefinitionId).toBe(archivedActiveStatus.id);
+    expect(reloaded.statusDefinition?.label).toBe("Archived But Still Active");
+    expect(reloaded.statusDefinition?.archivedAt).not.toBeNull();
+    expect(reloaded.name).toBe("Project under archived-but-active status");
+
+    await prisma.project.delete({ where: { id: project.id } });
+    await prisma.customStatusDefinition.delete({ where: { id: archivedActiveStatus.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  /**
+   * An organization on a plan with no active-project ceiling
+   * (maxActiveProjects: null — every real plan except FREE) must never
+   * be affected by this fallback: countActiveProjects itself has no
+   * plan-awareness, but assertCanIncreaseActiveProjects (which is what
+   * would actually block anything) is a no-op whenever the ceiling is
+   * null, confirmed directly here rather than only through the plan
+   * table.
+   */
+  it("an existing organization on a plan with no active-project ceiling is unaffected by the null-classification fallback", async () => {
+    const { owner, org } = await createOrgWithSubscription("active-projects-null-unaffected", { planKey: "LEGACY" });
+    const client = await prisma.client.create({ data: { name: "Legacy Org Client", userId: owner.id, organizationId: org.id } });
+    const unclassifiedStatus = await prisma.customStatusDefinition.create({
+      data: {
+        organizationId: org.id,
+        entityType: "PROJECT",
+        key: "legacy_unclassified",
+        label: "Legacy Unclassified",
+        position: 0,
+        isSystem: false,
+      },
+    });
+    const project = await prisma.project.create({
+      data: {
+        name: "Legacy org project",
         status: "PLANNING",
         statusDefinitionId: unclassifiedStatus.id,
         clientId: client.id,
@@ -592,10 +767,174 @@ describe("countActiveProjects", () => {
       },
     });
 
-    await expect(countActiveProjects(prisma, org.id)).resolves.toBe(0);
+    // The count itself now correctly reports 1 (fixed), but the LEGACY
+    // plan has no ceiling at all, so nothing is ever blocked either way.
+    await expect(countActiveProjects(prisma, org.id)).resolves.toBe(1);
+    const entitlements = await getOrganizationEntitlements(org.id);
+    expect(entitlements.maxActiveProjects).toBeNull();
+    expect(entitlements.canIncreaseActiveProjects).toBe(true);
 
     await prisma.project.delete({ where: { id: project.id } });
     await prisma.customStatusDefinition.delete({ where: { id: unclassifiedStatus.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  /**
+   * The sixth counted project is rejected on a FREE org even when some
+   * of the existing five active projects are only active via the
+   * null-classification fallback (not an explicit `true`) — proving the
+   * fix is actually load-bearing for assertCanIncreaseActiveProjects,
+   * not just for a direct countActiveProjects read.
+   */
+  it("a sixth active project is rejected on FREE even when some of the existing five are only active via the null-classification fallback", async () => {
+    const { owner, org } = await createOrgWithSubscription("active-projects-sixth-null", { planKey: "FREE" });
+    const client = await prisma.client.create({ data: { name: "Sixth Null Client", userId: owner.id, organizationId: org.id } });
+    const unclassifiedStatus = await prisma.customStatusDefinition.create({
+      data: {
+        organizationId: org.id,
+        entityType: "PROJECT",
+        key: "sixth_null_unclassified",
+        label: "Unclassified",
+        position: 0,
+        isSystem: false,
+      },
+    });
+
+    // Two active via the null fallback, three plain legacy PLANNING — five total.
+    await prisma.project.createMany({
+      data: [
+        { name: "Null fallback 1", status: "PLANNING", statusDefinitionId: unclassifiedStatus.id, clientId: client.id, ownerId: owner.id, organizationId: org.id },
+        { name: "Null fallback 2", status: "IN_PROGRESS", statusDefinitionId: unclassifiedStatus.id, clientId: client.id, ownerId: owner.id, organizationId: org.id },
+        { name: "Plain 1", status: "PLANNING", clientId: client.id, ownerId: owner.id, organizationId: org.id },
+        { name: "Plain 2", status: "PLANNING", clientId: client.id, ownerId: owner.id, organizationId: org.id },
+        { name: "Plain 3", status: "PLANNING", clientId: client.id, ownerId: owner.id, organizationId: org.id },
+      ],
+    });
+
+    await expect(countActiveProjects(prisma, org.id)).resolves.toBe(5);
+    await expect(assertCanIncreaseActiveProjects(org.id)).rejects.toBeInstanceOf(BillingLimitError);
+
+    await prisma.project.deleteMany({ where: { organizationId: org.id } });
+    await prisma.customStatusDefinition.delete({ where: { id: unclassifiedStatus.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+    await cleanup(org.id, owner.id);
+  });
+});
+
+/**
+ * Bulk reclassification (updateCustomStatusDefinition, src/lib/custom-
+ * statuses/definitions.ts) against the Free plan's active-project
+ * ceiling — previously had zero direct test coverage. Exercises both the
+ * "would exceed" rejection and the double-counting correction: the old
+ * check added `affectedCount` on top of `entitlements.currentActiveProjects`
+ * unconditionally, which — now that a null-classified status's own
+ * projects can already be counted via countActiveProjects's legacy-status
+ * fallback — would double-count them and over-reject a reclassification
+ * that is actually safe. The fix excludes this status's own rows from the
+ * "before" count first, then adds back `affectedCount` exactly once.
+ */
+describe("updateCustomStatusDefinition — bulk reclassification against the active-project limit", () => {
+  it("reclassifying a null-classified status to active does NOT double-count projects already active via the legacy-status fallback", async () => {
+    const { owner, org } = await createOrgWithSubscription("reclassify-null-no-double-count", { planKey: "FREE" });
+    const client = await prisma.client.create({ data: { name: "Reclassify Client", userId: owner.id, organizationId: org.id } });
+
+    const status = await prisma.customStatusDefinition.create({
+      data: {
+        organizationId: org.id,
+        entityType: "PROJECT",
+        key: "reclassify_null_target",
+        label: "Reclassify Target",
+        position: 0,
+        isSystem: false,
+        // null classification — both of this status's own projects are
+        // already active via the legacy-status fallback (PLANNING).
+      },
+    });
+    await prisma.project.createMany({
+      data: [
+        { name: "Under target 1", status: "PLANNING", statusDefinitionId: status.id, clientId: client.id, ownerId: owner.id, organizationId: org.id },
+        { name: "Under target 2", status: "PLANNING", statusDefinitionId: status.id, clientId: client.id, ownerId: owner.id, organizationId: org.id },
+      ],
+    });
+    // Three more plain-legacy active projects elsewhere — five active
+    // total before reclassification (at, not over, the FREE ceiling).
+    await prisma.project.createMany({
+      data: Array.from({ length: 3 }, (_, i) => ({
+        name: `Elsewhere ${i}`,
+        status: "PLANNING" as const,
+        clientId: client.id,
+        ownerId: owner.id,
+        organizationId: org.id,
+      })),
+    });
+
+    await expect(countActiveProjects(prisma, org.id)).resolves.toBe(5);
+
+    // Reclassifying to explicit `true` changes nothing about which of
+    // this status's projects count (they already did, via the fallback)
+    // — the org-wide active count must stay exactly 5, never become 7
+    // (the old, double-counting check's `5 + 2`), and the edit must be
+    // accepted, not rejected.
+    const result = await updateCustomStatusDefinition(org.id, status.id, { countsAsActiveProject: true });
+    expect(result.ok).toBe(true);
+    await expect(countActiveProjects(prisma, org.id)).resolves.toBe(5);
+
+    await prisma.project.deleteMany({ where: { organizationId: org.id } });
+    await prisma.customStatusDefinition.delete({ where: { id: status.id } });
+    await prisma.client.delete({ where: { id: client.id } });
+    await cleanup(org.id, owner.id);
+  });
+
+  it("reclassifying a status to active IS rejected when it would genuinely push the org over the FREE ceiling", async () => {
+    const { owner, org } = await createOrgWithSubscription("reclassify-over-limit", { planKey: "FREE" });
+    const client = await prisma.client.create({ data: { name: "Over Limit Client", userId: owner.id, organizationId: org.id } });
+
+    const status = await prisma.customStatusDefinition.create({
+      data: {
+        organizationId: org.id,
+        entityType: "PROJECT",
+        key: "reclassify_over_limit_target",
+        label: "Over Limit Target",
+        position: 0,
+        isSystem: false,
+        countsAsActiveProject: false,
+      },
+    });
+    // Two projects under this (currently non-counting) status, legacy
+    // status COMPLETED — they do NOT already count via the fallback
+    // (explicit false always wins, and even the fallback would exclude
+    // COMPLETED), so reclassifying to true genuinely adds 2 more.
+    await prisma.project.createMany({
+      data: [
+        { name: "Finished under target 1", status: "COMPLETED", statusDefinitionId: status.id, clientId: client.id, ownerId: owner.id, organizationId: org.id },
+        { name: "Finished under target 2", status: "COMPLETED", statusDefinitionId: status.id, clientId: client.id, ownerId: owner.id, organizationId: org.id },
+      ],
+    });
+    // Five already-active projects elsewhere — at the FREE ceiling.
+    await prisma.project.createMany({
+      data: Array.from({ length: 5 }, (_, i) => ({
+        name: `Already Active ${i}`,
+        status: "PLANNING" as const,
+        clientId: client.id,
+        ownerId: owner.id,
+        organizationId: org.id,
+      })),
+    });
+
+    await expect(countActiveProjects(prisma, org.id)).resolves.toBe(5);
+
+    const result = await updateCustomStatusDefinition(org.id, status.id, { countsAsActiveProject: true });
+    expect(result).toEqual({ ok: false, reason: "ACTIVE_PROJECT_LIMIT_WOULD_BE_EXCEEDED", affectedCount: 2 });
+
+    // Rejected means genuinely unchanged — no project touched/hidden, the
+    // definition's own classification unchanged.
+    await expect(countActiveProjects(prisma, org.id)).resolves.toBe(5);
+    const reloaded = await prisma.customStatusDefinition.findUniqueOrThrow({ where: { id: status.id } });
+    expect(reloaded.countsAsActiveProject).toBe(false);
+
+    await prisma.project.deleteMany({ where: { organizationId: org.id } });
+    await prisma.customStatusDefinition.delete({ where: { id: status.id } });
     await prisma.client.delete({ where: { id: client.id } });
     await cleanup(org.id, owner.id);
   });

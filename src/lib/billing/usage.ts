@@ -112,18 +112,51 @@ export async function getOrganizationUsage(
  * filter — never re-derives it from `key`/`isSystem` here, so a
  * Settings-side reclassification of a CUSTOM status
  * (src/app/(dashboard)/settings/custom-statuses/actions.ts) is reflected
- * the moment it's saved, with no change needed in this function. A
- * legacy row with no statusDefinition at all falls back to the legacy
- * `status` enum, matching resolveProjectCountsTowardActiveLimit's own
- * identical fallback exactly (COMPLETED/CANCELLED excluded, everything
- * else counted).
+ * the moment it's saved, with no change needed in this function.
+ *
+ * Correction (confirmed via hands-on migration/rollback verification
+ * against a real isolated PostgreSQL instance): `countsAsActiveProject`
+ * is nullable with no default, and a statusDefinition can carry a `null`
+ * classification without being absent — most realistically, a PROJECT
+ * custom status created by application code that predates this column
+ * (the pre-existing Settings → Custom statuses path), during the window
+ * between this migration being applied and this code being deployed. An
+ * earlier revision of this query only matched `statusDefinitionId: null`
+ * for its legacy-status fallback, silently never counting a project
+ * whose statusDefinition exists but carries a `null` classification —
+ * disagreeing with resolveProjectCountsTowardActiveLimit, which falls
+ * back to the legacy `status` enum for exactly that case. Both now share
+ * the identical three-way rule: explicit `true` always counts; no
+ * statusDefinition at all falls back to the legacy `status` enum
+ * (COMPLETED/CANCELLED excluded); and a `null` classification falls back
+ * to that same legacy-status rule rather than being treated as absent or
+ * as "doesn't count" — never silently finished merely to permit more
+ * projects. An explicit `false` never counts, in either case.
  */
-export async function countActiveProjects(client: PrismaClientOrTx, organizationId: string): Promise<number> {
+export async function countActiveProjects(
+  client: PrismaClientOrTx,
+  organizationId: string,
+  options: { excludeStatusDefinitionId?: string } = {},
+): Promise<number> {
   const where: Prisma.ProjectWhereInput = {
     organizationId,
-    OR: [
-      { statusDefinition: { countsAsActiveProject: true } },
-      { statusDefinitionId: null, status: { notIn: ["COMPLETED", "CANCELLED"] } },
+    AND: [
+      // `{ statusDefinitionId: { not: X } }` alone would silently exclude
+      // every row with NO statusDefinition at all: SQL's three-valued
+      // logic makes `NULL <> X` evaluate to NULL (not true), not
+      // included, under plain inequality — a legacy project's own
+      // comparison must be spelled out explicitly instead of trusting
+      // `not` to be NULL-safe.
+      options.excludeStatusDefinitionId
+        ? { OR: [{ statusDefinitionId: null }, { statusDefinitionId: { not: options.excludeStatusDefinitionId } }] }
+        : {},
+      {
+        OR: [
+          { statusDefinition: { countsAsActiveProject: true } },
+          { statusDefinitionId: null, status: { notIn: ["COMPLETED", "CANCELLED"] } },
+          { statusDefinition: { countsAsActiveProject: null }, status: { notIn: ["COMPLETED", "CANCELLED"] } },
+        ],
+      },
     ],
   };
 

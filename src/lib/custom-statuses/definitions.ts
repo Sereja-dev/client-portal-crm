@@ -8,6 +8,7 @@ import { slugifyCustomStatusIdentifier } from "./slug";
 import { SYSTEM_STATUS_KEYS } from "./constants";
 import { getOrganizationEntitlements } from "@/lib/billing/entitlements";
 import { lockOrganizationActiveProjectsForReclassification } from "@/lib/billing/enforcement";
+import { countActiveProjects } from "@/lib/billing/usage";
 
 /**
  * Custom Statuses Phase 1 — Definition domain layer (Section F/K/L/S/U).
@@ -267,11 +268,26 @@ export async function updateCustomStatusDefinition(
       const affectedCount = await tx.project.count({ where: { organizationId, statusDefinitionId: definitionId } });
       if (affectedCount > 0) {
         const entitlements = await getOrganizationEntitlements(organizationId, { client: tx });
-        if (
-          entitlements.maxActiveProjects !== null &&
-          entitlements.currentActiveProjects + affectedCount > entitlements.maxActiveProjects
-        ) {
-          return { ok: false, reason: "ACTIVE_PROJECT_LIMIT_WOULD_BE_EXCEEDED", affectedCount };
+        if (entitlements.maxActiveProjects !== null) {
+          // Correction: this used to add `affectedCount` on top of the
+          // org's current active count (entitlements.currentActiveProjects)
+          // unconditionally. Now that a `null`-classified status's own
+          // projects can already be counted via countActiveProjects's own
+          // legacy-status fallback (see that function's own doc comment),
+          // `existing.countsAsActiveProject === null` rows under THIS
+          // status may already be included in that current count —
+          // adding `affectedCount` again would double-count them and
+          // over-reject a reclassification that is actually safe.
+          // Excluding this status's own rows first and adding back
+          // `affectedCount` (every one of which becomes `true` the moment
+          // this update commits) is exact regardless of whether the
+          // existing classification was `null` or `false`.
+          const activeCountExcludingThisStatus = await countActiveProjects(tx, organizationId, {
+            excludeStatusDefinitionId: definitionId,
+          });
+          if (activeCountExcludingThisStatus + affectedCount > entitlements.maxActiveProjects) {
+            return { ok: false, reason: "ACTIVE_PROJECT_LIMIT_WOULD_BE_EXCEEDED", affectedCount };
+          }
         }
       }
 
