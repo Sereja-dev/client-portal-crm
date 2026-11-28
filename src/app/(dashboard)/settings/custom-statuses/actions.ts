@@ -49,6 +49,27 @@ function parseColor(formData: FormData): CustomStatusColor {
   return (VALID_COLORS as readonly string[]).includes(raw) ? (raw as CustomStatusColor) : "NEUTRAL";
 }
 
+/**
+ * Aqenra Free plan — the one FormData field the Project-status create/edit
+ * dialogs use for the active-project classification radio group
+ * (create-status-button.tsx / edit-status-dialog.tsx). Only ever read for
+ * entityType "PROJECT" — never rendered, and never consulted, for CLIENT/
+ * LEAD. Returns `true`/`false` only for the radio group's own two exact
+ * values; a missing or tampered field returns `undefined` rather than
+ * guessing `false` — `undefined` lets createCustomStatusDefinition's own
+ * safe `true` default apply (a crafted request that strips this field
+ * must never be able to grant itself an uncounted, limit-free status),
+ * and lets updateCustomStatusDefinition leave an existing classification
+ * untouched rather than silently clearing it.
+ */
+function parseCountsAsActiveProject(entityType: CustomStatusEntityType, formData: FormData): boolean | undefined {
+  if (entityType !== "PROJECT") return undefined;
+  const raw = formData.get("activeProjectClassification");
+  if (raw === "active") return true;
+  if (raw === "completed") return false;
+  return undefined;
+}
+
 export async function createCustomStatusAction(
   entityType: CustomStatusEntityType,
   _prevState: CustomStatusDefinitionFormState,
@@ -57,6 +78,7 @@ export async function createCustomStatusAction(
   const label = String(formData.get("label") ?? "").trim();
   const color = parseColor(formData);
   const makeDefault = formData.get("isDefault") === "on";
+  const countsAsActiveProject = parseCountsAsActiveProject(entityType, formData);
 
   if (!label) {
     return { error: null, fieldErrors: { label: "Label is required." } };
@@ -75,7 +97,7 @@ export async function createCustomStatusAction(
 
   const { organizationId } = await getCurrentUserOrganization();
 
-  const result = await createCustomStatusDefinition(organizationId, entityType, { label, color });
+  const result = await createCustomStatusDefinition(organizationId, entityType, { label, color, countsAsActiveProject });
 
   if (!result.ok) {
     if (result.reason === "INVALID_LABEL") {
@@ -103,18 +125,24 @@ export async function createCustomStatusAction(
 }
 
 /**
- * Label/color only — entityType/key/isSystem are structurally immutable
- * through this action (see this file's own header comment). Rejects a
- * SYSTEM definition server-side (Section E) even though the UI never
- * offers this dialog for one — the boundary itself enforces it.
+ * Label/color, and (PROJECT only) active-project classification —
+ * entityType/key/isSystem are structurally immutable through this action
+ * (see this file's own header comment). Rejects a SYSTEM definition
+ * server-side (Section E) even though the UI never offers this dialog for
+ * one — the boundary itself enforces it. `entityType` here is the
+ * caller-bound value page.tsx already resolved (never re-derived from the
+ * target row) — needed only to decide whether to read the classification
+ * field from FormData at all.
  */
 export async function updateCustomStatusAction(
+  entityType: CustomStatusEntityType,
   definitionId: string,
   _prevState: CustomStatusDefinitionFormState,
   formData: FormData,
 ): Promise<CustomStatusDefinitionFormState> {
   const label = String(formData.get("label") ?? "").trim();
   const color = parseColor(formData);
+  const countsAsActiveProject = parseCountsAsActiveProject(entityType, formData);
 
   if (!label) {
     return { error: null, fieldErrors: { label: "Label is required." } };
@@ -122,7 +150,7 @@ export async function updateCustomStatusAction(
 
   const { organizationId } = await getCurrentUserOrganization();
 
-  const result = await updateCustomStatusDefinition(organizationId, definitionId, { label, color });
+  const result = await updateCustomStatusDefinition(organizationId, definitionId, { label, color, countsAsActiveProject });
 
   if (!result.ok) {
     if (result.reason === "INVALID_LABEL") {
@@ -130,6 +158,12 @@ export async function updateCustomStatusAction(
     }
     if (result.reason === "SYSTEM_DEFINITION") {
       return { error: "Built-in statuses can't be edited." };
+    }
+    if (result.reason === "ACTIVE_PROJECT_LIMIT_WOULD_BE_EXCEEDED") {
+      const count = result.affectedCount;
+      return {
+        error: `Marking this status as active would put ${count} project${count === 1 ? "" : "s"} over your plan's active-project limit. Complete or cancel some active projects first, or keep this status as finished.`,
+      };
     }
     return { error: "Status not found." };
   }

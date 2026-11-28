@@ -14,7 +14,7 @@ async function createTestUser(label: string) {
 }
 
 describe("createTrialSubscription — atomic new-Organization provisioning", () => {
-  it("a new Organization gets a trial Subscription row atomically, via getOrCreateOrganizationId", async () => {
+  it("a new Organization gets a Free-plan Subscription row atomically, via getOrCreateOrganizationId", async () => {
     const user = await createTestUser(randomUUID().slice(0, 8));
 
     const organizationId = await getOrCreateOrganizationId(user);
@@ -24,12 +24,18 @@ describe("createTrialSubscription — atomic new-Organization provisioning", () 
 
     const subscription = await prisma.subscription.findUnique({ where: { organizationId } });
     expect(subscription).not.toBeNull();
-    expect(subscription?.planKey).toBe("TRIAL");
-    expect(subscription?.status).toBe("TRIALING");
+    // Aqenra Free plan (owner-approved): a brand-new organization is
+    // provisioned directly onto FREE/ACTIVE now, not TRIAL/TRIALING — see
+    // createFreePlanSubscription's own doc comment (src/lib/billing/
+    // provisioning.ts) for why ACTIVE and not a time-limited trial.
+    expect(subscription?.planKey).toBe("FREE");
+    expect(subscription?.status).toBe("ACTIVE");
     expect(subscription?.trialStartedAt).toBeInstanceOf(Date);
-
-    const expectedTrialEnd = subscription!.trialStartedAt.getTime() + 14 * 24 * 60 * 60 * 1000;
-    expect(Math.abs(subscription!.trialEndsAt.getTime() - expectedTrialEnd)).toBeLessThan(5000);
+    // Never consulted by computeAccessMode's ACTIVE branch — backdated to
+    // the same instant as trialStartedAt, the identical "set but never
+    // read" precedent prisma/backfill-subscriptions.ts already
+    // established for LEGACY rows.
+    expect(subscription!.trialEndsAt.getTime()).toBe(subscription!.trialStartedAt.getTime());
 
     await prisma.organization.delete({ where: { id: organizationId } });
     await prisma.user.delete({ where: { id: user.id } });
@@ -121,7 +127,7 @@ describe("createTrialSubscription — atomic new-Organization provisioning", () 
     const subA = await prisma.subscription.findUnique({ where: { organizationId: orgIdA } });
     const subB = await prisma.subscription.findUnique({ where: { organizationId: orgIdB } });
     expect(subA?.status).toBe("PAST_DUE");
-    expect(subB?.status).toBe("TRIALING");
+    expect(subB?.status).toBe("ACTIVE");
 
     await prisma.organization.deleteMany({ where: { id: { in: [orgIdA, orgIdB] } } });
     await prisma.user.deleteMany({ where: { id: { in: [userA.id, userB.id] } } });

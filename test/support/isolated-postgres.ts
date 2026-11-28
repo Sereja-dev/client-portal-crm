@@ -176,7 +176,23 @@ export type IsolatedDatabase = {
 export async function startIsolatedDatabase(requestedPort?: number): Promise<IsolatedDatabase> {
   void requestedPort;
   const pglite = new PGlite();
-  const socketServer = new PGLiteSocketServer({ db: pglite, host: "127.0.0.1", port: 0, maxConnections: 5 });
+  // Aqenra Free plan — concurrency correction. Raised from the original
+  // 5 to comfortably clear the connection demand two genuinely concurrent
+  // callers of getOrganizationEntitlements() can place on this socket
+  // server at once: that one function alone fans out across several
+  // internal Promise.all-ed queries (subscription, usage's own further
+  // internal fan-out across members/clients/projects/activeProjects/
+  // attachments/invoice-PDFs/logos, pendingInvitations), and
+  // test/integration/billing/free-plan-concurrency-corrections.test.ts's
+  // own negative-control tests deliberately run TWO such callers at
+  // once with no lock serializing them (the exact scenario under test) —
+  // confirmed, by direct reproduction, to exceed a cap of 5 simultaneous
+  // connections and surface as a spurious "ConnectionClosed"/
+  // "ECONNRESET" failure unrelated to the actual race being
+  // demonstrated. Every other current caller of this function opens at
+  // most a small, fixed number of connections well under either number,
+  // so this is a pure headroom increase with no other behavioral effect.
+  const socketServer = new PGLiteSocketServer({ db: pglite, host: "127.0.0.1", port: 0, maxConnections: 20 });
   try {
     await socketServer.start();
     const port = readBoundPort(socketServer);

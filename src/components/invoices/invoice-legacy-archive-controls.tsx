@@ -88,6 +88,21 @@ export function InvoiceLegacyArchiveControls({
         return;
       }
 
+      // Aqenra Free plan — see InvoiceIssueControls's own identical
+      // branch for the full reasoning.
+      if (result.error === "STORAGE_LIMIT_REACHED") {
+        showToast("Your storage limit has been reached. Delete unnecessary files, then try archiving this invoice again.", "error");
+        return;
+      }
+
+      // Aqenra Free plan — distinct from the message above: the pipeline
+      // simply took longer than expected and lost its reservation, which
+      // a fresh re-check confirmed is NOT because storage is full.
+      if (result.error === "STORAGE_RESERVATION_LOST") {
+        showToast("This took longer than expected — try archiving this invoice again.", "error");
+        return;
+      }
+
       showToast("Could not archive this invoice — try again.", "error");
     });
   }

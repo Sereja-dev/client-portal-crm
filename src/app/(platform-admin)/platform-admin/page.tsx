@@ -36,6 +36,7 @@ export default async function PlatformAdminDashboardPage() {
       <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
         <MetricCard label="Organizations" value={data.kpis.organizations} href="/platform-admin/organizations" />
         <MetricCard label="Active trials" value={data.kpis.activeTrials} href="/platform-admin/organizations" />
+        <MetricCard label="Free organizations" value={data.kpis.freeOrganizations} href="/platform-admin/organizations" />
         <MetricCard label="Active subscriptions" value={data.kpis.activeSubscriptions} href="/platform-admin/organizations" />
         <MetricCard label="Expired trials" value={data.kpis.expiredTrials} href="/platform-admin/organizations" />
         <MetricCard label="Staff users" value={data.kpis.staffUsers} href="/platform-admin/users" />

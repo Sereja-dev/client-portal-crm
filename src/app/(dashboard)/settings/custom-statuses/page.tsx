@@ -53,7 +53,10 @@ export default async function CustomStatusesSettingsPage({
     isSystem: definition.isSystem,
     isDefault: definition.isDefault,
     archivedAt: definition.archivedAt,
-    editAction: updateCustomStatusAction.bind(null, definition.id),
+    // Aqenra Free plan — null for CLIENT/LEAD (not applicable); always a
+    // concrete boolean for PROJECT once backfilled.
+    countsAsActiveProject: definition.countsAsActiveProject,
+    editAction: updateCustomStatusAction.bind(null, entityType, definition.id),
     archiveAction: archiveCustomStatusAction.bind(null, definition.id),
     unarchiveAction: unarchiveCustomStatusAction.bind(null, definition.id),
     setDefaultAction: setDefaultCustomStatusAction.bind(null, entityType, definition.id),
@@ -79,6 +82,7 @@ export default async function CustomStatusesSettingsPage({
       <DefinitionsList
         definitions={rows}
         createAction={createCustomStatusAction.bind(null, entityType)}
+        entityType={entityType}
         entityLabel={entityLabel}
         canSetDefault={canSetDefault}
       />

@@ -7,7 +7,7 @@ import { parseProjectForm } from "@/lib/validation/project";
 import { withToast } from "@/lib/toast-url";
 import { createActivity } from "@/lib/activity/create-activity";
 import { buildProjectMetadata } from "@/lib/activity/project-metadata";
-import { assertCanCreateProject, BillingLimitError } from "@/lib/billing/enforcement";
+import { assertCanCreateProject, assertCanIncreaseActiveProjects, BillingLimitError } from "@/lib/billing/enforcement";
 import {
   getActiveCustomFieldFormDefinitions,
   parseCustomFieldFormValues,
@@ -15,6 +15,7 @@ import {
   persistCustomFieldValuesInTransaction,
 } from "@/lib/custom-fields/entity-form";
 import { resolveStatusForSave } from "@/lib/custom-statuses/entity-form";
+import { resolveProjectCountsTowardActiveLimit } from "@/lib/custom-statuses/semantics";
 import type { ProjectStatusValue } from "@/lib/validation/project";
 import type { ProjectFormState } from "@/types";
 
@@ -85,6 +86,21 @@ export async function createProjectAction(
       const legacyStatus: ProjectStatusValue = statusResult.isSystem
         ? (statusResult.key.toUpperCase() as ProjectStatusValue)
         : "PLANNING";
+
+      // Aqenra Free plan — a brand-new project only consumes an
+      // active-project slot when its resolved target status actually
+      // counts toward the limit (a project created directly as
+      // Completed/Cancelled never does). Re-checked from inside this
+      // same transaction, immediately before the write it guards — same
+      // race handling as assertCanCreateProject above.
+      if (
+        resolveProjectCountsTowardActiveLimit({
+          status: legacyStatus,
+          statusDefinition: { countsAsActiveProject: statusResult.countsAsActiveProject },
+        })
+      ) {
+        await assertCanIncreaseActiveProjects(organizationId, tx);
+      }
 
       const project = await tx.project.create({
         data: {

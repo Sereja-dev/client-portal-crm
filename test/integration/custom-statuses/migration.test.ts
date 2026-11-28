@@ -67,15 +67,19 @@ const REAL_MIGRATION_DIR = join(__dirname, "../../../prisma/migrations", MIGRATI
 const MOVED_ASIDE_DIR = join(tmpdir(), `${MIGRATION_DIR_NAME}_TEMP_MOVED_FOR_TEST`);
 const REPO_ROOT = join(__dirname, "../../..");
 
-// Later migrations whose own SQL references a type this migration defines
-// (`CustomStatusColor`) and which must therefore be moved aside *together*
+// Later migrations whose own SQL references a type or table this
+// migration defines and which must therefore be moved aside *together*
 // with this one — otherwise deployAllMigrationsExceptThisOne() below would
-// still try to apply them against a database where that type was never
-// created, and fail. Tags V1 Phase 1's own migration reuses
+// still try to apply them against a database where that type/table was
+// never created, and fail. Tags V1 Phase 1's own migration reuses
 // CustomStatusColor for Tag.color (see Tag's schema doc comment) rather
-// than defining a redundant, identical enum, so it is the first entry
-// here.
-const DEPENDENT_MIGRATION_DIR_NAMES = ["20261001140000_add_tags_foundation"];
+// than defining a redundant, identical enum. Aqenra Free plan's own
+// migration ALTERs the CustomStatusDefinition table this migration
+// itself creates, for the identical reason.
+const DEPENDENT_MIGRATION_DIR_NAMES = [
+  "20261001140000_add_tags_foundation",
+  "20261123000000_add_custom_status_counts_as_active_project",
+];
 const DEPENDENT_MIGRATION_DIRS = DEPENDENT_MIGRATION_DIR_NAMES.map((name) => ({
   real: join(__dirname, "../../../prisma/migrations", name),
   movedAside: join(tmpdir(), `${name}_TEMP_MOVED_FOR_TEST`),

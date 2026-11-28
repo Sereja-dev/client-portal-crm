@@ -666,6 +666,10 @@ model Organization {
   attachments Attachment[]
   comments    Comment[]
 
+  // Aqenra Free plan — concurrency correction. See StorageReservation's
+  // own doc comment.
+  storageReservations StorageReservation[]
+
   // Recurring Invoices Phase 1 (domain foundation only — see
   // RecurringInvoice's own doc comment). Plain, unnamed relation, same
   // shape as every other direct-tenant-scoped array above.
@@ -932,6 +936,17 @@ model OrganizationProfile {
   // a logo must resolve to a real, permanent URL usable in <img src>
   // anywhere, which a private bucket's short-lived signed URLs can't give.
   logoUrl String?
+
+  // Aqenra Free plan — organization storage accounting (src/lib/billing/
+  // usage.ts). The exact byte size of the currently-stored logo object,
+  // set alongside `logoUrl` by uploadOrganizationLogo() (which already
+  // validates and holds `file.size` before uploading) and cleared back to
+  // null whenever `logoUrl` itself is cleared or replaced (the previous
+  // object is removed from Storage at that same point). `null` for every
+  // logo uploaded before this column existed — not safely backfillable
+  // without reading the object back from Storage (deliberately not
+  // attempted here) — until that organization next replaces its logo.
+  logoSizeBytes Int?
 
   // Hex color, e.g. "#0F172A" — validated server-side against
   // /^#[0-9a-f]{6}$/i by whichever later PR adds the write path; this
@@ -1586,6 +1601,22 @@ model CustomStatusDefinition {
 
   archivedAt DateTime?
 
+  // Aqenra Free plan — the one, explicit classification every Project
+  // status definition carries (system or custom): does a project in this
+  // status count toward the Free plan's 5-active-project limit? `null`
+  // for CLIENT/LEAD definitions (not applicable to them at all). For
+  // PROJECT, always a concrete boolean once backfilled — see this
+  // column's own migration for exactly how system PLANNING/IN_PROGRESS/
+  // ON_HOLD (true), system COMPLETED/CANCELLED (false), and every
+  // pre-existing CUSTOM Project status (true — the safer, anti-bypass
+  // default already in effect before this column existed) were set.
+  // The person creating or editing a CUSTOM Project status chooses this
+  // explicitly going forward (src/app/(dashboard)/settings/custom-
+  // statuses/actions.ts) — never silently inferred from the label.
+  // src/lib/custom-statuses/semantics.ts's resolveProjectCountsTowardActiveLimit
+  // is the one place this value is read for billing purposes.
+  countsAsActiveProject Boolean?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1964,6 +1995,20 @@ model InvoicePdfArchiveObject {
 
   status InvoicePdfArchiveObjectStatus @default(PENDING_UPLOAD)
 
+  // Aqenra Free plan — organization storage accounting (src/lib/billing/
+  // usage.ts). The exact byte length of the uploaded PDF buffer, recorded
+  // at ledger-creation time (src/lib/invoices/pdf/issue-invoice.ts /
+  // legacy-archive-invoice.ts — both already hold the full buffer in
+  // memory before upload). `null` for every row created before this
+  // column existed: that historical size genuinely cannot be measured
+  // without reading the object back from Storage, which this change
+  // deliberately does not attempt (see this column's own migration
+  // comment) — a `null` row contributes 0 bytes to the storage total
+  // until its Invoice is next re-issued (a new documentVersion creates a
+  // new, sized row). This is a known, documented gap for pre-existing
+  // Invoices, not a defect in new accounting.
+  sizeBytes Int?
+
   // Stamped with the Issue operation's own single injected/current
   // timestamp, in the same short transaction that flips status to
   // REFERENCED — never a separately-read `now()`.
@@ -2268,6 +2313,47 @@ model Attachment {
   // as Activity's indexes, even though this stage doesn't add pagination.
   @@index([organizationId, entityType, entityId, createdAt, id])
   @@index([organizationId, createdAt, id])
+}
+
+// Aqenra Free plan — concurrency correction (src/lib/billing/storage-
+// reservation.ts). Storage uploads are not transactional with Postgres:
+// bytes land in Supabase Storage before the owning Attachment/
+// OrganizationProfile row is ever written, so a plain
+// "read current usage, then upload" check (the pre-existing pattern) can
+// never fully close the gap between two near-simultaneous uploads that
+// would each individually fit the 1 GiB ceiling but not both together.
+// This table holds a short-lived, DB-only "promise" of bytes about to be
+// consumed, created (under a per-organization advisory lock — see
+// reserveStorageBytes) BEFORE the slow external Storage call, and deleted
+// immediately after that upload's own DB write actually commits (its
+// bytes are now accounted for by the real Attachment/OrganizationProfile
+// row instead) or after any failure along the way (the reservation is
+// released, never left stranded). A row that is never explicitly released
+// — the uploading process crashed, or a release itself failed — self-
+// heals via `expiresAt`: reserveStorageBytes's own usage sum only counts
+// still-unexpired rows, so a stranded reservation stops counting toward
+// the ceiling on its own, with no cleanup job required for correctness
+// (a periodic DELETE of expired rows is a pure table-hygiene nicety, not
+// implemented here, and not needed for the invariant to hold).
+model StorageReservation {
+  id String @id @default(uuid()) @db.Uuid
+
+  organizationId String       @db.Uuid
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  sizeBytes Int
+
+  createdAt DateTime @default(now())
+  // Always `createdAt` + a short, fixed TTL (RESERVATION_TTL_MS in
+  // storage-reservation.ts) — long enough for any realistic upload to
+  // finish and release explicitly, short enough that a genuinely
+  // abandoned reservation stops counting within minutes, not forever.
+  expiresAt DateTime
+
+  // reserveStorageBytes's own usage-sum query is always
+  // `WHERE organizationId = ? AND expiresAt > now()` — this index serves
+  // exactly that predicate.
+  @@index([organizationId, expiresAt])
 }
 
 // Comments & Mentions Stage 1 design (docs/comments-architecture.md §2).

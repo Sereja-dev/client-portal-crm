@@ -113,3 +113,34 @@ export function resolveProjectIsInProgress(project: {
   }
   return project.status === "IN_PROGRESS";
 }
+
+/**
+ * The Free plan's own active-project limit (Aqenra Free plan — "Active
+ * projects" rule). Deliberately NOT the same predicate as
+ * resolveProjectIsInProgress above: that one is the dashboard/Portal KPI's
+ * narrower "in progress only" meaning, approved separately and left
+ * untouched by this rule; this one is the broader billing meaning the
+ * owner approved — every Project status definition (system or custom)
+ * carries an explicit `countsAsActiveProject` classification
+ * (CustomStatusDefinition's own schema comment), and this is the one
+ * place that classification is read for billing purposes. System
+ * PLANNING/IN_PROGRESS/ON_HOLD are seeded `true`; system COMPLETED/
+ * CANCELLED are seeded `false` — both by migration/bootstrap, never
+ * re-derived from `key` here anymore, so a Settings-side reclassification
+ * of a CUSTOM status (src/app/(dashboard)/settings/custom-statuses/
+ * actions.ts) is picked up with zero change to this function. A legacy
+ * row with no statusDefinition at all (or one somehow missing the
+ * classification — defensive only, every real PROJECT row is backfilled)
+ * falls back to the legacy `status` enum under the identical COMPLETED/
+ * CANCELLED exclusion rule.
+ */
+export function resolveProjectCountsTowardActiveLimit(project: {
+  status: ProjectStatus;
+  statusDefinition?: { countsAsActiveProject: boolean | null } | null;
+}): boolean {
+  const classification = project.statusDefinition?.countsAsActiveProject;
+  if (classification !== null && classification !== undefined) {
+    return classification;
+  }
+  return project.status !== "COMPLETED" && project.status !== "CANCELLED";
+}

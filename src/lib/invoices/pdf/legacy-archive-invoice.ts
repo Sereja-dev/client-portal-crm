@@ -39,6 +39,7 @@ import {
 } from "./storage";
 import { resolveInvoiceLogo, type ResolvedInvoiceLogo } from "./logo";
 import { compensateArchiveUpload } from "./archive-compensation";
+import { reserveStorageBytes, releaseStorageReservation, consumeStorageReservation, StorageReservationLostError } from "@/lib/billing/storage-reservation";
 
 /**
  * Invoice System Official Slice 3, Legacy Archive — the retroactive,
@@ -436,6 +437,23 @@ export async function archiveLegacyInvoice(
   // No ledger row and no Storage object exist for this attempt at this
   // point — both are created only from here on.
 
+  // --- C0. Reserve storage for this archival attempt ----------------------
+  // Aqenra Free plan — same shared 1 GiB allowance as Issue (see that
+  // service's own identical reservation call in issue-invoice.ts for the
+  // full reasoning). Legacy Archive writes to the exact same
+  // InvoicePdfArchiveObject ledger and consumes the exact same storage
+  // pool, so it must compete for it the same way — never a separate,
+  // unenforced loophole around the shared allowance. `requireFullAccess:
+  // false` for the identical reason issue-invoice.ts uses it: this check
+  // is scoped to storage only, never also gated on billing accessMode,
+  // which Legacy Archive has never been gated on either.
+  const reservation = await reserveStorageBytes(actor.organizationId, pdfBuffer.length, prisma, {
+    requireFullAccess: false,
+  });
+  if (!reservation.ok) {
+    return fail("STORAGE_LIMIT_REACHED");
+  }
+
   // --- C. Ledger before upload ------------------------------------------
   let identity: InvoicePdfObjectIdentity;
   let path: string;
@@ -450,6 +468,7 @@ export async function archiveLegacyInvoice(
     identity = { organizationId: actor.organizationId, invoiceId: invoice.id, documentVersion: invoice.documentVersion, archiveId };
     path = buildInvoicePdfStoragePath(identity);
   } catch {
+    await releaseStorageReservation(reservation.reservationId);
     return fail("ARCHIVE_FAILED");
   }
 
@@ -462,10 +481,13 @@ export async function archiveLegacyInvoice(
         documentVersion: invoice.documentVersion,
         storagePath: path,
         status: "PENDING_UPLOAD",
+        // Aqenra Free plan — see issue-invoice.ts's own identical comment.
+        sizeBytes: pdfBuffer.length,
       },
     });
   } catch {
     // Ledger creation itself failed — no upload is ever attempted.
+    await releaseStorageReservation(reservation.reservationId);
     return fail("ARCHIVE_FAILED");
   }
 
@@ -491,9 +513,13 @@ export async function archiveLegacyInvoice(
     // No compensation is needed (upload was never attempted); the
     // PENDING_UPLOAD ledger row this same call already created remains
     // exactly as-is, durable evidence for a later reconciliation run.
+    await releaseStorageReservation(reservation.reservationId);
     return fail("ARCHIVE_FAILED");
   }
-  if (!stillOwned) return fail("ARCHIVE_FAILED");
+  if (!stillOwned) {
+    await releaseStorageReservation(reservation.reservationId);
+    return fail("ARCHIVE_FAILED");
+  }
 
   let uploadResult: InvoicePdfUploadResult;
   try {
@@ -510,6 +536,7 @@ export async function archiveLegacyInvoice(
     // completed server-side) — always attempt compensation rather than
     // assuming nothing was written.
     await compensateArchiveUpload(deps, identity.archiveId, identity, deps.now());
+    await releaseStorageReservation(reservation.reservationId);
     return fail(uploadResult.reason === "storage_not_configured" ? "STORAGE_NOT_CONFIGURED" : "UPLOAD_FAILED");
   }
 
@@ -519,18 +546,39 @@ export async function archiveLegacyInvoice(
   // propagates out of this function entirely uncaught. Expected residue:
   // the Invoice remains untouched, the ledger row remains PENDING_UPLOAD,
   // the uploaded object remains present — intentional evidence for the
-  // later, separate reconciliation task, not a bug.
+  // later, separate reconciliation task, not a bug. The storage
+  // reservation is deliberately left un-released here too, for the
+  // identical reason issue-invoice.ts's own equivalent comment explains —
+  // its own TTL self-heals this exact case.
   await deps.afterUploadBeforeFinalize();
 
   // --- E. Final short transaction ------------------------------------------
   const now = deps.now();
   const nextUpdatedAt = new Date(Math.max(now.getTime(), expectedDate.getTime() + 1));
 
-  type CommitOutcome = { ok: true; finalizedAt: Date } | { ok: false; error: "CONFLICT" | "ARCHIVE_FAILED" };
+  type CommitOutcome =
+    | { ok: true; finalizedAt: Date }
+    | { ok: false; error: "CONFLICT" | "ARCHIVE_FAILED" | "STORAGE_LIMIT_REACHED" | "STORAGE_RESERVATION_LOST" };
 
   let commitOutcome: CommitOutcome;
   try {
     commitOutcome = await prisma.$transaction(async (tx) => {
+      // Closes the confirmed reservation-expiry race — see
+      // issue-invoice.ts's own identical guard and
+      // consumeStorageReservation's own doc comment in
+      // src/lib/billing/storage-reservation.ts. Which error code this
+      // maps to depends on consumeStorageReservation's own fresh
+      // re-check (confirmedFull) — never asserted as "storage full" just
+      // because the reservation itself is gone.
+      const reservationConsumed = await consumeStorageReservation(
+        tx,
+        actor.organizationId,
+        reservation.reservationId,
+        pdfBuffer.length,
+        now,
+      );
+      if (!reservationConsumed.ok) throw new StorageReservationLostError(reservationConsumed.confirmedFull);
+
       const updateResult = await tx.invoice.updateMany({
         where: {
           id: invoice.id,
@@ -609,15 +657,27 @@ export async function archiveLegacyInvoice(
       return { ok: true, finalizedAt: now };
     });
   } catch (err) {
-    commitOutcome = err instanceof LegacyArchiveConflictError ? { ok: false, error: "CONFLICT" } : { ok: false, error: "ARCHIVE_FAILED" };
+    if (err instanceof LegacyArchiveConflictError) {
+      commitOutcome = { ok: false, error: "CONFLICT" };
+    } else if (err instanceof StorageReservationLostError) {
+      commitOutcome = { ok: false, error: err.confirmedFull ? "STORAGE_LIMIT_REACHED" : "STORAGE_RESERVATION_LOST" };
+    } else {
+      commitOutcome = { ok: false, error: "ARCHIVE_FAILED" };
+    }
   }
 
   if (!commitOutcome.ok) {
     // No Storage operation runs inside the transaction above — compensation
     // always happens out here, after it has already failed/rolled back.
     await compensateArchiveUpload(deps, identity.archiveId, identity, deps.now());
+    await releaseStorageReservation(reservation.reservationId);
     return fail(commitOutcome.error);
   }
+
+  // The ledger row above has now committed (REFERENCED), and the
+  // reservation that held this archival's place was already consumed
+  // atomically inside that same transaction above — see
+  // issue-invoice.ts's own identical comment.
 
   // No post-commit delivery step exists for this action — unlike Issue,
   // Legacy Archive never sends email and never has a deliverEmails

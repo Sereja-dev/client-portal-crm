@@ -34,7 +34,19 @@ test.afterAll(async () => {
  * link with the identical accessible name as the "Organizations"
  * MetricCard's own link, and getByRole's `name` match is substring-based
  * by default, so an unscoped query would resolve to more than one link
- * and fail Playwright's strict-mode check.
+ * and fail Playwright's strict-mode check. `exact` is never usable here
+ * either way — a MetricCard's own accessible name is its label AND its
+ * (dynamic, numeric) value text together ("Organizations 42"), never
+ * the label alone.
+ *
+ * Aqenra Free plan — the new "Free organizations" MetricCard's own
+ * accessible name contains "Organizations" as a case-insensitive
+ * substring too, so a plain `readMetric(page, "Organizations")` would
+ * now ambiguously match both cards. Callers reading "Organizations"
+ * specifically pass `/^Organizations/` instead — anchored to the start
+ * of the accessible name, which "Organizations 42" satisfies and "Free
+ * organizations 3" (starting with "Free") never can — rather than
+ * weakening this helper's own substring matching for every other label.
  */
 function readMetric(page: import("@playwright/test").Page, label: string | RegExp) {
   return page
@@ -46,7 +58,7 @@ function readMetric(page: import("@playwright/test").Page, label: string | RegEx
     .then((text) => Number(text.trim()));
 }
 
-test("registering a brand-new organization moves Organizations, Active trials, and Staff users by exactly one, and it appears in Newest organizations", async ({
+test("registering a brand-new organization moves Organizations, Staff users, and Free organizations by exactly one, never Active trials, and it appears in Newest organizations", async ({
   context,
   baseURL,
 }) => {
@@ -54,16 +66,19 @@ test("registering a brand-new organization moves Organizations, Active trials, a
   const page = await context.newPage();
   await page.goto("/platform-admin");
 
-  const orgsBefore = await readMetric(page, "Organizations");
+  const orgsBefore = await readMetric(page, /^Organizations/);
   const activeTrialsBefore = await readMetric(page, "Active trials");
   const staffUsersBefore = await readMetric(page, "Staff users");
+  const freeOrganizationsBefore = await readMetric(page, "Free organizations");
 
-  // A fresh identity with no existing Membership auto-provisions a brand
-  // new personal Organization + Membership + real TRIALING Subscription
-  // the moment it hits a staff-only page — the same mechanism
-  // current-user.ts's own getOrCreateOrganizationId doc comment describes,
-  // and the same technique this suite's own platform-admin.spec.ts already
-  // uses to exercise the "non-allowlisted staff user" redirect.
+  // Aqenra Free plan — a fresh identity with no existing Membership now
+  // auto-provisions a brand new personal Organization + Membership + a
+  // real ACTIVE Subscription on the FREE plan (createFreePlanSubscription,
+  // src/lib/billing/provisioning.ts) the moment it hits a staff-only
+  // page — never a TRIALING one — the same mechanism current-user.ts's
+  // own getOrCreateOrganizationId doc comment describes, and the same
+  // technique this suite's own platform-admin.spec.ts already uses to
+  // exercise the "non-allowlisted staff user" redirect.
   const runId = Date.now();
   const newStaffId = randomUUID();
   const newStaffEmail = `e2e-new-org-${runId}@example.com`;
@@ -91,13 +106,17 @@ test("registering a brand-new organization moves Organizations, Active trials, a
     await injectTestSession(context, { id: "e2e-platform-admin-dashboard", email: PLATFORM_ADMIN_EMAIL }, baseURL!);
     await page.goto("/platform-admin");
 
-    const orgsAfter = await readMetric(page, "Organizations");
+    const orgsAfter = await readMetric(page, /^Organizations/);
     const activeTrialsAfter = await readMetric(page, "Active trials");
     const staffUsersAfter = await readMetric(page, "Staff users");
+    const freeOrganizationsAfter = await readMetric(page, "Free organizations");
 
     expect(orgsAfter).toBe(orgsBefore + 1);
-    expect(activeTrialsAfter).toBe(activeTrialsBefore + 1);
     expect(staffUsersAfter).toBe(staffUsersBefore + 1);
+    expect(freeOrganizationsAfter).toBe(freeOrganizationsBefore + 1);
+    // The new organization's own Subscription row is ACTIVE/FREE, never
+    // TRIALING — registering it must never move "Active trials".
+    expect(activeTrialsAfter).toBe(activeTrialsBefore);
 
     await expect(page.getByText(newOrgName)).toBeVisible();
   } finally {
@@ -114,9 +133,10 @@ test("the KPI grid and Newest organizations both render real, non-negative numbe
   const page = await context.newPage();
   await page.goto("/platform-admin");
 
-  for (const label of [
-    "Organizations",
+  const labels: (string | RegExp)[] = [
+    /^Organizations/,
     "Active trials",
+    "Free organizations",
     "Active subscriptions",
     "Expired trials",
     "Staff users",
@@ -126,7 +146,8 @@ test("the KPI grid and Newest organizations both render real, non-negative numbe
     "Tasks",
     "Today",
     "Last 7 days",
-  ]) {
+  ];
+  for (const label of labels) {
     const value = await readMetric(page, label);
     expect(Number.isFinite(value), `${label} should render a real number, got ${value}`).toBe(true);
     expect(value).toBeGreaterThanOrEqual(0);

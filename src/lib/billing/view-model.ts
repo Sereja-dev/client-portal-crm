@@ -42,7 +42,7 @@ export type BillingNotice = {
 };
 
 export type UsageRowViewModel = {
-  key: "members" | "clients" | "projects" | "storage";
+  key: "members" | "clients" | "projects" | "activeProjects" | "storage";
   label: string;
   current: number;
   limit: number | null;
@@ -328,22 +328,46 @@ function buildUsageRow(
 function buildUsageRows(entitlements: OrganizationEntitlements, pendingInvitations: number): UsageRowViewModel[] {
   const membersForDisplay = entitlements.currentMembers + pendingInvitations;
 
-  return [
+  const rows: UsageRowViewModel[] = [
     buildUsageRow("members", "Members", membersForDisplay, entitlements.maxMembers, formatCountLabel),
     buildUsageRow("clients", "Clients", entitlements.currentClients, entitlements.maxClients, formatCountLabel),
     buildUsageRow("projects", "Projects", entitlements.currentProjects, entitlements.maxProjects, formatCountLabel),
-    buildUsageRow(
-      "storage",
-      "Storage",
-      entitlements.currentStorageBytes,
-      entitlements.maxStorageBytes,
-      formatStorageLabel,
-    ),
   ];
+
+  // Aqenra Free plan only (maxActiveProjects is null for every other
+  // plan today) — a separate row, never a relabeling of "Projects" above:
+  // that row's own maxProjects/currentProjects stay the plan-wide total,
+  // untouched. Also deliberately never the dashboard KPI's own narrower
+  // "in progress only" count (src/app/(dashboard)/dashboard/query.ts) —
+  // showing that number here under a Free-plan limit it doesn't actually
+  // correspond to would misrepresent what's actually being enforced.
+  if (entitlements.maxActiveProjects !== null) {
+    rows.push(
+      buildUsageRow(
+        "activeProjects",
+        "Active projects",
+        entitlements.currentActiveProjects,
+        entitlements.maxActiveProjects,
+        formatCountLabel,
+      ),
+    );
+  }
+
+  rows.push(
+    buildUsageRow("storage", "Storage", entitlements.currentStorageBytes, entitlements.maxStorageBytes, formatStorageLabel),
+  );
+
+  return rows;
 }
 
 function planDescription(planKey: PlanKey): string {
   switch (planKey) {
+    case "FREE":
+      // Never actually rendered today — buildAvailablePlans only maps
+      // over billingAvailable plans, and FREE is deliberately not one
+      // (see plans.ts's own comment). Kept for the same exhaustiveness
+      // discipline every other branch here already follows.
+      return "Get started at no cost.";
     case "STARTER":
       return "For small teams getting started.";
     case "PRO":

@@ -1,12 +1,42 @@
 import { prisma } from "@/lib/prisma";
 import { requirePlatformAdmin } from "@/lib/platform-admin/authorization";
 import { computeAccessMode, type SubscriptionStateInput } from "@/lib/billing/access-mode";
+import { DEFAULT_FREE_PLAN_KEY } from "@/lib/billing/plans";
 
 export type PlatformDashboardKpis = {
   organizations: number;
   activeTrials: number;
   expiredTrials: number;
   activeSubscriptions: number;
+  /**
+   * Aqenra Free plan — organizations currently provisioned on the FREE
+   * plan (src/lib/billing/plans.ts's own `DEFAULT_FREE_PLAN_KEY`), counted
+   * by `planKey` alone, regardless of `status`. Every real call site that
+   * creates a FREE subscription (createFreePlanSubscription,
+   * src/lib/billing/provisioning.ts) always stamps `status: "ACTIVE"` and
+   * no live code path ever transitions a FREE subscription away from that
+   * — Free is never purchased, never cancelled, never suspended through
+   * any existing flow — so filtering by status as well would be
+   * redundant today. Counting by `planKey` alone (not status) is the
+   * deliberately more conservative choice: it keeps reporting an
+   * organization as "Free" even if some future, as-yet-nonexistent flow
+   * ever left a FREE subscription in a different status, rather than
+   * silently dropping it from this count the moment that happened.
+   *
+   * Distinct from, and deliberately NOT subtracted from, `activeTrials`
+   * or `activeSubscriptions` above: a FREE organization's own Subscription
+   * row has `status: "ACTIVE"` (never `"TRIALING"`), so it was already
+   * excluded from `activeTrials` before this field existed, and it has
+   * always been included in `activeSubscriptions`'s plain
+   * `status: "ACTIVE"` count — unchanged here, since that metric's own
+   * existing definition (every ACTIVE subscription, LEGACY/backfilled
+   * rows included, keeping its original and nothing-new-added behavior)
+   * is untouched by this field. These KPIs are independent counts, not a
+   * mutually-exclusive partition — the same relationship every other
+   * pair on this dashboard (e.g. "Organizations" and "Active trials")
+   * already has.
+   */
+  freeOrganizations: number;
   staffUsers: number;
   portalUsers: number;
   clients: number;
@@ -90,6 +120,7 @@ export async function getPlatformDashboardData(now: Date): Promise<PlatformDashb
     organizations,
     trialingSubscriptions,
     activeSubscriptions,
+    freeOrganizations,
     staffUsers,
     portalUsers,
     clients,
@@ -105,6 +136,7 @@ export async function getPlatformDashboardData(now: Date): Promise<PlatformDashb
       select: { status: true, trialEndsAt: true, currentPeriodEnd: true, gracePeriodEndsAt: true },
     }),
     prisma.subscription.count({ where: { status: "ACTIVE" } }),
+    prisma.subscription.count({ where: { planKey: DEFAULT_FREE_PLAN_KEY } }),
     prisma.user.count(),
     prisma.portalUser.count(),
     prisma.client.count(),
@@ -127,6 +159,7 @@ export async function getPlatformDashboardData(now: Date): Promise<PlatformDashb
       activeTrials,
       expiredTrials,
       activeSubscriptions,
+      freeOrganizations,
       staffUsers,
       portalUsers,
       clients,

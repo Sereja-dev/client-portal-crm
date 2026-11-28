@@ -136,7 +136,7 @@ describe("Custom Statuses Settings — Server Actions", () => {
     const created = await createCustomStatusDefinition(fixtures.orgA.id, "PROJECT", { label: "Blocked", color: "DANGER" });
     if (!created.ok) throw new Error("expected ok");
 
-    const result = await updateCustomStatusAction(created.definition.id, { error: null }, buildFormData({ label: "On Hold", color: "WARNING" }));
+    const result = await updateCustomStatusAction("PROJECT", created.definition.id, { error: null }, buildFormData({ label: "On Hold", color: "WARNING" }));
     expect(result).toEqual({ error: null });
 
     const updated = await prisma.customStatusDefinition.findUniqueOrThrow({ where: { id: created.definition.id } });
@@ -150,7 +150,7 @@ describe("Custom Statuses Settings — Server Actions", () => {
     actAs(fixtures.owner, fixtures.orgA.id);
     const systemDef = await findSystemDef(fixtures.orgA.id, "CLIENT", "active");
 
-    const result = await updateCustomStatusAction(systemDef.id, { error: null }, buildFormData({ label: "Hacked", color: "DANGER" }));
+    const result = await updateCustomStatusAction("CLIENT", systemDef.id, { error: null }, buildFormData({ label: "Hacked", color: "DANGER" }));
     expect(result).toEqual({ error: "Built-in statuses can't be edited." });
 
     const unchanged = await prisma.customStatusDefinition.findUniqueOrThrow({ where: { id: systemDef.id } });
@@ -163,7 +163,7 @@ describe("Custom Statuses Settings — Server Actions", () => {
     const orgBDef = await createCustomStatusDefinition(fixtures.orgB.id, "CLIENT", { label: "OrgB Only" });
     if (!orgBDef.ok) throw new Error("expected ok");
 
-    const result = await updateCustomStatusAction(orgBDef.definition.id, { error: null }, buildFormData({ label: "Hijacked", color: "DANGER" }));
+    const result = await updateCustomStatusAction("CLIENT", orgBDef.definition.id, { error: null }, buildFormData({ label: "Hijacked", color: "DANGER" }));
     expect(result).toEqual({ error: "Status not found." });
 
     const unchanged = await prisma.customStatusDefinition.findUniqueOrThrow({ where: { id: orgBDef.definition.id } });
@@ -288,7 +288,7 @@ describe("Custom Statuses Settings — Server Actions", () => {
     const orgADef = await createCustomStatusDefinition(fixtures.orgA.id, "CLIENT", { label: "OrgA Only" });
     if (!orgADef.ok) throw new Error("expected ok");
 
-    const result = await updateCustomStatusAction(orgADef.definition.id, { error: null }, buildFormData({ label: "Hijacked", color: "DANGER" }));
+    const result = await updateCustomStatusAction("CLIENT", orgADef.definition.id, { error: null }, buildFormData({ label: "Hijacked", color: "DANGER" }));
     expect(result).toEqual({ error: "Status not found." });
 
     await expect(archiveCustomStatusAction(orgADef.definition.id)).rejects.toThrow("Status not found.");

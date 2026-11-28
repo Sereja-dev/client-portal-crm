@@ -23,8 +23,8 @@ function activeSubscription(overrides: Partial<SubscriptionStateForEntitlements>
   };
 }
 
-function usage(overrides: Partial<{ members: number; clients: number; projects: number; storageBytes: number; pendingInvitations: number }> = {}) {
-  return { members: 0, clients: 0, projects: 0, storageBytes: 0, pendingInvitations: 0, ...overrides };
+function usage(overrides: Partial<{ members: number; clients: number; projects: number; activeProjects: number; storageBytes: number; pendingInvitations: number }> = {}) {
+  return { members: 0, clients: 0, projects: 0, activeProjects: 0, storageBytes: 0, pendingInvitations: 0, ...overrides };
 }
 
 describe("buildOrganizationEntitlements — member limit", () => {
@@ -112,6 +112,70 @@ describe("buildOrganizationEntitlements — project limit", () => {
     const at = buildOrganizationEntitlements({ subscription: activeSubscription(), usage: usage({ projects: maxProjects }), now: NOW, providerConfigured: true, freeBetaMode: false, });
     expect(under.canCreateProject).toBe(true);
     expect(at.canCreateProject).toBe(false);
+  });
+});
+
+describe("buildOrganizationEntitlements — Aqenra Free plan's own active-project limit", () => {
+  it("every non-FREE plan has maxActiveProjects null and canIncreaseActiveProjects always true, regardless of usage", () => {
+    for (const planKey of ["TRIAL", "STARTER", "PRO", "LEGACY"] as const) {
+      const result = buildOrganizationEntitlements({
+        subscription: activeSubscription({ planKey, status: "ACTIVE" }),
+        usage: usage({ activeProjects: 999 }),
+        now: NOW,
+        providerConfigured: true,
+        freeBetaMode: false,
+      });
+      expect(result.maxActiveProjects).toBeNull();
+      expect(result.canIncreaseActiveProjects).toBe(true);
+    }
+  });
+
+  it("FREE plan: under/at the 5-active-project ceiling", () => {
+    const maxActiveProjects = PLAN_CATALOG.FREE.limits.maxActiveProjects!;
+    expect(maxActiveProjects).toBe(5);
+    const under = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "FREE", status: "ACTIVE" }),
+      usage: usage({ activeProjects: maxActiveProjects - 1 }),
+      now: NOW,
+      providerConfigured: true,
+      freeBetaMode: false,
+    });
+    const at = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "FREE", status: "ACTIVE" }),
+      usage: usage({ activeProjects: maxActiveProjects }),
+      now: NOW,
+      providerConfigured: true,
+      freeBetaMode: false,
+    });
+    expect(under.canIncreaseActiveProjects).toBe(true);
+    expect(at.canIncreaseActiveProjects).toBe(false);
+    expect(at.blockedReasons).toContain("ACTIVE_PROJECT_LIMIT_REACHED");
+  });
+
+  it("FREE plan: the total maxProjects dimension is unlimited — only the active count is capped, and canCreateProject stays true however many finished projects exist", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "FREE", status: "ACTIVE" }),
+      usage: usage({ projects: 500, activeProjects: 0 }),
+      now: NOW,
+      providerConfigured: true,
+      freeBetaMode: false,
+    });
+    expect(result.maxProjects).toBeNull();
+    expect(result.canCreateProject).toBe(true);
+    expect(result.canIncreaseActiveProjects).toBe(true);
+  });
+
+  it("FREE plan at the active-project limit: existing projects (active or finished) are reported as-is, never hidden — only canIncreaseActiveProjects is false", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "FREE", status: "ACTIVE" }),
+      usage: usage({ projects: 12, activeProjects: 5 }),
+      now: NOW,
+      providerConfigured: true,
+      freeBetaMode: false,
+    });
+    expect(result.currentProjects).toBe(12);
+    expect(result.currentActiveProjects).toBe(5);
+    expect(result.canIncreaseActiveProjects).toBe(false);
   });
 });
 
@@ -710,6 +774,19 @@ describe("buildOrganizationEntitlements — Free Public Beta, Slice 1 (Storage L
     expect(result.canCreateClient).toBe(true);
     expect(result.canCreateProject).toBe(true);
   });
+
+  it("J (Aqenra Free plan correction): a FREE-plan organization gets its own 1 GiB ceiling, not the beta's 3 GiB override, even while freeBetaMode is true", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "FREE", status: "ACTIVE" }),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(result.maxStorageBytes).toBe(PLAN_CATALOG.FREE.limits.maxStorageBytes);
+    expect(result.maxStorageBytes).toBe(1 * 1024 * 1024 * 1024);
+    expect(result.maxStorageBytes).not.toBe(FREE_BETA_MAX_STORAGE_BYTES);
+  });
 });
 
 /**
@@ -979,5 +1056,18 @@ describe("buildOrganizationEntitlements — Free Public Beta, Slice 1 (Member Li
       expect(result.maxProjects).toBe(PLAN_CATALOG[planKey].limits.maxProjects);
       expect(result.maxStorageBytes).toBe(PLAN_CATALOG[planKey].limits.maxStorageBytes);
     }
+  });
+
+  it("20 (Aqenra Free plan correction): a FREE-plan organization gets its own 2-member ceiling, not the beta's 5-member override, even while freeBetaMode is true", () => {
+    const result = buildOrganizationEntitlements({
+      subscription: activeSubscription({ planKey: "FREE", status: "ACTIVE" }),
+      usage: usage(),
+      now: NOW,
+      providerConfigured: false,
+      freeBetaMode: true,
+    });
+    expect(result.maxMembers).toBe(PLAN_CATALOG.FREE.limits.maxMembers);
+    expect(result.maxMembers).toBe(2);
+    expect(result.maxMembers).not.toBe(FREE_BETA_MAX_MEMBERS);
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useId, useRef } from "react";
+import { useActionState, useId, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
@@ -9,7 +9,7 @@ import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
 import { COLOR_OPTIONS } from "./color-options";
 import { SetDefaultButton } from "./status-row-actions";
 import { callActionWithStaleRecovery } from "@/lib/action-error";
-import type { CustomStatusColor } from "@/generated/prisma/enums";
+import type { CustomStatusColor, CustomStatusEntityType } from "@/generated/prisma/enums";
 import type { CustomStatusDefinitionFormState } from "@/types";
 
 const initialState: CustomStatusDefinitionFormState = { error: null };
@@ -30,20 +30,26 @@ const initialState: CustomStatusDefinitionFormState = { error: null };
 export function EditStatusButton({
   label,
   color,
+  entityType,
   entityLabel,
   entityKey,
   isDefault,
   canSetDefault,
+  countsAsActiveProject,
   action,
   setDefaultAction,
 }: {
   label: string;
   color: CustomStatusColor | null;
+  /** Aqenra Free plan — only "PROJECT" renders the active-project classification control below. */
+  entityType: CustomStatusEntityType;
   entityLabel: string;
   entityKey: string;
   isDefault: boolean;
   /** Phase 2B Completion Pass (Section B/C) — false only for LEAD: its default is locked to system NEW, so a custom LEAD status (never default itself) never gets a "Set default" control here either. */
   canSetDefault: boolean;
+  /** Aqenra Free plan — null for CLIENT/LEAD; the status's current classification for PROJECT. */
+  countsAsActiveProject: boolean | null;
   action: (
     prevState: CustomStatusDefinitionFormState,
     formData: FormData,
@@ -66,10 +72,12 @@ export function EditStatusButton({
         dialogRef={dialogRef}
         defaultLabel={label}
         defaultColor={color ?? "NEUTRAL"}
+        entityType={entityType}
         entityLabel={entityLabel}
         entityKey={entityKey}
         isDefault={isDefault}
         canSetDefault={canSetDefault}
+        countsAsActiveProject={countsAsActiveProject}
         action={action}
         setDefaultAction={setDefaultAction}
       />
@@ -81,20 +89,24 @@ function EditStatusDialog({
   dialogRef,
   defaultLabel,
   defaultColor,
+  entityType,
   entityLabel,
   entityKey,
   isDefault,
   canSetDefault,
+  countsAsActiveProject,
   action,
   setDefaultAction,
 }: {
   dialogRef: React.RefObject<HTMLDialogElement | null>;
   defaultLabel: string;
   defaultColor: CustomStatusColor;
+  entityType: CustomStatusEntityType;
   entityLabel: string;
   entityKey: string;
   isDefault: boolean;
   canSetDefault: boolean;
+  countsAsActiveProject: boolean | null;
   action: (
     prevState: CustomStatusDefinitionFormState,
     formData: FormData,
@@ -102,6 +114,9 @@ function EditStatusDialog({
   setDefaultAction: () => Promise<void>;
 }) {
   const titleId = useId();
+  const [activeClassification, setActiveClassification] = useState<"active" | "completed">(
+    countsAsActiveProject === false ? "completed" : "active",
+  );
   const [state, formAction, pending] = useActionState(async (prevState: CustomStatusDefinitionFormState, formData: FormData) => {
     const result = await callActionWithStaleRecovery(() => action(prevState, formData));
     if (result.error === null && !result.fieldErrors) {
@@ -112,6 +127,7 @@ function EditStatusDialog({
 
   const labelId = `${titleId}-label`;
   const colorId = `${titleId}-color`;
+  const activeClassificationId = `${titleId}-active-classification`;
 
   return (
     <dialog
@@ -176,6 +192,45 @@ function EditStatusDialog({
             ))}
           </Select>
         </FormField>
+
+        {entityType === "PROJECT" && (
+          <FormField label="Project limit" htmlFor={activeClassificationId}>
+            <div id={activeClassificationId} className="space-y-2">
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="activeProjectClassification"
+                  value="active"
+                  checked={activeClassification === "active"}
+                  onChange={() => setActiveClassification("active")}
+                  className="border-border-strong accent-accent focus-visible:ring-focus-ring mt-0.5 h-4 w-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                />
+                <span>
+                  <span className="text-text-secondary font-medium">Active</span>
+                  <span className="text-text-muted block text-xs">
+                    Projects in this status use one of your plan&apos;s active-project slots.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="activeProjectClassification"
+                  value="completed"
+                  checked={activeClassification === "completed"}
+                  onChange={() => setActiveClassification("completed")}
+                  className="border-border-strong accent-accent focus-visible:ring-focus-ring mt-0.5 h-4 w-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                />
+                <span>
+                  <span className="text-text-secondary font-medium">Finished</span>
+                  <span className="text-text-muted block text-xs">
+                    Like Completed or Cancelled — doesn&apos;t use an active-project slot.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </FormField>
+        )}
 
         {state.error && (
           <FormErrorMessage className="text-sm">

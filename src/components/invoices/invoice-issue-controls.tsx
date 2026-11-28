@@ -65,6 +65,26 @@ export function InvoiceIssueControls({
         return;
       }
 
+      // Aqenra Free plan — distinct from every other failure here: the
+      // invoice was never issued because there was no room to archive
+      // its PDF, not because of a render/network/permission/database
+      // problem. Matches the established "Your storage limit has been
+      // reached" phrase (src/lib/billing/enforcement.ts's own
+      // REASON_MESSAGES) with the action this specific control needs.
+      if (result.error === "STORAGE_LIMIT_REACHED") {
+        showToast("Your storage limit has been reached. Delete unnecessary files, then try issuing this invoice again.", "error");
+        return;
+      }
+
+      // Aqenra Free plan — distinct from the message above: the pipeline
+      // simply took longer than expected and lost its reservation, which
+      // a fresh re-check confirmed is NOT because storage is full. Never
+      // tell the user to delete files for this one.
+      if (result.error === "STORAGE_RESERVATION_LOST") {
+        showToast("This took longer than expected — try issuing this invoice again.", "error");
+        return;
+      }
+
       showToast("Could not issue this invoice — try again.", "error");
     });
   }

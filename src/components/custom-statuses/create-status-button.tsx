@@ -10,6 +10,7 @@ import { DIALOG_CENTER_CLASSES } from "@/components/ui/dialog-classes";
 import { slugifyCustomStatusIdentifier } from "@/lib/custom-statuses/slug";
 import { COLOR_OPTIONS } from "./color-options";
 import { callActionWithStaleRecovery } from "@/lib/action-error";
+import type { CustomStatusEntityType } from "@/generated/prisma/enums";
 import type { CustomStatusDefinitionFormState } from "@/types";
 
 const initialState: CustomStatusDefinitionFormState = { error: null };
@@ -29,6 +30,7 @@ const initialState: CustomStatusDefinitionFormState = { error: null };
  */
 export function CreateStatusButton({
   action,
+  entityType,
   entityLabel,
   canSetDefault,
   variant = "secondary",
@@ -38,6 +40,8 @@ export function CreateStatusButton({
     prevState: CustomStatusDefinitionFormState,
     formData: FormData,
   ) => Promise<CustomStatusDefinitionFormState>;
+  /** Aqenra Free plan — only "PROJECT" renders the active-project classification control below. */
+  entityType: CustomStatusEntityType;
   entityLabel: string;
   /** Phase 2B Completion Pass (Section B/C) — false only for LEAD: its default is locked to system NEW, so this dialog never offers a "make default" checkbox to check in the first place. */
   canSetDefault: boolean;
@@ -51,7 +55,13 @@ export function CreateStatusButton({
       <Button type="button" variant={variant} onClick={() => dialogRef.current?.showModal()}>
         {label}
       </Button>
-      <CreateStatusDialog dialogRef={dialogRef} action={action} entityLabel={entityLabel} canSetDefault={canSetDefault} />
+      <CreateStatusDialog
+        dialogRef={dialogRef}
+        action={action}
+        entityType={entityType}
+        entityLabel={entityLabel}
+        canSetDefault={canSetDefault}
+      />
     </>
   );
 }
@@ -59,6 +69,7 @@ export function CreateStatusButton({
 function CreateStatusDialog({
   dialogRef,
   action,
+  entityType,
   entityLabel,
   canSetDefault,
 }: {
@@ -67,18 +78,21 @@ function CreateStatusDialog({
     prevState: CustomStatusDefinitionFormState,
     formData: FormData,
   ) => Promise<CustomStatusDefinitionFormState>;
+  entityType: CustomStatusEntityType;
   entityLabel: string;
   canSetDefault: boolean;
 }) {
   const titleId = useId();
   const [statusLabel, setStatusLabel] = useState("");
   const [color, setColor] = useState<string>(COLOR_OPTIONS[0].value);
+  const [activeClassification, setActiveClassification] = useState<"active" | "completed">("active");
 
   const [state, formAction, pending] = useActionState(async (prevState: CustomStatusDefinitionFormState, formData: FormData) => {
     const result = await callActionWithStaleRecovery(() => action(prevState, formData));
     if (result.error === null && !result.fieldErrors) {
       setStatusLabel("");
       setColor(COLOR_OPTIONS[0].value);
+      setActiveClassification("active");
       dialogRef.current?.close();
     }
     return result;
@@ -87,6 +101,7 @@ function CreateStatusDialog({
   const labelId = `${titleId}-label`;
   const colorId = `${titleId}-color`;
   const defaultId = `${titleId}-default`;
+  const activeClassificationId = `${titleId}-active-classification`;
   const keyPreview = statusLabel.trim() ? slugifyCustomStatusIdentifier(statusLabel) : null;
 
   return (
@@ -146,6 +161,45 @@ function CreateStatusDialog({
             ))}
           </Select>
         </FormField>
+
+        {entityType === "PROJECT" && (
+          <FormField label="Project limit" htmlFor={activeClassificationId}>
+            <div id={activeClassificationId} className="space-y-2">
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="activeProjectClassification"
+                  value="active"
+                  checked={activeClassification === "active"}
+                  onChange={() => setActiveClassification("active")}
+                  className="border-border-strong accent-accent focus-visible:ring-focus-ring mt-0.5 h-4 w-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                />
+                <span>
+                  <span className="text-text-secondary font-medium">Active</span>
+                  <span className="text-text-muted block text-xs">
+                    Projects in this status use one of your plan&apos;s active-project slots.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="radio"
+                  name="activeProjectClassification"
+                  value="completed"
+                  checked={activeClassification === "completed"}
+                  onChange={() => setActiveClassification("completed")}
+                  className="border-border-strong accent-accent focus-visible:ring-focus-ring mt-0.5 h-4 w-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                />
+                <span>
+                  <span className="text-text-secondary font-medium">Finished</span>
+                  <span className="text-text-muted block text-xs">
+                    Like Completed or Cancelled — doesn&apos;t use an active-project slot.
+                  </span>
+                </span>
+              </label>
+            </div>
+          </FormField>
+        )}
 
         {canSetDefault ? (
           <div className="flex items-center gap-2">

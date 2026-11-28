@@ -31,6 +31,8 @@ export const REASON_MESSAGES: Readonly<Record<EntitlementReasonCode, string>> = 
   MEMBER_LIMIT_REACHED: "Your plan's member limit has been reached.",
   CLIENT_LIMIT_REACHED: "Your plan's client limit has been reached.",
   PROJECT_LIMIT_REACHED: "Your plan's project limit has been reached.",
+  ACTIVE_PROJECT_LIMIT_REACHED:
+    "Your plan's active-project limit has been reached. Complete or cancel an existing active project before activating another.",
   STORAGE_LIMIT_REACHED: "Your storage limit has been reached.",
   READ_ONLY_ACCESS: "Your subscription currently allows read-only access.",
 } as const;
@@ -53,27 +55,45 @@ export const REASON_MESSAGES: Readonly<Record<EntitlementReasonCode, string>> = 
  */
 
 /**
- * Concurrency: called from inside the same `prisma.$transaction(...)` as
- * the Invitation upsert it guards (see team/actions.ts), so the member/
- * pending-invitation count this reads is the transaction's own consistent
- * snapshot, re-read immediately before the write — the same pattern
- * getOrCreateOrganizationId() already uses for its own race (concurrent
- * first-login prefetches). Two near-simultaneous invites at exactly the
- * limit can still both pass a read taken *before* either transaction
- * opened; once inside the transaction, Postgres's own read-committed
- * isolation (this app's default, unchanged by this stage) means the
- * second transaction's re-read sees the first's already-committed insert
- * only if the first has already committed — so the residual race is
- * narrow (both transactions opened and read concurrently, before either
- * committed) and its worst outcome is a small, temporary oversubscription
- * (one extra invitation over the limit), never data loss or a security
- * issue. docs/billing-architecture.md §7 explicitly accepts this exact
- * trade-off rather than adding distributed locking for v1.
+ * Concurrency correction (confirmed race, see test/integration/billing/
+ * free-plan-concurrency-corrections.test.ts's deterministic, barrier-
+ * synchronized reproduction): under Postgres's default read-committed
+ * isolation, a plain "count, then write" check has NO protection against
+ * two concurrent transactions both reading the same pre-write count and
+ * both committing — this is not a narrow edge case, it is the normal,
+ * reliably-reproducible outcome whenever two requests' reads genuinely
+ * overlap, and the previous doc comment here (accepting it as a
+ * documented trade-off) UNDERSTATED the risk by describing it only as a
+ * narrow residual gap.
+ *
+ * `pg_advisory_xact_lock`, keyed per (organizationId, dimension), is the
+ * actual fix — the same technique, and the same underlying race class,
+ * src/lib/permissions/management.ts's own acquireRolePermissionLock
+ * already established and documents in full for RolePermissionOverride
+ * saves. Acquired as this function's FIRST statement, inside the
+ * caller's own transaction (every real call site already passes its own
+ * `tx` — see each call site). Transaction-scoped (`_xact_`) — released
+ * automatically on commit OR rollback, never leaked, no manual unlock to
+ * forget. With this lock held, a second concurrent call for the SAME
+ * organization and dimension blocks until the first transaction fully
+ * commits or rolls back, so its own entitlements read (taken AFTER
+ * acquiring the lock) always observes the first call's already-committed
+ * outcome — at most one of two callers racing for the last remaining
+ * slot can ever see "under the limit" and proceed to write.
  */
+async function lockOrganizationForCapacityCheck(
+  client: PrismaClientOrTx,
+  organizationId: string,
+  dimension: "members" | "clients" | "active-projects",
+): Promise<void> {
+  await client.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${organizationId} || ':' || ${dimension}, 0))`;
+}
+
 export async function assertCanInviteMember(
   organizationId: string,
   client: PrismaClientOrTx = prisma,
 ): Promise<void> {
+  await lockOrganizationForCapacityCheck(client, organizationId, "members");
   const entitlements = await getOrganizationEntitlements(organizationId, { client });
   if (entitlements.canInviteMember) return;
   throw new BillingLimitError(
@@ -81,11 +101,12 @@ export async function assertCanInviteMember(
   );
 }
 
-/** Same atomic-re-check/residual-race reasoning as assertCanInviteMember, guarding the Client `create` in clients/new/actions.ts's own transaction. */
+/** Same advisory-lock protection as assertCanInviteMember above, guarding the Client `create` in createClientCore's own transaction — shared by every client-creation entry point (interactive create, lead conversion, CSV import), since all three funnel through that one chokepoint. */
 export async function assertCanCreateClient(
   organizationId: string,
   client: PrismaClientOrTx = prisma,
 ): Promise<void> {
+  await lockOrganizationForCapacityCheck(client, organizationId, "clients");
   const entitlements = await getOrganizationEntitlements(organizationId, { client });
   if (entitlements.canCreateClient) return;
   throw new BillingLimitError(
@@ -93,7 +114,21 @@ export async function assertCanCreateClient(
   );
 }
 
-/** Same atomic-re-check/residual-race reasoning as assertCanInviteMember, guarding the Project `create` in projects/new/actions.ts's own transaction. */
+/**
+ * Guards the plan-wide total-project ceiling (`maxProjects`) — `null`,
+ * and therefore never actually enforced, for the Free plan itself (its
+ * only project-related rule is the narrower `maxActiveProjects` dimension
+ * assertCanIncreaseActiveProjects guards instead). Deliberately NOT given
+ * the same `lockOrganizationForCapacityCheck` protection as its three
+ * siblings above and below: the Free-plan correction task this function
+ * was audited under is explicitly scoped to the 4 owner-approved Free
+ * limits (2 staff, 25 clients, 5 active projects, 1 GiB storage), and
+ * `maxProjects` is not one of them for FREE. The identical, now-confirmed
+ * race almost certainly still applies here too, for the one real plan
+ * that DOES set a finite `maxProjects` (STARTER: 20) — left unfixed and
+ * explicitly flagged, rather than silently expanding this correction's
+ * scope to a dimension outside the Free plan's own rules.
+ */
 export async function assertCanCreateProject(
   organizationId: string,
   client: PrismaClientOrTx = prisma,
@@ -106,20 +141,78 @@ export async function assertCanCreateProject(
 }
 
 /**
- * Concurrency, deliberately weaker than the three helpers above: the
- * upload flow (uploadAttachmentForEntity in
- * src/lib/attachments/attachment-mutations.ts) already performs its own
- * pre-existing per-entity count check as a plain read *before* the Storage
- * upload, not inside a transaction — Storage isn't transactional with
- * Postgres, so no check here can be made airtight against that boundary.
- * This check follows that exact same established, already-accepted
- * precedent (read the current storage sum, decide, then upload) rather
- * than inventing a stronger guarantee only for the new billing dimension.
- * Residual risk: two near-simultaneous uploads that would each
- * individually fit under the quota, but not both together, can both pass
- * this check and land — a small, temporary storage-quota overshoot, never
- * a security issue or data loss, and self-correcting the next time either
- * upload is attempted after the other has committed.
+ * Aqenra Free plan's own active-project dimension — distinct from
+ * assertCanCreateProject above, which only ever guards the (plan-wide,
+ * currently unused by FREE) total-project ceiling. A caller must call
+ * this ONLY when the write it guards would actually increase the active
+ * count — i.e. the project's resolved target status counts toward the
+ * limit (resolveProjectCountsTowardActiveLimit /
+ * resolveProjectCountsTowardActiveLimit-equivalent check at the call
+ * site) AND, for an update, its *previous* status did not already count.
+ * Creating or editing a project into a COMPLETED/CANCELLED status, or
+ * between two already-active statuses, never needs this check — see
+ * src/app/(dashboard)/projects/new/actions.ts and
+ * src/app/(dashboard)/projects/[id]/edit/actions.ts for the exact call
+ * sites and their own before/after reasoning.
+ *
+ * Concurrency correction: same `lockOrganizationForCapacityCheck`
+ * protection as assertCanInviteMember/assertCanCreateClient above, keyed
+ * "active-projects" — shared with, and acquired the identical way by,
+ * updateCustomStatusDefinition's own reclassification guard (src/lib/
+ * custom-statuses/definitions.ts), since both compete for the exact same
+ * resource: an organization's remaining active-project slots. Without
+ * sharing this lock key, a concurrent project reactivation (through this
+ * function) and a concurrent status reclassification (through its own
+ * separate check) could each independently observe "one slot free" and
+ * each proceed — one reactivating a single project, the other
+ * reclassifying a whole status's worth of projects at once — together
+ * exceeding the limit despite neither call, on its own, ever seeing an
+ * over-limit state. Sharing the lock key serializes the two call sites
+ * against EACH OTHER too, not just against themselves.
+ */
+export async function assertCanIncreaseActiveProjects(
+  organizationId: string,
+  client: PrismaClientOrTx = prisma,
+): Promise<void> {
+  await lockOrganizationForCapacityCheck(client, organizationId, "active-projects");
+  const entitlements = await getOrganizationEntitlements(organizationId, { client });
+  if (entitlements.canIncreaseActiveProjects) return;
+  throw new BillingLimitError(
+    entitlements.accessMode !== "FULL_ACCESS" ? "READ_ONLY_ACCESS" : "ACTIVE_PROJECT_LIMIT_REACHED",
+  );
+}
+
+/**
+ * Exposed so updateCustomStatusDefinition (src/lib/custom-statuses/
+ * definitions.ts) can acquire the exact same "active-projects" lock
+ * before its own bulk reclassification check — see
+ * assertCanIncreaseActiveProjects's own doc comment immediately above
+ * for why the two must share one lock key, not just the same mechanism.
+ */
+export async function lockOrganizationActiveProjectsForReclassification(
+  client: PrismaClientOrTx,
+  organizationId: string,
+): Promise<void> {
+  await lockOrganizationForCapacityCheck(client, organizationId, "active-projects");
+}
+
+/**
+ * A plain, unlocked, point-in-time read — deliberately NOT the function
+ * that actually gates the real upload path anymore. Confirmed (see
+ * test/integration/billing/free-plan-concurrency-corrections.test.ts): two
+ * near-simultaneous uploads that each individually fit under the quota,
+ * but not both together, could both pass a check shaped exactly like this
+ * one and both land, because nothing serializes the check against the
+ * real Storage write that follows it. The actual fix —
+ * src/lib/billing/storage-reservation.ts's reserveStorageBytes, a
+ * per-organization-locked, short-lived DB reservation taken BEFORE the
+ * slow external Storage call — is what uploadAttachmentForEntity (src/lib/
+ * attachments/attachment-mutations.ts) and uploadOrganizationLogo
+ * (src/lib/organization-setup/logo-mutations.ts) actually call today.
+ * This function is kept only as a lightweight, non-authoritative
+ * pre-check a caller may still want for an early, race-prone "does this
+ * even plausibly fit" read (e.g. a UI hint) — never a substitute for
+ * reserveStorageBytes on any path that actually writes.
  */
 export async function assertCanUploadAttachment(
   organizationId: string,

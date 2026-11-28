@@ -5,7 +5,7 @@ import { getVerifiedAuthUser } from "@/lib/supabase/server";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { Role } from "@/generated/prisma/enums";
-import { createTrialSubscription } from "@/lib/billing/provisioning";
+import { createFreePlanSubscription } from "@/lib/billing/provisioning";
 import { bootstrapOrganizationStatusDefinitions } from "@/lib/custom-statuses/bootstrap";
 import { isOrganizationSuspended, ORGANIZATION_UNAVAILABLE_PATH } from "@/lib/organization-access";
 import { seedThemeModeFromRequestCookie } from "@/lib/theme/request-cookie-seed";
@@ -176,11 +176,16 @@ async function createPersonalOrganizationAndMembership(
     await tx.membership.create({
       data: { userId: user.id, organizationId: organization.id, role: Role.OWNER },
     });
-    // Billing & Subscriptions Stage 2 (docs/billing-architecture.md §9):
-    // every brand-new Organization gets a local TRIALING Subscription
-    // row atomically alongside it — same transaction, so either both
-    // exist or neither does.
-    await createTrialSubscription(tx, organization.id, new Date());
+    // Aqenra Free plan (owner-approved): every brand-new Organization
+    // gets a local ACTIVE Subscription row on the FREE plan atomically
+    // alongside it — same transaction, so either both exist or neither
+    // does. No partial signup can ever leave a new organization outside
+    // enforcement: an Organization row can only ever commit together
+    // with its Subscription row, never separately (the same guarantee
+    // this transaction already gives the Organization + OWNER Membership
+    // pair). Supersedes createTrialSubscription for new organizations —
+    // see that function's own doc comment.
+    await createFreePlanSubscription(tx, organization.id, new Date());
     // Custom Statuses Phase 1 (Section N): every brand-new Organization
     // must get the full set of built-in system status definitions for
     // CLIENT/LEAD/PROJECT, atomically alongside it — same transaction, so

@@ -1,0 +1,40 @@
+-- Aqenra Free plan — organization storage accounting correction.
+--
+-- Adds byte-size tracking for the two real, actively-written Storage
+-- object types the pre-push review found were invisible to
+-- getOrganizationUsage()'s storage total (which previously summed only
+-- Attachment.sizeBytes): archived Invoice PDFs and organization logos.
+-- See src/lib/billing/usage.ts's own updated doc comment for the full
+-- accounting contract and src/lib/billing/usage.ts's own comment on
+-- exactly what is (and still is not) counted.
+--
+-- Deliberately NO backfill of historical sizes in this migration: an
+-- InvoicePdfArchiveObject or OrganizationProfile.logoUrl row created
+-- before this column existed has no recorded byte size, and the actual
+-- size cannot be safely determined without reading the object back from
+-- Storage (a Production inventory operation this migration does not
+-- perform and that this change was explicitly not authorized to do).
+-- Both columns are nullable with no default; a NULL value contributes 0
+-- bytes to the storage total until that specific object is naturally
+-- replaced (a logo re-upload, or an Invoice re-issued at a new
+-- documentVersion) by code that records a real size going forward. This
+-- is a known, explicitly documented gap for objects that already existed
+-- before this deployment — it does not affect any brand-new Free-plan
+-- organization, since a new organization has no pre-existing objects by
+-- construction.
+--
+-- Backward compatibility during a rolling deployment: both columns are
+-- nullable with no default and no required read dependency for old
+-- code — old application code never references either column and
+-- continues to insert/update these two tables exactly as before. New
+-- code's own writes to these columns (issue-invoice.ts,
+-- legacy-archive-invoice.ts, uploadOrganizationLogo()) require this
+-- migration to already be applied; as with the previous migration, the
+-- correct and sufficient safeguard is migrate-before-deploy ordering,
+-- not a runtime fallback — the alternative (every Invoice PDF issuance
+-- and every logo upload silently tolerating a missing column) would be a
+-- materially larger, riskier change than this additive migration
+-- warrants.
+ALTER TABLE "InvoicePdfArchiveObject" ADD COLUMN     "sizeBytes" INTEGER;
+
+ALTER TABLE "OrganizationProfile" ADD COLUMN     "logoSizeBytes" INTEGER;

@@ -7,6 +7,7 @@ import {
   resolveLeadIsLost,
   resolveClientIsActive,
   resolveProjectIsInProgress,
+  resolveProjectCountsTowardActiveLimit,
 } from "@/lib/custom-statuses/semantics";
 
 /**
@@ -97,5 +98,62 @@ describe("Custom Statuses Phase 2A — Project IN_PROGRESS (Section J, test item
   it("Section D fallback for Project", () => {
     expect(resolveProjectIsInProgress({ status: "IN_PROGRESS", statusDefinition: null })).toBe(true);
     expect(resolveProjectIsInProgress({ status: "PLANNING", statusDefinition: null })).toBe(false);
+  });
+});
+
+describe("Aqenra Free plan — resolveProjectCountsTowardActiveLimit", () => {
+  it("reads the explicit countsAsActiveProject classification directly — true counts, false doesn't, regardless of system/custom or label", () => {
+    expect(
+      resolveProjectCountsTowardActiveLimit({ status: "PLANNING", statusDefinition: { countsAsActiveProject: true } }),
+    ).toBe(true);
+    expect(
+      resolveProjectCountsTowardActiveLimit({
+        status: "COMPLETED",
+        statusDefinition: { countsAsActiveProject: false },
+      }),
+    ).toBe(false);
+    // A custom status explicitly classified "active" counts even if its
+    // legacy compatibility value happens to be COMPLETED (a custom
+    // definition never writes the legacy enum at all, but this proves the
+    // classification — not the legacy value — is authoritative).
+    expect(
+      resolveProjectCountsTowardActiveLimit({ status: "COMPLETED", statusDefinition: { countsAsActiveProject: true } }),
+    ).toBe(true);
+    // And the reverse: a custom status explicitly classified "doesn't
+    // count" never counts, even with an active-looking legacy value.
+    expect(
+      resolveProjectCountsTowardActiveLimit({
+        status: "IN_PROGRESS",
+        statusDefinition: { countsAsActiveProject: false },
+      }),
+    ).toBe(false);
+  });
+
+  it("a statusDefinition present but with a null classification (defensive — every real PROJECT row is backfilled) falls back to the legacy enum", () => {
+    expect(
+      resolveProjectCountsTowardActiveLimit({ status: "PLANNING", statusDefinition: { countsAsActiveProject: null } }),
+    ).toBe(true);
+    expect(
+      resolveProjectCountsTowardActiveLimit({
+        status: "COMPLETED",
+        statusDefinition: { countsAsActiveProject: null },
+      }),
+    ).toBe(false);
+  });
+
+  it("a null statusDefinition (legacy/unbackfilled row) falls back to the legacy enum under the identical rule", () => {
+    expect(resolveProjectCountsTowardActiveLimit({ status: "PLANNING", statusDefinition: null })).toBe(true);
+    expect(resolveProjectCountsTowardActiveLimit({ status: "IN_PROGRESS", statusDefinition: null })).toBe(true);
+    expect(resolveProjectCountsTowardActiveLimit({ status: "ON_HOLD", statusDefinition: null })).toBe(true);
+    expect(resolveProjectCountsTowardActiveLimit({ status: "COMPLETED", statusDefinition: null })).toBe(false);
+    expect(resolveProjectCountsTowardActiveLimit({ status: "CANCELLED", statusDefinition: null })).toBe(false);
+  });
+
+  it("is independent of resolveProjectIsInProgress — PLANNING counts toward the Free-plan limit despite not being 'in progress'", () => {
+    const systemPlanning = { isSystem: true, entityType: "PROJECT" as const, key: "planning" };
+    expect(resolveProjectIsInProgress({ status: "PLANNING", statusDefinition: systemPlanning })).toBe(false);
+    expect(
+      resolveProjectCountsTowardActiveLimit({ status: "PLANNING", statusDefinition: { countsAsActiveProject: true } }),
+    ).toBe(true);
   });
 });

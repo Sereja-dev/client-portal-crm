@@ -51,6 +51,10 @@ export type SendInvoiceEmailErrorCode =
   | "UNKNOWN_ACKNOWLEDGEMENT_REQUIRED"
   | "INVALID_UNKNOWN_ACKNOWLEDGEMENT"
   | "ARCHIVE_NOT_AVAILABLE"
+  /** Aqenra Free plan — the underlying Issue step failed specifically because there was no room for this invoice's PDF; see IssueInvoiceErrorCode's own identical code. */
+  | "STORAGE_LIMIT_REACHED"
+  /** Aqenra Free plan — the underlying Issue step lost its storage reservation but a fresh re-check found the organization is NOT actually full; see IssueInvoiceErrorCode's own identical STORAGE_RESERVATION_LOST code. Distinct from STORAGE_LIMIT_REACHED — never tell the user to delete files for this one. */
+  | "STORAGE_RESERVATION_LOST"
   | "ISSUE_FAILED"
   | "PERSISTENCE_FAILED";
 
@@ -283,6 +287,16 @@ export async function sendInvoiceEmail(
       if (issued.error === "FORBIDDEN") return fail("FORBIDDEN");
       if (issued.error === "NOT_FOUND") return fail("NOT_FOUND");
       if (issued.error === "STALE_VERSION" || issued.error === "CONFLICT" || issued.error === "NOT_DRAFT") return fail("STALE_VERSION");
+      // Aqenra Free plan — distinct from the generic ISSUE_FAILED
+      // fallback: the invoice was never issued specifically because
+      // there was no room for its PDF, not a render/network/database
+      // failure. The invoice stays exactly as DRAFT (issueInvoice()
+      // itself never touched it on this path) — no email is ever sent.
+      if (issued.error === "STORAGE_LIMIT_REACHED") return fail("STORAGE_LIMIT_REACHED");
+      // Distinct from the line above: the reservation was lost, but a
+      // fresh re-check found the organization is not actually full —
+      // never conflated with a confirmed-full outcome.
+      if (issued.error === "STORAGE_RESERVATION_LOST") return fail("STORAGE_RESERVATION_LOST");
       return fail("ISSUE_FAILED");
     }
     finalizedAt = issued.finalizedAt;

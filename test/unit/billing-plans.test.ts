@@ -43,6 +43,33 @@ describe("PLAN_CATALOG — every key is well-formed", () => {
   });
 });
 
+describe("FREE plan — Aqenra Free plan (owner-approved)", () => {
+  it("has exactly the owner-approved limits: 2 members, 25 clients, unlimited total projects, 5 active projects, 1 GiB storage", () => {
+    expect(PLAN_CATALOG.FREE.limits).toEqual({
+      maxMembers: 2,
+      maxClients: 25,
+      maxProjects: null,
+      maxActiveProjects: 5,
+      maxStorageBytes: 1 * 1024 * 1024 * 1024,
+    });
+  });
+
+  it("is never billing-available — there is no paid tier to upgrade FREE into yet (deferred)", () => {
+    expect(PLAN_CATALOG.FREE.billingAvailable).toBe(false);
+  });
+
+  it("has no trialDays — provisioned directly, without a paid-feature trial", () => {
+    expect(PLAN_CATALOG.FREE.trialDays).toBeNull();
+  });
+
+  it("is the only plan with a non-null maxActiveProjects — every other plan's own project dimension is unaffected", () => {
+    for (const key of ALL_PLAN_KEYS) {
+      if (key === "FREE") continue;
+      expect(PLAN_CATALOG[key].limits.maxActiveProjects).toBeNull();
+    }
+  });
+});
+
 describe("TRIAL plan", () => {
   it("has a trialDays value equal to TRIAL_DURATION_DAYS", () => {
     expect(PLAN_CATALOG.TRIAL.trialDays).toBe(TRIAL_DURATION_DAYS);
